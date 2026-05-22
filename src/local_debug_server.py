@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import subprocess
 import sys
 import threading
@@ -271,29 +272,56 @@ def build_command(workflow_key: str, workflow_file: str, inputs: dict[str, str])
         return cmd
 
     if workflow_file == "conference-paper-retrieval.yml" or workflow_key == "conference-retrieval":
-        cmd = [
+        run_date = datetime.now(timezone.utc).strftime("%Y%m%d")
+        conference = str(inputs.get("conference") or "ICML")
+        years = str(inputs.get("years") or "2025")
+        pipeline_cmd = [
             python,
             "src/conference_pipeline.py",
             "--conferences",
-            str(inputs.get("conference") or "ICML"),
+            conference,
             "--years",
-            str(inputs.get("years") or "2025"),
+            years,
             "--top-k",
             str(inputs.get("top_k") or "50"),
             "--rrf-top-n",
             str(inputs.get("rrf_top_n") or "200"),
             "--output-dir",
-            f"archive/{datetime.now(timezone.utc).strftime('%Y%m%d')}/filtered",
+            f"archive/{run_date}/filtered",
             "--embedding-device",
             "cpu",
             "--embedding-batch-size",
             "8",
         ]
         if as_bool(inputs.get("run_rerank"), True) or as_bool(inputs.get("run_llm_refine"), True):
-            cmd.extend(["--run-rerank", "--rerank-device", "cpu", "--rerank-batch-size", "4"])
+            pipeline_cmd.extend(["--run-rerank", "--rerank-device", "cpu", "--rerank-batch-size", "4"])
         if as_bool(inputs.get("run_llm_refine"), True):
-            cmd.extend(["--run-llm-refine", "--llm-min-star", str(inputs.get("llm_min_star") or "4"), "--llm-filter-concurrency", "2"])
-        return cmd
+            pipeline_cmd.extend(["--run-llm-refine", "--llm-min-star", str(inputs.get("llm_min_star") or "4"), "--llm-filter-concurrency", "2"])
+        script = "\n".join([
+            "set -euo pipefail",
+            " ".join(shlex.quote(part) for part in pipeline_cmd),
+            (
+                f"TOKENS=$(CONFERENCE_INPUT={shlex.quote(conference)} "
+                f"YEARS_INPUT={shlex.quote(years)} "
+                f"{shlex.quote(python)} -c "
+                + shlex.quote(
+                    "import os, sys; "
+                    "sys.path.insert(0, 'src'); "
+                    "from conference_retrieval import build_years_token, parse_conferences, parse_years; "
+                    "print('-'.join(parse_conferences(os.environ.get('CONFERENCE_INPUT', '')))); "
+                    "print(build_years_token(parse_years(os.environ.get('YEARS_INPUT', ''))))"
+                )
+                + ")"
+            ),
+            "CONF_TOKEN=$(echo \"$TOKENS\" | sed -n '1p')",
+            "YEAR_TOKEN=$(echo \"$TOKENS\" | sed -n '2p')",
+            "python src/conference_sidebar.py "
+            f"--result archive/{run_date}/rank/conference-${{CONF_TOKEN}}-${{YEAR_TOKEN}}.supabase.llm.json "
+            f"--result archive/{run_date}/rank/conference-${{CONF_TOKEN}}-${{YEAR_TOKEN}}.supabase.rerank.json "
+            f"--result archive/{run_date}/filtered/conference-${{CONF_TOKEN}}-${{YEAR_TOKEN}}.supabase.rrf.json "
+            "--sidebar docs/_sidebar.md",
+        ])
+        return ["bash", "-lc", script]
 
     if workflow_file == "reset-content.yml" or workflow_key == "reset-content":
         return [python, "-c", "import shutil, pathlib; root=pathlib.Path('.'); shutil.rmtree(root/'docs', ignore_errors=True); shutil.copytree(root/'docs_init', root/'docs'); print('docs reset from docs_init')"]
