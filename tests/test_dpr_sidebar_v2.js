@@ -303,8 +303,26 @@ function testEvidenceCssIsPersistent() {
   assert.ok(/\.dpr-sidebar-paper-actions\s*{[^}]*opacity:\s*0/i.test(css));
   assert.ok(css.includes('.dpr-sidebar-paper:hover .dpr-sidebar-paper-actions'));
   assert.ok(/\.dpr-sidebar-paper-evidence\s*{[^}]*background:\s*transparent/i.test(css));
-  assert.ok(css.includes('.dpr-sidebar-paper[data-read-status="read"]'));
   assert.ok(/\.dpr-sidebar-paper\.dpr-sidebar-paper-conference\s*{[^}]*border-left-color:\s*#93c5fd/i.test(css));
+}
+
+function testSidebarPaperVisualStateCssContract() {
+  const css = fs.readFileSync('app/app.css', 'utf8');
+  assert.ok(/\.dpr-sidebar-paper\s*{[^}]*background:\s*#ffffff/i.test(css));
+  assert.ok(/\.dpr-sidebar-paper\.is-active\s*{[^}]*background:\s*#e5e7eb/i.test(css));
+  assert.ok(/body\.dpr-dark \.dpr-sidebar-paper\.is-active\s*{[^}]*background:\s*#334155/i.test(css));
+  assert.ok(/\.dpr-sidebar-paper\[data-read="0"\]::after\s*{[^}]*background:\s*#ef4444/i.test(css));
+  assert.ok(/\.dpr-sidebar-paper\[data-read="1"\]::after\s*{[^}]*display:\s*none/i.test(css));
+
+  ['read', 'good', 'bad', 'blue', 'orange'].forEach((status) => {
+    const rowRule = new RegExp(`\\\\.dpr-sidebar-paper\\\\[data-read-status="${status}"\\\\]\\\\s*{[^}]*background:`, 'i');
+    assert.ok(!rowRule.test(css), `${status} should not paint the whole row`);
+  });
+
+  assert.ok(/\.dpr-sidebar-paper-status-good\.is-active\s*{[^}]*background:\s*#15803d/i.test(css));
+  assert.ok(/\.dpr-sidebar-paper-status-blue\.is-active\s*{[^}]*background:\s*#1d4ed8/i.test(css));
+  assert.ok(/\.dpr-sidebar-paper-status-orange\.is-active\s*{[^}]*background:\s*#6d28d9/i.test(css));
+  assert.ok(/\.dpr-sidebar-paper-status-bad\.is-active\s*{[^}]*background:\s*#b91c1c/i.test(css));
 }
 
 function testRenderBodyPutsConferenceAboveDaily() {
@@ -482,6 +500,7 @@ testPaperMetaOrderKeepsEvidenceBetweenTitleAndStars();
 testSidebarSortsByNewestTimeFirst();
 testSidebarUtilityHelpers();
 testEvidenceCssIsPersistent();
+testSidebarPaperVisualStateCssContract();
 testRenderBodyPutsConferenceAboveDaily();
 testAxisSectionsAreExpandable();
 testPanelCountsUseFullModel();
