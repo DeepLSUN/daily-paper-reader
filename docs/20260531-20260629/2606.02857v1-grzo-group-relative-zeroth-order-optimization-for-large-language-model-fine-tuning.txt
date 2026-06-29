@@ -1,0 +1,2598 @@
+Title: GRZO: Group-Relative Zeroth-Order Optimization for Large Language Model Fine-Tuning
+
+URL Source: https://arxiv.org/pdf/2606.02857v1
+
+Published Time: Wed, 03 Jun 2026 00:13:02 GMT
+
+Number of Pages: 28
+
+Markdown Content:
+# GRZO: Group-Relative Zeroth-Order Optimization for Large Language Model Fine-Tuning 
+
+Liyan Tan Yequan Zhao Yifan Yang Ruijie Zhang Xinling Yu Zheng Zhang 
+
+University of California, Santa Barbara  
+
+> {liyan_tan, yequan_zhao, ruijiezhang, xyu644}@ucsb.edu yifanyang@cs.ucsb.edu zhengzhang@ece.ucsb.edu
+
+Abstract 
+
+Zeroth-order (ZO) optimization is a memory-efficient alternative to backpropagation for fine-tuning large language models, but its deploy-ment is limited by the high variance of gradi-ent estimation. We propose GRZO , a Group-
+
+Relative Zeroth-Order optimizer that draws one pseudo-independent perturbation per mini-batch example and aggregates the per-example losses through group-relative normalization, raising the effective gradient-direction count from one to the batch size at no additional forward cost while preserving inference-level memory. We prove that GRZO is direction-ally unbiased with variance shrinking propor-tionally to the batch size, yielding a tighter nonconvex convergence bound than MeZO. Across RoBERTa-large, Llama3-8B, and OPT-13B over multiple tasks, GRZO improves av-erage accuracy on Llama3-8B by +3 .0 over MeZO at 23% lower peak GPU memory; as a drop-in replacement for the MeZO core, it lifts sparse, low-rank, and quantized ZO variants by 
+
++6 .0 on average. 
+
+1 Introduction 
+
+Fine-tuning large language models (LLMs) for downstream tasks remains essential, yet first-order fine-tuning is expensive: backpropagation requires storing activations, gradients, and opti-mizer states, and these costs grow linearly with model scale. Memory-efficient methods such as LoRA (Hu et al., 2022), Adapter (Houlsby et al., 2019), Prefix-Tuning (Li and Liang, 2021), Prompt-Tuning (Lester et al., 2021), GaLore (Zhao et al., 2024), CoLA (Liu et al., 2025b), and Lax (Zhang et al., 2026) reduce certain memory footprints but still rely on backpropagation, inheriting most of its activation-storage cost. Moreover, many practical objectives—accuracy, F1, reward signals—are non-differentiable and lie outside the first-order pipeline. These considerations motivate zeroth-order (ZO) fine-tuning as a forward-only alternative. The canonical ZO method for LLM fine-tuning is MeZO (Malladi et al., 2023a), a two-point estimator that approximates the gradient from the loss difference between two perturbed for-ward passes. Malladi et al. (2023a) report up to a 12 × memory reduction over SGD (Amari, 1993) and AdamW (Loshchilov and Hutter, 2019) fine-tuning, keeping training memory near infer-ence levels while remaining compatible with non-differentiable objectives. The catch is that MeZO uses a single random perturbation direction per step; the variance of this estimator grows with model dimension, producing slow descent and brit-tle optimization once the backbone reaches the multi-billion-parameter range. However, the high variance of ZO gradient es-timation makes MeZO prone to slower or sub-optimal convergence. A growing literature ad-dresses this variance by reducing the dimension via low-rank (Chen et al., 2025) or sparse (Liu et al., 2025a; Zhang et al., 2025) perturbations; in LLM fine-tuning, however, the loss landscape ex-hibits low effective rank (Aghajanyan et al., 2021; Malladi et al., 2023b), so the convergence rate can be independent of the parameter count. An-other direction designs lower-variance ZO gradi-ent estimators via control variates (Gautam et al., 2024), Hessian curvature (Zhao et al., 2025a), or minimum-variance two-point estimators (Ma and Huang, 2025). The drawback is that these estima-tors introduce additional computation or memory overhead, eroding the system benefits that moti-vated BP-free LLM fine-tuning. These approaches achieve variance reduction at an additional cost—a narrowed update space, ex-tra forward passes, or extra persistent memory— eroding the inference-level efficiency that moti-vated ZO in the first place. We identify a third, long-overlooked axis for variance reduction: the mini-batch itself . Existing ZO methods reuse a sin-gle perturbation direction across all B examples 1               
+
+> arXiv:2606.02857v1 [cs.LG] 1 Jun 2026 0500 1k
+> Per-step time (ms)
+> MeZO
+> S-MeZO
+> LOZO
+> GRZO
+> 805
+> 1056
+> 957
+> 973
+> 010 20 30
+> Peak GPU memory (GB)
+> 20.8
+> 27.3
+> 20.9
+> 16.0
+> 60 80
+> Accuracy (%)
+> 66.1
+> 69.7
+> 66.8
+> 81.6 (a) Efficiency and accuracy comparison. 05k 10k 15k 20k
+> Training Steps
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> Training Loss
+> MeZO
+> S-MeZO
+> LOZO
+> GRZO
+> 04k 8k 12k 16k
+> Runtime (s)
+> MeZO
+> S-MeZO
+> LOZO
+> GRZO (b) Loss convergence.
+
+Figure 1: GRZO at a glance on RTE (Llama3-8B). Left : lowest peak memory ( 16 .0 GB), highest accuracy ( 81 .6% ), and MeZO-comparable per-step time. Right : fastest convergence in both training steps and wall-clock time. 
+
+of a step, even though the loss is evaluated per ex-ample. Drawing B pseudo-independent directions instead—one per example—would, by standard Monte Carlo, reduce the SPSA (simultaneous per-turbation stochastic approximation) (Spall, 2002) estimator’s variance by a factor of 1/B at no addi-tional forward cost, no parameter-space restriction, and no extra persistent memory. Realizing this axis efficiently, while preserving MeZO’s two-forward-pass budget and inference-level memory footprint, is the central design problem of this paper. We propose GRZO (Group-Relative Zeroth-Order Optimization), which realizes this axis by drawing B pseudo-independent perturbations via Flipout-style sign factorization (Wen et al., 2018) and aggregating the resulting per-example loss dif-ferences through GRPO-style group-relative nor-malization (Shao et al., 2024), all within a single two-forward-pass step. Our contributions are: • Algorithm. A ZO optimizer that turns the mini-batch into pseudo-independent perturbation di-rections while preserving MeZO’s two-forward-pass budget and inference-level memory. • Theory. We show the directional unbiased-ness and batch-size-scaled variance reduction of GRZO, yielding a strictly tighter nonconvex con-vergence bound than single-direction ZO. • Experimental results. We show that GRZO outperforms MeZO and its variants on multiple language models. We further show that GRZO is complementary to sparse, low-rank, and quan-tized ZO variants and that they can be combined to achieve further performance benefit. A mechanism-by-mechanism comparison of repre-sentative ZO methods is in Table 4 (Appendix C); these approaches are largely orthogonal to GRZO and compose with it. 
+
+2 Background and Related Work 
+
+2.1 Zeroth-Order (ZO) Optimization 
+
+Zeroth-order (ZO) optimization (Nesterov and Spokoiny, 2017; Ghadimi and Lan, 2013) adjusts model parameters θ ∈ Rd using only forward queries of the loss L(θ), avoiding the memory over-head caused by activation and gradient buffers in backpropagation. A ZO optimizer still performs gradient-descent update θt ← θt−1 − α g, but it approximates the gradient g via N forward passes 
+
+g ≈ b∇θL(θ) = 
+
+> N
+
+X
+
+> i=1
+
+1
+
+N μ [L(θ + μξi) − L (θ)] ξi,
+
+(1) with {ξi}Ni=1 drawn i.i.d. from an isotropic distribu-tion ρ(ξ) (e.g., N (0, I) or Rademacher) and μ > 0
+
+a small sampling radius. The estimator b∇θL is unbiased w.r.t. the gradient of the smoothed surro-gate fμ(θ) := Eξ∼ρ[L(θ + μξ)] , but biased w.r.t. the true gradient ∇θL (Berahas et al., 2022), and its variance carries a dimension-dependent factor 
+
+O(d/N ) at μ = O(1 /√N ) (Liu et al., 2020; Duchi et al., 2015; Gao and Sener, 2022). MeZO, one of the most popular ZO optimiz-ers for LLM fine-tuning, is the N =1 two-sided instantiation of Eq. (1) : a seed-regenerated direc-tion ξ ∈ Rd drives two symmetric forward passes 
+
+ℓ± = L(θ ± μξ; B), and parameters are updated in place along −α(ℓ+ − ℓ−)ξ/2μ without materi-alizing the perturbation tensor. Two knobs govern the estimator’s quality: the parameter dimension 
+
+d over which its variance scales, and the SPSA construction itself. The ZO fine-tuning literature addresses these knobs separately. 
+
+2.2 Reducing the Effective Dimension 
+
+One family of approaches shrinks the update space to mitigate the O(d) variance scaling. DeepZero (Chen et al., 2024) and Sparse-2MeZO 
+
+> Mini -batch
+> (B examples)
+
+GRZO                         
+
+> Per -Example Perturbations
+> Construction
+> Group relative
+> normalization
+> !𝑔 ∝$
+> !"#
+> $
+> 𝛿 !
+> 𝑠 +𝜖 ∙zi
+> Gradient
+> estimation
+> !𝑔 ∝𝛿 )z⨀⨂
+> +1+1−1…
+> −1+1−1…
+> +1−1+1…
+> …
+> s!r!U
+> +1
+> +1
+> −1
+> …
+> +1
+> +1
+> −1
+> …
+> +1
+> +1
+> −1
+> …
+> ……
+> Shared 😕
+> Independent
+> (var ↓)😄
+> …
+> 𝑥 #
+> 𝑥 *
+> 𝑥 $
+> …
+> 𝑥 #
+> 𝑥 *
+> 𝑥 $
+> Comparison
+> Mini -batch
+> (B examples)
+> Same
+> forward
+> budget
+> MeZO
+> 1 effective
+> direction
+> High !𝑔
+> variance
+> GRZO
+> Beffective
+> direction
+> Low !𝑔
+> variance
+
+Figure 2: Side-by-side pipeline comparison of MeZO (left) and GRZO (right). By constructing pseudo-independent perturbations and group-relative normalization, GRZO achieves B effective perturbation directions and 1/B gradient variance under the same forward-pass budget compared to MeZO. 
+
+MeZO (Liu et al., 2025a) restrict updates to a spar-sity mask, and MaZO (Zhang et al., 2025) extends masking to multi-task fine-tuning; Low-rank meth-ods reparameterize the perturbation through low-rank matrices (Chen et al., 2025) or tensors (Zhao et al., 2023; Yang et al., 2024). These methods exploit the low effective rank of LLM fine-tuning at the cost of full-parameter expressivity. Along an orthogonal axis, QuZO (Zhou et al., 2025) and Poor-Man’s Training (Zhao et al., 2025b) reduce memory via low-bit forward passes without alter-ing the SPSA estimator. 
+
+2.3 Improving the Estimator Construction 
+
+A second family of research keeps the full-parameter update space and injects additional in-formation into the estimator. MeZO-SVRG (Gau-tam et al., 2024) pairs each probe with a periodic full-batch reference for an SVRG-style control vari-ate, at the cost of doubled persistent memory; Hi-ZOO (Zhao et al., 2025a) adds a diagonal-Hessian preconditioner estimated from one extra forward pass per step; FZOO (Dang et al., 2026) sam-ples N parallel directions for 1/N -scale variance reduction at N +1 forwards per step; subspace-orthogonalization (Lang et al., 2026) decorrelates the direction sequence across steps; and Ma and Huang (2025) revisit minimum-variance two-point estimator design; SharpZO (Yang et al., 2026) extends the forward-only paradigm to sharpness-aware VLM prompt tuning. In every case, the variance reduction is achieved with extra forwards, extra persistent memory, or both. 
+
+3 Method 
+
+Both ZO families reviewed in Section 2 reduce variance at a cost: shrinking the effective param-eter dimension sacrifices full-parameter expres-sivity, while enriching the SPSA estimator adds forward passes or persistent memory. GRZO in-stead turns the mini-batch dimension itself into the variance-reduction lever: a single two-forward-pass step yields B pseudo-independent gradient directions, preserving the inference-level memory and two-forward-pass envelope of MeZO. Sec-tion 3.1 constructs the per-example perturbation directions via a sign factorization of a shared base perturbation; Section 3.2 then converts the result-ing B per-example loss signals into group-relative weights inspired by GRPO advantages. Figure 2 contrasts the resulting pipeline with MeZO. 
+
+3.1 Per-Example Perturbations via Structured Injection 
+
+GRZO constructs per-example perturbations through a sign factorization originally proposed for Bayesian weight sampling (Wen et al., 2018). For a linear layer with weight W ∈ Rdout ×din ,we first generate a shared base perturbation ma-trix U ∈ Rdout ×din in each step from a symmetric isotropic distribution (e.g., N (0 , 1) or Rademacher entries). Then for each data sample in {xi, yi}Bi=1 ,we modulate U with per-example sign vectors 
+
+ri ∈ {± 1}dout and si ∈ {± 1}din (independent Rademacher pairs) to obtain 
+
+∆Wi = U ⊙ (ris⊤ 
+
+> i
+
+), (2) 3where ⊙ denotes the element-wise (Hadamard) product. This construction yields B pseudo-independent per-example perturbations from a sin-gle shared base U, without materializing B sepa-rate weight copies; see Figure 2 for the pipeline and Appendix B for the vectorized form. The overhead is a small constant per linear layer (one extra matrix multiplication plus elementwise sign modulations). 
+
+Lemma 1 (Isotropy and conditional decorrela-tion) . Let zi := vec(∆ Wi) = vec( U ⊙ (ris⊤ 
+
+> i
+
+)) 
+
+with U and {(ri, si)}Bi=1 as defined above. Then 
+
+E[ziz⊤ 
+
+> i
+
+] = Id marginally and E[ziz⊤ 
+
+> j
+
+| U] = 0 for 
+
+i̸ = j (Appendix H.6.1). 
+
+3.2 Group-Relative Aggregation for Zeroth-Order Updates 
+
+Given the per-example perturbations ∆Wi in Eq. (2) and a perturbation scale σ > 0, exam-ple i contributes the two-sided perturbed losses 
+
+ℓ± 
+
+> i
+
+= L(θ ± σ∆Wi; xi, yi) and the perturbation-induced loss difference 
+
+δi := ℓ+ 
+
+> i
+
+− ℓ− 
+
+> i
+
+. (3) GRZO converts {δi}Bi=1 into advantage-like weights via group-relative normalization. We com-pute the within-batch standard deviation 
+
+s =
+
+vuut 1
+
+B
+
+> B
+
+X
+
+> i=1
+
+ δi − ¯δ2 with ¯δ = 1
+
+B
+
+> B
+
+X
+
+> i=1
+
+δi, (4) and define the group-relative weights 
+
+ai = δi
+
+s + ϵ . (5) Here ϵ > 0 is a small constant to ensure numerical stability. These weights are scale-invariant under rescaling of {δi}, decoupling the update from loss-magnitude drift; two-sided differences also give 
+
+E[δi] = 0 by the zi ↔ − zi symmetry, so the numerator needs no explicit mean-centering. The update direction is 
+
+bg = 12σB 
+
+> B
+
+X
+
+> i=1
+
+ai zi, (6) where zi is the per-example perturbation direction from the preceding Section 3.1; full pseudocode is in Algorithm 1 (Appendix A). The conditional decorrelation in Lemma 1 eliminates the cross-example covariance terms in Var(ˆ g); combined with P 
+
+> i
+
+a2 
+
+> i
+
+≈ B for two-sided differences, this controls the diagonal of the variance bound (Ap-pendix H.6). 
+
+4 Theoretical Analysis 
+
+The construction in Section 3 promises B pseudo-independent gradient directions per step at no extra forward cost. We now provide some formal theoret-ical results: the GRZO estimator (i) is directionally unbiased for the gradient of the smoothed objective 
+
+Fσ(θ) = Ez[F (θ + σz)] up to a positive scaling absorbed into the effective learning rate, (ii) ad-mits roughly 1/B eff (the number of effectively in-dependent perturbation directions, with Beff ≈ B
+
+at typical batch sizes; detailed below) of MeZO’s variance under the same forward budget, and (iii) improves the MeZO convergence bound by √Beff .Full proofs are in Appendix H. 
+
+Theorem 1 (Directional Unbiasedness (Informal)) .
+
+Under standard smoothness assumptions, the GRZO estimator satisfies 
+
+E[ˆ gt | θt] = ct · ∇ Fσ(θt) + O(σ2),
+
+where ct > 0 is a positive scalar absorbed into the effective learning rate, and O(σ2) is the standard ZO smoothing bias vanishing as σ → 0.
+
+Theorem 2 (Variance Bound) . Under standard smoothness assumptions, the GRZO estimator sat-isfies      
+
+> Var  ˆgGRZO (θ)≤d−1
+> B
+>  ∥∇ F(θ)∥2+ν2+O(ρ2σ4d4),
+
+where d = Dout Din . (Proof: Appendix H.6.) 
+
+Building on Theorems 1–2, we state the full nonconvex convergence guarantee. Let ˆgt denote the GRZO estimator (6). 
+
+Assumption 1. Fσ is L-smooth and lower bounded by F ⋆σ . The step size η satisfies the stability con-dition in Appendix H.7. Per-example gradients satisfy E∥∇ ℓ(θ; ξ) − ∇ F (θ)∥2 ≤ ν2.
+
+Theorem 3 (Nonconvex Convergence) . Under As-sumption 1, GRZO iterations satisfy 
+
+1
+
+T 
+
+> T−1
+
+X
+
+> t=0
+
+E ∇Fσ(θt) 2 ≤ 4 Fσ(θ0) − F ⋆σ
+
+
+
+ηT 
+
++ 2 Lη VGRZO , (7) 
+
+where VGRZO is the per-step variance bounded in Appendix H.6. (Formal statement: Theorem 4 in Appendix H.7.) 
+
+Comparing the leading d−1 
+
+> B
+
+scaling in Theorem 2 to MeZO’s analogous bound (which lacks the 1/B 
+
+factor, as MeZO uses a single perturbation per step) gives VGRZO ≈ V MeZO /B eff at matched forward 4budget, so with η ∝ 1/√T the stationarity bound improves by √Beff relative to MeZO. In practice, 
+
+B ≥ 16 is needed for stable group-relative normal-ization (Section 5.4). 
+
+Interpreting the Variance Reduction. Beff cap-tures how many effectively independent perturba-tion directions GRZO extracts from one mini-batch. The per-example perturbations are only condition-ally independent given the shared base U, so in principle Beff is slightly below B. Lemma 1 how-ever shows that the cross-example covariance van-ishes in expectation, so Beff ≈ B at typical batch sizes. At the default B=16 , GRZO achieves ∼ 4×
+
+reduction in the per-step gradient-estimate standard deviation. The faster training-loss descent visible in Figure 3 is a direct consequence. 
+
+Convergence Rate Comparison with MeZO. 
+
+Setting η = c/ √T in (7) , the dominant stationarity term becomes O(VGRZO /√T ). Since VGRZO ≈VMeZO /B eff , GRZO achieves an ϵ-stationary point in Beff × fewer steps than MeZO under the same per-step forward budget. Crucially, this improve-ment is free in terms of forward evaluations: both methods perform exactly two forward passes per step, but GRZO amortizes its variance reduction over the batch dimension rather than requiring ad-ditional perturbation queries. 
+
+5 Experiments 
+
+We consider two architectural families. Masked language models such as BERT (Devlin et al., 2019) and RoBERTa (Liu et al., 2019) learn bidi-rectional representations under a masked-token ob-jective; auto-regressive language models such as Llama (Grattafiori et al., 2024) and OPT (Zhang et al., 2022) predict the next token. We bench-mark GRZO under full-parameter fine-tuning (Section 5.1), report memory and per-step time on Llama3-8B (Section 5.2), show GRZO com-poses with parameter-efficient ZO variants such as Sparse-MeZO, LOZO, and QuZO (Section 5.3), and ablate the components of GRZO (Section 5.4). 
+
+Setup. We compare against first-order baselines (Adam (Kingma and Ba, 2015), LoRA (Hu et al., 2022)) and zeroth-order baselines (MeZO (Malladi et al., 2023a), FZOO (Dang et al., 2026)) on clas-sification tasks from GLUE (Wang et al., 2018) (SST-2) and SuperGLUE (Wang et al., 2019) (RTE, CB, BoolQ, WiC, MultiRC, COPA), and QA tasks SQuAD (Rajpurkar et al., 2016) and DROP (Dua                                               
+
+> Table 1: Results on RoBERTa-large (350M, k=512). FO methods are marked with orange bullets. Among ZO methods, the highest accuracy is highlighted in bold .
+> Method Sentiment NLI Topic SST-2 SST-5 SNLI MNLI RTE TREC
+> Zero-shot 79.0 35.5 50.2 48.8 51.4 32.0 • LP(FO) 91.3 51.7 80.9 71.5 73.1 89.4 • FT(FO) 91.9 47.5 77.5 70.0 66.4 85.0 MeZO 92.8 53.2 83.0 78.3 78.6 94.3 FZOO 93.0 54.2 84.6 79.9 78.1 95.6 GRZO 93.3 54.8 85.4 79.1 79.0 94.7
+
+et al., 2019). All methods train for 20 k steps at batch size 16 in FP16; ZO methods use perturbation scale σ=10 −3. For RoBERTa-large we follow the 
+
+k=512 few-shot protocol of Malladi et al. (2023a). Hyperparameter details are in Appendix D. 
+
+5.1 Accuracy and Convergence Masked Language Models. We evaluate GRZO on RoBERTa-large (350M) under the k=512 few-shot setting. Table 1 shows GRZO outperforms MeZO on all six tasks and FZOO on four of six, with the largest gains on SNLI ( +0 .8) and RTE (+0 .9). Averaged across tasks, GRZO reaches 81.1, vs. 80.9 for FZOO and 80.0 for MeZO. 
+
+Auto-Regressive Language Models. We expand to Llama3-8B and OPT-13B on the same Super-GLUE+QA suite. Table 2 shows GRZO is the best ZO method on 7/9 Llama3-8B tasks (aver-age 78.6 vs. 76.5 FZOO and 75.6 MeZO, +2 .1
+
+under the same two-forward-pass budget) and 6/9 OPT-13B tasks (average 70.5 vs. 70.0 FZOO and 67.9 MeZO). The largest gains over FZOO ap-pear on tasks requiring deeper understanding: +3 .4
+
+CB, +5 .0 RTE, +7 .6 DROP on Llama3-8B; +4 .1
+
+DROP, +1 .2 RTE, +1 .0 COPA on OPT-13B. 
+
+Convergence and Wall-Clock Efficiency. Fig-ure 3 plots training-loss curves on Llama3-8B (RTE, MultiRC) and OPT-13B (SQuAD, DROP) against both training steps and wall-clock seconds. GRZO descends faster than FZOO and MeZO across all four panels and reaches a lower final loss on Llama-RTE, Llama-MultiRC, and OPT-SQuAD; on Llama-MultiRC in particular, GRZO matches the final loss of FZOO in roughly half the wall-clock time. MeZO diverges on OPT-DROP and makes no measurable progress on Llama-RTE or Llama-MultiRC. 5Table 2: Results on Llama3-8B across SuperGLUE and QA tasks. FO methods are marked with orange bullets. Among ZO methods, the highest accuracy is highlighted in bold .
+
+Method SuperGLUE (Classification) QA SST-2 RTE CB BoolQ WiC MultiRC COPA SQuAD DROP Llama3-8B 
+
+• Adam (FO) 96.0 92.0 92.0 86.6 72.6 84.7 89 90.4 59.4 • LoRA (FO) 95.0 80.9 73.2 86.4 70.7 82.4 89 89.4 58.2 MeZO 92.2 74.4 69.6 76.7 57.8 77.6 88.0 86.7 57.1 FZOO 93.0 76.6 68.6 81.2 59.4 77.6 89.0 86.0 57.4 
+
+GRZO (Ours) 93.4 81.6 72.0 81.4 59.8 78.6 89.0 86.2 65.0 OPT-13B 
+
+• Adam (FO) 95.3 80.9 94.6 83.5 66.3 76.2 88 89.5 31.3 • LoRA (FO) 94.8 78.3 69.6 80.2 64.3 69.4 89 88.0 30.9 MeZO 91.4 66.1 66.0 67.6 59.4 57.3 88.0 84.7 30.9 FZOO 93.8 76.8 69.6 72.2 59.4 57.6 87.0 84.8 28.7 
+
+GRZO (Ours) 93.4 78.0 70.2 70.4 58.6 57.8 88.0 85.2 32.8 0 20k 40k 60k              
+
+> Runtime (s)
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> Training Loss
+> Llama3-8B MultiRC
+> 05k 10k 15k 20k
+> Training Steps
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> Llama3-8B RTE
+> 010k 20k 30k
+> Runtime (s)
+> 2
+> 3
+> 4
+> 5
+> 6
+> OPT-13B DROP
+> 05k 10k 15k 20k
+> Training Steps
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> OPT-13B SQuAD
+> MeZO FZOO GRZO
+
+Figure 3: Training-loss curves on Llama3-8B (RTE, MultiRC) and OPT-13B (SQuAD, DROP) plotted against training steps and wall-clock time. 1.3B 2.7B 6.7B 13B 30B 
+
+> #Parameters
+> 10 0
+> 10 1
+> 10 2
+> 10 3
+> GPU Memory (GB)
+> Zero-shot
+> ICL
+> FT
+> FT (prefix)
+> MeZO
+> GRZO
+> 8x
+> 8x
+> 11x
+> 11x
+> 9x
+> 1.3x
+> 1.3x
+> 1.4x
+> 1.4x
+> 1.4x
+
+Figure 4: Peak GPU memory (GB) vs. model size for OPT (1.3B–30B). GRZO matches the inference foot-print, consuming even less memory than MeZO. 
+
+5.2 Memory and Time Analysis 
+
+GRZO offers a strong memory advantage at a mod-est per-step time cost. Figure 5 reports a production profile on Llama3-8B; Figure 4 extends the mem-ory picture across model sizes. 
+
+Memory. Fig. 5a shows that vanilla GRZO holds peak GPU memory at 16 .02 GB—essentially the bare model footprint (16.0 GB of fp16 weights, 
+
++0 .02 GB of transient buffers)—while MeZO peaks at 20 .84 GB ( +4 .84 GB during the update step), a 23% reduction. The advantage carries over to combined variants (Section 5.3): GRZO+X con-sistently uses less peak memory than MeZO+X across all four pairings, with full numbers in Ap-pendix E. Figure 4 shows that this inference-level footprint scales smoothly across OPT 1.3B–30B, with GRZO using 1.3–1.4× less memory than MeZO and 8–11 × less than full fine-tuning. 
+
+Per-Step Time. Figure 5b decomposes the per-step wall-clock cost. MeZO completes in 805 ms; GRZO fuses the per-example perturbation into the forward via per-Linear pre-hooks, making this fused forward only ∼24% slower than MeZO’s forward-plus-in-place-perturbation. The update shrinks to 82 ms via sign-vector products, and GRZO totals 973 ms ( +21% over MeZO). This per-step cost is more than offset by the variance re-duction (factor of 1/B eff , Theorem 2), which trans-lates into proportionally fewer optimization steps to a target loss (Figure 3). The same trade applies 60 5 10 15 20 25        
+
+> Peak GPU memory per step (GB)
+> MeZO
+> GRZO
+> Model 16.0 GB +4.84 20.84 GB
+> Model 16.0 GB 16.02 GB (+0.02)
+> Model footprint Transient overhead
+
+(a) Peak GPU memory breakdown. 0 200 400 600 800 1000              
+
+> Runtime per step (ms)
+> MeZO
+> GRZO
+> 243 331 230 805
+> 713 50 82 129 973
+> MeZO FWD Flipout FWD MeZO Perturb Flipout Perturb Update Other
+
+(b) Per-step time breakdown. 
+
+Figure 5: Production profile on Llama3-8B (RTE, fp16, B=16 , 4 ×A100, mean over 20 steps × 4 ranks). Left :peak GPU memory per step (model footprint vs. transient overhead). Right : per-step time decomposition. Table 3: GRZO with orthogonal ZO baselines on Llama3-8B. Parentheses: (∆ vs. paired baseline / ∆ vs. vanilla GRZO ). Best per task in bold . QuZO and Qu-GRZO both use 8-bit quantization for weights and perturbations. 
+
+Method SuperGLUE (Classification) QA (F1) BoolQ RTE COPA SQuAD DROP 
+
+ZO variants baselines 
+
+Sparse-MeZO (Liu et al., 2025a) 80.5 69.7 83.0 87.5 48.4 LOZO (Chen et al., 2025) 79.4 66.8 84.0 89.0 65.4 QuZO (int8) (Zhou et al., 2025) 76.8 66.8 87.0 80.6 52.3 
+
+Vanilla GRZO 
+
+GRZO 81.4 81.6 89.0 86.2 65.0 
+
+GRZO combined with orthogonal ZO variants 
+
+Sparse-GRZO 85.1 (+4.6/+3.7) 79.4 (+9.7/-2.2) 88.0 (+5.0/-1.0) 89.0 (+1.5/+2.8) 59.3 (+10.9/-5.7) LO-GRZO 84.4 (+5.0/+3.0) 75.1 (+8.3/-6.5) 90.0 (+6.0/+1.0) 88.4 (-0.6/+2.2) 65.5 (+0.1/+0.5) Qu-GRZO (int8) 79.3 (+2.5/-2.1) 80.5 (+13.7/-1.1) 91.0 (+4.0/+2.0) 88.6 (+8.0/+2.4) 63.9 (+11.6/-1.1) 
+
+to combined variants; full per-method breakdowns are in Appendix E. 
+
+Why GRZO Uses Less Memory. GRZO and MeZO both avoid the backward pass and opti-mizer state; their gap comes from the perturba-tion steps. MeZO mutates the weight tensor in place ( W ← W ± σz) and must keep a parameter-aligned noise tensor live during the update step. GRZO never modifies the base weight: each layer’s perturbed weight is built transiently inside a for-ward pre-hook and freed before the next layer runs, so the perturbation overhead is at most one layer’s worth at any moment. The sign factoriza-tion ∆Wi = U ⊙ (ris⊤ 
+
+> i
+
+) further compresses per-example variation into ±1 sign vectors per layer, keeping multi-direction GRZO at the same per-layer overhead as a single-direction estimator. 
+
+5.3 Combination with ZO Variants GRZO as a drop-in base for other ZO variants. 
+
+We frame GRZO not only as a stronger ZO esti-mator than MeZO, but as a base on which existing MeZO variants—sparse (Sparse-MeZO), low-rank (LOZO), and quantized (QuZO) perturbations— can be dropped in for further gains. GRZO in-tervenes only at the MeZO core, swapping the single-direction perturbation and scalar update for multi-directional per-example perturbation and group-relative normalization; sparsity, low-rank, and quantization act on orthogonal axes of the per-turbation and remain complementary to GRZO. Table 3 shows the composition is Pareto-favorable along two directions. First, every GRZO-combined variant outperforms its baseline on ev-ery shared task (the sole exception is LO-GRZO at −0.6 F1 on SQuAD); the most striking case is Qu-GRZO on DROP, where 52 .3 → 63 .9 F1 (+11 .6) brings the low-bit baseline within 1.1 F1 of vanilla GRZO ( 65 .0), showing that GRZO of-fers a variance-reduction alternative that efficiency-axis techniques cannot reach on their own. Sec-ond, the combinations also beat vanilla GRZO on most tasks, showing that these ZO variants com-plement, rather than compete with, GRZO. Fig. 6 confirms both effects in the training dynamics; two per-variant comparison examples on SQuAD and BoolQ are in Figure 8 (Appendix F). The standard ZO taxonomy—sparsity, low-rank, quantization, and variance reduction—thus reads as independent axes that can be stacked, with GRZO supplying the 70 5k 10k 15k 20k         
+
+> Training Steps
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Training Loss
+> Llama3-8B-SQuAD
+> GRZO
+> Sparse-GRZO
+> Qu-GRZO
+> LO-GRZO
+> 05k 10k 15k 20k
+> Training Steps
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> 3.0
+> Training Loss
+> Llama3-8B-DROP
+> GRZO
+> Sparse-GRZO
+> Qu-GRZO
+> LO-GRZO
+> 05k 10k 15k 20k
+> Training Steps
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> Training Loss
+> Llama3-8B-BoolQ
+> GRZO
+> Sparse-GRZO
+> Qu-GRZO
+> LO-GRZO
+
+Figure 6: Training loss curves on Llama3-8B comparing vanilla GRZO with the three GRZO-combined variants. 
+
+variance-reduction axis that has no native solution at MeZO’s forward budget. 
+
+Efficiency Benefit of the GRZO Core. Swap-ping the MeZO core for GRZO inside any ZO vari-ant improves not only convergence quality but also resource efficiency. Across the three fp16 vari-ant pairings (vanilla, LOZO, Sparse), GRZO+X reduces peak GPU memory by ∼4.8 GB (18–23%) over MeZO+X. GRZO+X is 3–21% slower per step than MeZO+X—each forward fuses the per-example perturbation—but the variance reduction greatly reduces the number of optimization steps to a target loss (Figure 6). We exclude QuZO and Qu-GRZO from this efficiency claim because our fp16 implementations measure fake-quant over-head rather than the low-bit deployment regime targeted by Zhou et al. (2025); per-method num-bers and a full discussion are in Appendix E. 
+
+5.4 Ablation Study 
+
+Two ablations isolate GRZO’s design: which component—per-example (PE) perturbation vs. group-relative normalization (GN)—drives conver-gence, and whether the choice of perturbation noise distribution materially affects performance. 
+
+Component Ablation. Figure 7 (left) compares full GRZO, GRZO without GN, and GRZO with-out both PE and GN (a MeZO-style estimator) on SST-2. Removing GN alone slows descent, con-firming GN dominates convergence; further remov-ing PE degrades it more, showing the two com-ponents are complementary—PE enables efficient batched estimation, GN stabilizes the gradient sig-nal. GRZO beats FZOO by +0 .4 on SST-2 ( +2 .1
+
+on Llama3-8B average; Section 5.1), ruling out a normalization-only explanation. 
+
+Perturbation Type. Figure 7 (right) compares Gaussian and Rademacher perturbations on DROP; both converge similarly (61.4 vs. 61.8), confirming 0 5k 10k 15k 20k     
+
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> Training Loss
+> w/ PE, w/ GN
+> w/ PE, w/o GN
+> w/o PE, w/o GN
+> 05k 10k 15k 20k
+> 1.5
+> 2.0
+> 2.5
+> 3.0
+> Rademacher
+> Gaussian
+> Training Steps
+
+Figure 7: Left : GRZO components on SST-2. Right :Perturbation ablation on DROP. 
+
+robustness. We default to Rademacher for its lower memory overhead. 
+
+Batch Size Sensitivity. Figure 9 (Appendix G) shows B=4 diverges and B=8 is unstable, while 
+
+B≥16 converges smoothly. This is consistent with group-relative normalization requiring a sta-ble within-batch variance estimate; we recommend 
+
+B ≥ 16 .
+
+6 Conclusion 
+
+We have presented GRZO, a zeroth-order optimizer that treats the mini-batch as a source of perturbation directions rather than only loss-averaging samples. By combining pseudo-independent per-example perturbations with group-relative normalization, GRZO extracts a gradient direction from every mini-batch example under MeZO’s two-forward-pass budget, greatly mitigating the variance bot-tleneck of single-direction ZO methods. We have provided theoretical guarantees on directional unbi-asedness, variance reduction, and nonconvex con-vergence. Extensive experiments on multiple mod-els have shown that GRZO consistently outper-forms state-of-the-art ZO baselines at inference-level memory, and serves as a drop-in replace-ment for the MeZO core that composes with spar-sity, low-rank, and quantization variants. Extend-ing GRZO to further MeZO variants and full pre-training of large-scale models remains open. 8Limitations 
+
+GRZO’s main per-step cost comes from running two perturbed forwards ( ℓ+ and ℓ−) to form a direc-tionally unbiased two-sided estimate. A one-sided variant comparing a single perturbed forward to an unperturbed forward would be faster than MeZO but at the cost of a biased gradient estimate and slower descent; building a low-bias one-sided de-sign is open future work. Our empirical study covers four ZO fami-lies (vanilla, Sparse-MeZO, LOZO, QuZO) up to 13B parameters. Other MeZO variants— curvature-preconditioned (HiZOO), control-variate (MeZO-SVRG), and subspace-orthogonalization— and 70B+ scaling are the most immediate empiri-cal extensions: the GRZO core swap is mechani-cally straightforward in each case, but the variance-versus-stability trade-off and downstream quality at those settings remain to be verified. 
+
+Ethical Considerations 
+
+This work uses publicly available pre-trained mod-els and benchmarks for research purposes, follows their respective licenses and terms of use, and does not involve the collection or release of personally identifiable information. We do not foresee specific ethical concerns beyond the general risks associ-ated with large language models. In particular, GRZO may inherit biases, hallucinations, or mis-leading patterns from the underlying models and data. We therefore do not recommend deploying it as a standalone decision-making system, especially in high-stakes settings. Any practical use should include human oversight and task-specific safety evaluation. 
+
+References 
+
+Armen Aghajanyan, Sonal Gupta, and Luke Zettle-moyer. 2021. Intrinsic dimensionality explains the effectiveness of language model fine-tuning. In Pro-ceedings of the 59th annual meeting of the associa-tion for computational linguistics and the 11th inter-national joint conference on natural language pro-cessing (volume 1: long papers) , pages 7319–7328. Shun-ichi Amari. 1993. Backpropagation and stochas-tic gradient descent method. Neurocomputing , 5(4-5):185–196. Albert S Berahas, Liyuan Cao, Krzysztof Choroman-ski, and Katya Scheinberg. 2022. A theoretical and empirical comparison of gradient approximations in derivative-free optimization. Foundations of Compu-tational Mathematics , 22(2):507–560. Aochuan Chen, Yimeng Zhang, Jinghan Jia, James Dif-fenderfer, Konstantinos Parasyris, Jiancheng Liu, Yi-hua Zhang, Zheng Zhang, Bhavya Kailkhura, and Sijia Liu. 2024. DeepZero: Scaling up zeroth-order optimization for deep model training. In Interna-tional Conference on Learning Representations , vol-ume 2024, pages 50185–50206. Yiming Chen, Yuan Zhang, Liyuan Cao, Kun Yuan, and Zaiwen Wen. 2025. Enhancing zeroth-order fine-tuning for language models with low-rank structures. In International Conference on Learning Representa-tions , volume 2025, pages 62581–62607. Sizhe Dang, Yangyang Guo, Yanjun Zhao, Haishan Ye, Xiaodong Zheng, Guang Dai, and Ivor W. Tsang. 2026. FZOO: Fast zeroth-order optimizer for fine-tuning large language models towards Adam-scale speed. In International Conference on Learning Rep-resentations .Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. 2019. BERT: Pre-training of deep bidirectional transformers for language under-standing. In Proceedings of the 2019 conference of the North American chapter of the association for computational linguistics: human language tech-nologies, volume 1 (long and short papers) , pages 4171–4186. Dheeru Dua, Yizhong Wang, Pradeep Dasigi, Gabriel Stanovsky, Sameer Singh, and Matt Gardner. 2019. DROP: A reading comprehension benchmark requir-ing discrete reasoning over paragraphs. In Proceed-ings of the 2019 Conference of the North American Chapter of the Association for Computational Lin-guistics: Human Language Technologies, Volume 1 (Long and Short Papers) , pages 2368–2378. John C Duchi, Michael I Jordan, Martin J Wainwright, and Andre Wibisono. 2015. Optimal rates for zero-order convex optimization: The power of two func-tion evaluations. IEEE Transactions on Information Theory , 61(5):2788–2806. Katelyn Gao and Ozan Sener. 2022. Generalizing gaus-sian smoothing for random search. In International Conference on Machine Learning , pages 7077–7101. PMLR. Tanmay Gautam, Youngsuk Park, Hao Zhou, Parameswaran Raman, and Wooseok Ha. 2024. Variance-reduced zeroth-order methods for fine-tuning language models. In Proceedings of the 41st International Conference on Machine Learning ,volume 235 of Proceedings of Machine Learning Research , pages 15180–15208. PMLR. Saeed Ghadimi and Guanghui Lan. 2013. Stochas-tic first- and zeroth-order methods for nonconvex stochastic programming. SIAM journal on optimiza-tion , 23(4):2341–2368. Aaron Grattafiori, Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey, Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman, Akhil Mathur, Alan Schelten, 
+
+9Alex Vaughan, and 1 others. 2024. The Llama 3 herd of models. arXiv preprint arXiv:2407.21783 .Neil Houlsby, Andrei Giurgiu, Stanislaw Jastrzebski, Bruna Morrone, Quentin De Laroussilhe, Andrea Gesmundo, Mona Attariyan, and Sylvain Gelly. 2019. Parameter-efficient transfer learning for NLP. In 
+
+International conference on machine learning , pages 2790–2799. PMLR. Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen. 2022. LoRA: Low-Rank adaptation of large language models. In International Conference on Learning Representations .Diederik P. Kingma and Jimmy Ba. 2015. Adam: A method for stochastic optimization. In International Conference on Learning Representations .Yicheng Lang, Changsheng Wang, Yihua Zhang, Mingyi Hong, Zheng Zhang, Wotao Yin, and Sijia Liu. 2026. Powering up zeroth-order training via subspace gradient orthogonalization. arXiv preprint arXiv:2602.17155 .Brian Lester, Rami Al-Rfou, and Noah Constant. 2021. The power of scale for parameter-efficient prompt tuning. In Proceedings of the 2021 conference on empirical methods in natural language processing ,pages 3045–3059. Xiang Lisa Li and Percy Liang. 2021. Prefix-tuning: Optimizing continuous prompts for generation. In 
+
+Proceedings of the 59th Annual Meeting of the Asso-ciation for Computational Linguistics and the 11th International Joint Conference on Natural Language Processing (Volume 1: Long Papers) , pages 4582– 4597. Sijia Liu, Pin-Yu Chen, Bhavya Kailkhura, Gaoyuan Zhang, Alfred O Hero III, and Pramod K Varshney. 2020. A primer on zeroth-order optimization in sig-nal processing and machine learning: Principals, re-cent advances, and applications. IEEE Signal Pro-cessing Magazine , 37(5):43–54. Yinhan Liu, Myle Ott, Naman Goyal, Jingfei Du, Man-dar Joshi, Danqi Chen, Omer Levy, Mike Lewis, Luke Zettlemoyer, and Veselin Stoyanov. 2019. RoBERTa: A robustly optimized BERT pretraining approach. arXiv preprint arXiv:1907.11692 .Yong Liu, Zirui Zhu, Chaoyu Gong, Minhao Cheng, Cho-Jui Hsieh, and Yang You. 2025a. Sparse MeZO: Less parameters for better performance in zeroth-order LLM fine-tuning. In Advances in Neural Infor-mation Processing Systems .Ziyue Liu, Ruijie Zhang, Zhengyang Wang, Mingsong Yan, Zi Yang, Paul D Hovland, Bogdan Nicolae, Franck Cappello, Sui Tang, and Zheng Zhang. 2025b. CoLA: Compute-efficient pre-training of LLMs via low-rank activation. In Proceedings of the 2025 Con-ference on Empirical Methods in Natural Language Processing , pages 4627–4645. Ilya Loshchilov and Frank Hutter. 2019. Decoupled weight decay regularization. In International Confer-ence on Learning Representations .Shaocong Ma and Heng Huang. 2025. Revisiting zeroth-order optimization: Minimum-variance two-point estimators and directionally aligned perturbations. 
+
+arXiv preprint arXiv:2510.19975 .Sadhika Malladi, Tianyu Gao, Eshaan Nichani, Alex Damian, Jason D Lee, Danqi Chen, and Sanjeev Arora. 2023a. Fine-tuning language models with just forward passes. Advances in Neural Information Processing Systems , 36:53038–53075. Sadhika Malladi, Alexander Wettig, Dingli Yu, Danqi Chen, and Sanjeev Arora. 2023b. A kernel-based view of language model fine-tuning. In International Conference on Machine Learning , pages 23610– 23641. PMLR. Yurii Nesterov and Vladimir Spokoiny. 2017. Ran-dom gradient-free minimization of convex func-tions. Foundations of Computational Mathematics ,17(2):527–566. Pranav Rajpurkar, Jian Zhang, Konstantin Lopyrev, and Percy Liang. 2016. SQuAD: 100,000+ questions for machine comprehension of text. In Proceedings of the 2016 conference on empirical methods in natural language processing , pages 2383–2392. Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, YK Li, Yang Wu, and 1 others. 2024. DeepSeekMath: Pushing the limits of mathematical reasoning in open language models. arXiv preprint arXiv:2402.03300 .James C Spall. 2002. Multivariate stochastic approx-imation using a simultaneous perturbation gradient approximation. IEEE transactions on automatic con-trol , 37(3):332–341. Alex Wang, Yada Pruksachatkun, Nikita Nangia, Aman-preet Singh, Julian Michael, Felix Hill, Omer Levy, and Samuel Bowman. 2019. SuperGLUE: A stick-ier benchmark for general-purpose language under-standing systems. Advances in neural information processing systems , 32. Alex Wang, Amanpreet Singh, Julian Michael, Felix Hill, Omer Levy, and Samuel Bowman. 2018. GLUE: A multi-task benchmark and analysis platform for nat-ural language understanding. In Proceedings of the 2018 EMNLP Workshop BlackboxNLP: Analyzing and Interpreting Neural Networks for NLP , pages 353–355. Yeming Wen, Paul Vicol, Jimmy Ba, Dustin Tran, and Roger Grosse. 2018. Flipout: Efficient pseudo-independent weight perturbations on mini-batches. In International Conference on Learning Representa-tions .
+
+10 Yifan Yang, Zhen Zhang, Rupak Vignesh Swaminathan, Jing Liu, Nathan Susanj, and Zheng Zhang. 2026. SharpZO: Hybrid sharpness-aware vision language model prompt tuning via forward-only passes. Ad-vances in Neural Information Processing Systems ,38:143695–143721. Yifan Yang, Kai Zhen, Ershad Banijamali, Athana-sios Mouchtaris, and Zheng Zhang. 2024. AdaZeta: Adaptive zeroth-order tensor-train adaption for memory-efficient large language models fine-tuning. In Proceedings of the 2024 Conference on Empiri-cal Methods in Natural Language Processing , pages 977–995. Ruijie Ray Zhang, Ziyue Alvin Liu, Zhengyang Wang, and Zheng Zhang. 2026. Lax: Boosting low-rank training of foundation models via latent crossing. Ad-vances in Neural Information Processing Systems ,38:142920–142948. Susan Zhang, Stephen Roller, Naman Goyal, Mikel Artetxe, Moya Chen, Shuohui Chen, Christopher De-wan, Mona Diab, Xian Li, Xi Victoria Lin, and 1 others. 2022. OPT: Open Pre-trained transformer language models. arXiv preprint arXiv:2205.01068 .Zhen Zhang, Yifan Yang, Kai Zhen, Nathan Susanj, Athanasios Mouchtaris, Siegfried Kunzmann, and Zheng Zhang. 2025. MaZO: Masked zeroth-order optimization for multi-task fine-tuning of large lan-guage models. In Proceedings of the 2025 Confer-ence on Empirical Methods in Natural Language Processing , pages 18537–18554. Jiawei Zhao, Zhenyu Zhang, Beidi Chen, Zhangyang Wang, Anima Anandkumar, and Yuandong Tian. 2024. GaLore: Memory-efficient LLM training by gradient low-rank projection. In International Con-ference on Machine Learning .Yanjun Zhao, Sizhe Dang, Haishan Ye, Guang Dai, Yi Qian, and Ivor W. Tsang. 2025a. Second-order fine-tuning without pain for LLMs: A Hessian in-formed zeroth-order optimizer. In International Con-ference on Learning Representations .Yequan Zhao, Hai Li, Ian Young, and Zheng Zhang. 2025b. Poor man’s training on MCUs: A memory-efficient quantized back-propagation-free approach. 
+
+ACM Transactions on Design Automation of Elec-tronic Systems , 30(5):1–33. Yequan Zhao, Xinling Yu, Zhixiong Chen, Ziyue Liu, Sijia Liu, and Zheng Zhang. 2023. Tensor-compressed back-propagation-free training for (physics-informed) neural networks. arXiv preprint arXiv:2308.09858 .Jiajun Zhou, Yifan Yang, Kai Zhen, Ziyue Liu, Yequan Zhao, Ershad Banijamali, Athanasios Mouchtaris, Ngai Wong, and Zheng Zhang. 2025. QuZO: Quan-tized zeroth-order fine-tuning for large language mod-els. In Proceedings of the 2025 Conference on Empir-ical Methods in Natural Language Processing , pages 5341–5359. 
+
+11 A GRZO Algorithm 
+
+Algorithm 1 gives the per-step pseudocode for GRZO, fusing the per-example sign-factorized per-turbation construction with group-relative normal-ization. The same random seeds are used for the perturbation in the forward pass and the seed-regenerated weight update, so the per-example per-turbations P(ℓ) 
+
+> i
+
+never have to be materialized be-tween the two phases. 
+
+B Additional Background on MeZO and Flipout 
+
+B.1 MeZO as In-Place Two-Point Zeroth-Order Optimization 
+
+MeZO (Malladi et al., 2023a) adapts the classi-cal two-point SPSA estimator to LLM fine-tuning with inference-level memory by perturbing param-eters in place and regenerating the same noise di-rection from a random seed. Given parameters 
+
+θ ∈ Rd, mini-batch B, perturbation scale σ, and seed-generated direction z(s), it evaluates 
+
+bg(θ; B) = L(θ + σz; B) − L(θ − σz; B)2σ z, (8) or equivalently the projected scalar 
+
+gproj = ℓ+ − ℓ−
+
+2σ ,ℓ+ = L(θ + σz(s); B),ℓ− = L(θ − σz(s); B),
+
+(9) followed by the in-place update θ ← θ −
+
+η g proj z(s). This design avoids storing activations or full perturbation tensors, but because each step uses only one direction, reducing estimator vari-ance by averaging more directions increases for-ward cost linearly. 
+
+B.2 Flipout for Pseudo-Independent Per-Example Perturbations 
+
+Flipout (Wen et al., 2018) addresses the inefficiency of sharing one weight perturbation across an entire mini-batch. For a linear layer with weight matrix 
+
+W ∈ Rdout ×din , it samples a shared base perturba-tion U and constructs an effective perturbation for example n as 
+
+∆Wn = U ⊙ (rns⊤ 
+
+> n
+
+), (10) where rn ∈ {± 1}dout and sn ∈ {± 1}din are in-dependent sign vectors. Stacking a mini-batch of activations into X, and the sign vectors into matri-ces R and S, yields the vectorized form 
+
+Y = ϕ XW +  (X ⊙ S)U ⊙ R , (11) which avoids materializing N separately perturbed weight matrices while still producing pseudo-independent example-level perturbations. GRZO uses this construction to obtain B perturbation-induced loss signals within the same two-forward-pass budget used by MeZO. 
+
+C Comparison of ZO Fine-Tuning Methods 
+
+Table 4 compares representative zeroth-order fine-tuning methods across four dimensions: per-step forward-pass count, extra memory relative to MeZO, variance reduction mechanism, and whether backpropagation is required. 
+
+D Detailed Experimental Settings 
+
+Hardware. All experiments are conducted on servers equipped with 8 × NVIDIA A100 (40 GB) or 8 × NVIDIA A6000 (48 GB) GPUs. Each Llama3-8B or OPT-13B fine-tuning run on a single task takes approximately 5–8 GPU-hours. 
+
+Aggregation. All accuracy and loss numbers re-ported in this paper are means across 3 runs (differ-ent random seeds) per task-method configuration. 
+
+Implementation. All experiments use PyTorch with the Hugging Face transformers library and standard model checkpoints ( roberta-large ,
+
+meta-llama/Llama-3-8B , facebook/opt-13b ). LoRA adapters are implemented via the peft li-brary; AdamW is from torch.optim . F1 scorers for SQuAD and DROP follow the official scripts from the respective dataset releases. 
+
+RoBERTa-large. We follow the experimental protocol of Malladi et al. (2023a) exactly, includ-ing data sampling, evaluation splits, and prompt templates. Each task uses k=512 labeled examples per class. 
+
+Llama3-8B and OPT-13B. Each task is trained on 1,000 examples (200 for CB, 350 for COPA), with a held-out development set of 500 examples used for learning rate selection and a test set of up to 1,000 examples. We train for 20,000 steps with a linear warmup over 500 steps and a constant learn-ing rate thereafter. Per-device batch size is 16 and we use FP16 precision. The perturbation scale is 12 Algorithm 1 GRZO (Group-Relative Zeroth-Order Optimization) 
+
+Require: Parameters θ = {W(ℓ)}; scale σ; batch size B; steps T ; learning rates {ηt}; ϵ > 0 
+
+> 1:
+
+for t = 1 , . . . , T do  
+
+> 2:
+
+Sample Bt; draw per-example sign vectors {(r(ℓ) 
+
+> i
+
+, s(ℓ) 
+
+> i
+
+)} and layer seeds {seed (ℓ)} 
+
+> 3:
+
+for each layer ℓ do ▷ Fused forward: two forward passes, per-example perturbations  
+
+> 4:
+
+Regenerate U(ℓ) from seed (ℓ); P(ℓ) 
+
+> i
+
+← (( Xi ⊙ S(ℓ) 
+
+> i
+
+) U(ℓ)) ⊙ R(ℓ) 
+
+> i
+> 5:
+
+Xi ← CONCAT 
+
+ ϕ(XiW(ℓ)+σP(ℓ) 
+
+> i
+
+), ϕ (XiW(ℓ)−σP(ℓ) 
+
+> i
+
+) 
+
+> 6:
+
+end for  
+
+> 7:
+
+δi ← ℓ+ 
+
+> i
+
+− ℓ− 
+
+> i
+
+for all i = 1 , . . . , B ▷ Group-relative normalization  
+
+> 8:
+
+s ←
+
+q 1
+
+> B
+
+P
+
+> i
+
+(δi−¯δ)2 with ¯δ = 1
+
+> B
+
+P 
+
+> i
+
+δi; ai ← δi/(s+ϵ) 
+
+> 9:
+
+for each layer ℓ do ▷ Seed-regenerated weight update  
+
+> 10:
+
+Regenerate U(ℓ) from seed (ℓ); ¯M(ℓ) ← 1
+
+> B
+
+P 
+
+> i
+
+ai r(ℓ) 
+
+> i
+
+(s(ℓ) 
+
+> i
+
+)⊤ 
+
+> 11:
+
+W(ℓ) ← W(ℓ) − ηt
+
+2σ U(ℓ) ⊙ ¯M(ℓ) 
+
+> 12:
+
+end for  
+
+> 13:
+
+end for                                              
+
+> Method Fwd passes/step Extra memory vs. infer-ence Variance reduction BP-free Update space
+> MeZO (Malladi et al., 2023a) 2in-place mutation ∗—✓Full param HiZOO (Zhao et al., 2025a) †
+> 3fp32 diagonal Hessian Curvature preconditioning ✓Full param MeZO-SVRG (Gau-tam et al., 2024) ‡
+> 2+ periodic sweep reference copy + full-batch est. SVRG control variates ✓Full param FZOO (Dang et al., 2026) §
+> N+1 (one-sided) activations from Nparallel fwds
+> Nindep. directions ✓Full param Sparse-MeZO (Liu et al., 2025a) 2mask + mutation Reduced update dimension ✓Sparse subset LOZO (Chen et al., 2025) 2inherits MeZO mutation Low-rank subspace con-straint
+> ✓Low-rank LoRA + Adam (Hu et al., 2022) 2 (fwd+bwd) full-net activations + Adam state on adapter —×Low-rank adapter
+> GRZO (ours) 2none (inference level) ∗∗ Bpseudo-indep. directions per step
+> ✓Full param
+
+Table 4: Comparison of representative ZO fine-tuning methods, listing the qualitative source of each method’s extra memory; quantitative measurements appear in Appendix E. ∗MeZO’s persistent noise is seed-regenerated, but the in-place perturb–restore cycle keeps a parameter-aligned buffer live during the update step. †HiZOO uses one extra forward per step and stores an fp32 diagonal Hessian. ‡MeZO-SVRG additionally performs periodic full-dataset sweeps. §Parallel FZOO runs N perturbed forwards concurrently; a sequential variant trades activation memory for 
+
+N × wall-clock. ∗∗ GRZO applies perturbations via forward pre-hooks, so the base weight is never modified and no restore buffer is held. 
+
+σ=10 −3. Task-specific learning rates are selected from {1e-7, 2e-7, 3e-7, 4e-7, 5e-7} based on de-velopment set accuracy. 
+
+Perturbed Parameters. We apply full-parameter zeroth-order fine-tuning: all learnable parame-ters are perturbed, including linear projection weights (sign-factorized), embedding matrices (sparse row-wise perturbation indexed by ac-tive tokens), and normalization layer parameters (LayerNorm/RMSNorm). This matches the full-parameter MeZO setting. 
+
+Prompts and Task Formulation. We adopt the same prompt templates as Malladi et al. (2023a). For multiple-choice tasks (CB, COPA, WiC, BoolQ, MultiRC), inference uses candidate log-likelihood scoring: each candidate is appended to the prompt and the candidate with the highest mean per-token log-likelihood is selected. During training, we apply teacher forcing on the correct candidate only, computing the loss solely on candi-13 date tokens while excluding prompt tokens. 
+
+Hyperparameters. Tables 5 and 6 summarize the hyperparameter settings for all methods. For all methods, learning rates are selected by grid search on the development set; the best value per task is reported. Adam and LoRA use AdamW with 
+
+β1=0 .9, β2=0 .999 .Adam (FO) and LoRA (FO) hyperparameters follow Malladi et al. (2023a) and prior work. 
+
+E Detailed Time and Memory Breakdown 
+
+This appendix tabulates the per-step wall-clock de-composition and peak GPU memory measurements that underlie Section 5.2 and Figure 5. All num-bers are from the same production profile: Llama-3-8B (fp16), RTE, batch size B=16 , 4 ×A100-40GB, mean of 80 samples ( 20 steps × 4 ranks). In Table 7, Forward sums the per-step forward passes (two standard for MeZO-family; two fused-perturbation for GRZO-family); Perturb/Setup 
+
+covers perturbation handling (three in-place oper-ations for MeZO-family; per-Linear sign-vector and base-noise setup for GRZO-family); Update is the weight-update step; Other is the residual (loss reduce + HF Trainer/DDP overhead). 
+
+Observations. Two patterns dominate. First, MeZO-family in-place perturbation cost scales steeply with the variant’s per-parameter work— LOZO ( 1.34 ×), Sparse-MeZO ( 1.57 ×), QuZO (3.80 ×) over plain MeZO—because each variant traverses all ∼8B parameters during perturb, re-store, and update. GRZO removes this scaling by representing each per-example perturbation as 
+
+B(dout +din ) int-8 sign vectors per layer rather than a per-parameter modification; consequently the GRZO-family update step is uniformly 82 ms across all four pairings, and combined-variant per-turb/setup cost is ≤ 270 ms. Second, on mem-ory, GRZO-family transient overhead is dominated by the variant’s own scratch storage (sparse mask, quant buffers), not by GRZO itself: GRZO+X uses 4.8–6.4 GB less peak memory than MeZO+X on every pairing, with the largest absolute saving on QuZO ( −6.4 GB) where per-parameter quant inter-mediates inflate MeZO’s peak. 
+
+Why GRZO is uniquely at inference level. The MeZO-family memory overheads in Table 8 share a single mechanism: every MeZO variant applies per-turbations by mutating the weight tensor in place and must keep a parameter-aligned buffer live dur-ing the update step to apply −ηbgz. This costs 
+
+∼0.3× the trainable-weight footprint regardless of the underlying variant. Sparse-MeZO compounds it with a per-parameter boolean mask (an additional 
+
+∼0.5×W , raising the total to ∼0.7×W ); LOZO’s low-rank factors are themselves tiny (a few MB to-tal) but the method inherits MeZO’s mutation cost; QuZO adds quantization auxiliary buffers on top of mutation. GRZO sidesteps this pattern entirely: each layer’s perturbed weight is constructed tran-siently inside a forward pre-hook and freed before the next layer runs, so the base weight is never mod-ified and no restore buffer is held. Consequently, vanilla GRZO and LO-GRZO are the only configu-rations whose peak memory equals the inference footprint; Sparse-GRZO and Qu-GRZO retain the variant-specific scratch storage but still avoid the MeZO mutation cost, which is why Table 8 shows GRZO+X consistently below MeZO+X on every pairing rather than only on the unmodified core. 
+
+Caveat: FZOO Variant Ambiguity. 
+
+FZOO (Dang et al., 2026) admits both se-quential and batched-parallel perturbation variants with substantially different wall-clock and memory profiles (the latter trading O(N ) activation mem-ory for near-MeZO wall-clock). Reporting either single number would mischaracterize the method, and the choice is implementation-dependent rather than algorithmic. We therefore restrict the FZOO comparison to accuracy, which is independent of the parallel/sequential choice. 
+
+Caveat: QuZO and Qu-GRZO Profile Numbers. 
+
+The peak-memory and per-step wall-clock num-bers reported by Zhou et al. (2025) for QuZO (their Tables 4 and 5; Appendix C) come from a Cutlass INT8 kernel that stores weights in packed int4/int8 format and dispatches GEMMs onto integer Ten-sor Core paths; this kernel is not part of the public release. The released code ( qft mode) simulates low-bit fine-tuning by fake-quantizing weights in-side each forward pass while retaining fp16 stor-age and fp16 compute, and our QuZO and Qu-GRZO implementations follow the same paradigm. Profiling either method on A100 in fp16 therefore captures fake-quant overhead, not the weight foot-print and INT8-GEMM throughput that drive the deployment numbers of Zhou et al. (2025); the QuZO and Qu-GRZO rows in Tables 7–8 should be read as fake-quant simulation, not as compara-ble to QuZO’s Table 5. We therefore omit QuZO 14 Table 5: Hyperparameter settings for RoBERTa-large ( k=512 ). 
+
+Method Hyperparameter Value 
+
+MeZO Batch size 64 Learning rate {1e −7, 5e −7, 1e −6}
+
+Perturbation σ 1e −3
+
+Weight decay 0FZOO Batch size 64 Learning rate {1e −5, 1e −4, 5e −4}
+
+Perturbation σ 1e −3
+
+Weight decay 0GRZO (Ours) Batch size 64 Learning rate {1e −6, 1e −5, 5e −5}
+
+Perturbation σ 1e −3
+
+Weight decay 0
+
+Table 6: Hyperparameter settings for Llama3-8B and OPT-13B. 
+
+Method Hyperparameter Llama3-8B OPT-13B 
+
+MeZO Batch size 16 16 Learning rate {1e −7, 1e −6, 1e −5} {1e −7, 1e −6, 1e −5}
+
+Perturbation σ 1e −3 1e −3
+
+Weight decay 0 0Training steps 20,000 20,000 FZOO Batch size 16 16 Learning rate {1e −5, 5e −5, 1e −4} {1e −5, 5e −5, 1e −4}
+
+Perturbation σ 1e −3 1e −3
+
+Weight decay 0 0Training steps 20,000 20,000 GRZO (Ours) Batch size 16 16 Learning rate {1e −7, 3e −7, 5e −7} {1e −7, 3e −7, 5e −7}
+
+Perturbation σ 1e −3 1e −3
+
+Weight decay 0 0Training steps 20,000 20,000 
+
+Table 7: Per-step wall-clock breakdown (ms) across all profiled methods. Total s are production measurements; column definitions are given in the text above. 
+
+Method Forward Perturb/Setup Update Other Total 
+
+MeZO family (in-place perturbation, two forward passes) 
+
+MeZO 243 331 230 1.6 805 LOZO 243 445 269 0.1 957 Sparse-MeZO 242 520 294 0.1 1056 QuZO 243 1258 540 0.1 2041 
+
+GRZO family (fused per-example perturbation, two forward passes) 
+
+GRZO 712 50 82 129 973 LO-GRZO 713 61 82 134 990 Sparse-GRZO 702 170 82 235 1189 Qu-GRZO 709 208 82 1567 2566 
+
+and Qu-GRZO from the cross-variant memory and time claim in Section 5.3. Their accuracy entries in Table 3 apply paper Algorithm 1 with identical W8 weight and perturbation quantization to both meth-ods and remain apples-to-apples. Within the fake-quant regime on A100, Qu-GRZO is still empiri-cally more memory-efficient than QuZO (though slightly slower per step, consistent with the GRZO– 15 Table 8: Peak GPU memory per step (GB), same setup as Table 7. Model footprint is 16 .0 GB; Transient = peak −
+
+footprint; vs MeZO = multiplier vs MeZO. 
+
+Method Peak (GB) Transient (GB) vs MeZO 
+
+MeZO family 
+
+MeZO 20.84 +4 .84 1.00 ×
+
+LOZO 20.88 +4 .88 1.00 ×
+
+Sparse-MeZO 27.34 +11 .34 1.31 ×
+
+QuZO 23.77 +7 .77 1.14 ×
+
+GRZO family 
+
+GRZO 16.02 +0 .02 0.77 ×
+
+LO-GRZO 16.06 +0 .06 0.77 ×
+
+Sparse-GRZO 22.51 +6 .51 1.08 ×
+
+Qu-GRZO 17.33 +1 .33 0.83 ×0 5k 10k 15k 20k 
+
+> Training Steps
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Training Loss
+
+Llama3-8B-SQuAD     
+
+> Sparse-MeZO
+> GRZO
+> Sparse-GRZO
+> 05k 10k 15k 20k
+> Training Steps
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+
+Llama3-8B-SQuAD     
+
+> LOZO
+> GRZO
+> LO-GRZO
+> 05k 10k 15k 20k
+> Training Steps
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+
+Llama3-8B-SQuAD     
+
+> QuZO
+> GRZO
+> Qu-GRZO 05k 10k 15k 20k
+> Training Steps
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> Training Loss
+
+Llama3-8B-BoolQ     
+
+> Sparse-MeZO
+> GRZO
+> Sparse-GRZO
+> 05k 10k 15k 20k
+> Training Steps
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+
+Llama3-8B-BoolQ     
+
+> LOZO
+> GRZO
+> LO-GRZO
+> 05k 10k 15k 20k
+> Training Steps
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+
+Llama3-8B-BoolQ 
+
+> QuZO
+> GRZO
+> Qu-GRZO
+
+Figure 8: Per-variant GRZO+X vs MeZO+X training-loss curves on Llama3-8B. Left : SQuAD. Right : BoolQ. 
+
+MeZO pattern in other pairings); this memory ad-vantage stems from forward-hook streaming rather than storage precision, and would persist or amplify on true low-bit hardware. 
+
+F GRZO-combined Variants Convergence Examples 
+
+Figure 8 shows per-task training-dynamics views of GRZO+X versus its paired MeZO variants and vanilla GRZO baseline on SQuAD and BoolQ (Llama3-8B). 
+
+G Batch Size Sensitivity 
+
+Figure 9 shows training loss curves for GRZO across batch sizes B ∈ { 4, 8, 16 , 32 } on two tasks: SST-2 (Llama3-8B) and COPA (OPT-13B). The results corroborate the theoretical prediction in Sec-tion 5.4: the group-relative normalizer requires a stable within-batch loss standard deviation s to pro-duce reliable advantage weights, and this stability breaks down at very small batch sizes. 0 5k 10k 15k 20k     
+
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Training Loss
+> BS=4
+> BS=8
+> BS=16
+> BS=32
+> 05k 10k 15k 20k
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> BS=4
+> BS=8
+> BS=16
+> BS=32
+
+Training Steps 
+
+Figure 9: Batch size sensitivity of GRZO. Left : Llama3-8B/SST-2. Right : OPT-13B/COPA. B=4 diverges; 
+
+B=8 unstable; B≥16 converges stably. 
+
+16 H Unbiasedness and Smoothing Bias of GRZO 
+
+H.1 Estimator Definition (Canonical vs. Implementation) 
+
+We analyze a single linear layer weight W ∈ RDout ×Din . Let d = Dout Din and denote θ = vec( W) ∈ Rd.For each flattened example i ∈ { 1, . . . , B } we sample a Flipout perturbation 
+
+∆Wi = U ⊙ (ris⊤ 
+
+> i
+
+), zi := vec(∆ Wi) ∈ Rd, (12) and evaluate two-sided losses 
+
+ℓ± 
+
+> i
+
+:= ℓ(θ ± σzi; ξi), δi := ℓ+ 
+
+> i
+
+− ℓ− 
+
+> i
+
+. (13) 
+
+Canonical Two-Sided ZO Estimator. The standard (canonical) two-sided estimator is 
+
+bgcan (θ) := 12σB 
+
+> B
+
+X
+
+> i=1
+
+δi zi. (14) This serves as the theoretical baseline from which GRZO departs. 
+
+GRZO Estimator (Group-Relative Normalization). GRZO computes the within-batch standard deviation 
+
+s =
+
+vuut 1
+
+B
+
+> B
+
+X
+
+> i=1
+
+(δi − ¯δ)2, ¯δ = 1
+
+B
+
+> B
+
+X
+
+> i=1
+
+δi, (15) defines group-relative weights ai := δi / (s + ϵ), and forms 
+
+bgGRZO (θ) := 12σB 
+
+> B
+
+X
+
+> i=1
+
+ai zi. (16) The scaling by 1/(s + ϵ) makes the update invariant to the magnitude of {δi}, analogous to advantage normalization in GRPO (Shao et al., 2024). Because two-sided finite differences satisfy E[δi] = 0 by symmetry of zi ↔ − zi, no explicit mean baseline is subtracted from the numerator. 
+
+H.2 Marginal Distribution of Flipout Perturbations 
+
+We only need the marginal distribution of zi for unbiasedness. Let U have i.i.d. entries Ujk and let 
+
+ri ∈ {± 1}Dout , si ∈ {± 1}Din be independent Rademacher vectors. Then each coordinate of zi is of the form 
+
+(zi)(j,k ) = Ujk · (ri)j · (si)k, (17) i.e., a sign flip of Ujk .
+
+Gaussian Base Noise (Exact). If Ujk ∼ N (0 , 1) , then (zi)(j,k ) ∼ N (0 , 1) as well, because multiplying a standard normal by an independent ±1 does not change its distribution. Hence zi ∼ N (0 , Id) marginally. 
+
+Rademacher Base Noise (Isotropic, Symmetric). If Ujk ∼ Rad( ±1) , then (zi)(j,k ) ∼ Rad( ±1) 
+
+marginally. In either case, zi is symmetric ( zi d
+
+= −zi) and isotropic ( E[zi] = 0 , E[ziz⊤ 
+
+> i
+
+] = Id). 
+
+H.3 Unbiasedness w.r.t. a Smoothed Objective (Gaussian Case: Exact) 
+
+In the Gaussian case, define the Gaussian-smoothed population objective 
+
+Fσ(θ) := Eu∼N (0 ,Id)
+
+F (θ + σu). (18) By Stein’s identity, we have 
+
+∇Fσ(θ) = 1
+
+σ Eu
+
+F (θ + σu) u. (19) 17 Using symmetry of the Gaussian, u d
+
+= −u, we obtain the antithetic form: 
+
+∇Fσ(θ) = 12σ Eu
+
+h F (θ + σu) − F (θ − σu) u
+
+i
+
+. (20) Now consider a single-example objective fi(θ) := Eξi [ℓ(θ; ξi)] . If zi ∼ N (0 , Id) marginally (Ap-pendix H.2), then applying (20) to fi yields 
+
+Ezi
+
+ fi(θ + σzi) − fi(θ − σzi)2σ zi
+
+
+
+= ∇fi,σ (θ), (21) where fi,σ is the Gaussian smoothing of fi.Taking expectation over the mini-batch sampling and averaging over i, linearity of expectation gives the unbiasedness of the canonical estimator: 
+
+Ebgcan (θ) = ∇Fσ(θ). (22) 
+
+GRZO as Self-Normalized Estimator. GRZO applies a positive self-normalization to the canonical estimator. Since ai = δi/(s + ϵ), the estimator factors as 
+
+bgGRZO (θ) = 1
+
+s + ϵ · 12σB 
+
+> B
+
+X
+
+> i=1
+
+δi zi = 1
+
+s + ϵ · bgcan (θ). (23) The scalar 1/(s + ϵ) depends on {zi}Bi=1 through {δi}, so it cannot be factored out of the outer expectation in closed form. Equivalently, the GRZO update can be written as θt+1 = θt − ˜ηt bgcan (θt) with adaptive effective step size ˜ηt := ηt/(st + ϵ), paralleling the FZOO (Dang et al., 2026) convergence framing. When the within-batch standard deviation s concentrates around a positive deterministic scalar s⋆(θ) at typical batch sizes, 
+
+EbgGRZO (θ) ≈ 1
+
+s⋆(θ) + ϵ ∇Fσ(θ) + O(σ2), (24) so GRZO is approximately direction-preserving. The convergence analysis (Appendix H.7) treats the self-normalization 1/(st + ϵ) as an adaptive step size rather than relying on exact direction-preservation. 
+
+H.4 Taylor Expansion View (General Symmetric Isotropic Directions) 
+
+This subsection provides an alternative derivation via Taylor expansion, which applies to any symmetric isotropic direction distribution (including Rademacher). Assume f (θ) is three-times differentiable and its third derivative tensor is bounded: 
+
+∥∇ 3f (θ)∥op ≤ ρ, ∀θ. (25) For a fixed direction z, a third-order Taylor expansion gives 
+
+f (θ + σz) = f (θ) + σ⟨∇ f (θ), z⟩ + σ2
+
+2 z⊤∇2f (θ) z + σ3
+
+6 ∇3f (θ)[ z, z, z] + O(σ4∥z∥4), (26) 
+
+f (θ − σz) = f (θ) − σ⟨∇ f (θ), z⟩ + σ2
+
+2 z⊤∇2f (θ) z − σ3
+
+6 ∇3f (θ)[ z, z, z] + O(σ4∥z∥4). (27) Subtracting, 
+
+f (θ + σz) − f (θ − σz) = 2 σ⟨∇ f (θ), z⟩ + σ3
+
+3 ∇3f (θ)[ z, z, z] + O(σ5∥z∥5). (28) Plugging (28) into the two-sided estimator for a single direction, 
+
+f (θ + σz) − f (θ − σz)2σ z = ⟨∇ f (θ), z⟩z + σ2
+
+6 ∇3f (θ)[ z, z, z] z + O(σ4∥z∥6). (29) 18 Taking expectation over a symmetric isotropic z with E[zz ⊤] = I yields 
+
+E⟨∇ f (θ), z⟩z = E[zz ⊤]∇f (θ) = ∇f (θ). (30) For the remainder, symmetry implies cancellation of odd moments and (25) implies 
+
+E
+
+ σ2
+
+6 ∇3f (θ)[ z, z, z] z
+
+
+
+≤ σ2
+
+6 ρ E∥z∥4 = O(σ2). (31) Therefore, 
+
+E
+
+ f (θ + σz) − f (θ − σz)2σ z
+
+
+
+= ∇f (θ) + O(σ2). (32) Averaging over examples yields E[bgcan (θ)] = ∇F (θ) + O(σ2).
+
+H.5 Smoothing Bias: Smoothed vs. Original Gradient 
+
+We bound ∥∇ Fσ(θ) − ∇ F (θ)∥. Assume ∇2F is ρ-Lipschitz (equivalently, (25) holds for F ). Then for any u,
+
+∇F (θ + σu) = ∇F (θ) + ∇2F (θ) σu + R(θ, u), ∥R(θ, u)∥ ≤ ρ
+
+2 σ2∥u∥2. (33) Taking expectation over u ∼ N (0 , Id) (or any symmetric isotropic distribution), the linear term vanishes since E[u] = 0 , giving 
+
+∥∇ Fσ(θ) − ∇ F (θ)∥ = ∥Eu[∇F (θ + σu)] − ∇ F (θ)∥ = ∥Eu[R(θ, u)] ∥ ≤ ρ
+
+2 σ2 E∥u∥2. (34) For Gaussian u ∼ N (0 , Id), E∥u∥2 = d, hence 
+
+∥∇ Fσ(θ) − ∇ F (θ)∥ ≤ ρ
+
+2 σ2d. (35) 
+
+Remark (Weaker Assumption). If we only assume F is L-smooth (i.e., ∇F is L-Lipschitz), then one can obtain the weaker bound ∥∇ Fσ(θ) − ∇ F (θ)∥ ≤ Lσ E∥u∥ = O(σ√d) for Gaussian u.
+
+H.6 Second Moment and Variance Bound of GRZO Setup. Let θ = vec( W) ∈ Rd with d = Dout Din . For each flattened example i ∈ { 1, . . . , B }, define the Flipout perturbation zi = vec(∆ Wi) with ∆Wi = U ⊙ (ris⊤ 
+
+> i
+
+) as in (12) . Consider the two-sided loss difference δi = ℓ(θ + σzi; ξi) − ℓ(θ − σzi; ξi) and the canonical estimator 
+
+bg(θ) := bgcan (θ) = 12σB 
+
+> B
+
+X
+
+> i=1
+
+δi zi. (36) 
+
+Assumptions for This Subsection. We assume: (i) ℓ(·; ξ) is three-times differentiable and 
+
+∥∇ 3ℓ(θ; ξ)∥op ≤ ρ; (ii) the per-example gradients are bounded in second moment: E∥∇ ℓ(θ; ξ)∥2 ≤∥∇ F (θ)∥2 + ν2; (iii) the base noise has i.i.d. entries with E[U2
+
+> jk
+
+] = 1 and fourth moment m4 := E[U4
+
+> jk
+
+]
+
+(Gaussian: m4 = 3 , Rademacher: m4 = 1 ). 
+
+H.6.1 Key Conditional Independence 
+
+Let u = vec( U) ∈ Rd and define the sign vector vi = vec( ris⊤ 
+
+> i
+
+) ∈ {± 1}d. Then 
+
+zi = u ⊙ vi. (37) Since {(ri, si)}Bi=1 are independent across i, the sign vectors {vi}Bi=1 are independent across i. Therefore: 
+
+Lemma 2 (Conditional independence and moments) . Conditioned on U (equivalently, on u), the pertur-bations {zi}Bi=1 are independent. Moreover, 
+
+E[zi | U] = 0 , E[ziz⊤ 
+
+> i
+
+| U] = diag( u2) =: D(U), E[ziz⊤ 
+
+> j
+
+| U] = 0 ( i̸ = j).
+
+Unconditionally, E[ziz⊤ 
+
+> i
+
+] = Id.Proof. Given U, each coordinate satisfies (zi)k = uk(vi)k with E[( vi)k] = 0 and E[( vi)k(vi)k′ ] = 0 for 
+
+k̸ = k′ (factorized Rademacher signs). Independence across i follows from independence of {vi}. □
+
+19 H.6.2 Taylor Reduction from Perturbation Products to Quadratic Forms 
+
+Fix ξi and denote gi := ∇θℓ(θ; ξi). By the third-order Taylor expansion (see Appendix H.4), for each i
+
+there exists a remainder Ri such that 
+
+δi = 2 σ⟨gi, zi⟩ + Ri, |Ri| ≤ ρ
+
+3 σ3∥zi∥3. (38) Plugging into δizi gives the decomposition 
+
+δizi = 2 σ  ⟨gi, zi⟩zi
+
+| {z }
+
+> := qi
+
++ Rizi
+
+|{z} 
+
+> := ei
+
+. (39) Hence 
+
+bg(θ) = 1
+
+B
+
+> B
+
+X
+
+> i=1
+
+qi + 12σB 
+
+> B
+
+X
+
+> i=1
+
+ei. (40) 
+
+H.6.3 Expanding the Estimator Second Moment: Diagonal and Cross Terms Conditioning convention. Throughout this subsubsection and the next, we compute second-moment expressions treating the per-example gradients gi = ∇θℓ(θ; ξi) as held fixed, i.e. all expectations are conditioned implicitly on {ξi}Bi=1 . The outer data expectation Eξ is applied at the final substitution step (54) via the standard bounded-variance bound P 
+
+> i
+
+Eξi ∥gi∥2 ≤ B(∥∇ F (θ)∥2 + ν2) from assumption (ii). Inner conditional expectations E[· | U] average over the per-example sign vectors {vi} only; the outer expectations E[·] average additionally over U.We first analyze the leading term 1
+
+> B
+
+P 
+
+> i
+
+qi. Using ∥ P 
+
+> i
+
+ai∥2 = P 
+
+> i
+
+∥ai∥2 + P 
+
+> i̸=j
+
+a⊤ 
+
+> i
+
+aj ,
+
+E 1
+
+B
+
+> B
+
+X
+
+> i=1
+
+qi
+
+> 2
+
+= 1
+
+B2
+
+> B
+
+X
+
+> i=1
+
+E∥qi∥2 + 1
+
+B2
+
+X
+
+> i̸=j
+
+Eq⊤ 
+
+> i
+
+qj
+
+. (41) 
+
+Diagonal Term. Condition on U and qi. Note that ∥zi∥2 = ∥u∥2 does not depend on vi. Moreover, 
+
+qi = ⟨gi, zi⟩zi implies 
+
+∥qi∥2 = ( ⟨gi, zi⟩)2∥zi∥2.
+
+Using Lemma 2 and E[( ⟨gi, zi⟩)2 | U] = g⊤ 
+
+> i
+
+D(U)gi = Pdk=1 g2
+
+> i,k
+
+u2
+
+> k
+
+, we get 
+
+E∥qi∥2 = E
+
+h
+
+∥u∥2 · g⊤ 
+
+> i
+
+D(U)gi
+
+i
+
+=
+
+> d
+
+X
+
+> k=1
+
+g2 
+
+> i,k
+
+E∥u∥2u2
+
+> k
+
+. (42) For i.i.d. coordinates with E[u2
+
+> k
+
+] = 1 and E[u4
+
+> k
+
+] = m4,
+
+E∥u∥2u2
+
+> k
+
+ = E[u4
+
+> k
+
+] + X
+
+> ℓ̸=k
+
+E[u2 
+
+> ℓ
+
+]E[u2
+
+> k
+
+] = m4 + ( d − 1) . (43) Thus 
+
+E∥qi∥2 = ( d − 1 + m4) ∥gi∥2. (44) 
+
+Cross Term (Second Moment). For i̸ = j, conditioned on U the vectors zi and zj are independent (Lemma 2), hence qi and qj are conditionally independent. Therefore 
+
+E[q⊤ 
+
+> i
+
+qj | U] = E[qi | U]⊤E[qj | U]. (45) Moreover, E[qi | U] = E[⟨gi, zi⟩zi | U] = E[ziz⊤ 
+
+> i
+
+| U]gi = D(U)gi. Thus, per the conditioning convention above (gradients gi held fixed in expectation), 
+
+E[q⊤ 
+
+> i
+
+qj ] = Eg⊤ 
+
+> i
+
+D(U)2gj
+
+ =
+
+> d
+
+X
+
+> k=1
+
+gi,k gj,k E[u4
+
+> k
+
+] = m4 ⟨gi, gj ⟩. (46) Under i.i.d. data sampling, the subsequent outer data expectation gives Eξ[⟨gi, gj ⟩] = ∥∇ F (θ)∥2 for i̸ =
+
+j; the resulting contribution cancels exactly in the centered variance bound (51) (cf. Subsubsection H.6.4). 20 Putting Diagonal + Cross Together. Combining (41), (44), and (46), we obtain 
+
+E 1
+
+B
+
+> B
+
+X
+
+> i=1
+
+qi
+
+> 2
+
+= d − 1 + m4
+
+B2
+
+> B
+
+X
+
+> i=1
+
+∥gi∥2 + m4
+
+B2
+
+X
+
+> i̸=j
+
+⟨gi, gj ⟩
+
+= d − 1
+
+B2
+
+> B
+
+X
+
+> i=1
+
+∥gi∥2 + m4
+
+B2
+
+> B
+
+X
+
+> i=1
+
+gi
+
+> 2
+
+. (47) 
+
+Remark (Gaussian vs. Rademacher). If U is Rademacher, then m4 = 1 and the cross term becomes  
+
+> 1
+> B2
+
+∥ P 
+
+> i
+
+gi∥2. If U is Gaussian, then m4 = 3 and the same term is scaled by 3.
+
+H.6.4 Variance Bound: Cross Terms Vanish After Centering 
+
+The quantity above is a second moment. For a variance bound around the mean, cross terms vanish due to Flipout decorrelation. Let ¯qi := qi − E[qi | U]. Conditioned on U, the {¯qi} are independent and zero-mean, so for i̸ = j,
+
+E¯q⊤ 
+
+> i
+
+¯qj | U = 0 . (48) Therefore, 
+
+E 1
+
+B
+
+> B
+
+X
+
+> i=1
+
+¯qi
+
+> 2
+
+= 1
+
+B2
+
+> B
+
+X
+
+> i=1
+
+E∥¯qi∥2. (49) Next, 
+
+E∥¯qi∥2 = E∥qi∥2 − E∥E[qi | U]∥2
+
+= ( d − 1 + m4)∥gi∥2 − E∥D(U)gi∥2 = ( d − 1 + m4)∥gi∥2 − m4∥gi∥2
+
+= ( d − 1) ∥gi∥2. (50) Combining (49)–(50) yields the variance-type bound 
+
+E 1
+
+B
+
+> B
+
+X
+
+> i=1
+
+qi − E
+
+"
+
+1
+
+B
+
+> B
+
+X
+
+> i=1
+
+qi
+
+# 2
+
+≤ d − 1
+
+B2
+
+> B
+
+X
+
+> i=1
+
+∥gi∥2. (51) This is exactly where Flipout decorrelation removes the cross-example covariance terms. 
+
+H.6.5 Remainder Control and Final Bound with Explicit Dimensions 
+
+We now incorporate the Taylor remainder ei = Rizi from (39). Using |Ri| ≤ ρ 
+
+> 3
+
+σ3∥zi∥3, we have 
+
+∥ei∥2 ≤ ρ2
+
+9 σ6∥zi∥8. (52) Hence 
+
+E 12σB 
+
+> B
+
+X
+
+> i=1
+
+ei
+
+> 2
+
+≤ 14σ2B
+
+> B
+
+X
+
+> i=1
+
+E∥ei∥2 ≤ 14σ2 · ρ2
+
+9 σ6 E∥z∥8 = O ρ2σ4 E∥z∥8 . (53) For Rademacher U (hence ∥z∥2 = ∥u∥2 = d deterministically), E∥z∥8 = d4. For Gaussian U, ∥u∥2 is 
+
+χ2(d) and E∥z∥8 = E∥u∥8 = O(d4). Thus the remainder contributes O ρ2σ4d4.
+
+Final Variance Bound with Explicit Dimensions. Let d = Dout Din . Writing bg = 1
+
+> B
+
+P 
+
+> i
+
+qi+ 12σB 
+
+P 
+
+> i
+
+ei
+
+via (40) , Young’s inequality ∥a + b∥2 ≤ (1 + τ )∥a∥2 + (1 + 1 /τ )∥b∥2 with any τ > 0, together with 
+
+E∥X − EX∥2 ≤ E∥X∥2, controls Var( bg) by (1 + τ ) times the leading-term variance (51) plus (1 + 1 /τ )
+
+times the remainder second moment (53) . Choosing any fixed τ ∈ (0 , 1] (e.g. τ = 1 ) keeps the leading coefficient at O(1) , and the resulting (1 + 1 /τ ) constant is absorbed into the O(ρ2σ4d4) remainder. Using PBi=1 ∥gi∥2 ≤ B(∥∇ F (θ)∥2 + ν2) in expectation, we obtain 
+
+E bg(θ) − E[bg(θ)] 2 ≤ d − 1
+
+B
+
+ ∥∇ F (θ)∥2 + ν2 + O ρ2σ4d4 , d = Dout Din . (54) 21 Variance Bound for the GRZO Estimator. The GRZO estimator factors as 
+
+bgGRZO (θ) = 12σB 
+
+> B
+
+X
+
+> i=1
+
+δi
+
+s + ϵ zi = 1
+
+s + ϵ · bgcan (θ), (55) where bgcan = 12σB 
+
+P 
+
+> i
+
+δizi is the canonical estimator bounded by (54) . The self-normalization 1/(s + ϵ) is a global scalar shared across i (although s itself depends on all {δj }), so it acts as a multiplicative prefactor on bgcan rather than introducing per-example weights; the cross-term decorrelation already verified for 
+
+bgcan via Lemma 2 therefore carries through up to this prefactor. Under the concentration assumption of (24) —st concentrates around a positive deterministic scalar 
+
+s⋆(θt) at typical batch sizes—the GRZO update θt+1 = θt − η bgGRZO is equivalent to a canonical SPSA update with adaptive effective step size ˜ηt = η/ (st + ϵ) (treated as the operative step size throughout Appendix H.7). The variance relevant to the convergence rate is then that of bgcan in the effective-step-size frame: 
+
+Var  bgcan (θ) ≤ d − 1
+
+B
+
+ ∥∇ F (θ)∥2 + ν2 + O ρ2σ4d4, (56) matching (54) and exhibiting the 1/B scaling responsible for the √Beff convergence improvement. Theorem 2 in the main body states this bound in the GRZO frame, with the self-normalization c2 
+
+> t
+
+:= 1/(s⋆ + ϵ)2 absorbed into the effective step size used in Appendix H.7. 
+
+H.7 Nonconvex Convergence of GRZO Objective and Update. Let F (θ) = Eξ[ℓ(θ; ξ)] be the population objective and Fσ be the smoothed objective induced by the (Flipout) perturbation distribution, as defined in Appendix H.3 (Gaussian case) or in the Taylor-based view (Appendix H.4). We analyze the GRZO update with group-relative normalization: 
+
+θt+1 = θt − η bgt, bgt = 12σB 
+
+> B
+
+X
+
+> i=1
+
+at,i zt,i , (57) where δt,i = ℓ(θt + σzt,i ; ξt,i ) − ℓ(θt − σzt,i ; ξt,i ), ¯δt = 1
+
+> B
+
+P 
+
+> i
+
+δt,i , st =
+
+q 1
+
+> B
+
+P
+
+> i
+
+(δt,i − ¯δt)2, and 
+
+at,i = δt,i /(st + ϵ).
+
+Assumptions. We assume: (A1) Fσ is lower bounded by F ⋆σ . (A2) Fσ is L-smooth: ∥∇ Fσ(θ) −∇Fσ(θ′)∥ ≤ L∥ θ − θ′∥. (A3) Data noise: E∥∇ ℓ(θ; ξ) − ∇ F (θ)∥2 ≤ ν2. (A4) Approximate direction-preservation (from (24) ): under concentration of st around a positive deterministic scalar s⋆(θt), the GRZO estimator satisfies 
+
+Ebgt | θt
+
+ = ct ∇Fσ(θt) + O(σ2), (58) where ct ≈ 1/(s⋆(θt) + ϵ) > 0 is a positive scalar absorbed into the effective step size ˜η := η c t. For the remainder of this section we treat η as the effective step size, so that E[bgt/c t | θt] = ∇Fσ(θt) + O(σ2);the residual concentration error of st is empirically negligible at the batch sizes used and folded into the O(σ2) remainder. (A5) Second-moment / variance bound (from Appendix H.6): there exist explicit constants Avar (θt) such that 
+
+E bgt − ∇ Fσ(θt) 2 ≤ Avar (θt), (59) with Avar (θt) depending on (B, D in , D out ) through d = Dout Din .
+
+H.7.1 One-Step Descent via Smoothness 
+
+By L-smoothness of Fσ, for any random direction u,
+
+Fσ(θt+1 ) ≤ Fσ(θt) + ⟨∇ Fσ(θt), θt+1 − θt⟩ + L
+
+2 ∥θt+1 − θt∥2. (60) Substitute θt+1 − θt = −ηbgt:
+
+Fσ(θt+1 ) ≤ Fσ(θt) − η⟨∇ Fσ(θt), bgt⟩ + Lη2
+
+2 ∥bgt∥2. (61) 22 Take conditional expectation given θt. After absorbing the positive scalar ct into the effective step size as in (A4), we may write E[bgt | θt] = ∇Fσ(θt) + bt with ∥bt∥ = O(σ2) (smoothing bias only). 
+
+EFσ(θt+1 ) | θt
+
+ ≤ Fσ(θt) − η∥∇ Fσ(θt)∥2 − η⟨∇ Fσ(θt), b t⟩ + Lη2
+
+2 E∥bgt∥2 | θt
+
+. (62) By Cauchy–Schwarz and Young’s inequality, the smoothing-bias cross term satisfies 
+
+|η⟨∇ Fσ(θt), b t⟩| ≤ η 
+
+> 2
+
+∥∇ Fσ(θt)∥2 + η 
+
+> 2
+
+∥bt∥2 = η 
+
+> 2
+
+∥∇ Fσ(θt)∥2 + O(ησ 4),
+
+absorbed into the leading −η∥∇ Fσ∥2 term and the O(σ2) remainder. Therefore, with effective gradient coefficient η 
+
+> 2
+
+:
+
+EFσ(θt+1 ) | θt
+
+ ≤ Fσ(θt) − η 
+
+> 2
+
+∥∇ Fσ(θt)∥2 + Lη2
+
+2 E∥bgt∥2 | θt
+
+ + O(ησ 4). (63) Next decompose the second moment: 
+
+E∥bgt∥2 | θt
+
+ = ∥∇ Fσ(θt)∥2 + E∥bgt − ∇ Fσ(θt)∥2 | θt
+
+. (64) Plugging (64) and (59) into (63) gives 
+
+EFσ(θt+1 ) | θt
+
+ ≤ Fσ(θt) − η
+
+2
+
+ 1 − L η∥∇ Fσ(θt)∥2 + Lη2
+
+2 Avar (θt). (65) Assuming η ≤ 1/(2 L), we have 1 − L η ≥ 12 and thus 
+
+EFσ(θt+1 ) | θt
+
+ ≤ Fσ(θt) − η
+
+4 ∥∇ Fσ(θt)∥2 + Lη2
+
+2 Avar (θt). (66) 
+
+H.7.2 Handling Randomness: Data Noise + ZO Noise 
+
+We now instantiate Avar (θt) using Appendix H.6. Let d = Dout Din . From (54) (Appendix H.6), we have 
+
+Avar (θt) ≤ d − 1
+
+B
+
+
+
+∥∇ F (θt)∥2 + ν2
+
++ CZO (d, B, σ ), (67) where CZO collects the finite-difference remainder (ZO noise) terms, e.g., 
+
+CZO (d, B, σ ) = O ρ2σ4d4 . (68) To express everything in terms of ∇Fσ(θt), we use the smoothing bias bound (Appendix H.5): assuming 
+
+∥∇ Fσ(θ) − ∇ F (θ)∥ ≤ cbias σ2d for all θ, we have 
+
+∥∇ F (θt)∥2 ≤ 2∥∇ Fσ(θt)∥2 + 2 c2
+
+> bias
+
+σ4d2. (69) Plug (69) into (67): 
+
+Avar (θt) ≤ 2( d − 1) 
+
+B| {z }
+
+> := α
+
+∥∇ Fσ(θt)∥2 + d − 1
+
+B
+
+
+
+ν2 + 2 c2
+
+> bias
+
+σ4d2
+
++ CZO (d, B, σ )
+
+| {z }
+
+> := β
+
+. (70) 
+
+H.7.3 Telescoping and Average Gradient Norm Bound 
+
+Take full expectation of (66) and sum from t = 0 to T − 1:
+
+E[Fσ(θT )] ≤ Fσ(θ0) − η
+
+4 
+
+> T−1
+
+X
+
+> t=0
+
+E∥∇ Fσ(θt)∥2 + Lη2
+
+2 
+
+> T−1
+
+X
+
+> t=0
+
+EAvar (θt). (71) 23 Using the bound (70) and rearranging gives 
+
+η
+
+4 
+
+> T−1
+
+X
+
+> t=0
+
+E∥∇ Fσ(θt)∥2 ≤ Fσ(θ0) − E[Fσ(θT )] + Lη2
+
+2 
+
+> T−1
+
+X
+
+> t=0
+
+E α∥∇ Fσ(θt)∥2 + β
+
+≤ Fσ(θ0) − F ⋆σ + Lη2α
+
+2 
+
+> T−1
+
+X
+
+> t=0
+
+E∥∇ Fσ(θt)∥2 + Lη2T
+
+2 β. (72) Move the gradient-sum term to the left: 
+
+ η
+
+4 − Lη2α
+
+2
+
+ T −1X
+
+> t=0
+
+E∥∇ Fσ(θt)∥2 ≤ Fσ(θ0) − F ⋆σ + Lη2T
+
+2 β. (73) Choose step size satisfying 
+
+η ≤ min 
+
+ 12L , 14Lα
+
+
+
+= min 
+
+ 12L , B
+
+8L(d − 1) 
+
+
+
+. (74) 
+
+Remark 1 (Regime condition) . The second term B 
+
+> 8L(d−1)
+
+is the binding constraint when B < d − 1, which is typical in practice (e.g. for Llama-3-8B with dℓ ∼ 4096 2 and B ∼ 16 , so B ≪ d − 1). The convergence rate in (75) remains meaningful provided ηT → ∞ , i.e. T = Ω   d−1
+
+> LB
+
+ steps. With 2Lηα ≤ 12 , we have 1 − 2Lηα ≥ 12 , hence η 
+
+> 4
+
+(1 − 2Lηα ) ≥ η 
+
+> 8
+
+, and (73) yields 
+
+1
+
+T 
+
+> T−1
+
+X
+
+> t=0
+
+E∥∇ Fσ(θt)∥2 ≤ 8 Fσ(θ0) − F ⋆σ
+
+
+
+ηT + 4 Lη β. (75) 
+
+Making β explicit in (B, D in , D out ). Recall d = Dout Din . From (70), 
+
+β = d − 1
+
+B
+
+
+
+ν2 + 2 c2
+
+> bias
+
+σ4d2
+
++ O ρ2σ4d4 , d = Dout Din . (76) Plugging (76) into (75) gives an explicit bound that cleanly separates the data noise term ν2 and the ZO noise terms (proportional to σ4). 
+
+GRZO Normalization Effect on Convergence. Direct algebra gives P 
+
+> i
+
+a2 
+
+> i
+
+= B 1 + ( ¯δ/s )2  s/ (s +
+
+ϵ)2, so 1
+
+> B
+
+P 
+
+> i
+
+a2 
+
+> i
+
+≈ 1 at typical batch sizes provided : (i) E[st] ≫ ϵ (the within-batch SD dominates the numerical-stability constant, so s/ (s+ϵ) ≈ 1); and (ii) the batch is large enough that E[( ¯δ/s )2] = O(1 /B )
+
+(for two-sided ZO, E[¯δ] = 0 by symmetry, so this follows from a standard O(1 /√B) CLT-type estimate on ¯δ). Under (i)–(ii), the variance of bgGRZO is self-normalized and does not grow with the magnitude of 
+
+{δi}. The same convergence bound holds with the rescaled step size η that absorbs the positive scalar 
+
+ct = 1 /(s⋆(θ) + ϵ) from directional unbiasedness (A4). 
+
+H.8 From a Single Layer to the Full Network (Block-Wise Aggregation) Block-Wise Parameterization. Let the full parameter vector be a concatenation of L blocks 
+
+θ =  θ(1) , θ(2) , . . . , θ(L) ∈ Rdtot , dtot =
+
+> L
+
+X
+
+> ℓ=1
+
+dℓ,
+
+where each block corresponds to a linear layer weight W(ℓ) ∈ RD(ℓ)  
+
+> out ×D(ℓ)
+> in
+
+with dℓ = D(ℓ)
+
+> out
+
+D(ℓ) 
+
+> in
+
+. Define 
+
+F (θ) = Eξ[ℓ(θ; ξ)] and the two-sided per-example loss differences δt,i = ℓ(θt + σzt,i ; ξt,i ) − ℓ(θt −
+
+σzt,i ; ξt,i ).24 Per-Block Flipout Perturbations. At each optimizer step t, for each block ℓ we sample an independent base noise U(ℓ) 
+
+> t
+
+and independent sign vectors (r(ℓ) 
+
+> t,i
+
+, s(ℓ) 
+
+> t,i
+
+) for each flattened example i. Let 
+
+z(ℓ) 
+
+> t,i
+
+:= vec 
+
+
+
+U(ℓ) 
+
+> t
+
+⊙  r(ℓ) 
+
+> t,i
+
+(s(ℓ) 
+
+> t,i
+
+)⊤
+
+∈ Rdℓ , zt,i :=  z(1)  
+
+> t,i
+
+, . . . , z(L)
+
+> t,i
+
+ ∈ Rdtot .
+
+By construction and Lemma 2, each z(ℓ) 
+
+> t,i
+
+is symmetric and isotropic, and the blocks are independent across 
+
+ℓ.
+
+Network-Level GRZO Estimator. Compute batch statistics ¯δt = 1
+
+> B
+
+P 
+
+> i
+
+δt,i , st =
+
+q 1
+
+> B
+
+P
+
+> i
+
+(δt,i − ¯δt)2,and at,i = δt,i /(st + ϵ). Define the GRZO estimator on the full parameter vector: 
+
+bgt := 12σB 
+
+> B
+
+X
+
+> i=1
+
+at,i zt,i ∈ Rdtot , bg(ℓ) 
+
+> t
+
+is the ℓ-th block of bgt. (77) 
+
+Proposition 1 (Canonical unbiasedness w.r.t. a smoothed objective (full network)) . Let Fσ(θ) = Ez [F (θ+
+
+σz)] be the smoothed objective induced by the joint perturbation z = ( z(1) , . . . , z(L)) (product across blocks). Define the unnormalized network-level canonical estimator 
+
+bgcan ,t := 12σB 
+
+> B
+
+X
+
+> i=1
+
+δt,i zt,i .
+
+Under the conditions of Appendix H.3 (Gaussian, exact) or Appendix H.4 (general symmetric isotropic, 
+
+O(σ2)-accurate), 
+
+Ebgcan ,t | θt
+
+ = ∇Fσ(θt), and hence Ebg(ℓ)can ,t | θt
+
+ = ∇θ(ℓ) Fσ(θt).
+
+The GRZO estimator factors as bgt = ( st + ϵ)−1 bgcan ,t (77) ; the self-normalization is analyzed as an adaptive step-size rescaling and is approximately direction-preserving under concentration of st (cf. (24) 
+
+and Appendix H.7). Proof. The proof is identical to the single-block case after viewing zt,i ∈ Rdtot as the perturbation direction: by Lemma 2 applied block-wise and independence across blocks, zt,i is symmetric with E[zt,i ] = 0 and 
+
+E[zt,i z⊤
+
+> t,i
+
+] = Idtot . Therefore the two-sided finite-difference identity applied to bgcan ,t yields unbiasedness for ∇Fσ(θt) (exact for Gaussian; O(σ2)-accurate via Taylor expansion otherwise). 
+
+Proposition 2 (Variance decomposition across blocks) . Assume that the random seeds/noises used in different blocks are independent across ℓ. Then the centered second moment decomposes as 
+
+E bgt − E[bgt | θt] 2 =
+
+> L
+
+X
+
+> ℓ=1
+
+E bg(ℓ) 
+
+> t
+
+− E[bg(ℓ) 
+
+> t
+
+| θt] 2.
+
+Consequently, any per-block variance bound can be summed to yield a network-level bound. Proof. Because ∥ · ∥ 2 on a concatenated vector is the sum of squared norms of its blocks, 
+
+bgt − E[bgt | θt] 2 =
+
+> L
+
+X
+
+> ℓ=1
+
+bg(ℓ) 
+
+> t
+
+− E[bg(ℓ) 
+
+> t
+
+| θt] 2.
+
+Taking expectations gives the identity (no cross terms appear because the blocks live in disjoint coordi-nates). 25 Plugging in explicit (B, D in , D out ) dependence. Applying the single-block bound (54) (Appendix H.6) to each block ℓ with dℓ = D(ℓ)
+
+> out
+
+D(ℓ) 
+
+> in
+
+yields 
+
+E bgt − E[bgt | θt] 2 ≤
+
+> L
+
+X
+
+> ℓ=1
+
+ dℓ − 1
+
+B
+
+
+
+∥∇ θ(ℓ) F (θt)∥2 + ν2
+
++ O ρ2 
+
+> ℓ
+
+σ4d4
+
+> ℓ
+
+
+
+= 1
+
+B
+
+> L
+
+X
+
+> ℓ=1
+
+(dℓ − 1) 
+
+
+
+∥∇ θ(ℓ) F (θt)∥2 + ν2
+
++ O σ4
+
+> L
+
+X
+
+> ℓ=1
+
+ρ2 
+
+> ℓ
+
+d4
+
+> ℓ
+
+!
+
+. (78) Here dℓ = D(ℓ)
+
+> out
+
+D(ℓ) 
+
+> in
+
+, making the dependence on (Din , D out ) explicit block-wise. 
+
+GRZO Normalization. Because at,i has approximate unit empirical variance by construction ( 1
+
+> B
+
+P 
+
+> i
+
+a2 
+
+> t,i
+
+≈ 1), the variance bound above applies directly to the GRZO estimator (16) , with the positive scale factor ct = 1 /(s⋆(θt) + ϵ) from (24) absorbed into the effective learning rate. 
+
+Theorem 4 (Network-level nonconvex convergence of GRZO) . Let the full parameter vector be θ =(θ(1) , . . . , θ(L)) ∈ Rdtot with block dimensions dℓ = D(ℓ)out D(ℓ)in and dtot = PLℓ=1 dℓ. Let F (θ) = 
+
+Eξ[ℓ(θ; ξ)] be the population objective and Fσ be the smoothed objective induced by the joint Flipout perturbation distribution. Consider the GRZO update with group-relative normalization: let ¯δt = 1
+
+> B
+
+P 
+
+> i
+
+δt,i , st =
+
+q 1
+
+> B
+
+P
+
+> i
+
+(δt,i − ¯δt)2, at,i = δt,i /(st + ϵ), and 
+
+θt+1 = θt − η bgt, bgt = 12σB 
+
+> B
+
+X
+
+> i=1
+
+at,i zt,i ,
+
+where B is the batch size and δt,i = ℓ(θt + σzt,i ; ξt,i ) − ℓ(θt − σzt,i ; ξt,i ). Assume: 
+
+(A1) Fσ is lower bounded: Fσ(θ) ≥ F ⋆σ for all θ.
+
+(A2) Fσ is L-smooth. 
+
+(A3) Data noise: E∥∇ ℓ(θ; ξ) − ∇ F (θ)∥2 ≤ ν2.
+
+(A4) Directional unbiasedness: with a rescaled step size η absorbing the positive scale ct = 1 /(s⋆(θt)+ ϵ)
+
+(cf. (24) ), E[bgt | θt] = ∇Fσ(θt) + O(σ2).
+
+(A5) Block-wise Flipout construction and independence across blocks, so that the network-level variance admits the explicit bound (cf. (78) ): 
+
+E bgt − E[bgt | θt] 2 ≤ 1
+
+B
+
+> L
+
+X
+
+> ℓ=1
+
+(dℓ − 1) 
+
+
+
+∥∇ θ(ℓ) F (θt)∥2 + ν2
+
++ CZO ,
+
+where CZO = O
+
+
+
+σ4 PLℓ=1 ρ2 
+
+> ℓ
+
+d4
+
+> ℓ
+
+
+
+collects the finite-difference/Taylor remainder terms (with ρℓ
+
+bounding the third derivative). Assume additionally a smoothing-bias bound per block: ∥∇ θ(ℓ) Fσ(θ) − ∇ θ(ℓ) F (θ)∥ ≤ cbias ,ℓ σ2dℓ for all θ. Define 
+
+αnet := 2
+
+B
+
+> L
+
+X
+
+> ℓ=1
+
+(dℓ − 1) , βnet := 1
+
+B
+
+> L
+
+X
+
+> ℓ=1
+
+(dℓ − 1) 
+
+
+
+ν2 + 2 c2bias ,ℓ σ4d2
+
+> ℓ
+
+
+
++ CZO .
+
+Choose a constant step size 
+
+η ≤ min 
+
+ 12L , 14Lαnet 
+
+
+
+= min 
+
+(
+
+12L , B
+
+8L PLℓ=1 (dℓ − 1) 
+
+)
+
+.
+
+26 Then for any T ≥ 1,
+
+1
+
+T 
+
+> T−1
+
+X
+
+> t=0
+
+E ∇Fσ(θt) 2 ≤ 8 Fσ(θ0) − F ⋆σ
+
+
+
+ηT + 4 Lη β net .
+
+Equivalently, if R ∼ Unif {0, . . . , T − 1}, then 
+
+E ∇Fσ(θR) 2 ≤ 8 Fσ(θ0) − F ⋆σ
+
+
+
+ηT + 4 Lη β net .
+
+GRZO Normalization and Effective Step Size. The group-relative weights at,i = δt,i /(st + ϵ) have approximate unit empirical variance ( 1
+
+> B
+
+P 
+
+> i
+
+a2 
+
+> t,i
+
+≈ 1), so the convergence bound holds with the same η
+
+after absorbing the positive scale ct = 1 /(s⋆(θt) + ϵ) from (A4) into the learning rate. 
+
+Remark (Scope of Theorem). The theorem covers the GRZO estimator with group-relative normal-ization bgt = 12σB 
+
+P 
+
+> i
+
+at,i zt,i , at,i = δt,i /(st + ϵ), which is the estimator used throughout the paper. The positive scale ct = 1 /(s⋆(θt) + ϵ) from (A4) is absorbed into the effective learning rate; the O(σ2)
+
+smoothing remainder in (A4) is the only residual bias. 
+
+Remark (Comparison with MeZO). MeZO uses a single shared perturbation direction per update, giving a gradient estimator second moment O(d∥∇ F ∥2 + dν 2) where d is the full parameter dimension. GRZO’s estimator achieves 1
+
+> B
+
+PLℓ=1 (dℓ − 1)  ∥∇ θ(ℓ) F ∥2 + ν2, a B-fold reduction. 27 I LLM Usage 
+
+Large language models were used only as writing assistants for minor grammar and phrasing polish on author-drafted text. They played no role in re-search conception, experimental design, or interpre-tation of results. All technical content and claims are the authors’ own and were independently veri-fied. 28
