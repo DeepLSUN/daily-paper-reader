@@ -1,0 +1,851 @@
+Title: LangMAP: A Language-Adaptive Approach to Tokenization
+
+URL Source: https://arxiv.org/pdf/2606.23566v1
+
+Published Time: Tue, 23 Jun 2026 03:37:35 GMT
+
+Number of Pages: 24
+
+Markdown Content:
+# LangMAP: A Language-Adaptive Approach to Tokenization 
+
+Clara Meister 1 Suchir Salhan 2 Andrzej Szablewski 2 Pietro Lesci 2
+
+Paula Buttery 2 Tiago Pimentel 31EPFL, 2University of Cambridge, 3ETH Zürich 
+
+clara.meister@epfl.ch , {sas245 , as3623 , pl487 , pjb48}@cam.ac.uk ,
+
+tiago.pimentel@inf.ethz.ch 
+
+## Abstract 
+
+Language-specific tokenizers improve tokenization quality and the downstream performance of models on those languages (Rust et al., 2021; Limisiewicz et al., 2023). However, using such a tokenizer comes at a cost: either a new model must be trained from scratch, or the vocabulary of an existing pretrained model must be adapted. We propose Language-adaptive Maximum a Posteriori (LangMAP) Tokenization , a tokenization scheme that extends the UnigramLM algorithm (Kudo, 2018) to the multilingual setting, producing language-specific tokenization from a single shared vocabulary. Notably, LangMAP can be used when training a multilingual language model from scratch or to adapt a pretrained model’s tokenizer to individual languages without changing its vocabulary. While language labels are required at training time, a key feature of the algorithm is that it then performs language-specific tokenization at inference without knowledge of the input’s language. Across 14 open-source tokenizers, 9 natural languages, and 9 programming languages, LangMAP improves morphological boundary alignment and, for all coding languages tested, alignment with abstract syntax tree (AST) leaf boundaries. In fine-tuning experiments, results are mixed: LangMAP improves target-language grammatical acceptability (MultiBLiMP) on the languages tested; its benefits are less consistent on knowledge-related tasks (Global-PIQA, Belebele). 
+
+## 1 Introduction 
+
+Tokenization is a standard pre - processing step in modern language models (LMs) that converts an input string—a sequence of characters or bytes—into a sequence of tokens from a fixed, finite vocabulary. Although tokenization is in principle language -agnostic, the tokenizers used in most production systems have been optimized for English. As a result, texts from non-English languages— and, in particular, those with rich morphology or non-latin scripts—face systematically worse tokenization: they are over-segmented, producing longer token sequences in which tokens often do not correspond to full words or meaningful morphemes (Petrov et al., 2023; Lee et al., 2024). Empirical studies show that these issues hurt downstream performance (Lesci et al., 2025) and inflate per -request costs for commercial APIs, introducing cross-lingual disparities in both the quality and price of available models (Ahia et al., 2023; Petrov et al., 2023, inter alia ). Although language-specific tokenizers can address these disparities, 1 using one with an arbitrary pretrained model requires either retraining the model with a new tokenizer or adapting the model’s parameters to a new vocabulary (Downey et al., 2023; Remy et al., 2024; Feher et al., 2025). Both approaches are computationally expensive, partially offsetting the benefit of starting from a pretrained model in the first place. Importantly, the poor segmentations induced by English-centric tokenizers are not always due to missing vocabulary coverage: in many cases, the tokenizer already contains tokens that would support a more appropriate segmentation for the target language, but their parameters induce an alternative, suboptimal decomposition. 2 This motivates looking at approaches that retain the original vocabulary 
+
+> 1
+
+Language-specific tokenizers have been shown to improve segmentation quality and, after model adaptation, downstream performance for their target languages (Rust et al., 2021; Limisiewicz et al., 2023). 
+
+> 2
+
+As a concrete example, consider the German compound word Rathaus (“city hall”), where the optimal morphological segmentation would be Rat + haus . However, in a multilingual tokenizer dominated by English 
+
+1
+
+> arXiv:2606.23566v1 [cs.CL] 22 Jun 2026
+
+while optimizing the per-language segmentations. Notably, this strategy would avoid the need to retrain models from scratch or to employ cumbersome tokenizer adaptation methods. In this paper, we propose Language-adaptive MAP (LangMAP) Tokenization, an inherently multilin-gual tokenization scheme. LangMAP follows UnigramLM (Kudo, 2018) 3 in casting tokenization as recovering the latent segmentation of a string under a unigram model. Given a dataset, UnigramLM learns a generative-model for it, composed of a vocabulary and its associated probability distribution. Uncovering a string’s latent segmentation then consists of selecting the maximum a posteriori (MAP) segmentation under this model. LangMAP retains this formulation but replaces the single global dis-tribution with a collection of language-specific distributions learned over the same shared vocabulary. At inference time, we compute the MAP segmentation under each language-specific distribution and select the one attaining the highest overall likelihood across all languages. A notable consequence is that LangMAP can adapt a pretrained model’s tokenizer to individual languages without changing its vocabulary. Furthermore, although language labels are required to estimate the per-language distributions during estimation of LangMAP parameters, none are needed at tokenizer inference. We use LangMAP to make several open-source tokenizers language-specific, targeting 9 natural languages and 9 programming languages. On natural language, LangMAP improves morphological boundary alignment for the languages whose script the base vocabulary already covers; on the other hand, the change is near zero for scripts the vocabulary covers poorly. On code, LangMAP consistently improves the AST-leaf-boundary alignment of tokenized code sequences. In our fine-tuning experiments—focused on the languages where LangMAP induced the largest segmentation changes—we see that morphological gains are accompanied by improvements on downstream gram-matical acceptability: models trained with LangMAP achieve higher target-language MultiBLiMP accuracy than an identically fine-tuned baseline, with the largest gains on the agglutinative languages tested. We observe no consistent differences on commonsense reasoning (Global-PIQA) or reading comprehension (Belebele) benchmarks. 
+
+## 2 Tokenization 
+
+Let s = ⟨s1, s2, ..., sN ⟩ be a string , which consists of characters (or bytes) from a base alphabet Σ.Further, let V be a vocabulary , a finite set composed of tokens v ∈ V .4 Each of these tokens v
+
+consists of a sequence of elements from Σ ∪ Γ, where Γ denotes a finite set of reserved symbols (e.g., whitespace markers, punctuation, end-of-string markers, etc). Thus, intuitively, each v ∈ V is itself a finite string over the extended alphabet Σ ∪ Γ.5
+
+Tokenization is the process of converting a string s into a sequence of tokens v = ⟨v1, ..., vm⟩.This process, which we denote by the function hϕ : Σ∗ → V ∗,6 can be intuitively understood as creating a different representation of the original string. A tokenization algorithm typically defines a parametrized class of such maps H def 
+
+= {hϕ | ϕ ∈ Φ}, as well as a method for learning the parameters ϕ ∈ Φ; these parameters then define (directly or indirectly) the tokenizer’s vocabulary 
+
+V.7 The application of hϕ to a string (once its parameters are learned) is referred to as inference .The map hϕ is typically designed to be lossless. Thus, given a sequence of tokens v = hϕ(s), we can reconstruct the input string s using a detokenization function g : V ∗ → Σ∗. Typically, g is as simple as concatenating the elements composing each of v’s tokens, while handling its reserved symbols;     
+
+> statistics, the merge rule t+h
+
+→ th typically holds an extremely high rank due to the ubiquity of the English digraph “th”. The BPE algorithm greedily executes this merge first, bridging the morphological boundary between the two roots. Consequently, even if Rat and haus exist in the model vocabulary, they cannot be used; instead, we end up with a semantically opaque segmentation like Ra + th + aus .        
+
+> 3UnigramLM is one of the main tokenization algorithms, used, e.g., by the language models T5, PaLM 2, and XLNet (Raffel et al., 2020; Anil et al., 2023; Yang et al., 2019).
+> 4Tokens vare also sometimes called subwords; we avoid this naming because vneed not align with orthographic words, in their typical definition.
+> 5While a sequence of tokens vis also a “string” in the strict sense, we will exclusively refer to sas strings here.
+> 6
+
+{} ∗ denotes the Kleene closure of a set. In words, Σ∗ is the set of all finite strings over the alphabet Σ.     
+
+> 7E.g., the BPE algorithm defines an hparameterized by a list of token merges ϕ
+
+= ⟨(v1, v′
+
+> 1
+
+), (v2, v′
+
+> 2
+
+), . . . ⟩  
+
+> and the algorithm for learning these merge pairs from frequencies in text data. Note that, in general, selecting the parameters ϕwhich optimize some tokenizer loss is NP-hard (Whittington et al., 2025; Kastreva et al., 2026).
+
+2formally, g(v) = v1 ◦ · · · ◦ vm, where ◦ denotes string concatenation and, when applied to tokens, it indicates that the strings forming each token are concatenated together. Notably, g is generally non-injective: even when considering a fixed vocabulary V, there are often multiple sequences v that yield the same s after the application of g. We refer to all such token sequences as segmentations of s, and use TV (s) def 
+
+= {v ∈ V ∗ : g(v) = s} to refer to this set. For a given h, we refer to h(s) as the canonical segmentation of s and to any other segmentation v ∈ T V (s) for which v̸ = h(s) as a non-canonical segmentation . This property of tokenization, i.e., that multiple token sequences can produce the same string, has motivated researchers to propose alternative tokenizer inference schemes. These techniques replace only a tokenizer’s inference rules, while keeping the learned vocabulary unchanged. 8 Our proposed method likewise takes this approach, albeit particularly adapted for the multilingual setting. 
+
+2.1 UnigramLM 
+
+The UnigramLM tokenization algorithm (Kudo, 2018) frames tokenization as a probabilistic learning problem. It assumes strings are generated via a two-stage generative model: latent token-sequences are sampled from a unigram distribution; these tokens are then concatenated to form strings. Tokenization then simply consists of uncovering a latent segmentation under this model (typically via a MAP approach). As this generative model’s parameters are unknown, UnigramLM also provides a method for estimating them. In the remainder of this section, we briefly describe the algorithm and refer to §E for more details. 
+
+Generative Model. Let V be a vocabulary, and ϕ ∈ ∆|V |− 1 denote a probability distribution over it. UnigramLM assumes strings are produced via a two stage generative model P. First, token sequences 
+
+v = ⟨v1, v2, ..., vm⟩ are generated by sampling tokens independently from ϕ:9
+
+P(V = v; ϕ) def 
+
+∝
+
+> |v|
+
+# ∏
+
+> t=1
+
+ϕ[vt]. (1) where ϕ[v] denotes the probability of token v under ϕ. Second, these sequences deterministically induce an observed string via a fixed detokenization function g:
+
+P(S=s | V=v) = 
+
+ 1 if s = g(v)
+
+0 else (2) 
+
+Inference Function. Given the parameters ϕ of such a generative model, UnigramLM’s inference procedure simply recovers the MAP segmentation of a string s:
+
+hϕ(s) def 
+
+= argmax  
+
+> v∈V ∗
+
+P(V = v | S = s; ϕ) (3a) 
+
+= argmax  
+
+> v∈T V(s)
+> |v|
+
+# ∏
+
+> t=1
+
+ϕ[vt] (3b) (A detailed derivation is shown in §E.1.) The solution to Equation (3) can then be found efficiently using a Viterbi-style dynamic program, which runs in O(N · Kmax ) time, where N is the length of the input string and Kmax is the maximal length (in characters or bytes) of any token v ∈ V .
+
+Parameter Estimation. Finally, UnigramLM also provides a way to learn the parameters ϕ of its generative model. Ideally, we would choose the ϕ that maximize the log-likelihood of a target dataset C = {sm}Mm=1 under our generative model: i.e., L(C; ϕ) = ∑Mm=1 log P(S=sm; ϕ). As this is, in general, intractable, UnigramLM approximates ϕ in an iterative fashion via the EM algorithm, lower-bounding L and maximizing this objective. Concretely, two steps are performed iteratively,   
+
+> 8For example, the inference strategy may find the token sequence v
+
+∈ T V (s) of minimal length for a given input s (Schmidt et al., 2024), or may greedily prefer the longest in-vocabulary tokens (Hofmann et al., 2022).       
+
+> 9In order to be a valid probability distribution over token sequences, Pwould need to include an explicit termination mechanism (e.g., an EOS symbol). Since this is omitted here, we use ∝in Equation (1) to indicate that the expression is defined up to a normalization constant.
+
+3either for a fixed number of steps or until changes to the objective value fall below some threshold. 10 
+
+First, under a fixed ϕ(n), the E-Step computes expected counts for each token in our corpus, i.e., the amount each token is used on average across all possible corpus segmentations: 
+
+bcv(C; ϕ(n)) def 
+
+=
+
+> M
+
+# ∑
+
+> m=1
+
+# ∑  
+
+> v∈T V(sm)
+
+P(V = v | S = sm; ϕ(n)) cv(v) (4) where cv(·) counts the occurrences of token v in its input, i.e., cv(v) def 
+
+= ∑|v| 
+
+> t=1
+
+1{vt = v}. Second, the 
+
+M-Step updates the parameter ϕ estimates, equating them to each token’s normalized expected count: 
+
+ϕ(n+1)[v] = bcv(C; ϕ(n))
+
+∑v′ ∈V bcv′ (C; ϕ(n)) . (5) 
+
+What about V? Notably, when building a tokenizer, we do not apriori know V. The standard UnigramLM algorithm incorporates a strategy for choosing V by initializing V0 as an over-sized set and adding a pruning step at the end of an EM iteration, such that |V N | is the desired vocab size (see Land & Pinter, 2026 for a discussion of this strategy and their impacts). While our algorithm uses several of the methods from UnigramLM, it is not tied to a specific method for choosing V. One could use a vocabulary learned by, e.g., BPE instead. We thus defer the explanation of this step to §E. 
+
+2.2 Tokenization in NLP Pipelines 
+
+UnigramLM’s estimation optimizes a tokenizer for the empirical distribution of its training corpus, so a corpus dominated by a few languages or domains yields a tokenizer implicitly optimized for those regimes. Such tokenizers will logically exhibit the cross-lingual disparities described in §1. These disparities are relevant, as over-segmentation leads to increased API costs (Petrov et al., 2023), and tokenizer segmentation quality has been shown to affect downstream generalization in multilingual models (Hofmann et al., 2021; Klein & Tsarfaty, 2020; Liang et al., 2023; Vemula et al., 2025; Arnett & Bergen, 2025; Shani et al., 2026, inter alia ). A growing body of work has sought to mitigate these effects by modifying the tokenization stage or adapting pretrained models to alternative vocabularies. Broadly, existing approaches fall into two categories. The first class of approaches proposes new tokenization schemes. For example, Foroutan et al. (2025) and Limisiewicz et al. (2023) propose variants of BPE and UnigramLM, respectively, that are particularly adapted for the multilingual setting. Some other works attempt to remove or relax the dependency on a fixed token vocabulary altogether. Token-free and byte-level models operate directly on character or byte sequences (Xue et al., 2022; Ahia et al., 2024), eliminating biases incurred by vocabularies optimized for high-resource domains, but at the cost of substantially longer input sequences and increased training and inference complexity. The second class of approaches propose post-training modifications to models. Post-hoc vocabulary adaptation methods, such as merging or retrofitting token embeddings for new vocabularies (Downey et al., 2023; Remy et al., 2024; Feher et al., 2025), avoid full model retraining but still require either fine-tuning pretrained models or learning additional model parameters such as new token embeddings or auxiliary networks. While effective in some settings, these methods incur significant computational cost and frequently trade off performance in high-resource languages for gains in lower-resource regimes. Despite their promise, the computational, architectural, and performance trade-offs of these approaches have limited their adoption in large-scale multilingual pipelines. In the following section, we introduce LangMAP, a multilingual tokenization scheme that also serves as an adaptation method, combining the aims of both categories above without their principal costs. As a standalone tokenization scheme, it gives every language its own parameters, so the segmentation of each is optimized for that language rather than traded off against the rest; gains on low-resource languages need not come at the cost of high-resource ones, as they do for a single global tokenizer whose parameters must compromise across all languages at once. As an adaptation method, it decouples adapting a model to new languages from both vocabulary redesign and model retraining, with new language-support not requiring new embeddings or auxiliary networks.  
+
+> 10 ϕ(0)can be initialized as e.g., the uniform distribution.
+
+43 LangMAP Tokenization 
+
+We propose Language - adaptive MAP (LangMAP) Tokenization: a new tokenization algorithm that produces segmentations optimized for each language in its training set. 11 Notably, LangMAP requires language labels during estimation, but not at inference. LangMAP can be used either when training a language model from scratch or to adapt an already pretrained model, accepting any base vocabulary (e.g., one learned by BPE, or that of a pretrained model) without modifying it. 
+
+3.1 Learning Language-Specific Parameters 
+
+Let Ω be the set of languages under consideration and ℓ ∈ Ω be a single language. Let Cℓ denote the subset of the corpus corresponding to language ℓ. Further, let V be a fixed base vocabulary, e.g., the vocabulary of a pretrained language model or one learned by a standard tokenization algorithm such as UnigramLM. Keeping this vocabulary fixed, we learn language-specific unigram parameters 12 ϕℓ
+
+by applying the EM procedure described in §2.1 independently to each language-specific corpus Cℓ.For each language, the expected token counts in the E-step are computed (exclusively) over strings in Cℓ, while the M-step normalizes these counts over the full (shared) vocabulary V. As mentioned above, as V is fixed, there is no vocabulary learning, and the pruning step of the standard UnigramLM algorithm is skipped; only token probabilities are estimated. 
+
+3.2 Language-Adaptive Inference 
+
+At inference time, we find the most probable segmentation for each language ℓ ∈ Ω under the unigram model with parameters ϕℓ. We then compare segmentations across all languages, choosing the one with maximum unigram likelihood according to any ϕℓ. Notably, this second step implicitly identifies the string’s language using UniLID—a recent method introduced by (Meister et al., 2026) 13 —and then returns its segmentation. Formally: 
+
+vℓ = argmax  
+
+> v∈T V(s)
+
+P(V = v; ϕℓ)
+
+| {z }
+
+> Standard per-language inference via UnigramLM
+
+v∗ = argmax   
+
+> vℓ|ℓ∈Ω
+
+P(V = vℓ; ϕℓ)
+
+| {z }
+
+> Implicit language-identification via UniLID
+
+(6) Although this formulation appears to require performing the UnigramLM inference problem for each language, inference remains efficient due to the shared vocabulary. Because V is fixed, the segmentation lattice—which provides all valid segmentations of the input string under V—is identical across languages and needs to be constructed only once. The per-language instantiations of the problem differ only in the edge weights induced by the language-specific token probabilities. As a result, the overall complexity scales linearly with the number of languages, requiring an additional 
+
+O(|Ω|) passes over a fixed lattice, rather than reconstructing the lattice itself for each model. This overhead could be reduced, if desired, by using coarser-grained categorizations, e.g., language families instead of individual languages. 
+
+3.3 Computational Complexity, Scope, and Limitations 
+
+From a computational standpoint, LangMAP differs from the standard UnigramLM tokenization algorithm only in that it maintains a separate distribution per language rather than a single shared one; its cost follows directly from this. Training amounts to running the same EM procedure once per language, each over only that language’s portion of the corpus, so the total work is comparable to a single UnigramLM run; the |Ω| fits are moreover independent and completely parallelizable. We find empirically that the estimates stabilize after a few thousand examples per language (see §B.4 for analysis of LangMAP convergence).    
+
+> 11 We note that the algorithm is generally applicable to any partition of the corpus; we focus on languages, as LM performance according to this partition is of particular concern to the community, but perform evaluations on code as well.
+> 12 We re-initialize ϕ(0)
+> ℓas the current token frequency distribution in the corpus.
+> 13 Explicitly, UniLID performs language identification using an approach identical to Equation (6), but returning
+
+ℓ instead of vℓ.
+
+5At inference, the segmentation lattice depends only on the (fixed) vocabulary and the input string, so it is built once and reused across all language-conditional distributions; LangMAP therefore adds only an O(|Ω|) factor over standard UnigramLM decoding—one Viterbi-style pass per language over the shared lattice, plus an O(|Ω|) comparison to select the most likely segmentation. This overhead is small next to the components that dominate runtime in a modern pipeline, such as the neural network’s forward pass over the tokenized input. Finally, because each distribution is fit independently and the vocabulary is held fixed, incremental extension to new languages or dialects can be done easily and efficiently; only the unigram distribution of the new language needs to be learned. 
+
+## 4 Experiments 
+
+We evaluate whether LangMAP segmentations improve tokenization intrinsic quality (measured as, e.g., compression) and if, after model fine-tuning, they improve tokenization extrinsic quality (measured as downstream performance). For each base tokenizer we compare intrinsic and extrinsic metrics under the unchanged base tokenizer (B ASE ) and under L ANG MAP, which uses the same vocabulary, but scored with the language-specific unigram distributions of §3. 
+
+4.1 Setup Tokenizers and models. Table 3 in App. §A lists the base models whose tokenizers we study here (14 in total). This list spans models from the Gemma, LLama, Mistral, and Qwen families (among oth-ers), covering distinct tokenization algorithms and vocabulary sizes. Notably, several of the model fam-ilies we study use identical tokenizers across different sizes and/or versions (e.g. Gemma 2 with 2b or 9b parameters use the same tokenizer, or Llama-3.1 with 8b and Llama-3.2 with 1b). When reporting intrinsic metrics, we thus report deduplicated results containing only distinct tokenizers ( 11 in total). 
+
+Languages and training data. We evaluate tokenizers on nine natural languages with varied typo-logical profiles: German (fusional, Latin script), Finnish, Hungarian, and Turkish (agglutinative, Latin script), Hindi (fusional, Devanagari), Bengali (fusional, Bengali script), Tamil (agglutinative, Tamil script), Arabic (templatic, Arabic script), and Thai (analytic, Thai script). For all these languages, a Universal Dependencies (UD) treebank is available, which is required by the morphological-alignment metric we will report. We also include Swahili—which lacks a UD treebank—in the additional intrinsic metrics reported in §B. We also evaluate tokenizers on nine programming languages—C, C++, C#, Go, Java, JavaScript, PHP, Python, and TypeScript—chosen to span brace-delimited vs. whitespace-sensitive and statically vs. dynamically typed conventions. For code evaluations, we restrict our analyses to nine model families: BLOOM-3b, Gemma 2-2b, Granite 3.0-8b, Llama-3.2-1b, Mistral-NeMo-12b, Phi-3-mini, Phi-4, Qwen-2.5-1.5b, and XGLM-2.9b. For LangMAP parameter estimation, we use data from FineWeb2 (Penedo et al., 2025) and The Stack (Lozhkov et al., 2024). 14 
+
+Estimation. We learn each ϕℓ with the EM procedure of §3, run for K=10 iterations. For each language, we use 25 M tokens from the aforementioned datasets (FineWeb2 for natural language; The Stack for code) to perform this parameter estimation. We initialize ϕℓ from the empirical frequencies of text segmented using the base vocabulary’s empirical token scores. 
+
+4.2 Intrinsic Evaluations 
+
+We evaluate LangMAP against the frozen base tokenizer using the TokEval metric suite (Meister, 2025b), comparing paired (Base, LangMAP) tokenizations of the same input texts. For natural lan-guages, we evaluate on the FLORES-200 parallel dataset (NLLB Team et al., 2022). For code metrics, we report on StarCoder data (Li et al., 2023). These evaluations cover metrics from several families: 
+
+morphological alignment (fertility, MorphScore micro-F1, recall, and precision, computed for the nine languages with UD treebanks; Arnett et al., 2025; Nivre et al., 2017); information-theoretic (Rényi entropy; empirical bigram entropy); surface efficiency (fertility in tokens per byte; compression rate); and multilingual fairness (Gini scores of per-language costs). As these are fairly standard metrics in tokenizer evaluation, we defer the reader to the library for descriptions and implementation details. 15 
+
+> 14 https://huggingface.co/datasets/bigcode/the-stack
+> 15 https://github.com/swiss-ai/tokenizer-intrinsic-evals
+
+6For code, we additionally evaluate the AST-leaf-boundary alignment, identifier fragmentation, and operator isolation of tokenized code across 9 programming languages. For the first two metrics, parse trees of the source code are derived using the tree-sitter python package. Alignment measures the fraction of leaf-node spans whose boundaries coincide with token boundaries and identifier fragmentation measures the fraction of programmer-defined identifiers split into multiple tokens. For all metrics, we report paired differences: ∆ = LANG MAP − BASE ; the direction that indicates an improvement when using LangMAP is noted per caption. Statistical significance is assessed via a paired percentile bootstrap, with 10,000 resamples over (tokenizer, language) pairs; see §A for details. We also report 95% confidence intervals throughout. 
+
+4.3 Extrinsic Evaluations 
+
+Extrinsic evaluations measure downstream model quality when using LangMAP or B ASE tokenizers. For these experiments, we fine-tune our base models on new language data (using either tokenizer). 16 
+
+Due to computational constraints, we thus restrict these experiments to a subset of languages and a subset of the models in Table 3. We select languages for which we see the larger changes to intrinsic metrics under LangMAP: Finnish, Hungarian, and Turkish. 
+
+Adaptation protocol. For every (base model, language, tokenizer) triple, we adapt the base model to the candidate tokenizer by fine-tuning on 100 M tokens (one pass, using the FineWeb2 dataset). Notably, while LangMAP has access to language labels for training, it is not given these labels at inference time, making its application comparable to B ASE . We fine-tune models with unfrozen token embeddings and with a standard LoRA setup, using a rank of 16, an α=32 , and dropout with probability 0.05. 17 
+
+Extrinsic metrics. Our downstream evaluation tasks for natural language are: MultiBLiMP (Jumelet et al., 2026), Global-PIQA (Chang et al., 2025) and Belebele (Bandarkar et al., 2024). Belebele evaluates reading comprehension via four-way multiple-choice questions that are grounded in FLORES-200 passages; 5-shot prompting is used. Global-PIQA evaluates physical common-sense reasoning: given a short goal and two candidate solutions, the model must select the more sensible one. MultiBLiMP is an automatically-constructed minimal-pair benchmark, derived from Universal Dependencies treebanks; each of its items presents two near-identical sentences differing only on a targeted morphosyntactic feature, and the model is scored on whether it assigns higher likelihood to the grammatical one. Together, these cover three complementary skills: reading comprehension, commonsense knowledge, and intrinsic grammatical competence. The first two depend on knowledge being transfered from pretraining, while the third isolates the understanding of a language’s syntax. We report our models performance on these three tasks using answer accuracy, and we quantify their variance using the standard error of the mean. 
+
+## 5 Results 
+
+5.1 Morphological Alignment 
+
+The last row of in Table 1 reports pooled differences on MorphScore. All four quantities increase on average—recall by +0.086 , precision by +0.026 , micro-F1 by +0.032 , and macro-F1 by +0.035 —and the difference is positive for the large majority of (tokenizer, language) pairs (for recall, 62 are positive and only 4 negative). The increase in recall indicates that LangMAP places more boundaries near gold morpheme boundaries; while the joint rise in precision indicates that these boundary shifts are not noise, but re-alignment of the segmentations with morphologically meaningful units. The effect is not universal, though. The first rows of Table 1 break the effect down by language, revealing the positive effect on morphological boundaries is concentrated in the Latin-script languages, smaller    
+
+> 16 Using LangMAP out-of-the-box on a language already in the model’s pretraining data without any continued pre-training or fine-tuning of the model systematically leads to worse performance; most probability mass for a string is placed on the tokenization the model saw during training, i.e., the canonical tokenization under the base tokenizer (Cao & Rimell, 2021), and so this behavior is to be expected.
+> 17 We ran a rank ablation on Qwen2.5-0.5B. Comparing ranks 16 and 64 (under α=128 ) we saw a minimal difference on downstream model performance.
+
+7Lang. Script/morph. ∆micro-F1 ∆macro-F1 ∆Rec. ∆Prec.   
+
+> German Lat./fus.
+
++0.081 ⋆ +0.086 ⋆ +0.250 ⋆ +0.096 ⋆  
+
+> Turkish Lat./agg.
+
++0.042 ⋆ +0.047 ⋆ +0.151 ⋆ +0.046 ⋆  
+
+> Hungarian Lat./agg.
+
++0.037 ⋆ +0.043 ⋆ +0.144 ⋆ +0.038 ⋆  
+
+> Finnish Lat./agg.
+
++0.034 ⋆ +0.038 ⋆ +0.122 ⋆ +0.036 ⋆  
+
+> Bengali Ben./fus.
+
++0.028 +0.030 +0.069 ⋆ +0.019   
+
+> Tamil Tam./agg.
+
++0.008 +0.009 +0.051 ⋆ +0.006   
+
+> Arabic Ara./tmpl.
+
++0.048 ⋆ +0.054 ⋆ +0.004 ⋆ −0.006   
+
+> Hindi Dev./fus.
+
++0.005 ⋆ +0.005 ⋆ +0.019 +0.004   
+
+> Thai Thai/ana.
+
+−0.001 −0.001 −0.036 −0.005   
+
+> Pooled 11 distinct tok.
+
++0.032 ⋆ +0.035 ⋆ +0.086 ⋆ +0.026 ⋆
+
+Table 1: MorphScore ∆ (L ANG MAP −BASE ) per language, plus macro-averaged results across languages (“ Pooled ”). Computed over 11 distinct deduplicated tokenizers (§4.1), we average per-language values over tokenizers and further average over the 9 languages. ⋆ marks a 95% CI excluding zero. Recall improvements are largest for the four Latin-script languages, smaller but significant for Bengali and Tamil, near zero for Arabic and Hindi, and slightly negative for Thai.                                  
+
+> Metric nImproved ∆
+> Overall AST alignment 81 86% +0.022 ⋆
+> Identifier alignment 81 85% +0.026 ⋆
+> Operator alignment 81 86% +0.020 ⋆
+> Delimiter alignment 81 84% +0.020 ⋆
+> Literal alignment 80 79% +0.011 ⋆
+> Keyword alignment 81 43% +0.002 ⋆
+> Operator isolation rate 81 95% +0.011 ⋆
+> Ident. frag. rate 81 93% −0.010 ⋆
+> Mean tokens / ident. 81 88% −0.028 ⋆
+> Fertility (tokens/byte) 81 5% +0.006 ⋆
+
+Figure 1: Code AST and identifier metrics against the base tokenizer ( 9 model families × 9 pro-gramming languages), and per-code-language ∆ on structural code intrinsic tokenizer metrics in comparison to the base tokenizer. Improved is the percentage of the n (model, language) combi-nations for which the difference is beneficial: higher alignment and operator isolation, and lower fragmentation, tokens per identifier, and fertility. Bars show paired-bootstrap mean with 95% CIs. for Bengali and Tamil, near zero for Arabic and Hindi, and slightly negative for Thai. By recall, German improves most, followed by the three agglutinative languages; the smallest and only negative changes are on the non-Latin scripts, with Thai slightly negative. This follows because LangMAP re-scores a fixed vocabulary and cannot add tokens, so the most it can do is change how the existing pieces are used. As concrete examples: German is in the same language family as the dominant training language (English) and has usable pieces over which segmentations can be aligned; for this language, we see segmentation improvements. For Hindi, on the other hand, applying LangMAP to four of the tokenizers does not alter the segmentation at all; in §B.1, we see that these tokenizers contain extremely few Devanagari subwords as pieces, giving LangMAP little room to find a better segmentation. In such cases, no re-segmentation using the same vocabulary can help. We provide further analyses on this, as well as confidence intervals and results for other intrinsic metrics in §B. 
+
+5.2 Code Tokenization 
+
+The table in Fig. 1 reports paired differences against the base tokenizer from 9 model families on 9 programming languages. LangMAP improves overall AST-leaf-boundary alignment by +0.022 ,with comparable increases on identifier, operator, and delimiter alignment, and reduces identifier fragmentation. This improvement is consistent across programming languages (all nine per-language means positive) and across most model families. Two metrics, however, change less than others: literal alignment increases only slightly, and keyword alignment is essentially unchanged ( +0.002 ). Finally, we see that fertility increases, indicating more tokens are used per byte. While a fertility 8Language Size Orig. LangMAP ∆                     
+
+> Finnish 0.5B 0.740 0.902 +0.162
+> 1.5B 0.847 0.927 +0.081
+> Hungarian 0.5B 0.850 0.966 +0.116
+> 1.5B 0.915 0.975 +0.060
+> Turkish 0.5B 0.796 0.844 +0.048
+> 1.5B 0.863 0.855 −0.009
+
+Table 2: Target-language MultiBLiMP accuracy after fine-tuning Qwen2.5 on target-language text, comparing the original tokenizer (Orig.) with LangMAP while holding the base model and fine-tuning protocol fixed. ∆ = LangMAP − Orig. ; bold marks the higher accuracy for each language and size. LangMAP is higher for five of the six combinations. increase is generally regarded as a bad trend for natural languages, for code it is unclear if it is indeed an undesirable property. Per-language AST Alignment results are shown in Fig. 1. Average change (across base tokenizers) to AST alignment when using LangMAP is positive and significant for all 9 languages, ranging from +0.035 (Go) to +0.016 (Python). This ordering is broadly consistent with the patterns observed for natural language, with gains being largest where the base tokenizer has uncommon multi-character pieces that might get blocked by merges of other, more common tokens. 
+
+5.3 Extrinsic Results 
+
+Table 2 reports MultiBLiMP accuracy after fine-tuning. Holding the base model and fine-tuning protocol fixed and varying only the tokenizer, LangMAP improves grammatical-acceptability accuracy for five of the six size–language combinations. The improvement does not extend to the other tasks, though: Belebele accuracy is unchanged or slightly lower under LangMAP, and the Global-PIQA differences are smaller than their standard errors of about 0.05 (see §D). This is (arguably) expected, as Belebele and Global-PIQA are knowledge-related tasks, for which we wouldn’t expect improvements in tokenization to have a large impact. Notably, as our results are limited to a single model family and a handful of tasks, we avoid making larger claims about the effectiveness of LangMAP for use with downstream language modeling. 
+
+## 6 Conclusion 
+
+We introduced LangMAP, a multilingual tokenization scheme that extends UnigramLM by main-taining a separate unigram distribution per language over a single, fixed vocabulary. LangMAP can be trained as a tokenizer in its own right or used to adapt the tokenizer of a pretrained model without altering its vocabulary or parameters; in either case it requires language labels only during estimation, selecting the appropriate language-specific segmentation at inference without access to the input language. In experiments on natural languages, LangMAP improved the alignment of token boundaries with gold morpheme boundaries for almost every language tested; similarly, experiments with programming languages showed better alignment with abstract syntax tree leaf boundaries. In fine-tuning experiments on a small number of models, the morphological gains were accompanied by improvements on target-language grammatical acceptability. 
+
+## Limitations 
+
+While the use of a fixed shared vocabulary ensures compatibility with pretrained models, it also bounds the representational capacity of the tokenizer. If linguistically appropriate tokens for a given language are absent from the vocabulary, language-specific reweighting of token probabilities alone cannot recover good segmentations for those languages. This limitation is visible in our results. A natural follow up would be to pair LangMAP with vocabulary extension so that adaptation is no longer confined to the tokens a model already supports. Another limitation is that our method requires labeled training data to estimate language-specific distributions. We observe empirically that very few labeled samples are needed to get good unigram distribution estimates, but the method does 9not work in the complete absence of labels. We leave unsupervised or weakly supervised extensions for future work. Finally, our downstream evidence is somewhat narrow, using a single model family at two sizes on three agglutinative languages; on the three downstream tasks, improvements appear only on grammatical acceptability (MultiBLiMP). We therefore do not make claims about the general downstream impact of LangMAP. 
+
+## References 
+
+Orevaoghene Ahia, Sachin Kumar, Hila Gonen, Jungo Kasai, David Mortensen, Noah Smith, and Yulia Tsvetkov. Do all languages cost the same? Tokenization in the era of commercial language models. In Houda Bouamor, Juan Pino, and Kalika Bali (eds.), Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing , pp. 9904–9923, Singapore, December 2023. Association for Computational Linguistics. doi: 10.18653/v1/2023.emnlp-main.614. URL 
+
+https://aclanthology.org/2023.emnlp-main.614/ .Orevaoghene Ahia, Sachin Kumar, Hila Gonen, Valentin Hofmann, Tomasz Limisiewicz, Yulia Tsvetkov, and Noah A. Smith. MAGNET: Improving the multilingual fairness of language models with adaptive gradient-based tokenization. In The Thirty-eighth Annual Conference on Neural Information Processing Systems , 2024. URL https://openreview.net/forum? id=1e3MOwHSIX .Rohan Anil, Andrew M. Dai, Orhan Firat, Melvin Johnson, Dmitry Lepikhin, Alexandre Passos, Siamak Shakeri, Emanuel Taropa, Paige Bailey, Z. Chen, Eric Chu, J. Clark, Laurent El Shafey, Yan-ping Huang, Kathleen S. Meier-Hellstern, Gaurav Mishra, Erica Moreira, Mark Omernick, Kevin Robinson, Sebastian Ruder, Yi Tay, Kefan Xiao, Yuanzhong Xu, Yujing Zhang, Gustavo Hernández Abrego, Junwhan Ahn, Jacob Austin, Paul Barham, Jan A. Botha, James Bradbury, Siddhartha Brahma, Kevin Michael Brooks, Michele Catasta, Yongzhou Cheng, Colin Cherry, Christopher A. Choquette-Choo, Aakanksha Chowdhery, C Crépy, Shachi Dave, Mostafa Dehghani, Sunipa Dev, Jacob Devlin, M. C. D’iaz, Nan Du, Ethan Dyer, Vladimir Feinberg, Fan Feng, Vlad Fienber, Markus Freitag, Xavier García, Sebastian Gehrmann, Lucas González, Guy Gur-Ari, Steven Hand, Hadi Hashemi, Le Hou, Joshua Howland, An Ren Hu, Jef frey Hui, Jeremy Hurwitz, Michael Isard, Abe Ittycheriah, Matthew Jagielski, Wen Hao Jia, Kathleen Kenealy, Maxim Krikun, Sneha Kudugunta, Chang Lan, Katherine Lee, Benjamin Lee, Eric Li, Mu-Li Li, Wei Li, Yaguang Li, Jun Yu Li, Hyeontaek Lim, Han Lin, Zhong-Zhong Liu, Frederick Liu, Marcello Maggioni, Aroma Mahendru, Joshua Maynez, Vedant Misra, Maysam Moussalem, Zachary Nado, John Nham, Eric Ni, Andrew Nystrom, Alicia Parrish, Marie Pellat, Martin Polacek, Oleksandr Polozov, Reiner Pope, Siyuan Qiao, Emily Reif, Bryan Richter, Parker Riley, Alexandra Ros, Aurko Roy, Brennan Saeta, Rajkumar Samuel, Renee Marie Shelby, Ambrose Slone, Daniel Smilkov, David R. So, Daniela Sohn, Simon Tokumine, Dasha Valter, Vijay Vasudevan, Kiran Vodrahalli, Xuezhi Wang, Pidong Wang, Zirui Wang, Tao Wang, John Wieting, Yuhuai Wu, Ke Xu, Yunhan Xu, Lin Wu Xue, Pengcheng Yin, Jiahui Yu, Qiaoling Zhang, Steven Zheng, Ce Zheng, Wei Zhou, Denny Zhou, Slav Petrov, and Yonghui Wu. Palm 2 technical report. CoRR , abs/2305.10403, 2023. URL 
+
+https://api.semanticscholar.org/CorpusID:258740735 .Catherine Arnett and Benjamin Bergen. Why do language models perform worse for morphologically complex languages? In Owen Rambow, Leo Wanner, Marianna Apidianaki, Hend Al-Khalifa, Bar-bara Di Eugenio, and Steven Schockaert (eds.), Proceedings of the 31st International Conference on Computational Linguistics , pp. 6607–6623, Abu Dhabi, UAE, January 2025. Association for Computational Linguistics. URL https://aclanthology.org/2025.coling-main. 441/ .Catherine Arnett, Marisa Hudspeth, and Brendan O’Connor. Evaluating Morphological Alignment of Tokenizers in 70 Languages. In Proceedings of the ICML 2025 Tokenization Workshop (TokShop) ,2025. URL https://arxiv.org/abs/2507.06378 .Lucas Bandarkar, Davis Liang, Benjamin Muller, Mikel Artetxe, Satya Narayan Shukla, Donald Husa, Naman Goyal, Abhinandan Krishnan, Luke Zettlemoyer, and Madian Khabsa. The Belebele benchmark: a parallel reading comprehension dataset in 122 language variants. In Lun-Wei Ku, Andre Martins, and Vivek Srikumar (eds.), Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pp. 749–775, Bangkok, 10 Thailand, August 2024. Association for Computational Linguistics. doi: 10.18653/v1/2024. acl-long.44. URL https://aclanthology.org/2024.acl-long.44/ .Peter F. Brown, Stephen A. Della Pietra, Vincent J. Della Pietra, and Robert L. Mercer. The mathematics of statistical machine translation: Parameter estimation. Computational Linguistics ,19(2):263–311, 1993. URL https://aclanthology.org/J93-2003/ .Kris Cao and Laura Rimell. You should evaluate your language model on marginal likelihood over tokenisations. In Marie-Francine Moens, Xuanjing Huang, Lucia Specia, and Scott Wen-tau Yih (eds.), Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing , pp. 2104–2114, Online and Punta Cana, Dominican Republic, November 2021. Association for Computational Linguistics. doi: 10.18653/v1/2021.emnlp-main.161. URL https: //aclanthology.org/2021.emnlp-main.161/ .Tyler A Chang, Catherine Arnett, Abdelrahman Eldesokey, Abdelrahman Sadallah, Abeer Kashar, Abolade Daud, Abosede Grace Olanihun, Adamu Labaran Mohammed, Adeyemi Praise, Adhikari-nayum Meerajita Sharma, et al. Global piqa: Evaluating physical commonsense reasoning across 100+ languages and cultures. arXiv preprint arXiv:2510.24081 , 2025. A. P. Dempster, N. M. Laird, and D. B. Rubin. Maximum likelihood from incomplete data via the em algorithm. Journal of the Royal Statistical Society. Series B (Methodological) , 39(1):1–38, 1977. ISSN 00359246. URL http://www.jstor.org/stable/2984875 .C.m. Downey, Terra Blevins, Nora Goldfine, and Shane Steinert-Threlkeld. Embedding structure matters: Comparing methods to adapt multilingual vocabularies to new languages. In Duygu Ataman (ed.), Proceedings of the 3rd Workshop on Multi-lingual Representation Learning (MRL) ,pp. 268–281, Singapore, December 2023. Association for Computational Linguistics. doi: 10. 18653/v1/2023.mrl-1.20. URL https://aclanthology.org/2023.mrl-1.20/ .Darius Feher, Ivan Vuli´ c, and Benjamin Minixhofer. Retrofitting large language models with dynamic tokenization. In Wanxiang Che, Joyce Nabende, Ekaterina Shutova, and Mohammad Taher Pilehvar (eds.), Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pp. 29866–29883, Vienna, Austria, July 2025. Association for Computational Linguistics. ISBN 979-8-89176-251-0. doi: 10.18653/v1/2025.acl-long.1444. URL https://aclanthology.org/2025.acl-long.1444/ .Negar Foroutan, Clara Meister, Debjit Paul, Joel Niklaus, Sina Ahmadi, Antoine Bosselut, and Rico Sennrich. Parity-aware byte-pair encoding: Improving cross-lingual fairness in tokenization. 
+
+CoRR , abs/2508.04796, 2025. URL https://arxiv.org/abs/2508.04796 .Valentin Hofmann, Janet Pierrehumbert, and Hinrich Schütze. Superbizarre is not superb: Deriva-tional morphology improves BERT’s interpretation of complex words. In Chengqing Zong, Fei Xia, Wenjie Li, and Roberto Navigli (eds.), Proceedings of the 59th Annual Meeting of the Association for Computational Linguistics and the 11th International Joint Conference on Natural Language Processing (Volume 1: Long Papers) , pp. 3594–3608, Online, August 2021. Association for Computational Linguistics. doi: 10.18653/v1/2021.acl-long.279. URL 
+
+https://aclanthology.org/2021.acl-long.279/ .Valentin Hofmann, Hinrich Schuetze, and Janet Pierrehumbert. An embarrassingly simple method to mitigate undesirable properties of pretrained language model tokenizers. In Smaranda Muresan, Preslav Nakov, and Aline Villavicencio (eds.), Proceedings of the 60th Annual Meeting of the Association for Computational Linguistics (Volume 2: Short Papers) , pp. 385–393, Dublin, Ireland, May 2022. Association for Computational Linguistics. doi: 10.18653/v1/2022.acl-short.43. URL 
+
+https://aclanthology.org/2022.acl-short.43/ .Jaap Jumelet, Leonie Weissweiler, Joakim Nivre, and Arianna Bisazza. Multiblimp 1.0: A mas-sively multilingual benchmark of linguistic minimal pairs. Transactions of the Association for Computational Linguistics , 14:193–216, 2026. Violeta Kastreva, Philip Whittington, Dennis Komm, and Tiago Pimentel. Tokenisation over bounded alphabets is hard. In The Fourteenth International Conference on Learning Representations , 2026. URL https://openreview.net/forum?id=Xhf9YqwlM4 .11 Stav Klein and Reut Tsarfaty. Getting the ##life out of living: How adequate are word-pieces for modelling complex morphology? In Garrett Nicolai, Kyle Gorman, and Ryan Cotterell (eds.), 
+
+Proceedings of the 17th SIGMORPHON Workshop on Computational Research in Phonetics, Phonology, and Morphology , pp. 204–209, Online, July 2020. Association for Computational Linguistics. doi: 10.18653/v1/2020.sigmorphon-1.24. URL https://aclanthology.org/ 2020.sigmorphon-1.24/ .Taku Kudo. Subword regularization: Improving neural network translation models with multiple subword candidates. In Iryna Gurevych and Yusuke Miyao (eds.), Proceedings of the 56th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) ,pp. 66–75, Melbourne, Australia, July 2018. Association for Computational Linguistics. doi: 10.18653/v1/P18-1007. URL https://aclanthology.org/P18-1007/ .Sander Land and Yuval Pinter. Which pieces does unigram tokenization really need? CoRR ,abs/2512.12641, 2026. URL https://arxiv.org/abs/2512.12641 .Jungseob Lee, Hyeonseok Moon, Seungjun Lee, Chanjun Park, Sugyeong Eo, Hyunwoong Ko, Jaehyung Seo, Seungyoon Lee, and Heuiseok Lim. Length-aware byte pair encoding for mitigating over-segmentation in Korean machine translation. In Lun-Wei Ku, Andre Martins, and Vivek Srikumar (eds.), Findings of the Association for Computational Linguistics: ACL 2024 , pp. 2287– 2303, Bangkok, Thailand, August 2024. Association for Computational Linguistics. doi: 10.18653/ v1/2024.findings-acl.135. URL https://aclanthology.org/2024.findings-acl. 135/ .Pietro Lesci, Clara Meister, Thomas Hofmann, Andreas Vlachos, and Tiago Pimentel. Causal estimation of tokenisation bias. In Wanxiang Che, Joyce Nabende, Ekaterina Shutova, and Mohammad Taher Pilehvar (eds.), Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pp. 28325–28340, Vienna, Austria, July 2025. Association for Computational Linguistics. ISBN 979-8-89176-251-0. doi: 10.18653/v1/ 2025.acl-long.1374. URL https://aclanthology.org/2025.acl-long.1374/ .Raymond Li, Loubna Ben Allal, Yangtian Zi, Niklas Muennighoff, Denis Kocetkov, Chenghao Mou, Marc Marone, Christopher Akiki, Jiawei Li, Jenny Chim, et al. StarCoder: may the source be with you! arXiv preprint arXiv:2305.06161 , 2023. Davis Liang, Hila Gonen, Yuning Mao, Rui Hou, Naman Goyal, Marjan Ghazvininejad, Luke Zettlemoyer, and Madian Khabsa. XLM-V: Overcoming the vocabulary bottleneck in multilingual masked language models. In Houda Bouamor, Juan Pino, and Kalika Bali (eds.), Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing , pp. 13142–13152, Singapore, December 2023. Association for Computational Linguistics. doi: 10.18653/v1/2023. emnlp-main.813. URL https://aclanthology.org/2023.emnlp-main.813/ .Tomasz Limisiewicz, Jiˇ rí Balhar, and David Mareˇ cek. Tokenization impacts multilingual language modeling: Assessing vocabulary allocation and overlap across languages. In Anna Rogers, Jordan Boyd-Graber, and Naoaki Okazaki (eds.), Findings of the Association for Computational Linguistics: ACL 2023 , pp. 5661–5681, Toronto, Canada, July 2023. Association for Computational Linguistics. doi: 10.18653/v1/2023.findings-acl.350. URL https://aclanthology.org/ 2023.findings-acl.350/ .Anton Lozhkov, Raymond Li, Loubna Ben Allal, Federico Cassano, Joel Lamy-Poirier, Nouamane Tazi, Ao Tang, Dmytro Pykhtar, Jiawei Liu, Yuxiang Wei, et al. Starcoder 2 and the stack v2: The next generation. arXiv preprint arXiv:2402.19173 , 2024. Clara Meister. UnigramLM: An attempt at writing the missing manual, 2025a. URL https: //cimeister.github.io/blog/unigramlm/ . Blog post. Clara Meister. TokEval: A tokenizer analysis suite, 2025b. URL https://github.com/ swiss-ai/tokenizer-intrinsic-evals .Clara Meister, Ahmetcan Yavuz, Pietro Lesci, and Tiago Pimentel. What language is this? ask your tokenizer, 2026. URL https://arxiv.org/abs/2602.17655 .12 Joakim Nivre, Daniel Zeman, Filip Ginter, and Francis Tyers. Universal Dependencies. In Alexandre Klementiev and Lucia Specia (eds.), Proceedings of the 15th Conference of the European Chapter of the Association for Computational Linguistics: Tutorial Abstracts , Valencia, Spain, April 2017. Association for Computational Linguistics. URL https://aclanthology.org/ E17-5001/ .NLLB Team, Marta R. Costa-jussà, James Cross, Onur Çelebi, Maha Elbayad, Kenneth Heafield, Kevin Heffernan, Elahe Kalbassi, Janice Lam, Daniel Licht, Jean Maillard, Anna Sun, Skyler Wang, Guillaume Wenzek, Al Youngblood, Bapi Akula, Loic Barrault, Gabriel Mejia Gonzalez, Prangthip Hansanti, John Hoffman, Semarley Jarrett, Kaushik Ram Sadagopan, Dirk Rowe, Shannon Spruit, Chau Tran, Pierre Andrews, Necip Fazil Ayan, Shruti Bhosale, Sergey Edunov, Angela Fan, Cynthia Gao, Vedanuj Goswami, Francisco Guzmán, Philipp Koehn, Alexandre Mourachko, Christophe Ropers, Safiyyah Saleem, Holger Schwenk, and Jeff Wang. No language left behind: Scaling human-centered machine translation. arXiv preprint arXiv:2207.04672 , 2022. URL https://arxiv.org/abs/2207.04672 .Guilherme Penedo, Hynek Kydlíˇ cek, Vinko Sabolˇ cec, Bettina Messmer, Negar Foroutan, Amir Hos-sein Kargaran, Colin Raffel, Martin Jaggi, Leandro Von Werra, and Thomas Wolf. Fineweb2: One pipeline to scale them all–adapting pre-training data processing to every language. arXiv preprint arXiv:2506.20920 , 2025. Aleksandar Petrov, Emanuele La Malfa, Philip H.S. Torr, and Adel Bibi. Language model tokenizers introduce unfairness between languages. In Proceedings of the 37th International Conference on Neural Information Processing Systems , NIPS ’23, Red Hook, NY, USA, 2023. Curran Associates Inc. Colin Raffel, Noam Shazeer, Adam Roberts, Katherine Lee, Sharan Narang, Michael Matena, Yanqi Zhou, Wei Li, and Peter J. Liu. Exploring the limits of transfer learning with a unified text-to-text transformer. J. Mach. Learn. Res. , 21(1), January 2020. ISSN 1532-4435. François Remy, Pieter Delobelle, Hayastan Avetisyan, Alfiya Khabibullina, Miryam de Lhoneux, and Thomas Demeester. Trans-tokenization and cross-lingual vocabulary transfers: Language adaptation of llms for low-resource NLP. CoRR , abs/2408.04303, 2024. doi: 10.48550/ARXIV. 2408.04303. URL https://doi.org/10.48550/arXiv.2408.04303 .Phillip Rust, Jonas Pfeiffer, Ivan Vuli´ c, Sebastian Ruder, and Iryna Gurevych. How Good is Your Tokenizer? On the Monolingual Performance of Multilingual Language Models. In Chengqing Zong, Fei Xia, Wenjie Li, and Roberto Navigli (eds.), Proceedings of the 59th Annual Meeting of the Association for Computational Linguistics and the 11th International Joint Conference on Natural Language Processing (Volume 1: Long Papers) , pp. 3118–3135. Association for Computational Linguistics, August 2021. doi: 10.18653/v1/2021.acl-long.243. URL https: //aclanthology.org/2021.acl-long.243/ .Craig W Schmidt, Varshini Reddy, Haoran Zhang, Alec Alameddine, Omri Uzan, Yuval Pinter, and Chris Tanner. Tokenization is more than compression. In Yaser Al-Onaizan, Mohit Bansal, and Yun-Nung Chen (eds.), Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing , pp. 678–702, Miami, Florida, USA, November 2024. Association for Computational Linguistics. doi: 10.18653/v1/2024.emnlp-main.40. URL https://aclanthology.org/ 2024.emnlp-main.40/ .Chen Shani, Yuval Reif, Nathan Roll, Dan Jurafsky, and Ekaterina Shutova. The roots of performance disparity in multilingual language models: Intrinsic modeling difficulty or design choices? arXiv preprint arXiv:2601.07220 , 2026. Saketh Reddy Vemula, Sandipan Dandapat, Dipti Sharma, and Parameswari Krishnamurthy. Rethink-ing tokenization for rich morphology: The dominance of unigram over BPE and morphological alignment. In Santosh T.y.s.s, Shuichiro Shimizu, and Yifan Gong (eds.), The 14th International Joint Conference on Natural Language Processing and The 4th Conference of the Asia-Pacific Chapter of the Association for Computational Linguistics , pp. 232–252, Mumbai, India, De-cember 2025. Association for Computational Linguistics. ISBN 979-8-89176-304-3. URL 
+
+https://aclanthology.org/2025.ijcnlp-srw.20/ .13 Philip Whittington, Gregor Bachmann, and Tiago Pimentel. Tokenisation is NP-complete. In Wanxiang Che, Joyce Nabende, Ekaterina Shutova, and Mohammad Taher Pilehvar (eds.), Pro-ceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Vol-ume 1: Long Papers) , pp. 28133–28153, Vienna, Austria, July 2025. Association for Compu-tational Linguistics. ISBN 979-8-89176-251-0. doi: 10.18653/v1/2025.acl-long.1365. URL 
+
+https://aclanthology.org/2025.acl-long.1365/ .Linting Xue, Aditya Barua, Noah Constant, Rami Al-Rfou, Sharan Narang, Mihir Kale, Adam Roberts, and Colin Raffel. ByT5: Towards a token-free future with pre-trained byte-to-byte models. Transactions of the Association for Computational Linguistics , 10:291–306, 2022. doi: 10.1162/tacl_a_00461. URL https://aclanthology.org/2022.tacl-1.17/ .Zhilin Yang, Zihang Dai, Yiming Yang, Jaime Carbonell, Ruslan Salakhutdinov, and Quoc V. Le. 
+
+XLNet: Generalized autoregressive pretraining for language understanding . Curran Associates Inc., Red Hook, NY, USA, 2019. 14 A Experimental Setup Details 
+
+Evaluated models and their tokenizers. Table 3 contains information about our evaluated models and their tokenizers. Table 3: Tokenizer and Vocabulary of Base Model tokenizers that are used for intrinsic and down-stream evaluation. We additionally report results for OLMo-3-7B in Section B.3; EuroLLM-1.7B 
+
+as the multilingual base for label-free routing, Table 10 in the Appendices.                             
+
+> Model Algorithm |V|
+> Bloom-3b BPE 250,880 Gemma 2 & 3 BPE 256,000 Granite 3.0-8b BPE 49,152 Llama 3 BPE 128,256 Mistral-7b-v0.3 BPE 32,768 Mistral-Nemo-12b BPE 131,072 Phi-3-mini BPE 32,064 Phi-4 BPE 100,352 Qwen 2.5 & 3 BPE 151,936 XGLM-2.9b UnigramLM 256,008 Yi-1.5-6b BPE 64,000
+> Appendix-only Models
+> OLMo-3-7B BPE 100,278 EuroLLM-1.7B BPE 128,000
+
+Paired-bootstrap differences. All reported ∆ values are paired comparisons over (tokenizer, language) pairs. For each pair, Base and LangMap are evaluated on the same test data, and we take the per-pair difference ∆c = m(LangMap c) − m(Base c) for metric m; for lower-is-better metrics (fertility, identifier-fragmentation rate, tokens per identifier) we sign-flip ∆c so that ∆c > 0 always denotes a LangMap improvement, consistently with §4.1. We report the aggregate effect as the mean over the n pairs, ¯∆ = 1 
+
+> n
+
+∑nc=1 ∆c, and estimate 95% confidence intervals with a nonparametric percentile bootstrap that resamples the n pairs with replacement: we draw 10,000 resamples, recompute ¯∆ on each, and report the 2.5th and 97.5th percentiles of the resulting distribution. An aggregate effect is significant when this interval excludes zero. 
+
+## B Additional Natural Language Intrinsic Tokenization Results 
+
+B.1 Headroom Analysis 
+
+Fig. 2 shows that LangMAP’s MorphScore recall gain over the base tokenizer is largest where the base tokenizer’s recall is lowest, and near zero where base recall is already high. This pattern has a limit set by what re-scoring can do. Concretely, LangMAP re-scores a fixed vocabulary and adds no tokens, so it changes only which of the existing pieces are used to segment a string. Thus, a language can only benefit when the vocabulary already contains pieces that could potentially yield a segmentation better aligned with that language’s morpheme boundaries; when those pieces are absent, re-scoring leaves the segmentation unchanged. We see evidence of this in Table 4, which counts, for each of the eleven tokenizers, how many vocabulary entries are Devanagari pieces and how many are German pieces. The two scripts are covered unequally. Compared to German, Devanagari coverage is smaller and more variable, ranging from 3 pieces (Yi 1.5) to 16,189 (Bloom 3b), and falling below 40 for four tokenizers (Yi 1.5: 3; Granite 3.0: 16; Phi-4: 23; Phi-3 mini: 39). These counts account for both ends of the trend. Because every tokenizer contains tens of thousands of Latin pieces, German text has many alternative segmentations under the vocabulary; LangMAP’s per-language distribution selects among them, and the selected segmentations align more closely with morpheme boundaries, giving German the largest recall gain in Table 1. For Hindi, the four tokenizers with the fewest Devanagari pieces leave a Devanagari string with almost no alternative segmentation, so re-scoring has nothing to prefer and 15 LangMAP leaves their Hindi segmentation unchanged; the Hindi MorphScore changes in Table 1 are correspondingly small. Table 4: Devanagari and Latin (English) subword inventories for the eleven subword tokenizers we perform experiments with. For each tokenizer, the table reports how many vocabulary entries decode to complete Devanagari characters, how many additional byte-level fragments of Devanagari characters exist, and how many entries are Latin-letter (English) subwords. Devanagari subwords Latin-script subwords Tokenizer Vocabulary Complete +Fragments English German Bloom-3b 250 680 16 189 16 210 89 919 90 100 
+
+Gemma 3 256 000 13 684 13 684 139 481 141 078 
+
+Granite 3.0-8b 49 152 16 19 39 727 39 825 
+
+Llama 3 128 000 958 970 71 150 71 727 
+
+Mistral 7b 32 000 44 44 24 952 25 113 
+
+Mistral Nemo 131 072 1530 1542 70 732 72 196 
+
+Phi 3 mini 32 000 39 39 24 016 24 359 
+
+Phi 4 100 352 23 30 68 643 68 897 
+
+Qwen3 151 643 67 74 68 871 69 588 
+
+XGLM 2.9b 256 008 5667 5667 108 841 112 736 
+
+Yi 1.5 6B 63 992 3 3 38 977 38 986 
+
+How each column was computed. A token’s byte sequence is recovered by reversing the GPT-2 byte-to-unicode map for byte-level tokenizers (Bloom, Granite, Mistral Nemo, Phi 4, Qwen3, Llama3), or by replacing the SentencePiece metaspace marker with a space for SentencePiece tokenizers (Gemma 3, Mistral 7b, Phi 3, XGLM, Yi). Added and special tokens are excluded. Before script classification, one optional leading space marker is stripped. We compute the columns as follows; single-byte tokens are excluded from the counts throughout, so a count measures genuine merged subwords rather than the base byte alphabet. • Devanagari, Complete : tokens whose bytes decode as valid UTF-8 to a non-empty string in which every character lies in the Devanagari block U+0900 to U+097F. A single Devanagari character is three UTF-8 bytes, so single characters are included. • Devanagari, +Fragments : the Complete count plus, for byte-level tokenizers only, multi-byte tokens whose bytes are not valid standalone UTF-8 but form a contiguous slice of a Devanagari UTF-8 sequence (lead byte 0xE0, second byte 0xA4 or 0xA5, continuation bytes 0x80 to 0xBF). SentencePiece tokenizers contribute no fragments because their pieces are whole characters, so the two Devanagari columns are equal for them. • English subwords : tokens that decode as valid UTF-8 to a non-empty string in which every character is an ASCII letter a–z or A–Z. Digits, punctuation, mixed-script tokens, and single-byte tokens (including lone letters) are excluded. • German : tokens whose bytes decode as valid UTF-8 to a non-empty string in which every character is a letter of the German alphabet, that is a–z, A–Z, or one of ä, ö, ü, Ä, Ö, Ü, ß. 
+
+B.2 Additional Intrinsic Metrics 
+
+We report detailed intrinsic tokenization results for German (deu), Finnish (fin), Hungarian (hun), Turkish (tur), Hindi (hin), and Swahili (swh) for morphological alignment (Table 5), tokenization efficiency and information theoretic metrics (Table 6). Notably, we see that Rényi-2.5 efficiency falls by 0.239 (95% CI [−0.281, −0.199 ]) and bigram entropy by 0.006 . These results suggest that LangMAP concentrates probability mass on the vocabulary subset that segments a single language well. On natural language, fertility decreases slightly, which is the opposite of the code results, where fertility rises. 16 Figure 2: LangMAP MorphScore recall as a function of the original tokenizer’s MorphScore recall. We see consistent improvements (points above diagonal) and that the gains are typically largest for tokenizers with the lowest base recall, i.e., where there is the most room for improvement. Our subsequent analysis shows that this result is contingent on the vocabulary containing sufficient coverage of a script/language. Table 5: Morphological alignment, per language. Paired ∆MorphScore = LANG MAP − BASE ,averaged over the base tokenizers with a UD treebank for that language; higher is better. Small brackets are 95% paired-bootstrap CIs; ⋆ marks a CI excluding 0. Swahili has no MorphScore cell (no UD treebank in the sweep). 
+
+Language n ∆F1 ∆Recall ∆Precision 
+
+German (deu) 11 +0.081 ⋆ [+ 0.065, +0.096 ] +0.250 ⋆ [+ 0.182, +0.311 ] +0.096 ⋆ [+ 0.068, +0.122 ]
+
+Finnish (fin) 11 +0.034 ⋆ [+ 0.021, +0.045 ] +0.122 ⋆ [+ 0.101, +0.141 ] +0.036 ⋆ [+ 0.030, +0.042 ]
+
+Hungarian (hun) 11 +0.037 ⋆ [+ 0.028, +0.048 ] +0.144 ⋆ [+ 0.121, +0.164 ] +0.038 ⋆ [+ 0.030, +0.046 ]
+
+Turkish (tur) 11 +0.042 ⋆ [+ 0.028, +0.058 ] +0.151 ⋆ [+ 0.130, +0.173 ] +0.046 ⋆ [+ 0.037, +0.057 ]
+
+Hindi (hin) 11 +0.005 ⋆ [+ 0.000, +0.013 ] +0.019 [−0.005, +0.047 ] +0.004 [−0.002, +0.011 ]
+
+Swahili (swh) — no UD-treebank cell 
+
+Table 6: Surface efficiency and information-theoretic metrics, per language. ∆ = LANG MAP −
+
+BASE (raw, per-checkpoint convention). Improving direction is lower for fertility and higher for the other three; small brackets are 95% CIs and ⋆ marks a CI excluding 0. Compression rate is shown 
+
+×10 3.
+
+Lang n ∆Fertility ∆Compr. (×10 3) ∆Bigram H ∆Rényi-2.5 
+
+deu 10 +0.0013 ⋆ [+ 0.0002, +0.0023 ] +0.11 [−0.00, +0.19 ] −0.0068 ⋆ [−0.0085, −0.0050 ] −0.251 ⋆ [−0.317, −0.175 ]
+
+fin 10 +0.0017 [−0.0032, +0.0056 ] +0.11 [−0.13, +0.33 ] +0.0010 [−0.0044, +0.0056 ] −0.343 ⋆ [−0.464, −0.240 ]
+
+hun 10 −0.0024 ⋆ [−0.0049, −0.0000 ] −0.09 [−0.22, +0.05 ] −0.0078 ⋆ [−0.0103, −0.0051 ] −0.303 ⋆ [−0.420, −0.193 ]
+
+tur 10 +0.0023 [−0.0046, +0.0087 ] +0.38 [−0.07, +0.93 ] −0.0012 [−0.0065, +0.0036 ] −0.109 ⋆ [−0.176, −0.037 ]
+
+hin 10 −0.0062 [−0.0185, +0.0003 ] −0.10 [−0.34, +0.06 ] −0.0086 [−0.0226, +0.0002 ] −0.154 [−0.398, +0.003 ]
+
+swh 10 −0.0038 ⋆ [−0.0069, −0.0010 ] −0.16 [−0.32, +0.00 ] −0.0103 ⋆ [−0.0140, −0.0064 ] −0.605 ⋆ [−0.778, −0.407 ]
+
+B.3 Cross-Script and Typological Generalisation on OLMo-3-7B 
+
+To test whether the effect survives substantially broader linguistic coverage and English-centric base tokenizers, we evaluate OLMo-3-7B (highly English-dominant training data) across 19 MorphScore languages spanning multiple typological families, including Germanic, Romance, Uralic, Turkic, Austronesian, and Celtic languages. L ANG MAP improves over B ASE on all 19/19 languages for 17 recall and precision, and on 18/19 for both Micro-F1 and Macro-F1, demonstrating that the effect is not confined to a narrow set of related languages or to one tokenizer family. Several typological trends emerge from the per-language breakdown (Table 8). German shows by far the largest recall gain (+0.357); large gains also appear across Romance, Germanic, and Austronesian languages (e.g., Tagalog +0.250, Catalan +0.173, Afrikaans +0.167), suggesting that the gains are not limited to agglutinative morphology alone. By contrast, languages whose base segmentations are already relatively strong show smaller absolute F1 changes: Italian is the only regression despite a substantial recall increase, consistent with a near-ceiling baseline recall ( 0.79 ) that leaves limited room for net F1 improvement. Importantly, every language still improves on recall and precision, indicating that the effect is broad rather than driven by a few high-gain outliers. Table 7: Paired ∆ (L ANG MAP −BASE ) for one strong multilingual seed across 19 MorphScore languages; ⋆ marks a 95% CI excluding 0.    
+
+> Metric ∆95% CI Wins
+> Recall
+
++0.137 ⋆ [+ 0.106, +0.173 ] 19/19  
+
+> Precision
+
++0.044 ⋆ [+ 0.031, +0.060 ] 19/19  
+
+> Micro-F1
+
++0.049 ⋆ [+ 0.033, +0.064 ] 18/19  
+
+> Macro-F1
+
++0.051 ⋆ [+ 0.036, +0.067 ] 18/19 
+
+Table 8: Paired ∆ (L ANG MAP −BASE ) for the single OLMo-3-7B seed on each of the 19 
+
+MorphScore languages (all Latin script); one seed per language, so these are point estimates without CIs. Rows are sorted by ∆recall.      
+
+> Language ∆Rec. ∆Prec. ∆Mic. F1 ∆Mac. F1
+> German (deu)
+
++0.357 +0.143 +0.092 +0.097  
+
+> Tagalog (fil)
+
++0.250 +0.078 +0.044 +0.047  
+
+> Catalan (cat)
+
++0.173 +0.060 +0.112 +0.118  
+
+> Afrikaans (afr)
+
++0.167 +0.057 +0.071 +0.075  
+
+> Indonesian (ind)
+
++0.166 +0.078 +0.109 +0.104  
+
+> Portuguese (por)
+
++0.164 +0.057 +0.076 +0.075  
+
+> Hungarian (hun)
+
++0.162 +0.040 +0.035 +0.040  
+
+> Italian (ita)
+
++0.160 +0.056 −0.033 −0.032  
+
+> Galician (glg)
+
++0.137 +0.047 +0.066 +0.069  
+
+> Norwegian (nob)
+
++0.134 +0.049 +0.054 +0.057  
+
+> Uzbek (uzn)
+
++0.125 +0.036 +0.042 +0.047  
+
+> Finnish (fin)
+
++0.124 +0.038 +0.045 +0.048  
+
+> Danish (dan)
+
++0.116 +0.036 +0.056 +0.059  
+
+> Swedish (swe)
+
++0.087 +0.009 +0.051 +0.055  
+
+> Azerbaijani (azj)
+
++0.080 +0.017 +0.009 +0.011  
+
+> Welsh (cym)
+
++0.072 +0.001 +0.032 +0.032  
+
+> Romanian (ron)
+
++0.060 +0.017 +0.029 +0.033  
+
+> Latvian (lvs)
+
++0.044 +0.012 +0.027 +0.026  
+
+> Albanian (als)
+
++0.022 +0.008 +0.008 +0.014  
+
+> Mean (n
+
+=19 ) +0.137 +0.044 +0.049 +0.051 
+
+B.4 LangMAP Convergence 
+
+Table 9 demonstrates that LangMAP estimation has low sample complexity. Across three typo-logically distinct languages (German, Finnish, and Turkish), re-estimating the language-specific distribution from only 1–2k training examples (approximately 0.1 –0.4 M characters, depending on the language) yields held-out fertility within approximately 0.1% of the estimate obtained using the full ≈ 32 k-example distribution corpus. 
+
+Label-free segmentation selection. We investigate whether the correct language’s segmentation is used at inference time in the LangMAP tokenization scheme. We evaluate on 12 languages (German, 18 Table 9: Distribution Estimation Convergence. Absolute difference in fertility (output pieces per character, measured on FLORES) between language-specific distributions ϕℓ re-estimated from the first N training examples and those estimated on the full convergence corpus ( ≈32 k training examples; ≈5M characters). We use this intrinsic metric as a proxy for how much the distribution changes. Fertility converges to within 0.1% of the full-corpus estimate after 1–2k training examples across all three languages.                     
+
+> German Finnish Turkish Training Examples ( N)
+> 125 0.0020 0.0027 0.0025 500 0.0010 0.0003 0.0001 1,000 0.0001 0.0000 0.0008 4,000 0.0001 0.0001 0.0001 16,000 0.0004 0.0002 0.0001
+> full –––
+
+Table 10: Label-free language routing accuracy. As a function of input length (first W whitespace words), the fraction of FLORES inputs that were segmented according to the “correct” language’s unigram distribution via LangMAP’s maximum-likelihood selection rule; “full” = whole sentence). Base = EuroLLM-1.7B, 400 sentences/language. “Latin-5” restricts both the input languages and LangMAP’s language set to the five Latin-script languages.                       
+
+> Input ( Wwords) 12358full All 12 languages .888 .961 .988 .998 1.00 1.00
+> Latin-5only .803 .922 .976 .995 1.00 1.00
+
+Finnish, Hungarian, Turkish, Hindi, Bengali, Tamil, Arabic, Thai, which are used for our MorphScore evaluation; and Basque, Korean, Russian). For 12 languages ( 400 sentences each), LangMAP chooses the UnigramLM segmentation from the input’s ground-truth language with 100% accuracy for Latin-script languages by the time 8 words from the sequence are given as input (Table 10). 
+
+## C Additional Code Intrinsic Tokenization Results 
+
+19 Table 11: Per-(model, language) ∆ overall AST-leaf-boundary alignment (LangMAP − base BPE) for every one of the 9 × 9 = 81 code cells. Positive favours LangMAP; 0 is an exact tie. Right column and bottom row give per-model and per-language means; the grand mean is +0.022 . 70/81 
+
+cells improve, 3 tie, and 8 regress (all in Phi-3-mini and XGLM-2.9B ). 
+
+Model C C++ C# Go Java JS PHP Py TS Mean 
+
+BLOOM-3B +0.034 +0.031 +0.024 +0.020 +0.036 +0.043 +0.035 +0.009 +0.030 +0.029 
+
+Gemma 2-2B +0.026 +0.024 +0.009 +0.027 +0.008 +0.016 +0.039 +0.018 +0.011 +0.020 
+
+Granite 3.0-8B +0.020 +0.024 +0.009 +0.029 +0.008 +0.015 +0.039 +0.018 +0.018 +0.020 
+
+Llama 3.2-1B +0.032 +0.030 +0.026 +0.052 +0.028 +0.019 +0.035 +0.020 +0.021 +0.029 
+
+Mistral-NeMo-12B +0.030 +0.030 +0.028 +0.057 +0.035 +0.026 +0.011 +0.025 +0.029 +0.030 
+
+Phi-4 +0.032 +0.047 +0.050 +0.052 +0.028 +0.019 +0.033 +0.020 +0.022 +0.034 
+
+Phi-3-mini −0.004 −0.002 0 +0.007 0 +0.014 0 +0.014 −0.001 +0.003 
+
+Qwen 2.5-1.5B +0.031 +0.030 +0.026 +0.052 +0.028 +0.020 +0.035 +0.019 +0.024 +0.029 
+
+XGLM-2.9B −0.008 −0.009 −0.004 +0.016 −0.006 +0.005 +0.002 +0.001 −0.001 −0.000 
+
+Mean +0.021 +0.023 +0.019 +0.035 +0.018 +0.020 +0.025 +0.016 +0.017 +0.022 
+
+Table 12: Absolute overall AST-leaf-boundary alignment for every code cell: base BPE (Base), LangMAP (LM), their difference ∆, and the number of evaluated leaf tokens n. All 81 (model, language) cells. 
+
+Model Lang Base LM ∆ n
+
+BLOOM-3B C 0.775 0.809 +0.034 29,453 BLOOM-3B C++ 0.726 0.757 +0.031 61,222 BLOOM-3B C# 0.813 0.837 +0.024 11,771 BLOOM-3B Go 0.790 0.810 +0.020 65,764 BLOOM-3B Java 0.789 0.825 +0.036 32,587 BLOOM-3B JS 0.725 0.768 +0.043 30,169 BLOOM-3B PHP 0.532 0.567 +0.035 20,610 BLOOM-3B Py 0.782 0.791 +0.009 52,416 BLOOM-3B TS 0.736 0.766 +0.030 34,885 Gemma 2-2B C 0.806 0.832 +0.026 34,654 Gemma 2-2B C++ 0.733 0.757 +0.024 66,229 Gemma 2-2B C# 0.779 0.788 +0.009 29,937 Gemma 2-2B Go 0.785 0.813 +0.027 68,187 Gemma 2-2B Java 0.778 0.786 +0.008 37,387 Gemma 2-2B JS 0.599 0.616 +0.016 34,522 Gemma 2-2B PHP 0.607 0.646 +0.039 24,057 Gemma 2-2B Py 0.811 0.830 +0.018 56,626 Gemma 2-2B TS 0.705 0.716 +0.011 37,053 Granite 3.0-8B C 0.811 0.831 +0.020 29,787 Granite 3.0-8B C++ 0.729 0.753 +0.024 61,783 Granite 3.0-8B C# 0.795 0.804 +0.009 11,737 Granite 3.0-8B Go 0.787 0.816 +0.029 66,161 Granite 3.0-8B Java 0.777 0.785 +0.008 32,626 Granite 3.0-8B JS 0.602 0.617 +0.015 30,269 Granite 3.0-8B PHP 0.595 0.634 +0.039 20,740 Granite 3.0-8B Py 0.812 0.830 +0.018 53,194 Granite 3.0-8B TS 0.699 0.717 +0.018 35,053 Llama 3.2-1B C 0.594 0.626 +0.032 29,795 Llama 3.2-1B C++ 0.516 0.547 +0.030 61,803 Llama 3.2-1B C# 0.526 0.553 +0.026 11,742 Llama 3.2-1B Go 0.399 0.450 +0.052 66,161 Llama 3.2-1B Java 0.462 0.490 +0.028 32,632 Llama 3.2-1B JS 0.419 0.438 +0.019 30,273 Llama 3.2-1B PHP 0.493 0.529 +0.035 20,741 Llama 3.2-1B Py 0.580 0.599 +0.020 53,267 Llama 3.2-1B TS 0.485 0.506 +0.021 35,029 Mistral-NeMo-12B C 0.619 0.649 +0.030 29,795 Mistral-NeMo-12B C++ 0.540 0.570 +0.030 61,806 Mistral-NeMo-12B C# 0.547 0.575 +0.028 11,742 Mistral-NeMo-12B Go 0.452 0.509 +0.057 66,121 Mistral-NeMo-12B Java 0.481 0.516 +0.035 32,630 Model Lang Base LM ∆ n
+
+Mistral-NeMo-12B JS 0.432 0.458 +0.026 30,273 Mistral-NeMo-12B PHP 0.516 0.527 +0.011 20,731 Mistral-NeMo-12B Py 0.599 0.625 +0.025 53,275 Mistral-NeMo-12B TS 0.501 0.530 +0.029 35,025 Phi-4 C 0.594 0.626 +0.032 29,795 Phi-4 C++ 0.516 0.563 +0.047 61,808 Phi-4 C# 0.526 0.576 +0.050 11,742 Phi-4 Go 0.399 0.450 +0.052 66,159 Phi-4 Java 0.462 0.490 +0.028 32,632 Phi-4 JS 0.419 0.438 +0.019 30,273 Phi-4 PHP 0.493 0.527 +0.033 20,731 Phi-4 Py 0.580 0.599 +0.020 53,262 Phi-4 TS 0.485 0.507 +0.022 35,029 Phi-3-mini C 0.245 0.241 −0.004 257 Phi-3-mini C++ 0.142 0.141 −0.002 640 Phi-3-mini C# 0.510 0.510 0 463 Phi-3-mini Go 0.336 0.343 +0.007 140 Phi-3-mini Java 0.704 0.704 0 449 Phi-3-mini JS 0.623 0.637 +0.014 1,887 Phi-3-mini PHP 0.225 0.225 0 71 Phi-3-mini Py 0.569 0.583 +0.014 290 Phi-3-mini TS 0.557 0.555 −0.001 814 Qwen 2.5-1.5B C 0.594 0.625 +0.031 29,795 Qwen 2.5-1.5B C++ 0.516 0.546 +0.030 61,806 Qwen 2.5-1.5B C# 0.526 0.552 +0.026 11,742 Qwen 2.5-1.5B Go 0.399 0.450 +0.052 66,161 Qwen 2.5-1.5B Java 0.462 0.490 +0.028 32,632 Qwen 2.5-1.5B JS 0.419 0.439 +0.020 30,273 Qwen 2.5-1.5B PHP 0.493 0.529 +0.035 20,741 Qwen 2.5-1.5B Py 0.580 0.599 +0.019 53,267 Qwen 2.5-1.5B TS 0.485 0.509 +0.024 35,031 XGLM-2.9B C 0.848 0.840 −0.008 34,003 XGLM-2.9B C++ 0.827 0.818 −0.009 64,527 XGLM-2.9B C# 0.835 0.831 −0.004 12,139 XGLM-2.9B Go 0.890 0.906 +0.016 68,139 XGLM-2.9B Java 0.849 0.843 −0.006 34,984 XGLM-2.9B JS 0.806 0.811 +0.005 32,686 XGLM-2.9B PHP 0.868 0.870 +0.002 23,662 XGLM-2.9B Py 0.876 0.877 +0.001 56,378 XGLM-2.9B TS 0.871 0.869 −0.001 35,868 
+
+## D Full Downstream Results 
+
+Fig. 3 reports accuracy in the target language for all three tasks, before fine-tuning and after fine-tuning with each tokenizer. Because the two fine-tuned models share the same base model, data, and 20 Figure 3: Performance on downstream tasks of the base model vs. models fine-tuned on text data for the respective languages (no task fine-tuning). We show results when fine-tuning with LangMAP vs. with the original tokenizer. protocol and differ only in tokenizer, their difference isolates the effect of the segmentation. We omit the English evaluations: the models were not fine-tuned on English text under the LangMAP segmentation, so that comparison is uncontrolled. The MultiBLiMP improvements exceed their standard errors (at most 0.01 ) by a wide margin. The Belebele standard errors are about 0.016 and the Global-PIQA standard errors about 0.05 ; the latter is larger than every Global-PIQA difference we observe, so that task does not resolve an effect of the tokenizer. 21 E Further Details on the UnigramLM Algorithm 
+
+This appendix provides additional detail on the UnigramLM algorithm summarized in §2.1. We give the full inference and EM derivations (§§ E.1 and E.2, respectively) and the vocabulary pruning procedure (§E.3). These derivations are largely reproduced from Meister (2025a); we refer the reader to this resource for a more detailed presentation of the algorithm. 
+
+E.1 Inference Derivation 
+
+For reference, the deterministic relationship between token sequences and strings under the Uni-gramLM generative model is: 
+
+P(S = s | V = v) = 
+
+ 1 if s = g(v)
+
+0 otherwise (7) Recall from the main text that MAP inference seeks: 
+
+hϕ(s) def 
+
+= argmax  
+
+> v∈V ∗
+
+P(V = v | S = s; ϕ) (3) Using the relationships in Equations (1) and (7), we can rewrite Equation (3) as the following equivalent optimization problem: 
+
+hϕ(s) def 
+
+= argmax  
+
+> v∈V ∗
+
+P(V = v | S = s; ϕ) (3) 
+
+= argmax  
+
+> v∈T V(s)
+
+P(V = v; ϕ)
+
+∑v′ ∈T V (s) P(V = v′; ϕ) (8a) 
+
+= argmax  
+
+> v∈T V(s)
+
+P(V = v; ϕ) (8b) 
+
+= argmax  
+
+> v∈T V(s)
+> |v|
+
+# ∏
+
+> t=1
+
+ϕ[vt] (8c) where we first restrict the considered sequences of tokens to TV (s) (8a) since other sequences have probability zero given Equation (7), and apply Bayes’ rule, noting that P(S = s | V = v; ϕ) = 1
+
+for all v ∈ T V (s). Then, we drop the denominator (8b), since it does not depend on v and thus does not affect the argmax . Finally, we apply the definition in Equation (1) (8c). 
+
+E.2 Application of EM for Learning ϕ
+
+As stated in §2.1, UnigramLM learns ϕ by approximately maximizing the observed data log-likelihood via EM. Here we provide the full logic behind why this is a valid approach. Under the UnigramLM generative process, a “complete” dataset consists of (s, v) pairs, i.e., strings and the token sequences that produced them. Denoting such a dataset as X = {(sm, vm)}Mm=1, its log-likelihood is: 
+
+L(X ; ϕ) def 
+
+=
+
+> M
+
+# ∑
+
+> m=1
+
+log P(S = sm, V = vm; ϕ) (9) which we refer to as the complete data log-likelihood. Crucially, this quantity cannot be optimized directly, since the token sequences vm are latent: we only observe the detokenized strings s = g(v),not the segmentations that produced them. We thus instead turn to maximizing the observed data log-likelihood: 
+
+L(C; ϕ) def 
+
+=
+
+> M
+
+# ∑
+
+> m=1
+
+log P(S = sm; ϕ) (10a) 
+
+=
+
+> M
+
+# ∑
+
+> m=1
+
+log ∑  
+
+> v∈T V(sm)
+
+P(V = v; ϕ) (10b) 22 where C = {sm}Mm=1 is the corpus of strings. However, this value is difficult to optimize directly due to the log-sum structure. This is where the expectation-maximization (EM) algorithm comes in. By Jensen’s inequality, we can show that the expected value of the complete log-likelihood serves as a lower bound for the observed log-likelihood. We provide this derivation specifically for our setting. Let Q(ϕ; ϕ(n)) denote the expected complete data log-likelihood: 
+
+Q(ϕ; ϕ(n)) def 
+
+=
+
+> M
+
+# ∑
+
+> m=1
+
+E  
+
+> v∼V|S=sm;ϕ(n)
+
+ log P(S = sm, V = v; ϕ) (11) For any valid probability distribution P(V = v), given our established relationships between 
+
+P(V = v) and P(S = s; ϕ), we have by Jensen’s inequality that: 
+
+log P(S = s; ϕ) = log ∑ 
+
+> v∈T V(s)
+
+P(V = v) P(V = v; ϕ)
+
+P(V = v)
+
+≥ ∑ 
+
+> v∈T V(s)
+
+P(V = v) log P(V = v; ϕ)
+
+P(V = v)
+
+Let’s now choose P(V = v) to be P(V = v | S = s; ϕ(n))—the posterior under our current parameter beliefs for a fixed s. Applying Jensen’s inequality (above) to our definition of the observed data log-likelihood from Equation (10) gives us 
+
+L(C; ϕ) = 
+
+> M
+
+# ∑
+
+> m=1
+
+log ∑  
+
+> v∈T V(sm)
+
+P(V = v; ϕ) (12a) 
+
+≥
+
+> M
+
+# ∑
+
+> m=1
+
+# ∑  
+
+> v∈T V(sm)
+
+P(V = v | S = sm; ϕ(n)) log P(V = v; ϕ) − log P(V = v | S = sm; ϕ(n))
+
+(12b) 
+
+=
+
+> M
+
+# ∑
+
+> m=1
+
+# ∑  
+
+> v∈T V(sm)
+
+P(V = v | S = sm; ϕ(n)) log P(S = sm, V = v; ϕ) (12c) 
+
+−
+
+> M
+
+# ∑
+
+> m=1
+
+# ∑  
+
+> v∈T V(sm)
+
+P(V = v | S = sm; ϕ(n)) log P(V = v | S = sm; ϕ(n))=
+
+> M
+
+# ∑
+
+> m=1
+
+E  
+
+> v∼V|S=sm;ϕ(n)
+
+ log P(S = sm, V = v; ϕ)| {z } 
+
+> Q(ϕ;ϕ(n))
+
+(12d) 
+
++
+
+> M
+
+# ∑
+
+> m=1
+
+− E  
+
+> v∼V|S=sm;ϕ(n)
+
+ log P(V = v | S = sm; ϕ(n))| {z }
+
+> H
+
+ V | S=sm;ϕ(n) 
+
+When going to Equation (12c), we use the fact that for any v ∈ T V (sm), it must be that P(S =
+
+sm, V = v; ϕ) = P(V = v; ϕ). Equation (12d) simply inserts some common definitions. Namely, the definitions of expected values and (Shannon) entropy. The entropy term H V | S = sm; ϕ(n)
+
+is constant with respect to ϕ, and so we can ignore it in our optimization. The EM algorithm uses the above relationship and proposes a procedure for iteratively maximizing the expected complete data log-likelihood with respect to model parameters, where the expectation is taken with respect to the posterior distribution defined by current parameter beliefs. The E-step computes this expected value; the M-step maximizes it with respect to the free parameters. In our case, expected token counts are a sufficient statistic for the M-step objective, leading to the algorithm given in §2.1. This procedure can be intuitively understood as iteratively performing maximum likelihood estimation for a categorical model, where observed token counts are replaced by posterior-expected counts 23 induced by the distribution over latent segmentations given current parameter beliefs. The usage of EM for this problem is taken from prior work and its theoretical validity for problems of the same structure has been well established Dempster et al. (1977); Brown et al. (1993). 
+
+E.3 UnigramLM Vocabulary Pruning 
+
+As our method keeps V fixed, we omit this step entirely; we include this description of pruning done in the original UnigramLM algorithm only for completeness. The UnigramLM algorithm was designed for the case that we do not start with a known, fixed V. It thus incorporates a strategy for choosing V by initializing V as an over-sized set and adding a pruning step at the end of each EM iteration. This pruning step uses current parameter beliefs to estimate the log-likelihood contribution of each token to the expected observed data log-likelihood. It then prunes a percentage of tokens that contribute least, stopping once the desired vocabulary size (a hyperparameter set by the user) has been reached. 24
