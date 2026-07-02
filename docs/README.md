@@ -6,133 +6,113 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-23 ~ 2026-07-02
-- 运行时间：2026-07-02 06:17:21 UTC
+- 最新运行日期：2026-07-02
+- 运行时间：2026-07-02 22:24:54 UTC
 - 运行状态：成功
-- 本次总论文数：37
-- 精读区：24
+- 本次总论文数：31
+- 精读区：18
 - 速读区：13
 
 ### 今日简报（AI）
-本日报覆盖6月23日至7月2日，37篇论文中智能体世界模型与代理框架评测成焦点。  
-最值得看的是精读满分《Qwen-AgentWorld: Language World Models for General Agents》（通用智能体的语言世界模型）与9分《LemonHarness Technical Report》，速读中《Watts and Debts of Agentic Frameworks》对代理框架的实证分析也值得关注。  
-建议优先阅读《Qwen-AgentWorld》理解前沿范式，再结合《Watts and Debts》对比框架效率，后续可跟进《CORE-Bench》强化代码检索能力。
-- 详情：[/20260623-20260702/README](/20260623-20260702/README)
+今日共收录31篇论文，精读18篇，其中《Efficient and Trainable Language Model Test-Time Scaling via Local Branch Routing》和《AgentX: Towards Agent-Driven Self-Iteration of Industrial Recommender Systems》均获9.0高分，分别聚焦推理效率优化与推荐系统自动化迭代。值得关注Agent驱动的工业推荐系统自迭代方向，以及速读中多篇代理评估基准论文（如AgentBeats、Dialogue SWE-Bench）。建议普通读者优先精读AgentX，并跟进Agent评估标准化进展。
+- 详情：[/202607/02/README](/202607/02/README)
 
 ### 精读区论文标签
-1. [Qwen-AgentWorld: Language World Models for General Agents](/20260623-20260702/2606.24597v1-qwen-agentworld-language-world-models-for-general-agents)  
-   标签：评分：10.0/10、query:agent
-   evidence：面向通用代理的语言世界模型，Qwen-AgentWorld
-2. [LemonHarness Technical Report](/20260623-20260702/2606.24311v1-lemonharness-technical-report)  
-   标签：评分：9.0/10、query:agent
-   evidence：长周期LLM智能体的执行框架
-3. [Transformer-Based Language Models Across Domain Verticals: Architectures, Applications and Critical Assessment](/20260623-20260702/2606.24331v1-transformer-based-language-models-across-domain-verticals-architectures-applications-and-critical-assessment)  
+1. [Efficient and Trainable Language Model Test-Time Scaling via Local Branch Routing](/202607/02/2606.25354v1-efficient-and-trainable-language-model-test-time-scaling-via-local-branch-routing)  
    标签：评分：9.0/10、query:llm
-   evidence：Transformer架构、训练方法和评估的全面综述
-4. [AGORA: An Archive-Grounded Benchmark for Agentic Workplace Document Reasoning](/20260623-20260702/2606.24526v1-agora-an-archive-grounded-benchmark-for-agentic-workplace-document-reasoning)  
+   evidence：测试时缩放，局部分支路由，推理优化
+2. [AgentX: Towards Agent-Driven Self-Iteration of Industrial Recommender Systems](/202607/02/2606.26859v1-agentx-towards-agent-driven-self-iteration-of-industrial-recommender-systems)  
    标签：评分：9.0/10、query:agent
-   evidence：基于档案的智能体文档推理基准
-5. [Automated Summarization of Software Documents: An LLM-based Multi-Agent Approach](/20260623-20260702/2606.24689v1-automated-summarization-of-software-documents-an-llm-based-multi-agent-approach)  
-   标签：评分：9.0/10、query:agent
-   evidence：提出Metagente，一个基于LLM的多代理系统用于软件文档摘要
-6. [Posterior Refinement: Fast Language Generation via Any-Order Flow Maps](/20260623-20260702/2606.24773v1-posterior-refinement-fast-language-generation-via-any-order-flow-maps)  
+   evidence：用于推荐系统自动迭代的多智能体系统
+3. [Flexformer: Flexible Linear Transformer with Learnable Attention Kernel](/202607/02/2606.27748v1-flexformer-flexible-linear-transformer-with-learnable-attention-kernel)  
    标签：评分：9.0/10、query:llm
-   evidence：高效非自回归语言生成的FMLM+框架
-7. [World Models in Pieces: Structural Certification for General Agents](/20260623-20260702/2606.24842v1-world-models-in-pieces-structural-certification-for-general-agents)  
+   evidence：提出Flexformer，一种具有可学习注意力核的线性Transformer，属于新架构
+4. [GBC: Gradient-Based Connections for Optimizing Multi-Agent Systems](/202607/02/2606.28187v1-gbc-gradient-based-connections-for-optimizing-multi-agent-systems)  
    标签：评分：9.0/10、query:agent
-   evidence：面向通用代理的世界模型结构认证
-8. [How Do Developers Maintain and Evolve Their Agents' Instructions? An Empirical Study](/20260623-20260702/2606.25257v1-how-do-developers-maintain-and-evolve-their-agents-instructions-an-empirical-study)  
+   evidence：多智能体系统优化框架
+5. [SEATauBench: Adapting Tool-Agent-User Evaluation Into Low-Resource Southeast Asian Languages](/202607/02/2606.28715v1-seataubench-adapting-tool-agent-user-evaluation-into-low-resource-southeast-asian-languages)  
    标签：评分：9.0/10、query:agent
-   evidence：关于开发者如何维护和演化编码代理指令的实证研究
-9. [The Red Queen Gödel Machine: Co-Evolving Agents and Their Evaluators](/20260623-20260702/2606.26294v1-the-red-queen-gdel-machine-co-evolving-agents-and-their-evaluators)  
+   evidence：面向低资源东南亚语言的智能体评估框架，适配工具-智能体-用户交互
+6. [Agentic Abstention: Do Agents Know When to Stop Instead of Act?](/202607/02/2606.28733v1-agentic-abstention-do-agents-know-when-to-stop-instead-of-act)  
    标签：评分：9.0/10、query:agent
-   evidence：智能体与评估器共同进化实现递归自我改进
-10. [AgentX: Towards Agent-Driven Self-Iteration of Industrial Recommender Systems](/20260623-20260702/2606.26859v1-agentx-towards-agent-driven-self-iteration-of-industrial-recommender-systems)  
+   evidence：研究智能体在搜索和浏览中的放弃行为
+7. [Self-Supervised Theorem Discovery in a Formal Axiomatic System](/202607/02/2606.28747v1-self-supervised-theorem-discovery-in-a-formal-axiomatic-system)  
    标签：评分：9.0/10、query:agent
-   evidence：多智能体系统用于工业推荐系统的自迭代
-11. [Mitigating Position Bias in Transformers via Layer-Specific Positional Embedding Scaling](/20260623-20260702/2606.27705v1-mitigating-position-bias-in-transformers-via-layer-specific-positional-embedding-scaling)  
+   evidence：智能体在无需人类先验知识的情况下自主发现定理
+8. [Multi-Agent Routing as Set-Valued Prediction: A WildChat Benchmark and Cost-Aware Evaluation](/202607/02/2606.28925v1-multi-agent-routing-as-set-valued-prediction-a-wildchat-benchmark-and-cost-aware-evaluation)  
+   标签：评分：9.0/10、query:agent
+   evidence：多智能体路由基准与评估
+9. [Preventing Error Propagation in Multi-Agent AI through Runtime Monitoring](/202607/02/2606.29026v1-preventing-error-propagation-in-multi-agent-ai-through-runtime-monitoring)  
+   标签：评分：9.0/10、query:agent
+   evidence：多智能体AI的运行时监控框架
+10. [Characterizing Large Language Model Agentic Workflows: A Study on N8n Ecosystem](/202607/02/2606.29116v1-characterizing-large-language-model-agentic-workflows-a-study-on-n8n-ecosystem)  
+   标签：评分：9.0/10、query:agent
+   evidence：对低代码平台中LLM代理工作流的大规模实证研究
+11. [Agent Security Meets Regulatory Reality -- A Practitioner Systematization of Autonomous-Agent Threats and Controls in Regulated Financial Systems](/202607/02/2606.29142v1-agent-security-meets-regulatory-reality----a-practitioner-systematization-of-autonomous-agent-threats-and-controls-in-regulated-financial-systems)  
+   标签：评分：9.0/10、query:agent
+   evidence：自主智能体威胁与金融法规控制映射
+12. [Interpretable Inverse Design of Metal-Organic Frameworks with Large Language Model Agents](/202607/02/2606.29459v1-interpretable-inverse-design-of-metal-organic-frameworks-with-large-language-model-agents)  
+   标签：评分：9.0/10、query:agent
+   evidence：提出LLM4MOF，使用LLM代理进行金属有机框架逆向设计的闭环框架
+13. [AgentBound: Verifiable Behavioral Governance for Autonomous AI Agents](/202607/02/2606.30970v1-agentbound-verifiable-behavioral-governance-for-autonomous-ai-agents)  
+   标签：评分：9.0/10、query:agent
+   evidence：自主AI代理治理框架运行时监督
+14. [AutoTrainess: Teaching Language Models to Improve Language Models Autonomously](/202607/02/2606.31551v1-autotrainess-teaching-language-models-to-improve-language-models-autonomously)  
+   标签：评分：9.0/10、query:agent
+   evidence：用于自主训练的LM代理框架
+15. [ACE: Pluggable Adaptive Context Elasticizer across Agents](/202607/02/2606.31564v1-ace-pluggable-adaptive-context-elasticizer-across-agents)  
+   标签：评分：9.0/10、query:agent
+   evidence：面向LLM智能体的可插拔上下文弹性扩展模块
+16. [Multi-Turn Agentic Scientific Literature Search via Workflow Induction](/202607/02/2607.00597v1-multi-turn-agentic-scientific-literature-search-via-workflow-induction)  
+   标签：评分：9.0/10、query:agent
+   evidence：科学文献搜索代理多轮工作流归纳
+17. [Can Agents Generalize to the Open World? Unveiling the Fragility of Static Training in Tool Use](/202607/02/2607.01084v1-can-agents-generalize-to-the-open-world-unveiling-the-fragility-of-static-training-in-tool-use)  
+   标签：评分：9.0/10、query:agent
+   evidence：形式化开放世界下LLM代理泛化问题OpenAgent，系统诊断分布偏移的影响
+18. [ZO-Act: Efficient Zeroth-Order Fine-Tuning via One-Shot Activation-Informed Low-Rank Subspaces](/202607/02/2607.01125v1-zo-act-efficient-zeroth-order-fine-tuning-via-one-shot-activation-informed-low-rank-subspaces)  
    标签：评分：9.0/10、query:llm
-   evidence：通过位置嵌入缩放优化大语言模型推理
-12. [End-to-End Dynamic Sparsity for Resource-Adaptive LLM Inference](/20260623-20260702/2606.27743v1-end-to-end-dynamic-sparsity-for-resource-adaptive-llm-inference)  
-   标签：评分：9.0/10、query:llm
-   evidence：面向资源自适应的端到端动态稀疏化LLM推理
-13. [TUA-Bench: A Benchmark for General-Purpose Terminal-Use Agents](/20260623-20260702/2606.28480v1-tua-bench-a-benchmark-for-general-purpose-terminal-use-agents)  
-   标签：评分：9.0/10、query:agent
-   evidence：通用终端使用自主代理的基准
-14. [HyphaeDB: A Living Knowledge Topology for Agent-First Memory](/20260623-20260702/2606.28781v1-hyphaedb-a-living-knowledge-topology-for-agent-first-memory)  
-   标签：评分：9.0/10、query:agent
-   evidence：用于多代理系统的代理原生记忆基础设施
-15. [The Heterogeneous Safety Impacts of Benign Multilingual Fine-Tuning](/20260623-20260702/2606.28843v1-the-heterogeneous-safety-impacts-of-benign-multilingual-fine-tuning)  
-   标签：评分：9.0/10、query:llm
-   evidence：多语言微调对LLM安全影响的实证研究
-16. [SAKE: Software Architectural Knowledge Evaluation Benchmark for Large Language Models](/20260623-20260702/2606.29520v1-sake-software-architectural-knowledge-evaluation-benchmark-for-large-language-models)  
-   标签：评分：9.0/10、query:llm
-   evidence：软件架构知识评估基准
-17. [Mandol: An Agglomerative Agent Memory System for Long-Term Conversations](/20260623-20260702/2606.29778v1-mandol-an-agglomerative-agent-memory-system-for-long-term-conversations)  
-   标签：评分：9.0/10、query:agent
-   evidence：面向长期对话代理的聚合记忆系统
-18. [Experience Graphs: The Data Foundation for Self-Improving Agents](/20260623-20260702/2606.29823v1-experience-graphs-the-data-foundation-for-self-improving-agents)  
-   标签：评分：9.0/10、query:agent
-   evidence：提出经验图作为智能体框架的数据基础
-19. [MAS-Lab: A Specification-Driven Validation Framework for Reliable Multi-Agent Systems](/20260623-20260702/2606.30546v1-mas-lab-a-specification-driven-validation-framework-for-reliable-multi-agent-systems)  
-   标签：评分：9.0/10、query:agent
-   evidence：面向可靠多智能体系统的规格驱动验证框架
-20. [A Semantic-Layer-Mediated Agent for Natural Language to SQL over Heterogeneous Enterprise Databases](/20260623-20260702/2606.31041v1-a-semantic-layer-mediated-agent-for-natural-language-to-sql-over-heterogeneous-enterprise-databases)  
-   标签：评分：9.0/10、query:agent
-   evidence：语义层中介的NL2SQL智能体
-21. [SeKV: Resolution-Adaptive KV Cache with Hierarchical Semantic Memory for Long-Context LLM Inference](/20260623-20260702/2606.31145v1-sekv-resolution-adaptive-kv-cache-with-hierarchical-semantic-memory-for-long-context-llm-inference)  
-   标签：评分：9.0/10、query:llm
-   evidence：分辨率自适应KV缓存优化长上下文LLM推理
-22. [SimpleSearch-VL: A Simple Recipe for Multimodal Agentic Deep Search](/20260623-20260702/2606.31504v1-simplesearch-vl-a-simple-recipe-for-multimodal-agentic-deep-search)  
-   标签：评分：9.0/10、query:agent
-   evidence：多模态代理深度搜索框架
-23. [RaBitQCache: Rotated Binary Quantization for KVCache in Long Context LLM Inference](/20260623-20260702/2606.31519v1-rabitqcache-rotated-binary-quantization-for-kvcache-in-long-context-llm-inference)  
-   标签：评分：9.0/10、query:llm
-   evidence：提出RaBitQCache通过旋转二进制量化实现高效KV缓存管理
-24. [Attend, Transform, or Silence: Operator-Level Visual Skipping for Efficient Multimodal LLM Inference](/20260623-20260702/2606.31903v1-attend-transform-or-silence-operator-level-visual-skipping-for-efficient-multimodal-llm-inference)  
-   标签：评分：9.0/10、query:llm
-   evidence：面向多模态LLM推理的算子级视觉跳过方法
+   evidence：面向LLM的零阶微调方法
 
 ### 速读区论文标签
-1. [Watts and Debts of Agentic Frameworks: An Empirical Study (Registered Report)](/20260623-20260702/2606.10702v1-watts-and-debts-of-agentic-frameworks-an-empirical-study-registered-report)  
+1. [AgentBeats: Agentifying Agent Assessment for Openness, Standardization, and Reproducibility](/202607/02/2606.13608v2-agentbeats-agentifying-agent-assessment-for-openness-standardization-and-reproducibility)  
    标签：评分：8.0/10、query:agent
-   evidence：对智能体框架中技术债务与能耗的实证研究
-2. [CORE-Bench: A Comprehensive Benchmark for Code Retrieval in the Era of Agentic Coding](/20260623-20260702/2606.11864v1-core-bench-a-comprehensive-benchmark-for-code-retrieval-in-the-era-of-agentic-coding)  
+   evidence：基于标准化协议的代理评估框架
+2. [Minim: Privacy-Aware Minimal View for Agents via Trusted Local Sanitization](/202607/02/2606.13949v1-minim-privacy-aware-minimal-view-for-agents-via-trusted-local-sanitization)  
    标签：评分：8.0/10、query:agent
-   evidence：面向编码代理的代码检索综合基准
-3. [The Internet of Agentic AI: Communication, Coordination, and Collective Intelligence at Scale](/20260623-20260702/2606.12835v1-the-internet-of-agentic-ai-communication-coordination-and-collective-intelligence-at-scale)  
+   evidence：通过可信本地净化实现代理的隐私感知最小化视图
+3. [Dialogue SWE-Bench: A Benchmark for Dialogue-Driven Coding Agents](/202607/02/2606.13995v1-dialogue-swe-bench-a-benchmark-for-dialogue-driven-coding-agents)  
    标签：评分：8.0/10、query:agent
-   evidence：关于多代理协调的代理AI互联网愿景论文
-4. [G-Long: Graph-Enhanced Memory Management for Efficient Long-Term Dialogue Agents](/20260623-20260702/2606.13115v1-g-long-graph-enhanced-memory-management-for-efficient-long-term-dialogue-agents)  
+   evidence：对话驱动编码智能体的基准测试
+4. [Communication Policy Evolution for Proactive LLM Agents](/202607/02/2606.14314v1-communication-policy-evolution-for-proactive-llm-agents)  
    标签：评分：8.0/10、query:agent
-   evidence：面向长期对话代理的图增强内存管理
-5. [AgentBeats: Agentifying Agent Assessment for Openness, Standardization, and Reproducibility](/20260623-20260702/2606.13608v1-agentbeats-agentifying-agent-assessment-for-openness-standardization-and-reproducibility)  
+   evidence：主动LLM代理的通信策略
+5. [SAGE: Stochastic Prompt Optimization via Agent-Guided Exploration](/202607/02/2606.18902v1-sage-stochastic-prompt-optimization-via-agent-guided-exploration)  
    标签：评分：8.0/10、query:agent
-   evidence：使用评判智能体进行标准化评估的框架
-6. [Varying Bundle Size Reactive Multi-Task Assignment using Selective Cost Estimation for Multi-Agent Systems](/20260623-20260702/2606.24462v1-varying-bundle-size-reactive-multi-task-assignment-using-selective-cost-estimation-for-multi-agent-systems)  
-   标签：评分：7.0/10、query:agent
-   evidence：多智能体任务分配，多机器人可扩展框架
-7. [Scaling Laws for Task-Specific LLM Distillation](/20260623-20260702/2606.24747v1-scaling-laws-for-task-specific-llm-distillation)  
+   evidence：用于提示优化的多代理框架
+6. [Evaluating Japanese Dialect Robustness Across Speech and Text-based Large Language Models](/202607/02/2606.25436v1-evaluating-japanese-dialect-robustness-across-speech-and-text-based-large-language-models)  
    标签：评分：7.0/10、query:llm
-   evidence：大语言模型蒸馏缩放定律，涉及训练技术
-8. [Efficient and Trainable Language Model Test-Time Scaling via Local Branch Routing](/20260623-20260702/2606.25354v2-efficient-and-trainable-language-model-test-time-scaling-via-local-branch-routing)  
+   evidence：评估LLM在不同方言上的鲁棒性
+7. [MKG-RAG-Bench: Benchmarking Retrieval in Multimodal Knowledge Graph-Augmented Generation](/202607/02/2606.26458v1-mkg-rag-bench-benchmarking-retrieval-in-multimodal-knowledge-graph-augmented-generation)  
    标签：评分：7.0/10、query:llm
-   evidence：语言模型测试时扩展的推理优化方法
-9. [SARA: Unlocking Multilingual Knowledge in Mixture-of-Experts via Semantically Anchored Routing Alignment](/20260623-20260702/2606.25821v1-sara-unlocking-multilingual-knowledge-in-mixture-of-experts-via-semantically-anchored-routing-alignment)  
+   evidence：多模态知识图谱检索增强生成的基准
+8. [Soft Token Alignment for Cross-Lingual Reasoning](/202607/02/2606.26466v1-soft-token-alignment-for-cross-lingual-reasoning)  
    标签：评分：7.0/10、query:llm
-   evidence：多语言专家混合模型的训练技术
-10. [Towards Fast and Effective Long Video Understanding of Multimodal Large Language Models via Adaptive Quasi-Gaussian Sampling](/20260623-20260702/2606.24187v1-towards-fast-and-effective-long-video-understanding-of-multimodal-large-language-models-via-adaptive-quasi-gaussian-sampling)  
+   evidence：微调大语言模型实现跨语言对齐
+9. [Discovering Millions of Interpretable Features with Sparse Autoencoders](/202607/02/2606.26620v1-discovering-millions-of-interpretable-features-with-sparse-autoencoders)  
+   标签：评分：7.0/10、query:llm
+   evidence：在Qwen3上训练稀疏自编码器，探索LLM可解释性
+10. [Multilingual Reasoning Cascades Need More Context](/202607/02/2606.27306v1-multilingual-reasoning-cascades-need-more-context)  
    标签：评分：6.0/10、query:llm
-   evidence：自适应关键帧采样实现多模态大模型高效长视频理解
-11. [On the Stability of Prompt Ranking in Large Language Model Evaluation](/20260623-20260702/2606.24381v1-on-the-stability-of-prompt-ranking-in-large-language-model-evaluation)  
+   evidence：面向LLM多语言推理的翻译级联方法
+11. [Continual Learning for Sequential Personalization of Small Language Models: A Stability Monitoring Analysis](/202607/02/2606.27634v1-continual-learning-for-sequential-personalization-of-small-language-models-a-stability-monitoring-analysis)  
    标签：评分：6.0/10、query:llm
-   evidence：LLM评测中提示排名的稳定性研究
-12. [CodeChat-Eval: Evaluating Large Language Models in Multi-Turn Code Refinement Dialogues](/20260623-20260702/2606.25747v1-codechat-eval-evaluating-large-language-models-in-multi-turn-code-refinement-dialogues)  
-   标签：评分：6.0/10、query:llm
-   evidence：评估LLM在多轮代码精炼对话中的框架
-13. [CodeChat-Eval: Evaluating Large Language Models in Multi-Turn Code Refinement Dialogues](/20260623-20260702/2606.25747v2-codechat-eval-evaluating-large-language-models-in-multi-turn-code-refinement-dialogues)  
+   evidence：小语言模型的持续微调与稳定性监控
+12. [RIPA: Sensory-Vector Prompt Injection Attacks on LLM-Controlled ROS 2 Robots](/202607/02/2606.28649v1-ripa-sensory-vector-prompt-injection-attacks-on-llm-controlled-ros-2-robots)  
    标签：评分：6.0/10、query:agent
-   evidence：面向多轮代码精炼评测，与代码代理相关
+   evidence：LLM控制机器人智能体中的提示注入系统性研究
+13. [MIRROR: Aligning Semantic Relations from Language to Image via Gromov--Wasserstein](/202607/02/2606.29462v1-mirror-aligning-semantic-relations-from-language-to-image-via-gromov--wasserstein)  
+   标签：评分：6.0/10、query:llm
+   evidence：多模态大语言模型中语义关系的几何对齐
 
 
 <div class="dpr-home-promo-card">
