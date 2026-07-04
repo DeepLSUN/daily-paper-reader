@@ -6,95 +6,85 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-03
-- 运行时间：2026-07-03 22:22:31 UTC
+- 最新运行日期：2026-07-04
+- 运行时间：2026-07-04 21:49:54 UTC
 - 运行状态：成功
-- 本次总论文数：25
-- 精读区：12
+- 本次总论文数：21
+- 精读区：8
 - 速读区：13
 
 ### 今日简报（AI）
-今日共处理25篇论文，精读12篇、速读13篇。最值得关注的是满分精读《Stop Hand-Holding Your Coding Agent》探讨如何用工程循环替代逐步提示，以及9分精读《DiscoBench》聚焦搜索代理的主动提问时机。建议优先精读这两篇，速读部分可关注企业数据代理与代理归因方向。
-- 详情：[/202607/03/README](/202607/03/README)
+1) 今日聚焦LLM Agent内存攻击面分析与多模态资源到可执行技能的知识蒸馏。
+2) 最值得精读的两项高分研究：一份揭示Agent在选择题回答中的内存攻击风险（9.0分），另一份提出从多模态资源自动抽取执行技能的方法（9.0分）。
+3) 建议优先阅读这两篇论文，深入了解Agent安全与技能自动化前沿。
+- 详情：[/202607/04/README](/202607/04/README)
 
 ### 精读区论文标签
-1. [Stop Hand-Holding Your Coding Agent: Engineering the Loops that Replace Step-by-Step Prompting](/202607/03/2607.00038v1-stop-hand-holding-your-coding-agent-engineering-the-loops-that-replace-step-by-step-prompting)  
-   标签：评分：10.0/10、query:agent
-   evidence：编码代理研究与循环规范设计
-2. [When Search Agents Should Ask: DiscoBench for Clarification-Aware Deep Search](/202607/03/2606.27669v2-when-search-agents-should-ask-discobench-for-clarification-aware-deep-search)  
+1. [Memory as an Attack Surface in LLM Agents: A Study on Multiple-Choice Question Answering](/202607/04/2606.29030v1-memory-as-an-attack-surface-in-llm-agents-a-study-on-multiple-choice-question-answering)  
    标签：评分：9.0/10、query:agent
-   evidence：面向搜索agent的澄清感知深度搜索基准
-3. [LAMP: Lean-based Agentic framework with MCP and Proof Repair](/202607/03/2606.28841v1-lamp-lean-based-agentic-framework-with-mcp-and-proof-repair)  
+   evidence：LLM代理内存攻击
+2. [RESOURCE2SKILL: Distilling Executable Agent Skills from Human-Created Multimodal Resources](/202607/04/2606.29538v1-resource2skill-distilling-executable-agent-skills-from-human-created-multimodal-resources)  
    标签：评分：9.0/10、query:agent
-   evidence：代码代理研究，Lean定理证明
-4. [The Mirage of Optimizing Training Policies: Monotonic Inference Policies as the Real Objective for LLM Reinforcement Learning](/202607/03/2606.29526v1-the-mirage-of-optimizing-training-policies-monotonic-inference-policies-as-the-real-objective-for-llm-reinforcement-learning)  
-   标签：评分：9.0/10、query:llm
-   evidence：语言模型强化学习中的训练-推理不匹配问题
-5. [Behavioral Governance for Autonomous AI Agents: The AgentBound Framework](/202607/03/2606.30970v2-behavioral-governance-for-autonomous-ai-agents-the-agentbound-framework)  
+   evidence：从多模态资源提炼可执行技能用于软件代理的框架
+3. [Hybrid Retriever Evolution for Multimodal Document Reasoning Agents](/202607/04/2606.29648v1-hybrid-retriever-evolution-for-multimodal-document-reasoning-agents)  
    标签：评分：9.0/10、query:agent
-   evidence：具有运行时监督的自主AI智能体行为治理框架
-6. [Making Failure Safe: A Constrained, Verifiable Agent Framework for Open-Web Data Collection](/202607/03/2607.00035v1-making-failure-safe-a-constrained-verifiable-agent-framework-for-open-web-data-collection)  
+   evidence：元智能体自主学习检索编排用于多步文档问答，直接关于搜索智能体
+4. [The Illusion of Agentic Complexity in README.md Generation: Evaluating Single-Agent vs. Multi-Agent RAG Systems](/202607/04/2606.30524v1-the-illusion-of-agentic-complexity-in-readmemd-generation-evaluating-single-agent-vs-multi-agent-rag-systems)  
    标签：评分：9.0/10、query:agent
-   evidence：约束可验证的agent框架用于网页数据采集
-7. [Agent4cs: A Multi-agent System for Code Summarization in Large Hierarchical Codebases](/202607/03/2607.01425v1-agent4cs-a-multi-agent-system-for-code-summarization-in-large-hierarchical-codebases)  
+   evidence：单代理与多代理RAG系统在文档生成上的实证比较
+5. [Registry-Governed Agent Lifecycle:Completing EDDOps with Evaluation-DrivenRegistration, Promotion, and Retirement on AWS AgentCore](/202607/04/2607.00345v1-registry-governed-agent-lifecyclecompleting-eddops-with-evaluation-drivenregistration-promotion-and-retirement-on-aws-agentcore)  
    标签：评分：9.0/10、query:agent
-   evidence：用于代码摘要的多智能体系统
-8. [Janus: a Playground for User-Involved Agentic Permission Management](/202607/03/2607.01510v1-janus-a-playground-for-user-involved-agentic-permission-management)  
+   evidence：在AWS AgentCore上实现评估驱动的智能体生命周期，直接关于智能体框架设计
+6. [When Agents Do Not Stop: Uncovering Infinite Agentic Loops in LLM Agents](/202607/04/2607.01641v1-when-agents-do-not-stop-uncovering-infinite-agentic-loops-in-llm-agents)  
    标签：评分：9.0/10、query:agent
-   evidence：用于AI代理用户参与权限管理的实验平台
-9. [Can Language Models Actually Retrieve In-Context? Drowning in Documents at Million Token Scale](/202607/03/2607.01538v1-can-language-models-actually-retrieve-in-context-drowning-in-documents-at-million-token-scale)  
+   evidence：揭示LLM智能体中的无限循环问题，一种关键故障模式
+7. [ContextNest: Verifiable Context Governance for Autonomous AI Agent](/202607/04/2607.02116v1-contextnest-verifiable-context-governance-for-autonomous-ai-agent)  
    标签：评分：9.0/10、query:agent
-   evidence：作为搜索代理方法的上下文内检索
-10. [AgentFlow: Building Agent Dependency Graphs for Static Analysis of Agent Programs](/202607/03/2607.01640v1-agentflow-building-agent-dependency-graphs-for-static-analysis-of-agent-programs)  
-   标签：评分：9.0/10、query:agent
-   evidence：LLM代理程序的静态分析框架
-11. [SkillCoach: Self-Evolving Rubrics for Evaluating and Enhancing Agentic Skill-Use](/202607/03/2607.01874v1-skillcoach-self-evolving-rubrics-for-evaluating-and-enhancing-agentic-skill-use)  
-   标签：评分：9.0/10、query:agent
-   evidence：用于评估大语言模型代理技能使用的自演进评分标准
-12. [EvoPolicyGym: Evaluating Autonomous Policy Evolution in Interactive Environments](/202607/03/2607.02440v1-evopolicygym-evaluating-autonomous-policy-evolution-in-interactive-environments)  
-   标签：评分：9.0/10、query:agent
-   evidence：用于评估自主策略演化的基准
+   evidence：自主AI代理的可验证上下文治理
+8. [BamiBERT: A New BERT-based Language Model for Vietnamese](/202607/04/2607.02259v1-bamibert-a-new-bert-based-language-model-for-vietnamese)  
+   标签：评分：9.0/10、query:llm-reports
+   evidence：介绍BamiBERT，一个基于BERT的越南语语言模型及其训练细节
 
 ### 速读区论文标签
-1. [Data Intelligence Agents: Interpreting, Modeling, and Querying Enterprise Data via Autonomous Coding Agents](/202607/03/2606.19319v1-data-intelligence-agents-interpreting-modeling-and-querying-enterprise-data-via-autonomous-coding-agents)  
+1. [SAFARI: Scaling Long Horizon Agentic Fault Attribution via Active Investigation](/202607/04/2606.24626v1-safari-scaling-long-horizon-agentic-fault-attribution-via-active-investigation)  
    标签：评分：8.0/10、query:agent
-   evidence：自主编码代理用于企业数据集成
-2. [Whose Agent Are You? Multi-Layer Fingerprinting and Attribution of Autonomous Web Agents](/202607/03/2606.20910v1-whose-agent-are-you-multi-layer-fingerprinting-and-attribution-of-autonomous-web-agents)  
+   evidence：长程代理故障归因框架，采用工具增强诊断循环
+2. [Project Auto-World: Towards Automated Benchmarking of Neural Relational Reasoners](/202607/04/2606.24965v1-project-auto-world-towards-automated-benchmarking-of-neural-relational-reasoners)  
    标签：评分：8.0/10、query:agent
-   evidence：自主网页代理指纹识别
-3. [Metis: Bridging Text and Code Memory for Self-Evolving Agents](/202607/03/2606.24151v1-metis-bridging-text-and-code-memory-for-self-evolving-agents)  
+   evidence：使用自主智能体搜索进行基准生成
+3. [Agentic System as Compressor: Quantifying System Intelligence in Bits](/202607/04/2606.25960v1-agentic-system-as-compressor-quantifying-system-intelligence-in-bits)  
    标签：评分：8.0/10、query:agent
-   evidence：自进化智能体，文本与代码记忆
-4. [Reinforcement Learning for Computer-Use Agents with Autonomous Evaluation](/202607/03/2606.24515v1-reinforcement-learning-for-computer-use-agents-with-autonomous-evaluation)  
+   evidence：通过压缩量化智能体系统智能
+4. [Autodata: An agentic data scientist to create high quality synthetic data](/202607/04/2606.25996v1-autodata-an-agentic-data-scientist-to-create-high-quality-synthetic-data)  
    标签：评分：8.0/10、query:agent
-   evidence：计算机使用智能体的强化学习
-5. [Governed Shared Memory for Multi-Agent LLM Systems](/202607/03/2606.24535v1-governed-shared-memory-for-multi-agent-llm-systems)  
+   evidence：用于合成数据创建的代理数据科学家
+5. [Autodata: An agentic data scientist to create high quality synthetic data](/202607/04/2606.25996v2-autodata-an-agentic-data-scientist-to-create-high-quality-synthetic-data)  
    标签：评分：8.0/10、query:agent
-   evidence：多代理LLM系统的共享内存管理，形式化fleet-memory问题
-6. [Agents That Know Too Much: A Data-Centric Survey of Privacy in LLM Agents](/202607/03/2606.26627v1-agents-that-know-too-much-a-data-centric-survey-of-privacy-in-llm-agents)  
+   evidence：代理式数据科学家通用代理合成数据生成
+6. [Masked Language Flow Models](/202607/04/2606.27617v1-masked-language-flow-models)  
+   标签：评分：7.0/10、query:llm
+   evidence：结合掩码和流模型的语言生成新架构
+7. [FlexMoE: One-for-All Nested Intra-Expert Pruning for MoE Language Models](/202607/04/2606.27866v1-flexmoe-one-for-all-nested-intra-expert-pruning-for-moe-language-models)  
+   标签：评分：7.0/10、query:llm
+   evidence：MoE大语言模型的嵌套内专家剪枝以适应不同部署预算
+8. [On Test-Time Scaling for Vision-Language Models](/202607/04/2606.28864v2-on-test-time-scaling-for-vision-language-models)  
+   标签：评分：7.0/10、query:llm
+   evidence：视觉语言模型的测试时扩展，推理优化
+9. [Direct Causation in International Humanitarian Law and the Challenge of AI-Mediated Civilian Cyber Operations](/202607/04/2606.29175v1-direct-causation-in-international-humanitarian-law-and-the-challenge-of-ai-mediated-civilian-cyber-operations)  
    标签：评分：7.0/10、query:agent
-   evidence：从数据视角对LLM代理隐私的综述
-7. [TOPS: First-Principles Visual Token Pruning via Constructing Token Optimal Preservation Sets for Efficient MLLM Inference](/202607/03/2606.27161v1-tops-first-principles-visual-token-pruning-via-constructing-token-optimal-preservation-sets-for-efficient-mllm-inference)  
-   标签：评分：7.0/10、query:llm
-   evidence：提出视觉令牌剪枝加速多模态大模型推理，与LLM推理优化相关
-8. [FlexMoE: One-for-All Nested Intra-Expert Pruning for MoE Language Models](/202607/03/2606.27866v1-flexmoe-one-for-all-nested-intra-expert-pruning-for-moe-language-models)  
-   标签：评分：7.0/10、query:llm
-   evidence：基于嵌套剪枝的MoE语言模型压缩
-9. [MultiHashFormer: Hash-based Generative Language Models](/202607/03/2606.28057v1-multihashformer-hash-based-generative-language-models)  
-   标签：评分：7.0/10、query:llm
-   evidence：提出基于哈希的语言模型架构，与LLM架构设计相关
-10. [Discovering Millions of Interpretable Features with Sparse Autoencoders](/202607/03/2606.26620v1-discovering-millions-of-interpretable-features-with-sparse-autoencoders)  
-   标签：评分：6.0/10、query:llm
-   evidence：大语言模型可解释性，稀疏自编码器
-11. [KARLA: Knowledge-base Augmented Retrieval for Language Models](/202607/03/2606.26807v1-karla-knowledge-base-augmented-retrieval-for-language-models)  
-   标签：评分：6.0/10、query:llm
-   evidence：用于LLM事实基线的知识库检索方法
-12. [A Theoretical Interpretation of In-Context Learning via Probabilistic Modeling](/202607/03/2606.28926v1-a-theoretical-interpretation-of-in-context-learning-via-probabilistic-modeling)  
-   标签：评分：6.0/10、query:llm
-   evidence：上下文学习的概率建模理论
-13. [From Search to Synthesis: Training LLMs as Zero-Shot Workflow Generators](/202607/03/2606.30704v1-from-search-to-synthesis-training-llms-as-zero-shot-workflow-generators)  
+   evidence：自主多智能体系统法律分析
+10. [Telephony Voice Agent for Banking Services](/202607/04/2606.28779v1-telephony-voice-agent-for-banking-services)  
    标签：评分：6.0/10、query:agent
-   evidence：训练LLM生成任务自动化工作流，与代理框架设计相关
+   evidence：银行语音代理
+11. [On Test-Time Scaling for Vision-Language Models](/202607/04/2606.28864v1-on-test-time-scaling-for-vision-language-models)  
+   标签：评分：6.0/10、query:llm
+   evidence：研究测试时扩展以优化推理
+12. [Low-cost concept-based localized explanations: How far can we get with training-free approaches?](/202607/04/2606.29069v1-low-cost-concept-based-localized-explanations-how-far-can-we-get-with-training-free-approaches)  
+   标签：评分：6.0/10、query:llm
+   evidence：多模态大语言模型概念命名的零样本评估协议
+13. [DistilledGemma: Balanced Efficiency-Accuracy for Person-Place Relation Extraction from Multilingual Historical Articles](/202607/04/2606.29130v1-distilledgemma-balanced-efficiency-accuracy-for-person-place-relation-extraction-from-multilingual-historical-articles)  
+   标签：评分：6.0/10、query:llm
+   evidence：使用QLoRA微调大语言模型
 
 
 <div class="dpr-home-promo-card">
