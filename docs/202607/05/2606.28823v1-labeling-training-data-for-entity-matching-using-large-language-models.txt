@@ -1,0 +1,435 @@
+Title: Labeling Training Data for Entity Matching Using Large Language Models
+
+URL Source: https://arxiv.org/pdf/2606.28823v1
+
+Published Time: Tue, 30 Jun 2026 00:32:17 GMT
+
+Number of Pages: 13
+
+Markdown Content:
+# Labeling Training Data for Entity Matching Using Large Language Models 
+
+# Aaron Steiner 
+
+Data and Web Science Group University of Mannheim Mannheim, Germany aaron.steiner@uni-mannheim.de 
+
+# Christian Bizer 
+
+Data and Web Science Group University of Mannheim Mannheim, Germany christian.bizer@uni-mannheim.de 
+
+## Abstract 
+
+Recent large language models (LLMs) achieve strong performance on entity matching without requiring task-specific training data. However, applying these models to large sets of candidate pairs re-mains slow and costly. In contrast, entity matchers using traditional machine learning methods or small language models (SLMs), such as RoBERTa, offer much faster inference but require task-specific training data. This paper investigates whether the need to provide task-specific training data can be avoided by using knowledge-distillation workflows, in which an LLM serves as a teacher model to label training pairs that are subsequently used to train a smaller student model. We investigate knowledge distillation for entity matching along the following dimensions: pair-selection strategy, teacher model, label post-processing method, and student model. We evaluate the workflows using the Abt-Buy, Walmart-Amazon, WDC Products, DBLP-ACM, and DBLP-Scholar benchmarks, and compare the performance of student models trained with machine-labeled data to the performance of the same models trained using the benchmark training sets. Our experiments show that student models trained using the machine-labeled sets perform approxi-mately on par with models trained on the benchmark training sets, with the remaining differences in both directions staying below two F1 points. Using GPT-5.2 to label the training sets for all five benchmarks costs US$28.31 to US$40.88, whereas manually labeling the same training sets is estimated to require 470 hours of work. At inference time, Ditto is 41.5 to 534 times faster than directly using an LLM to perform the matching tasks. These results indicate that current LLMs, when combined with a suitable pair-selection method, can substantially reduce or even eliminate the manual effort required to label use case-specific training data for entity matching. 
+
+## Keywords 
+
+entity matching, knowledge distillation, teacher/student architec-ture, training data labeling, training set construction 
+
+## 1 Introduction 
+
+Entity matching (EM) is a core step in data integration. Given two collections of records, EM decides which pairs of records refer to the same real-world entity [ 5, 6 ]. Modern EM systems often use supervised learning, including transformer-based matchers [ 2 , 3 , 15 ,18 ]. A major limitation of these matchers is their dependence on use case-specific training data in order to achieve high F1 performance [ 19 ]. Creating such training data is costly because useful training sets must include obvious matches and non-matches as well as corner cases: same-family products, compatible components, near-duplicate publication titles, and other pairs that are easy to confuse [ 4, 19 ]. A corner case is a pair whose surface form gives plausible evidence for both labels. Resolving these pairs usually requires human inspection, raising costs and limiting scalability. Large language models (LLMs) enable us to revisit this bottle-neck. Prior work shows that LLMs can directly classify entity pairs in a zero-shot setting, achieving strong entity matching perfor-mance [ 20 ]. Direct LLM matching is expensive and slow at scale because the large model must be queried for every candidate pair. Smaller language models (SLMs), such as RoBERTa, can process high-volume candidate sets faster with lower resource consumption, but their accuracy depends on the quality of their training set. This shifts the bottleneck from inference to training set construction. This paper analyzes teacher/student knowledge distillation for entity matching [ 8, 25 , 26 ]. In our setting, an LLM teacher labels selected candidate pairs, and a computationally cheaper student matcher is trained on the resulting machine-labeled training set. We compare distillation workflows along four dimensions: pair selection, teacher model, label post-processing method, and stu-dent model. For pair selection, we use similarity search and active learning. As teachers, we use GPT-5.2, Qwen 3.6 Plus, and the open-weight Kimi K2.6. For post-processing, we evaluate a self-review method and a graph-based consistency filter. As students, we use Ditto [ 15 ] with RoBERTa, an XGBoost classifier over embeddings, string-similarity, and numeric-similarity features, and the smaller LLMs Qwen3-0.6B, Qwen3-1.7B, and Qwen3-8B. We judge the machine-labeled training sets by their fitness for use [17 ]: We consider a training set fit for use if a student model trained on it achieves the same F1 score as the same student model trained on the benchmark training set. We also analyze the internal structure of the machine-labeled training sets and the cost of the labeling process. We use the Abt-Buy, Walmart-Amazon, WDC Products, DBLP-ACM, and DBLP-Scholar benchmark datasets for our experiments. The contributions of this paper are: (1) We compare knowledge-distillation workflows for entity matching along four dimensions: pair selection, teacher model, label post-processing, and student model. (2) We show that students trained on machine-labeled sets reach F1 scores comparable to the same students trained on the benchmark. Using GPT-5.2 and Ditto, the best machine-labeled set stays within a range of 1.78 F1 points on every benchmark. (3) We compare the structure of the generated training sets with that of the benchmark sets and find that active learning 
+
+> 1
+> arXiv:2606.28823v1 [cs.CL] 27 Jun 2026 Steiner and Bizer
+
+shifts the class balance toward positives while selecting more corner case pairs. (4) We quantify efficiency along two axes: Labeling all five datasets with GPT-5.2 costs US$28.31 to US$40.88, a small fraction of the estimated cost of manual labeling. At in-ference time, Ditto is 41.5 to 534 times faster than direct LLM-based matching. The remainder of the paper is organized as follows. Section 2 presents the knowledge-distillation workflows. Section 3 describes the experimental setup. Section 4 reports the results. Section 5 discusses related work, and Section 6 concludes. 
+
+## 2 The Knowledge Distillation Workflows 
+
+This section describes the knowledge distillation workflows that we compare in the paper. Figure 1 illustrates the main steps of the workflows: given two source tables, the workflows build a candidate pool, select pairs for labeling, invoke an LLM teacher model for labeling the pairs, optionally post-processes the gener-ated labels, and exports a machine-labeled training set which is subsequently used to train a student matcher. The experiments vary four design choices: pair-selection strategy, teacher model, lable post-processing method, and student model. 
+
+## 2.1 Candidate Pool Generation 
+
+The workflows start with initializing the candidate pool from which the pair selection methods will later select pairs for labeling. The benchmark training sets contain pairs of records which were se-lected by the authors of the benchmarks. In order to create an unbi-ased candidate pool, we split each training set into two datasets: One table containing all left-side records and one table containing all right-side records of the benchmark training set. This keeps record selection of the benchmark intact, but undoes the benchmark’s pair selection. The setup mirrors a real-world setting involving two tables, no labeled training data, and no precomputed blocking [4]. Next, candidate record pairs are generated from the two tables. For this, the records are embedded using text-embedding-3-small 1
+
+and each left-table record is ranked against every right-table record using the cosine similarity of the embeddings. The candidate pool is now filled with 20 pairs per left-table record: 18 pairs generated by combining the record with its nearest neighbors in the right table, plus two records sampled at random from the lower-ranked half of the similarity ranking. The nearest neighbors supply plausible matches and hard non-matches. The sampled lower-ranked records supply easier negatives, so the candidate pool does not only contain high similarity pairs. Duplicate source-record pairs are removed before labeling. The candidate pools that are generated using this method for the Abt-Buy , Walmart-Amazon , DBLP-ACM , and 
+
+DBLP-Scholar , and WDC Products datasets contain 99.56% to 99.92% of the positive pairs that were part of the original training sets. 
+
+> 1https://platform.openai.com/docs/models/text-embedding-3-small
+
+Figure 1: Training-set construction and evaluation workflow. 
+
+## 2.2 Pair Selection 
+
+The pair selection strategy determines which pairs from the candi-date pool are given to the teacher model for labeling. This paper compares three pairs selection strategies which are described below: 
+
+Similarity search: For each left-table record, the strategy scans its 20 pool candidates in similarity-ranked batches of five, most similar first. Because the pool consists of 18 nearest neighbors and two lower-ranked samples, those two samples sit at the end of this ranking. The scan normally stops after the first batch, once it has produced at least one positive and four negatives. Two cases extend labeling. If the scanned batches contain at least two positives, the record is treated as a dense positive region and all 20 candidates are labeled. Otherwise the two lower-ranked samples are labeled as well, to add easy negatives and reduce bias. Most records therefore require seven LLM calls, five for the first batch and two for the lower-ranked samples, while dense positive regions require up to 20. This batched scheme avoids labeling the whole pool for records whose nearest candidates already provide both labels.   
+
+> 2Labeling Training Data for Entity Matching Using Large Language Models
+> System: You are an expert entity matcher. Decide if two records refer to the same real-world entity. Return only valid JSON with exactly one field: {"match": true|false}. User: Do the two entity descriptions refer to the same real-world entity? Entity 1: '{left_json} '.Entity 2: '{right_json} '.Retry instruction for invalid output: Your previous output was invalid. Return valid JSON with exactly one field: {"match": true|false}.
+
+Figure 2: Prompt used by the teacher LLM for labeling a record pair. The prompt is based on the general-complex task description of Peeters et al . [20] extended with a system in-struction that constrains the answer to a JSON match field. At inference time, {left_json} and {right_json} are replaced with the two serialized records. Active learning: We experiment with two different active learning-based pair selection strategies. Both strategies start from a similarity-search seed that targets 100 pairs with a 30/70 positive/negative split. In each round, they train a committee of matching models on the currently labeled pairs, scores up to 20,000 unlabeled pairs from the candidate pool using the trained models, and pass the pairs on which the committee disagrees most to the LLM teacher model for labeling. 
+
+Active learning (ML): This feature-based variant of the active learning method uses an ensemble of logistic regression, random forests, extra-trees ensembles, gradient-boosted trees, and rule-based matchers. Each pair is represented by one similarity score per attribute plus the cosine similarity of the two text-embedding-3-small record embeddings. For text attributes such as product or paper titles, we use token-based Jaccard as similarity metric. For numeric attributes such as price or year, it is normalized closeness, 
+
+1 − | 𝑎 − 𝑏 |/ max (| 𝑎 |, |𝑏 |) . The committee ranks candidates by dis-agreement over match-probability scores, and the workflow labels up to 500 new pairs per round from a pool of up to 20,000 unlabeled candidate pairs. 
+
+Active learning (Ditto): The third strategy uses the same seed and candidate pool, but trains a bagged ensemble of five Ditto matchers during the active-learning phase. Each member is trained on a bootstrap sample of the labeled pairs using a different seed. The ensemble scores up to 20,000 unlabeled candidates, and the 500 pairs on which the committee disagrees most are sent to the LLM. Ranking is lexicographic: variance of the predicted match prob-abilities first, then entropy of the thresholded match/non-match votes, distance of the mean probability from 0.5, and number of split votes. Newly labeled pairs are added to the training set, and the loop repeats until the target size is reached, the budget is spent, the pool is empty, or a round adds no further pairs. 
+
+## 2.3 LLM-based Labeling 
+
+For every selected pair, the teacher receives the two serialized entity descriptions and returns {"match": true|false} . Figure 2 shows the prompt that we send to the teacher model for labeling   
+
+> System: You are an expert entity matcher. Be conservative: predict match=true only when the evidence strongly supports that both records are the same real-world entity and there is no meaningful contradiction. Treat conflicting model numbers, editions, capacities, sizes, colors, venues, years, or variants as strong evidence against a match. Return only valid JSON with exactly two fields: {"match": true|false, "confidence": 0-100}. User: Do the two entity descriptions refer to the same real-world entity? Entity 1: '{left_json} '.Entity 2: '{right_json} '.
+
+Figure 3: The relabeling (evidence-based review) prompt. The user message is the same as in Figure 2, while the system mes-sage asks for a conservative, contradiction-aware re-check and adds a confidence field. 
+
+a candidate pair. We adopt the general-complex task description of Peeters et al . [20] because it uses domain-independent wording and applies unchanged to product and bibliographic records. We add the JSON-only answer constraint for reliable parsing. For most of the experiments presented in this paper we use GPT-5.2 2 as teacher model. The teacher-comparison presented in Section 4.3 also employs Qwen 3.6 Plus 3 and the open-weight Kimi K2.6 4.
+
+## 2.4 Post-Processing the Labels 
+
+The goal of the post-processing step is to correct wrong labels that were assigned by the teacher model in the previous step or drop pairs whose labels are likely wrong. We study two label post-processing methods and their combinations: a self-review pass over each label and a graph-based consistency check across the labeled set. 
+
+Relabeling: Our initial experiments showed that uncertain cases often receive positive labels. The relabeling method passes each pair through a second LLM prompt that verifies the assigned label using a conservative, evidence-based instruction (Figure 3). The reviewer predicts a match only when the evidence is strong and treats conflicting model numbers, editions, sizes, venues, years, and similar attributes as evidence against a match. It returns a decision and a confidence score. In the relabel variant, the reviewed decision replaces the original decision. In the relabel-drop variant, a changed decision marks the original label as unstable and the pair is dropped. The confidence score proved too noisy to be a reliable filter and is therefore not used. 
+
+Closure-based dropping: This filter targets positive labels that connect otherwise separate groups of records. We build an undi-rected graph whose nodes are source records and whose edges are the pairs labeled as matches. Within this positive-edge graph, the filter identifies bridge edges, which are match pairs whose removal would split a connected component. A bridge is the only link be-tween two parts of the component, so the labeled graph provides no second positive path supporting that merge. The filter drops 
+
+> 2https://platform.openai.com/docs/models/gpt-5.2
+> 3https://openrouter.ai/qwen/qwen3.6-plus
+> 4https://openrouter.ai/moonshotai/kimi-k2.6 3Steiner and Bizer
+
+bridge edges only when the component consists of at least three records, keeping ordinary two-record matches whose single edge is trivially a bridge. The two filters can also be combined in two ways. The union variant drops any pair flagged by either filter, the strictest setting we report, while the intersection variant drops only pairs flagged by both. 
+
+## 3 Experimental Setup 
+
+For each of the five entity-matching benchmarks, we compare the performance of matchers trained on the benchmark training set with the performance of matchers trained using the machine-labeled sets produced by the pair-selection, labeling and post-processing methods described above Section 2, using the benchmark test splits for evaluation. The goal is to evaluate the fitness for use of the machine-labeled training sets relative to the benchmark training sets. The experiments follow a controlled-comparison protocol that fixes the benchmark splits and the evaluation script and varies one dimension of the workflow at a time. We first compare the pair-selection strategies under a single teacher (GPT-5.2), no post-processing, and Ditto as the student. We then vary the teacher model, apply the post-filtering methods, and finally vary the stu-dent model. All reported F1 values are the mean and standard deviation over three training runs using the seeds 42, 52, and 62 unless otherwise stated. We treat two training sets as reaching comparable F1 when the intervals of one standard deviation around their means overlap. We use five standard EM benchmarks, three from the product domain ( Abt-Buy , Walmart-Amazon , and WDC Products , short 
+
+WDC ) and two bibliographic ( DBLP-ACM , DBLP-Scholar ). Abt-Buy pairs product offers with long, free-text titles, while Walmart-Amazon is a more structured product task. We use the large training split of the most difficult WDC Products version, in which 80% of the pairs are corner cases [ 19 ]. Its test set also contains only entities that appear neither in the source tables from which we build the machine-labeled sets nor in the original benchmark training set, so every test entity is unseen after training. It therefore requires generalization to unseen entities. DBLP-ACM and DBLP-Scholar 
+
+match bibliographic records (authors, title, venue, year) between two sources each. The two domains differ in their typical confusion patterns: product matching has to handle model variants, acces-sories, and kits, while bibliographic matching has to handle title abbreviations, venue acronyms, and author-name variants. Ditto trains a RoBERTa-base SLM using batch size 64, maximum sequence length 256, learning rate 5×10 −5, and up to 50 epochs with early stopping. The XGBoost student uses 100 trees of depth 6 with learning rate 0.05 and class weighting. The Qwen3 students are fine-tuned with LoRA following Steiner et al . [23] . Each training run uses a single 48 GB GPU. The full configuration files are provided in the GitHub repository accompanying this paper (Section 7). 
+
+## 4 Results 
+
+The results section first compares the performance of downstream models trained using the machine-labeled and the benchmark train-ing sets (Section 4.1), then studies label budget, teacher model, post-processing, student models, and labeling cost (Sections 4.2 to 4.6). It closes with direct LLM teacher matching, runtime scal-ing, training-set structure, audited test-label errors, and limitations (Sections 4.7 to 4.11). 
+
+## 4.1 Machine-labeled Versus Benchmark Training Sets 
+
+We concieve training-set quality as fitness for use , which we measure as F1 score of a student matcher trained on the training set and evaluated on the benchmark test set. This section compares the fitness for use of the machine-labeled training sets with that of the human-labeled benchmark training sets, holding the student model, test set, and evaluation code fixed so that only the pair selection strategy changes. Table 1 reports the results for the three pair selection strategies using GPT-5.2 as teacher model. Each machine-labeled set is built to the size of the benchmark training set (within 5%), so the comparisons hold the labeling budget fixed. Section 4.2 reports results for different training set sizes. Across the five benchmarks the machine-labeled sets reach down-stream F1 comparable to the benchmark training set (Table 1), with differences between −1.78 and +1.59 F1. Active learning (Ditto) ex-ceeds the benchmark on the three product benchmarks ( Abt-Buy 
+
++0.94 F1, Walmart-Amazon +1.59 , WDC +0.23 ) while staying within run-to-run variation, and stays within 1.78 F1 of it on the two bibliographic benchmarks ( DBLP-ACM −0.52 , DBLP-Scholar 
+
+−1.78 ). The spread between selection strategies varies by bench-mark. The three selection methods cluster within 0.5 F1 on DBLP-ACM and within 0.3 F1 on DBLP-Scholar , while spreading by 1.9 F1 on Walmart-Amazon , 2.4 F1 on Abt-Buy , and 2.6 F1 on WDC . The product benchmarks show the largest spreads, the bibliographic the smallest. Active learning (Ditto) is the strongest pair selection strategy on four of the five benchmarks. The exception is DBLP-ACM , where similarity search edges it out by 0.08 F1. This gap is well below either strategy’s run-to-run standard deviation on DBLP-ACM (0.40 and 0.60 F1), so their one-standard-deviation intervals overlap and we treat the two as comparable there by the criterion of Section 3. The two active-learning strategies are ahead of similarity search on the same four benchmarks. Active learning therefore provides a consistent but modest edge: the spread between strategies stays within 2.6 F1 per benchmark, and even the weakest strategy stays within 2.41 F1 of the benchmark set. 
+
+## 4.2 Effect of the Label Budget 
+
+To investigate how the F1 score of the student model scales with the amount of labeled training data, we apply the three pair-selection strategies to each benchmark under increasing label budgets. Fig-ure 4 plots student model F1 against the number of labeled training pairs for each strategy using GPT-5.2 as the teacher model. The shape of the curve differs by benchmark. All three strategies reach a plateau on every benchmark, but the plateau height, the budget at which the plateau is reached, and the separation between strategies vary. The observed plateaus fall within the tested budget, so each strategy was run long enough that additional labels beyond the plateau would likely not raise downstream F1 further. On Abt-Buy the three strategies separate clearly. Active learning (Ditto) plateaus around 89 F1 by 3,000 labeled training pairs, above 
+
+> 4Labeling Training Data for Entity Matching Using Large Language Models
+
+Table 1: Downstream F1 of Ditto trained on the benchmark training set and on the three machine-labeled training sets resulting from using the different pair selection strategies. We report average F1 score ± standard deviation over three runs. The highest average per benchmark is in bold and the second highest underlined. Δ to bench. is the best machine-labeled result minus the benchmark result.                                                                                        
+
+> Benchmark Benchmark set Similarity search Active learning (ML) Active learning (Ditto) Δto bench.
+> Abt-Buy 88.34 ±1.54 86.89 ±0.46 87.76 ±0.67 89.28 ±0.60 +0.94
+> Walmart-Amazon 85.66 ±1.04 85.37 ±1.55 86.88 ±0.43 87.25 ±0.65 +1.59
+> WDC 71.94 ±0.97 69.53 ±1.25 70.65 ±0.42 72.17 ±1.01 +0.23
+> DBLP-ACM 98.43 ±0.34 97.99 ±0.40 97.50 ±0.17 97.91 ±0.60 −0.44
+> DBLP-Scholar 95.64 ±0.26 93.54 ±0.18 93.81 ±0.38 93.86 ±0.23 −1.78
+> 02,000 4,000 6,000
+> 75
+> 80
+> 85
+> 90
+> Number of training pairs
+> Student model F1
+> Abt-Buy
+> 02,000 4,000 6,000
+> 75
+> 80
+> 85
+> 90
+> Number of training pairs
+> Student model F1
+> Walmart-Amazon
+> 05,000 10 ,000 15 ,000 20 ,000
+> 50
+> 60
+> 70
+> 80
+> Number of training pairs
+> Student model F1
+> WDC
+> 02,000 4,000 6,000
+> 95
+> 97
+> 99
+> Number of training pairs
+> Student model F1
+> DBLP-ACM
+> 05,000 10 ,000 15 ,000
+> 85
+> 90
+> 95
+> Number of training pairs
+> Student model F1
+> DBLP-Scholar
+> Active learning (Ditto)
+> Active learning (ML)
+> Similarity search
+> Benchmark set
+
+Figure 4: Student model F1 as a function of the number of training pairs for each benchmark using GPT-5.2 as teacher model. Three selection strategies are compared. Error bars show ± one standard deviation across runs. The dashed line marks the F1 of the student trained on the benchmark training set. Note the different x- and y-axis ranges across panels. 
+
+the benchmark line of 88.34. Active learning (ML) and similarity search plateau around 87 F1, below the benchmark line, even at 6,000 labels. The gap between strategies is widest in the middle of the budget range (about 5 F1 between Active learning (Ditto) and similarity search at 2,000 labels) and narrows to about 2 F1 by 6,000 labels. On Walmart-Amazon all three strategies converge to roughly 86 to 87 F1 by 3,000 labels and stay above the bench-mark line of 85.66 thereafter, with no consistent ordering at the plateau. On WDC the curves rise more slowly: Active learning (Ditto) crosses the benchmark line of 71.94 around 15,000 labeled training pairs, and the other two strategies stay below the bench-mark line within the 19,000-label budget tested. Fewer than 6,000 labeled pairs are therefore enough to reach the student’s plateau on Abt-Buy and Walmart-Amazon , whereas the unseen-entity test set of WDC requires a larger labeling budget and only plateaus around 16,000 labels. 
+
+DBLP-ACM and DBLP-Scholar are flat from the start: both reach within 1 to 2 F1 of their plateau at 1,000 labeled training pairs, after which neither more labels nor the selection strategy affects the result. Because the plateau persists after adding another 5,000 labels for DBLP-ACM and almost 20,000 for DBLP-Scholar, we conclude that a labeling budget of 1,000 is sufficient to reach the plateau on the publication benchmarks. Active learning therefore raises the plateau by at most about 2 F1, but it reaches the plateau with fewer teacher-labeled pairs: on 
+
+Abt-Buy it plateaus at 3,000 labels at a level that similarity search stays below through the full 6,000-label budget, and on WDC it is the only strategy to reach the benchmark level within the tested budget. 
+
+> 5Steiner and Bizer
+
+Table 2: Student-model F1 scores resulting from using different teacher models together with the Active learning (Ditto) pair selection strategy. Each cell is F1 ± standard deviation (n=3). The highest mean per benchmark is in bold and the second highest underlined. Δ to bench. is the result for the best teacher-model minus the result of the student trained on the benchmark set.                                                                        
+
+> Benchmark Benchmark set GPT-5.2 Qwen 3.6 Plus Kimi K2.6 Δto bench.
+> Abt-Buy 88.34 ±1.54 89.28 ±0.60 87.04 ±0.51 89.77 ±0.30 +1.43
+> Walmart-Amazon 85.66 ±1.04 87.25 ±0.65 85.34 ±0.97 87.59 ±0.88 +1.93
+> WDC 71.94 ±0.97 72.17 ±1.01 72.49 ±1.28 71.64 ±0.69 +0.55
+> DBLP-ACM 98.43 ±0.34 97.91 ±0.60 97.37 ±0.03 97.80 ±0.32 −0.52
+> DBLP-Scholar 95.64 ±0.26 93.86 ±0.23 93.31 ±0.69 93.04 ±0.49 −1.78
+
+## 4.3 Effect of the Teacher Model 
+
+This section examines how teacher model choice affects fitness for use. Table 2 contains the results of reruning the Active learning (Ditto) workflow using two alternative teacher models: Qwen 3.6 Plus and the open-weight Kimi K2.6. Pair selection method, down-stream training, and evaluation protocol are unchanged, so only the teacher model differs. The spread between the best and worst teacher model is be-low 3 F1 on every benchmark and below 1 F1 on three of the five (WDC and both bibliographic benchmarks). Swapping the teacher model does not change the qualitative picture from Section 4.1: the machine-labeled sets are competitive with the benchmark splits on the product benchmarks and lag the benchmark splits on the biblio-graphic benchmarks under all three teacher models, by 0.52 to 1.06 F1 on DBLP-ACM and 1.78 to 2.60 F1 on DBLP-Scholar. By mean F1, Kimi K2.6 ranks highest on Abt-Buy and Walmart-Amazon , Qwen 3.6 Plus on WDC , and GPT-5.2 on both bibliographic benchmarks. On each product benchmark the teacher models match or slightly exceed the benchmark split while staying within run-to-run varia-tion (on Abt-Buy , Kimi reaches 89.77 and GPT-5.2 89.28, against 88.34). On the two bibliographic benchmarks every teacher model yields a matcher that stays close to the one trained on the bench-mark set. The best teacher model is within 0.5 F1 on DBLP-ACM 
+
+and 1.78 F1 on DBLP-Scholar , under two F1 points in both cases, which does not change the fitness-for-use conclusion. The open-weight Kimi K2.6 stays within 0.85 F1 of the best hosted teacher model on every benchmark, so it is a competitive teacher model for settings where the source data cannot be shared with third-party hosting providers. The workflow is therefore not tied to proprietary closed-source models. 
+
+## 4.4 Cleaning the Machine-labeled Training Sets 
+
+Section 4.1 used the LLM labels as-is. We now evaluate the effect of post-processing the labels on the performance of the student model (F1 score of Ditto), applying the relabeling and closure-based post-processing methods introduced in Section 2 to the Active learning (Ditto) set, separately and in combination. Post-processing targets label quality: by relabeling or dropping unreliable pairs, it could raise the quality of the machine-labeled training set and subsequent downstream performance. Table 3 shows the results of applying the post-processing meth-ods to the Active learning (Ditto) training set. Post-processing raises downstream F1 by 0.72 to 1.56 points on the three product bench-marks but not on the two bibliographic benchmarks. +Relabel is the best variant on Abt-Buy (+1.56 F1 over the unprocessed Active learning (Ditto) baseline) and WDC (+1.18 F1). +Relabel drop wins on Walmart-Amazon (+0.72 F1). On DBLP-ACM no variant ex-ceeds the unprocessed baseline. On DBLP-Scholar the best variant matches the baseline (+0.04 F1), within run-to-run variance. The closure-based variants do not consistently help. +Closure drop alone falls below the unprocessed baseline on every bench-mark, from −0.08 F1 on DBLP-ACM to −3.51 F1 on WDC . The union variant +Cl. ∨ Rel. drop also stays below the baseline on ev-ery benchmark. The intersection variant +Cl. ∧ Rel. drop matches the baseline within the margins of run-to-run variance. We conclude that post-processing can improve downstream F1, but no variant improves performance consistently across bench-marks. The best variant differs across the product benchmarks ( +Re-label on Abt-Buy and WDC , +Relabel drop on Walmart-Amazon ), and only the 1.56 F1 gain on Abt-Buy exceeds run-to-run variance. 
+
+Table 3: Student-model F1 scores obtained after applying different post-processing methods to the machine-labeled training set generated by Active Learning (Ditto). Each cell is F1 ± standard deviation over three runs. +Cl. ∧ Rel. drop drops a pair only when both the closure check and the relabeling check flag it, while +Cl. ∨ Rel. drop drops a pair when either check flags it. The best mean value per benchmark is in bold, the second best underlined. Δ to bench. is the best machine-labeled value minus the benchmark set.                                                                                                                            
+
+> Benchmark Benchmark set AL (Ditto) +Relabel +Relabel drop +Closure drop +Cl. ∧Rel. drop +Cl. ∨Rel. drop Δto bench.
+> Abt-Buy 88.34 ±1.54 89.28 ±0.60 90.84 ±0.46 89.73 ±0.84 87.23 ±0.38 89.30 ±0.72 89.15 ±0.83 +2.50
+> Walmart-Amazon 85.66 ±1.04 87.25 ±0.65 84.42 ±1.53 87.97 ±0.75 86.14 ±0.34 87.43 ±0.96 86.53 ±1.89 +2.31
+> WDC 71.94 ±0.97 72.17 ±1.01 73.35 ±1.30 71.40 ±1.07 68.66 ±0.71 71.15 ±0.49 69.27 ±1.38 +1.41
+> DBLP-ACM 98.43 ±0.34 97.91 ±0.60 96.91 ±0.24 97.62 ±0.32 97.83 ±0.65 97.66 ±0.33 97.58 ±0.33 −0.52
+> DBLP-Scholar 95.64 ±0.26 93.86 ±0.23 93.78 ±0.68 93.71 ±0.26 93.66 ±0.56 93.90 ±0.18 93.78 ±0.43 −1.74
+> 6Labeling Training Data for Entity Matching Using Large Language Models
+
+Table 4: Student matchers evaluated on the published benchmark test split. Trained cells report F1 ± standard deviation over three runs. Zero-shot cells report single-run F1. The best mean value per benchmark is bold, the second best is underlined.                                                                                                                                                                                                                                                                                                                                        
+
+> Benchmark Model Zero-shot Benchmark set Similarity search Active learning (ML) Active learning (Ditto)
+> Abt-Buy
+> XGBoost n/a 45.54 ±0.53 52.97 ±0.58 64.83 ±0.60 55.49 ±0.44 Ditto n/a 88.34 ±1.54 86.89 ±0.46 87.76 ±0.67 89.28 ±0.60 Qwen3-0.6B 35.74 86.17 ±0.13 84.29 ±0.24 86.63 ±0.65 88.42 ±0.60 Qwen3-1.7B 50.61 88.32 ±1.68 85.04 ±0.83 87.42 ±0.06 88.44 ±0.35 Qwen3-8B 85.31 92.05 ±0.31 86.65 ±1.05 89.45 ±0.15 89.58 ±1.08
+> Walmart-Amazon
+> XGBoost n/a 61.13 ±3.08 60.07 ±0.77 61.11 ±1.26 57.09 ±1.13 Ditto n/a 85.66 ±1.04 85.37 ±1.55 86.88 ±0.43 87.25 ±0.65 Qwen3-0.6B 24.45 84.21 ±0.62 85.18 ±1.42 84.33 ±0.65 84.56 ±0.71 Qwen3-1.7B 40.30 85.84 ±1.91 84.26 ±2.39 86.27 ±0.74 85.24 ±0.33 Qwen3-8B 73.33 90.37 ±0.15 87.05 ±0.20 88.27 ±0.50 87.91 ±0.31
+> WDC
+> XGBoost n/a 36.61 ±0.73 37.24 ±0.24 36.40 ±0.61 36.95 ±0.05 Ditto n/a 71.94 ±0.97 69.53 ±1.25 70.65 ±0.42 72.17 ±1.01 Qwen3-0.6B 40.95 57.14 ±1.17 53.94 ±1.72 60.19 ±0.61 58.14 ±1.78 Qwen3-1.7B 22.59 67.05 ±1.27 61.92 ±4.69 65.10 ±0.32 56.77 ±4.63 Qwen3-8B 66.14 73.53 ±2.84 71.19 ±6.89 67.91 ±1.59 72.92 ±1.63
+> DBLP-ACM
+> XGBoost n/a 92.76 ±3.33 96.85 ±0.16 96.72 ±0.07 96.70 ±0.00 Ditto n/a 98.43 ±0.34 97.99 ±0.40 97.50 ±0.17 97.91 ±0.60 Qwen3-0.6B 78.65 98.17 ±0.33 97.17 ±0.16 97.10 ±0.13 96.99 ±0.13 Qwen3-1.7B 79.48 98.61 ±0.13 97.25 ±0.21 97.39 ±0.06 96.88 ±0.06 Qwen3-8B 91.54 98.46 ±1.29 98.01 ±0.11 97.97 ±0.06 98.00 ±0.11
+> DBLP-Scholar
+> XGBoost n/a 55.01 ±2.60 76.33 ±1.47 70.39 ±4.34 76.67 ±0.80 Ditto n/a 95.64 ±0.26 93.54 ±0.18 93.81 ±0.38 93.86 ±0.23 Qwen3-0.6B 67.89 94.72 ±0.27 92.29 ±0.27 92.43 ±0.62 91.30 ±1.75 Qwen3-1.7B 56.40 95.10 ±0.04 91.70 ±0.38 92.30 ±0.60 92.33 ±0.07 Qwen3-8B 84.34 94.94 ±0.42 92.32 ±0.16 91.97 ±0.25 92.52 ±0.22
+
+## 4.5 Performance of Different Student Models 
+
+All previous experiments employ Ditto as the student model, which uses RoBERTa as its underlying language model. To examine how far the fitness-for-use result extends beyond Ditto, we repeat the comparison with two further model families: a gradient-boosted XGBoost classifier over the same similarity features that were used by the active-learning committee described in Section 2, and three Qwen3 students of increasing size (0.6B 5, 1.7B 6, and 8B 7) fine-tuned as in Steiner et al . [23] . Table 4 reports each student on every training source, with an added zero-shot column for the Qwen3 students, the only family that can match without training. For Ditto and the Qwen3 students, the machine-labeled sets stay close to the benchmark training sets. Taking the best machine-labeled source per benchmark, the mean gap to the benchmark set is +0.11 F1 for Ditto, +0.60 for Qwen3-0.6B, −1.08 for Qwen3-1.7B, and −1.61 for Qwen3-8B. The fitness-for-use result of Section 4.1 therefore does not depend on a Ditto student, although the best training source still varies with the student and the benchmark. With XGBoost the difference is in the model, not in the training data. The machine-labeled sources still match or exceed the bench-mark set on all five benchmarks (for example 64.83 vs. 45.54 on 
+
+Abt-Buy ), so the workflow reproduces benchmark-level training quality here too. XGBoost does, however, underperform the other 
+
+> 5https://huggingface.co/Qwen/Qwen3-0.6B
+> 6https://huggingface.co/Qwen/Qwen3-1.7B
+> 7https://huggingface.co/Qwen/Qwen3-8B
+
+students by a wide margin: its mean trained F1 is 63.34, compared to 87.52 for Ditto and 83.67 to 88.05 for the Qwen3 students. Its similarity-feature representation comes within 1.6 F1 of Ditto only on DBLP-ACM and trails Ditto by 19 to 35 F1 on the other four benchmarks. Because XGBoost reaches similar F1 whether trained on the machine-labeled or the benchmark sets, this gap reflects the limited capacity of a feature-based classifier student rather than the training data. Among Ditto and the Qwen3 students, Ditto gives the best com-promise between performance and model size. At ≈125 million parameters it is more than 60 times smaller than Qwen3-8B, yet stays within 1.4 F1 of it on three of the five benchmarks. Comparing each student at its best training source, Qwen3-8B leads on Abt-Buy (92.05 vs. 89.28) and Walmart-Amazon (90.37 vs. 87.25), a gap of about 3 F1 on both, while the two are within 1.4 F1 on WDC 
+
+(73.53 vs. 72.17), DBLP-ACM (98.46 vs. 98.43), and DBLP-Scholar 
+
+(95.64 vs. 94.94, Ditto ahead). On WDC , whose test set contains only unseen entities (Section 3), the gap is 1.4 F1, which points to comparable generalization. Knowledge distillation is therefore also effective for small LLMs such as Qwen3. Relative to zero-shot matching, the best fine-tuned machine-labeled model gains 35.14 F1 for Qwen3-0.6B, 36.03 for Qwen3-1.7B, and 8.13 for Qwen3-8B. The gain shrinks with size because Qwen3-8B is a stronger zero-shot matcher. Section 4.8 relates this model size to inference-time scaling. 
+
+> 7Steiner and Bizer
+
+## 4.6 Cost of Training-Set Construction 
+
+We now quantify training-set construction costs and compare them to the estimated costs of manual labeling. Table 5 reports the LLM labeling cost of each pair selection strategy, using the token usage logged with each run and the GPT-5.2 pricing in effect at the time. 8
+
+The cost covers only the LLM calls during labeling. It does not include local retrieval, embedding computation, or the cost of train-ing classifiers inside the Active learning loop. For context, the table also reports a manual labeling effort estimate for recreating the published benchmark training set. We use the benchmark-training counts from Table 8 and assume 30 seconds per labeled pair. During the audit of Section 4.10, re-checking a pair in a purpose-built inter-face took considerably longer, with corner cases that needed web evidence taking the longest. The 30-second assumption covers the full labeling task including pair preparation, and the comparison tolerates lower rates: at 10 seconds per pair the estimate is still roughly 157 hours. We report this estimate in hours rather than USD because annotation wages vary by setting. In LLM token cost, Active learning (Ditto) is the cheapest at $28.31, ahead of Active learning (ML) at $30.16 and similarity search at $40.88. The gap comes from the targeted query loop: similarity search retrieves mostly negatives, so meeting the minimum positive count required for the training set (Section 2) forces it to label past the target set size, while active learning collects positives sooner and labels fewer pairs for the same set. This token ranking does not carry over to selection-time compute, which the table excludes. Active learning (Ditto) trains a five-model Ditto committee in every round, making it the most compute-intensive strategy to run, while similarity search trains no model and Active learning (ML) uses lighter feature-based models. The two axes point in opposite direc-tions, so which strategy is cheapest depends on whether teacher tokens or selection compute dominate in a given setting. Active learning (ML) sits between the two: its token cost is close to that of Active learning (Ditto), but its feature-based committee avoids the repeated Ditto training, so it combines low labeling cost with light selection compute. This makes it a reasonable choice when the GPU time for a Ditto committee is not available. The comparison to manual annotation is robust across both axes: even similarity search, the most token-expensive strategy, 
+
+> 8$1.75 per million input tokens and $14 per million output tokens, per https:// developers.openai.com/api/docs/models/gpt-5.2-chat-latest as of 2026-05-28.
+
+Table 5: LLM labeling cost in USD for each training-set con-struction strategy, using GPT-5.2 as the teacher model, and estimated human effort in hours for labeling the benchmark training set at 30 seconds per pair. The lowest LLM cost per benchmark is in bold, the second lowest underlined.                             
+
+> Benchmark Sim. search AL (ML) AL (Ditto) Human
+> Abt-Buy $3.25 $2.80 $2.40 ∼47.9 h
+> Walmart-Amazon $5.53 $3.33 $2.69 ∼51.2 h
+> WDC $13.54 $10.83 $13.13 ∼165.3 h
+> DBLP-ACM $6.66 $3.98 $2.59 ∼61.8 h
+> DBLP-Scholar $11.90 $9.22 $7.50 ∼143.5 h Total $40.88 $30.16 $28.31 ∼469.7 h
+
+totals $40.88 for LLM calls, compared with the roughly 470 hours of human effort estimated for the same splits. At any plausible wage, machine-labeling is orders of magnitude cheaper. It therefore produces training sets of comparable fitness for use (Section 4.1) at a small fraction of the cost of human labeling. 
+
+## 4.7 Performance of the Teacher Models 
+
+In order to understand and compare the zero-shot matching capa-bilities of the teacher models as well as to have another reference point to compare the performance of the student models, we also run each LLM directly on the benchmark test sets. We compare the performance of the teacher models against the performance of two Ditto matchers: one trained on the benchmark training set, one on the best of our three machine-labeled training sets (Table 1). The difference between a direct LLM and the corresponding trained Ditto is the performance gained or lost in the distillation process. The test pairs, test labels, and F1 computation are unchanged from Section 4.1. Table 6 reports the results of directly using the LLMs (zero-shot) to label the test sets of the benchmarks. On the product bench-marks Abt-Buy and Walmart-Amazon the trained student trails the strongest direct LLM by 4.53 F1 (89.28 vs. 93.81) and 3.29 F1 (87.25 vs. 90.54). On the bibliographic benchmarks the trained Ditto outperforms the strongest direct LLM by 0.94 F1 on DBLP-ACM 
+
+and 1.37 F1 on DBLP-Scholar . This may follow from the lower complexity of the smaller Ditto model, which regularizes more strongly than the LLM matchers and yields a smoother decision rule on the regular structure of bibliographic records, letting the fine-tuned student exceed the very teacher that produced its labels. The performance gap on WDC is about 15 F1, far larger than the 3 to 5 F1 gaps on the other two product benchmarks. This reflects WDC’s unseen-entity test set (Section 3): the trained student trails the strongest direct LLM by 15 F1 (72.17 vs. 87.20), and the larger Qwen3-8B narrows it by only 1.4 F1 (73.53, Table 4). This gap is not about the training set. A Ditto trained on the official WDC training set reaches the same level (71.94) and trails the LLM by the same margin, and the machine-labeled set reaches the benchmark set’s level (72.17 vs. 71.94), as on the other benchmarks. The shortfall therefore points to the known difficulty of SLMs in generalizing to unseen entities [ 19 ], rather than to a weakness of the machine-labeled training set. 
+
+## 4.8 Runtime Analysis and Scaling 
+
+The teacher evaluation shows the LLMs are strong pairwise match-ers, but it compares only the model’s effectiveness (F1) and ignores runtime efficiency. Entity matching is commonly applied after block-ing to thousands or millions of candidate pairs, where per-pair la-tency dominates the total runtime. Knowledge distillation therefore uses the LLM offline to construct training data and deploys the more compact student models for high-volume inference. Table 7 reports the runtime that the compact student models and the larger zero-shot LLMs require to label 1,000 and 1 million pairs. We normalize the five test-set runs to 1,000 candidate pairs, project linearly to 1M pairs, and report each matcher’s slowdown compared to Ditto’s runtime. All API timings use 10 parallel workers, where a single worker would be about an order of magnitude slower, while 
+
+> 8Labeling Training Data for Entity Matching Using Large Language Models
+
+Table 7: Inference-time scaling for trained downstream matchers and zero-shot LLM matchers. Times are averaged across the five benchmarks from per-test-set measurements normalized to 1,000 pairs. 1M-pair projections assume linear scaling.                            
+
+> Matcher Per 1k pairs 1M pairs vs. Ditto
+> Trained downstream models
+> XGBoost 0.33 s 5.5 min 0.15 ×
+> Ditto (RoBERTa) 2.24 s 37.3 min 1.00 ×
+> Qwen3-0.6B (LoRA) 1.46 min 24.3 h 39 .1×
+> Qwen3-1.7B (LoRA) 1.66 min 27.7 h 44 .6×
+> Qwen3-8B (LoRA) 2.20 min 36.7 h 59 .1×
+> Zero-shot large LLMs
+> GPT-5.2 (API, 10 workers) 1.55 min 25.8 h 41 .5×
+> Qwen 3.6 Plus (API, 10 workers) 12.54 min 8.7 d 336 ×
+> Kimi K2.6 (API, 10 workers) 19.93 min 13.8 d 534 ×
+
+Ditto runs with one GPU batching on an NVIDIA A40 (batch size 64) and uses no API-level parallelism. Among the student models, XGBoost is the fastest but the weakest in F1 (see Table 4), and the fine-tuned Qwen3 students run 39 .1× to 59 .1× slower than Ditto. Direct matching with the zero-shot large LLMs is slower still, 41 .5×
+
+to 534 × relative to Ditto, even with using parallel API calls. The trained Ditto student stays within 4.53 F1 of the strongest direct LLM on every benchmark except WDC (Tables 6 and 4) while running 41.5 to 534 times faster, which is the runtime trade-off that motivates knowledge distillation for high-volume matching. 
+
+## 4.9 Analysis of the Training Set Composition 
+
+To understand which properties of a training set drive downstream utility, we analyze the contents of the machine-labeled training sets from Section 4.1, rather than only report resulting F1 scores. For every benchmark, we compare the benchmark training set and the sets generated by similarity search, Active learning (ML), and Active learning (Ditto), all using the same teacher model (GPT-5.2). Be-cause the teacher model is held constant across the machine-labeled sets, differences in composition should be attributed to which ex-amples each selection strategy chooses. Table 8 summarizes the composition of the benchmark and machine-labeled training sets. 
+
+Entity coverage: The total pair counts in Table 8 match within 5% across construction methods (Section 3), so composition differ-ences reflect the selection strategy rather than the labeling budget. Entity coverage is similar across strategies on most benchmarks. On Abt-Buy , the four sets cover 965 to 993 entity clusters, with no consistent pattern favoring one strategy. The same general pattern holds for Walmart-Amazon , DBLP-ACM , and DBLP-Scholar .
+
+WDC differs in scale: all four WDC sets contain only 499 or 500 entity clusters. This smaller entity set drives the high pairs-per-entity ratio of about 40, compared with 3.43 to 8.35 on the other benchmarks. WDC therefore contains many labeled pairs per entity, but a smaller number of entities is seen during training. A WDC training set covering more unique entities could provide a more varied training signal. These results indicate that performance differences are unlikely to be explained by entity coverage alone. The next rows therefore examine how the strategies allocate the labeling budget across positive and negative pairs. 
+
+Class balance: Active learning (Ditto) shifts the class balance toward positives on every benchmark (Table 8, “Positive rate” row). Relative to the benchmark training set, the positive rate increases by +12.7 points on DBLP-ACM , +12.5 on WDC , +7.8 on Abt-Buy ,+4.8 on Walmart-Amazon , and +1.4 on DBLP-Scholar . Similarity search increases the positive rate by at most 3 points and reduces it on Walmart-Amazon and WDC (7.67% vs. 9.38% and 25.00% vs. 42.71%), a far smaller move toward positives than active learning. Active learning therefore returns a higher share of matches per labeled pair, the rarer of the two labels in the candidate pool. 
+
+Hard pairs: We measure surface similarity as all-field token Jaccard over lower-cased [a-z0-9]+ tokens from all shared non-reserved attributes. Based on the corner-case definition of Peeters et al . [19] , hard positives are label-1 pairs with low similarity ( 𝑠 ≤
+
+𝜏 𝑝 ), and hard negatives are label-0 pairs with high similarity ( 𝑠 ≥ 𝜏 𝑛 ). We hand-tuned 𝜏 𝑝 /𝜏 𝑛 per benchmark to separate obvious pairs from corner cases, then reused them for all construction methods: Abt-Buy 0.14 / 0.17, Walmart-Amazon 0.32 / 0.35, WDC 0.10 / 0.17, 
+
+DBLP-ACM 0.68 / 0.16, and DBLP-Scholar 0.47 / 0.20. Active learning (Ditto) selects more hard positives than the benchmark training set on four of five benchmarks: Abt-Buy (299 vs. 168), Walmart-Amazon (230 vs. 148), DBLP-ACM (615 vs. 335, an 84% increase), and DBLP-Scholar (969 vs. 802). The exception is WDC , where the workflow finds 1,879 hard positives against the benchmark’s 2,118 at the same total budget. Hard-negative direc-tion varies by benchmark. Active learning (Ditto) has fewer hard negatives than the benchmark on the two smaller product bench-marks ( Abt-Buy 1,249 vs. 1,283 and Walmart-Amazon 1,094 vs. 
+
+Table 6: Direct F1 of the three teacher models on the test splits, against the best trained Ditto (best machine-labeled set, abbreviated m.l., from Table 1). Benchmark and machine-labeled columns are F1 ± standard deviation over three runs, LLM columns single-run F1. Best per benchmark bold, second underlined. Δ to bench. and Δ to m.l. are the best LLM value minus the benchmark set and the best machine-labeled set.                                                                 
+
+> Benchmark Benchmark set Best m.l. set GPT-5.2 Qwen 3.6 Plus Kimi K2.6 Δto bench. Δto m.l.
+> Abt-Buy 88.34 ±1.54 89.28 ±0.60 91.53 92.10 93.81 +5.47 +4.53
+> Walmart-Amazon 85.66 ±1.04 87.25 ±0.65 88.78 85.71 90.54 +4.88 +3.29
+> WDC 71.94 ±0.97 72.17 ±1.01 84.47 86.91 87.20 +15 .26 +15 .03
+> DBLP-ACM 98.43 ±0.34 97.99 ±0.40 96.82 93.87 97.05 −1.38 −0.94
+> DBLP-Scholar 95.64 ±0.26 93.86 ±0.23 90.87 88.96 92.49 −3.15 −1.37
+> 9Steiner and Bizer
+
+Table 8: Composition of the machine-labeled training sets in comparison to the benchmark training sets. Hard positives and hard negatives use manually tuned benchmark-specific all-field token Jaccard thresholds.                             
+
+> Metric Benchmark train Similarity search Active learning (ML) Active learning (Ditto)
+> Abt-Buy
+> Number of labeled pairs 5,743 6,000 6,000 6,000 Number of entity clusters 965 992 982 993 Pairs per entity 5.95 6.05 6.11 6.04 Pairs per entity (pos / neg) 0.64 / 5.31 0.82 / 5.23 0.88 / 5.23 1.12 / 4.92 Positive / negative pairs 616 / 5,127 815 / 5,185 862 / 5,138 1,114 / 4,886 Positive rate 10.73% 13.58% 14.37% 18.57%
+
+Δ positive rate (vs. bench.) – +2.85 +3.64 +7.84                             
+
+> Hard positives / negatives 168 / 1,283 216 / 1,039 230 / 1,847 299 / 1,249
+> Walmart-Amazon
+> Number of labeled pairs 6,144 6,144 6,000 6,117 Number of entity clusters 736 753 759 796 Pairs per entity 8.35 8.16 7.91 7.68 Pairs per entity (pos / neg) 0.78 / 7.57 0.63 / 7.53 0.99 / 6.92 1.09 / 6.60 Positive / negative pairs 576 / 5,568 471 / 5,673 750 / 5,250 867 / 5,250 Positive rate 9.38% 7.67% 12.50% 14.17%
+
+Δ positive rate (vs. bench.) – −1.71 +3.12 +4.79                             
+
+> Hard positives / negatives 148 / 1,437 122 / 547 203 / 1,437 230 / 1,094
+> WDC
+> Number of labeled pairs 19,835 20,000 20,000 19,835 Number of entity clusters 500 500 499 500 Pairs per entity 39.67 40.00 40.08 39.67 Pairs per entity (pos / neg) 16.94 / 22.73 10.00 / 30.00 10.02 / 30.06 21.90 / 17.77 Positive / negative pairs 8,471 / 11,364 5,000 / 15,000 5,000 / 15,000 10,951 / 8,884 Positive rate 42.71% 25.00% 25.00% 55.21%
+
+Δ positive rate (vs. bench.) – −17 .71 −17 .71 +12 .50                             
+
+> Hard positives / negatives 2,118 / 2,846 819 / 2,475 1,035 / 7,497 1,879 / 3,819
+> DBLP-ACM
+> Number of labeled pairs 7,417 7,417 7,417 7,151 Number of entity clusters 1,952 2,026 2,082 2,083 Pairs per entity 3.80 3.66 3.56 3.43 Pairs per entity (pos / neg) 0.68 / 3.12 0.70 / 2.96 1.03 / 2.53 1.05 / 2.38 Positive / negative pairs 1,332 / 6,085 1,416 / 6,001 2,142 / 5,275 2,195 / 4,956 Positive rate 17.96% 19.09% 28.88% 30.70%
+
+Δ positive rate (vs. bench.) – +1.13 +10 .92 +12 .74                             
+
+> Hard positives / negatives 335 / 1,537 384 / 1,196 595 / 2,808 615 / 2,368
+> DBLP-Scholar
+> Number of labeled pairs 17,223 17,223 17,223 17,200 Number of entity clusters 2,211 2,197 2,273 2,294 Pairs per entity 7.79 7.84 7.58 7.50 Pairs per entity (pos / neg) 1.45 / 6.34 1.58 / 6.26 1.64 / 5.93 1.50 / 6.00 Positive / negative pairs 3,207 / 14,016 3,464 / 13,759 3,735 / 13,488 3,440 / 13,760 Positive rate 18.62% 20.11% 21.69% 20.00%
+
+Δ positive rate (vs. bench.) – +1.49 +3.07 +1.38     
+
+> Hard positives / negatives 802 / 3,695 946 / 2,242 1,325 / 4,644 969 / 4,815
+
+1,437) and more on the other three ( WDC +973, DBLP-ACM +831, 
+
+DBLP-Scholar +1,120). 
+
+Strategy signatures: The two active-learning variants have distinct signatures. On four of five benchmarks Active learning (Ditto) selects more hard positives and fewer hard negatives than Active learning (ML). DBLP-Scholar inverts this: Active learning (ML) has 1,325 hard positives to Ditto’s 969 and 4,644 hard negatives to Ditto’s 4,815. Active learning (ML) also produces the highest hard-negative counts of any strategy on the two largest candidate pools, 
+
+WDC (7,497, 37.5% of its training set) and DBLP-Scholar (4,644, 27%). In summary, the machine-labeled sets reach benchmark-level fitness for use with a different composition: active learning spends the same labeling budget on more positives and more hard positives instead of reproducing the class balance of the benchmark set. 
+
+## 4.10 Analysis of Label Errors 
+
+Training and test sets may contain wrong labels. To quantify label noise in the training and test sets, the first author of this paper audited a sample of the labels assigned by each teacher model and of the gold labels released with the benchmarks. For each benchmark, we audit every test pair where at least one of the three teacher models disagreed with the test gold label, plus 50 control pairs sampled from the pairs where all three teacher models agreed with the gold label. One of the authors judged each pair in an annotation interface that shows the two serialized records and hides the gold label and the three teacher decisions. The annotator consulted web search, when external evidence was needed, and marked a pair as ambiguous when the evidence remained insufficient. In total this gives 1,028 audited test pairs across the five benchmarks, including 778 teacher-gold disagreements and 250 controls. The five pairs judged ambiguous are excluded, and the reported error rates are population estimates weighted by the inverse sampling probability (Table 9). The benchmark gold labels disagree with the human audit on 1.71% of Abt-Buy , 1.42% of Walmart-Amazon , 1.91% of WDC ,0.53% of DBLP-ACM , and 2.52% of DBLP-Scholar test pairs. Of the five, DBLP-ACM has the cleanest gold and DBLP-Scholar the noisiest. 
+
+> 10 Labeling Training Data for Entity Matching Using Large Language Models
+
+The audited disagreements include clear gold-label errors rather than only low-confidence cases. Figure 5 shows two examples where the published benchmark label disagrees with both the human audit and all three teacher models.          
+
+> Abt-Buy: abt_410#buy_645 Gold: match Human audit: non-match LLM labelers: all non-match Left: Apple 500GB Time Capsule, model MB276LLA , price $299 Right: Apple Time Capsule, model MB277LL/A ,1TB , price $439 Reason: different capacity and model number. DBLP-Scholar: dblp_746#scholar_11508 Gold: match Human audit: non-match Teacher models: all non-match Left: "minimization of tree pattern queries" Amer-Yahia et al. ,SIGMOD , 2001 Right: "minimization of tree patterns queries" Flesca et al. ,VLDB
+> Reason: similar titles but different authors and venues.
+
+Figure 5: Examples of two labeling errors contained in the benchmark test sets. Table 9: Error rate of each teacher model and of the published benchmark gold labels (Gold) on test pairs from a stratified human audit. The lowest error rate per benchmark is in bold.                         
+
+> Benchmark Gold GPT-5.2 Qwen 3.6 Plus Kimi K2.6
+> Abt-Buy 1.71% 2.28% 2.34% 1.60%
+> Walmart-Amazon 1.42% 1.61% 2.20% 0.98%
+> WDC 1.91% 1.82% 2.36% 1.60%
+> DBLP-ACM 0.53% 0.81% 1.82% 0.65%
+> DBLP-Scholar 2.52% 3.13% 4.49% 2.28%
+
+Across all five benchmarks the teacher models produce error rates close to the error rates of the published benchmark test sets. Every result in Table 9 falls between 0.53% and 4.49%, and the teacher error rates differ from the benchmark by 0.5 points on average and by at most 2 points in any scenario. Kimi K2.6 is the cleanest, averaging 0.2 points below the benchmark, and Qwen 3.6 Plus the noisiest at 1.0 point above, though both differences are small. 
+
+## 4.11 Limitations 
+
+Four caveats bound the scope of the results presented in this paper. First, the five benchmarks are public, so their test pairs may overlap with the pretraining data of the teacher models, which could inflate the direct-matching F1 in Table 6. The audit limits this concern for the labeling results: the teachers contradict the published gold label on 778 test pairs, including pairs where the gold label itself is wrong (Figure 5), so they do not simply reproduce memorized benchmark labels, and the fitness-for-use conclusion holds under three different teachers. Second, all experiments use a single la-beling prompt (Figure 2). Prompt choice interacts with the dataset [20 ], so individual F1 values could shift under other prompts, while every comparison in this paper holds the prompt fixed across strate-gies and teachers. Third, each result aggregates three training runs, and differences within one standard deviation should be read as ties (Section 3). Fourth, the audit of Section 4.10 relies on a single annotator. The annotator was blind to the gold and teacher labels, and the audit covers all teacher-gold disagreements rather than a sample. 
+
+## 5 Related Work 
+
+This section discusses related work on entity matching, active learn-ing for entity matching, and knowledge distillation. 
+
+Entity Matching: Entity matching decides whether two records refer to the same real-world entity. It is a central step in data in-tegration [ 5, 6]. In the pairwise formulation used throughout this paper, each candidate pair (𝑙, 𝑟 ) consists of one record from a left table and one record from a right table. A label 𝑦 ∈ { 0, 1} indicates whether the two records match. Traditional entity matching tech-niques include probabilistic record linkage [ 9 ], rule-based match-ing, and supervised feature-based systems [ 4 , 7]. Recent surveys frame entity matching as an end-to-end process for large-scale data integration rather than a standalone binary classifier [ 5]. Workflow-oriented systems such as Magellan follow this view by supporting data preparation, blocking, labeling, debugging, and evaluation [12]. 
+
+PLM-based Entity Matching: Deep learning broadened the design space for entity matching by learning representations of seri-alized records and record pairs [ 2 , 18 ]. Transformer-based matchers and pretrained language model (PLM) systems became widely used around 2020 [ 3 , 15 ]. Ditto is a representative PLM-based entity matching system that combines pretrained encoders with entity matching-specific data augmentation and domain knowledge injec-tion techniques [ 15 ]. PLM-based systems reach strong benchmark performance, but they depend on task-specific training data and their performance drops for unseen entities that were not described by any record in the training set [ 19 ]. The label dependence of PLM-based matchers motivates both LLM-based direct matching and the LLM-assisted construction of labeled training data. 
+
+LLM-based Entity Matching: Generative large language mod-els (LLMs) provide a different interface to entity matching. Instead of fine-tuning a compact encoder on thousands of training pairs, a model can be prompted with two serialized entity descriptions and asked whether they refer to the same entity. Peeters et al . [20] showed that LLMs can perform competitively in zero-shot and few-shot entity matching settings, but also that there is no universally best prompt: prompt design and model choice interact strongly with the dataset. Follow-up work on fine-tuning LLMs for entity matching showed that fine-tuning improves smaller models and in-domain transfer, while cross-domain transfer and example selec-tion effects remain mixed [ 23 ]. The work presented in this paper also connects to the broader topic of using LLMs as data annota-tors. Prior studies report that LLMs can match or exceed crowd annotators on selected text-annotation tasks and can reduce annota-tion cost [ 1, 10 , 14 ], while other evaluations caution that reliability depends strongly on task, prompt, model, and domain [ 13 ]. Our results extend this line of work to entity matching. 
+
+Active Learning for Entity Matching: Active learning ad-dresses example selection when annotation budgets are limited. In entity matching, this is important because randomly sampled pairs 
+
+> 11 Steiner and Bizer
+
+are usually dominated by easy non-matches, while informative training sets require positive examples and difficult corner-case non-matches. Prior work on active learning for entity matching explored using genetic algorithms for matching rule evolution [ 11 ], bootstrapping strategies, and graph-based methods for multi-source entity resolution [ 21 , 22 ]. The active-learning component in this paper follows the same general idea as the previous work while employing more expensive matchers in the Active learning (Ditto) strategy than previous work. 
+
+Knowledge Distillation for Entity Matching: Our workflow is an instantiation of the teacher-student architecture for knowl-edge distillation [ 25 ]. In knowledge distillation, a stronger teacher model is used to transfer task-specific knowledge to a smaller, com-putationally more efficient student model. Recent surveys discuss this pattern as a central mechanism for making LLM capabilities more deployable, either by transferring outputs, rationales, or pref-erences from large teacher models to smaller students [8, 25, 26]. Zeakis et al. [ 27 ] introduce DistillER, a knowledge distillation framework for entity matching. In addition to supervised fine-tuning, they experiment with reinforcement learning and report that reinforcement learning underperforms supervised fine-tuning in their evaluation settings. They also evaluate on the Abt-Buy, Walmart-Amazon, and DBLP-Scholar benchmarks, but their stu-dent model performance is about 10 F1 points lower than ours on these datasets. The reasons for this large gap are likely the use of simpler pair-selection methods and less capable teacher models (Llama 3.1 and Qwen2.5). They also do not post-process machine-labeled training data to remove false labels. Wadhwa et al . [24] and Steiner et al . [23] experiment with pro-viding explanations together with the labels to the student models. Their experiments show moderate but inconsistent gains that de-pend on the teacher/student model combination. Research on using knowledge distillation for tasks that are closely related to entity matching include Zhang et al . [28] which employ distillation for entity alignment and Liu et al . [16] which explore using distillation for entity linking. 
+
+## 6 Conclusion 
+
+This paper analyzed knowledge distillation for entity matching. The compared workflows select candidate pairs from reconstructed source tables, label them with an LLM teacher, and train a cheaper student matcher on the resulting machine-labeled training set. Across five benchmarks, the best machine-labeled set with Ditto as student stays within 1.78 F1 of the benchmark training set, with differences on the three product benchmarks between +0.23 and +1.59 F1. Active learning improves pair selection most clearly on 
+
+Abt-Buy and WDC , while the publication benchmarks plateau after only 1,000 pairs being labeled. The result holds beyond closed-source hosted teachers and be-yond Ditto. The open-weight Kimi K2.6 stays within 0.85 F1 of the best hosted teacher on every benchmark, and Qwen3 students trained on machine-labeled sets stay close to their benchmark-set counterparts. The analysis of the composition of the training sets showed that pair selection changes the training set quality, not only the label count. Active learning raises the positive rate by up to 12.74 percentage points and selects more hard positives than the benchmark set on four of five benchmarks. Post-processing helps on the product benchmarks, but the closure-based drop method does not generalize across datasets. The cost and runtime results support the teacher/student design. GPT-5.2 labeling costs $28.31 to $40.88 across all five datasets, while the benchmark training sets correspond to an estimated 470 hours of manual labeling. At inference time, Ditto runs 41.5 to 534 times faster than direct LLM matching. The main remaining gap is WDC ,where direct LLM matching is 15 F1 higher than the trained Ditto student. Because Ditto trained on the official WDC training set reaches the same level as Ditto trained on the machine-labeled set, this gap reflects the difficulty of the unseen-entity test split rather than a failure of machine labeling. Overall, our experiments clearly indicate the utility of knowledge distillation for entity matching: Using an expensive LLM once as a teacher to construct training data, then using a compact student for high-volume entity matching proved effective and efficient throughout all benchmark tasks. 
+
+## 7 Artifacts 
+
+All code, data, and configuration needed to reproduce the results are provided for public download. 
+
+Code: The workflow code, including candidate-pool genera-tion, pair selection, LLM labeling, post-processing, and training wrappers for the XGBoost classifier, Ditto, and Qwen3 models, is available at https://github.com/wbsg-uni-mannheim/Automatic-data-labeling. 
+
+Data: The five benchmarks ( Abt-Buy , Walmart-Amazon , WDC Products , DBLP-ACM , DBLP-Scholar ) are publicly available. All machine-labeled training sets, post-processing variants, and human audit decisions are released in the repository referenced above. 
+
+Prompts: Prompts used for both the initial teacher labeling and the post-processing steps are also available in the repository. 
+
+## Acknowledgments 
+
+Generative AI Disclosure: The authors used GPT-5.5 (OpenAI) and Claude Opus 4.7 and 4.8 (Anthropic, via Claude Code) during the preparation of this work. These tools assisted with (1) writ-ing, debugging, and refactoring the experimental pipeline code (candidate-pool generation, active-learning loops, LLM labeling scripts, and evaluation harness); (2) drafting and revising portions of the paper text; and (3) generating the workflow diagram (Figure 1) with GPT-5.5. The authors reviewed and verified all AI-assisted content and take full responsibility for the contents of this pub-lication. All scientific claims, experimental designs, results, and conclusions are the authors’ own. 
+
+## References          
+
+> [1] Parikshit Bansal and Amit Sharma. 2023. Large Language Models as Annotators: Enhancing Generalization of NLP Models at Minimal Cost. arXiv:2306.15766 [cs.CL] [2] Nils Barlaug and Jon Atle Gulla. 2021. Neural Networks for Entity Matching: A Survey. ACM Transactions on Knowledge Discovery from Data 15, 3 (2021), 52:1–52:37. [3] Ursin Brunner and Kurt Stockinger. 2020. Entity Matching with Transformer Architectures - A Step Forward in Data Integration. In Proceedings of the 23rd International Conference on Extending Database Technology . OpenProceedings.org, Konstanz, Germany, 463–473. [4] Peter Christen. 2012. Data Matching: Concepts and Techniques for Record Linkage, Entity Resolution, and Duplicate Detection . Springer, Berlin, Heidelberg. 12
+
+Labeling Training Data for Entity Matching Using Large Language Models 
+
+[5] Vassilis Christophides, Vasilis Efthymiou, Themis Palpanas, George Papadakis, and Kostas Stefanidis. 2020. An Overview of End-to-End Entity Resolution for Big Data. Comput. Surveys 53, 6 (2020), 127:1–127:42. doi:10.1145/3418896 [6] Vassilis Christophides, Vasilis Efthymiou, and Kostas Stefanidis. 2015. Entity Resolution in the Web of Data . Morgan & Claypool, San Rafael, CA, USA. [7] Ahmed K. Elmagarmid, Panagiotis G. Ipeirotis, and Vassilios S. Verykios. 2007. Duplicate Record Detection: A Survey. IEEE Transactions on Knowledge and Data Engineering 19, 1 (2007), 1–16. [8] Luyang Fang, Xiaowei Yu, Jiazhang Cai, Yongkai Chen, Shushan Wu, et al . 2026. Knowledge distillation and dataset distillation of large language models: Emerg-ing trends, challenges, and future directions. Artificial Intelligence Review 59, 1 (2026), 17. doi:10.1007/s10462-025-11423-3 [9] Ivan P. Fellegi and Alan B. Sunter. 1969. A Theory for Record Linkage. J. Amer. Statist. Assoc. 64, 328 (1969), 1183–1210. [10] Fabrizio Gilardi, Meysam Alizadeh, and Maël Kubli. 2023. ChatGPT Outperforms Crowd Workers for Text-Annotation Tasks. Proceedings of the National Academy of Sciences 120, 30 (2023), e2305016120. doi:10.1073/pnas.2305016120 [11] Robert Isele and Christian Bizer. 2012. Learning Expressive Linkage Rules using Genetic Programming. Proceedings of the VLDB Endowment 5, 11 (2012), 1638– 1649. [12] Pradap Konda, Sanjib Das, Paul Suganthan G. C., AnHai Doan, Adel Ardalan, et al . 2016. Magellan: Toward Building Entity Matching Management Systems. 
+
+Proceedings of the VLDB Endowment 9, 12 (2016), 1197–1208. [13] Ross Deans Kristensen-McLachlan, Miceal Canavan, Marton Kárdos, Mia Jacob-sen, and Lene Aarøe. 2025. Are Chatbots Reliable Text Annotators? Sometimes. 
+
+PNAS Nexus 4, 4 (2025), pgaf069. doi:10.1093/pnasnexus/pgaf069 [14] Minzhi Li, Taiwei Shi, Caleb Ziems, Min-Yen Kan, Nancy Chen, et al . 2023. CoAnnotating: Uncertainty-Guided Work Allocation between Human and Large Language Models for Data Annotation. In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing . Association for Computational Linguistics, Singapore, 1487–1505. doi:10.18653/v1/2023.emnlp-main.92 [15] Yuliang Li, Jinfeng Li, Yoshihiko Suhara, AnHai Doan, and Wang-Chiew Tan. 2020. Deep Entity Matching with Pre-Trained Language Models. Proceedings of the VLDB Endowment 14, 1 (2020), 50–60. [16] Yi Liu, Yuan Tian, Jianxun Lian, Xinlong Wang, Yanan Cao, Fang Fang, Wen Zhang, Haizhen Huang, Weiwei Deng, and Qi Zhang. 2023. Towards Better Entity Linking with Multi-View Enhanced Distillation. In Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) ,Anna Rogers, Jordan Boyd-Graber, and Naoaki Okazaki (Eds.). Association for Computational Linguistics, Toronto, Canada, 9729–9743. doi:10.18653/v1/2023. acl-long.542 [17] Sedir Mohammed, Lukas Budach, Moritz Feuerpfeil, Nina Ihde, Andrea Nathansen, et al . 2025. The Effects of Data Quality on Machine Learn-ing Performance on Tabular Data. Information Systems 132 (2025), 102549. doi:10.1016/j.is.2025.102549 [18] Sidharth Mudgal, Han Li, Theodoros Rekatsinas, AnHai Doan, Youngchoon Park, et al . 2018. Deep Learning for Entity Matching: A Design Space Exploration. In 
+
+Proceedings of the 2018 International Conference on Management of Data (SIGMOD ’18) . Association for Computing Machinery, New York, NY, USA, 19–34. [19] Ralph Peeters, Reng Chiz Der, and Christian Bizer. 2024. WDC Products: A Multi-Dimensional Entity Matching Benchmark. In Proceedings of the 27th International Conference on Extending Database Technology (EDBT 2024) . OpenProceedings.org, Konstanz, Germany, 22–33. doi:10.48786/edbt.2024.03 [20] Ralph Peeters, Aaron Steiner, and Christian Bizer. 2025. Entity Matching using Large Language Models. In Proceedings of the 28th International Conference on Extending Database Technology (EDBT 2025) . OpenProceedings.org, Konstanz, Germany, 529–541. doi:10.48786/edbt.2025.42 [21] Anna Primpeli and Christian Bizer. 2021. Graph-boosted active learning for multi-source entity resolution. In International Semantic Web Conference . Springer, Cham, 182–199. [22] Anna Primpeli, Christian Bizer, and Margret Keuper. 2020. Unsupervised boot-strapping of active learning for entity resolution. In European Semantic Web Conference . Springer, Cham, 215–231. [23] Aaron Steiner, Ralph Peeters, and Christian Bizer. 2025. Fine-Tuning Large Language Models for Entity Matching. In 2025 IEEE 41st International Conference on Data Engineering Workshops (ICDEW 2025) . IEEE Computer Society, Los Alamitos, CA, USA, 9–17. doi:10.1109/ICDEW67478.2025.00006 [24] Somin Wadhwa, Adit Krishnan, Runhui Wang, Byron C. Wallace, and Luyang Kong. 2024. Learning from Natural Language Explanations for Generalizable Entity Matching. In Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing . Association for Computational Linguistics, Miami, FL, USA, 6114–6129. doi:10.18653/v1/2024.emnlp-main.352 [25] Xiaohan Xu, Ming Li, Chongyang Tao, Tao Shen, Reynold Cheng, et al .2024. A Survey on Knowledge Distillation of Large Language Models. arXiv:2402.13116 [cs.CL] [26] Chuanpeng Yang, Yao Zhu, Wang Lu, Yidong Wang, Qian Chen, et al . 2025. Survey on Knowledge Distillation for Large Language Models: Methods, Evaluation, and Application. ACM Transactions on Intelligent Systems and Technology 16, 6 (2025), 1–27. doi:10.1145/3699518 [27] Alexandros Zeakis, George Papadakis, Dimitrios Skoutas, and Manolis Koubarakis. 2026. DistillER: Knowledge Distillation in Entity Resolution with Large Language Models. arXiv:2602.05452 [cs.DB] [28] Yuhong Zhang, Hangchi Song, Xiaolong Zhu, Chenyang Bu, and Kui Yu. 2025. An Robust Entity Alignment Method based on Knowledge Distillation with Noisy Aligned Pairs. In Proceedings of the 34th ACM International Conference on Information and Knowledge Management (Seoul, Republic of Korea) (CIKM ’25) . Association for Computing Machinery, New York, NY, USA, 5510–5514. doi:10.1145/3746252.3760862 13
