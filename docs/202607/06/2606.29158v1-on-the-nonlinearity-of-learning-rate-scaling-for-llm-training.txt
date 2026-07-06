@@ -1,0 +1,1468 @@
+Title: On the Nonlinearity of Learning Rate Scaling for LLM Training
+
+URL Source: https://arxiv.org/pdf/2606.29158v1
+
+Published Time: Tue, 30 Jun 2026 00:56:34 GMT
+
+Number of Pages: 24
+
+Markdown Content:
+# On the Nonlinearity of Learning Rate Scaling for LLM Training 
+
+Zaiwen Yang Tsinghua University Huaqing Zhang Tsinghua University Jing Xu Tsinghua University Jingzhao Zhang ∗
+
+Tsinghua University, Shanghai Qi Zhi Institute 
+
+Abstract 
+
+Learning-rate transfer can reduce the cost of training large language models: instead of sweeping learning rates at target scale, practitioners extrapolate from smaller runs. Existing approaches often assume that the optimal learning rate follows a log-linear scaling law in data scale and model size. We carefully examine and evaluate this scaling law. In our empirical study of GPT-2–style models from 22M to 707M parameters trained on 5B to 100B tokens, the optimal learning rate develops upward curvature at larger scales, leading to inaccurate extrapolation. We find that this curvature largely disappears when learning rates are replaced by effective learning rate (the step size in normalized weight space), and when data D extrapolation is used instead of model size N extrapolation. Next, we explain nonlinearity in scaling: weight-norm converges to equilibrium slower when optimal learning is small, requiring a larger step size to reduce the transient phase. Experiments with AdamH, which directly controls the effective learning rate, further support this explanation. 
+
+# 1 Introduction 
+
+Efficiently training large language models requires carefully tuned hyperparameters, yet sweeping these hyperparameters directly at the target scale is often prohibitively expensive. Hyperparameter transfer —predicting effective hyperparameters at large scale from inexpensive smaller-scale runs—has therefore become a central tool in modern model development [22, 45]. The learning rate is a particularly consequential hyperparameter, as it directly affects both training efficiency and stability. Accordingly, many prior works have studied the transfer of learning rates across training settings. One line of work is μP [ 45 ]: under this parameterization, the optimal learning rate remains stable across width scaling. Subsequent works have extended this framework to other settings such as depth scaling [ 5, 6, 9]. These approaches mostly focus on learning-rate transfer along the model-size scaling axis. Some recent work shows that μP style analysis, though very elegant, can be inaccurate when weight norm changes during training [ 20 , 48 ]. As a complement to μP-style analyses, and to enable transfer along the data-size axis, another line of work directly models the optimal learning rate η∗ as a function of the data scale D and model size N . The most common assmuption is that η∗ follows a log-linear, or power-law, relationship in D and N [4, 17, 22]: 
+
+log η∗(D, N ) = a log D + b log N + c. 
+
+> ∗Correspondance to yangzw23@mails.tsinghua.edu.cn and jingzhaoz@tsinghua.edu.cn
+
+1
+
+> arXiv:2606.29158v1 [cs.LG] 28 Jun 2026
+
+Existing studies often fit the scaling law under a fixed search protocol and assess whether it extrapolates to larger model or data scales. We examine this paradigm from two perspectives. First, obtaining an accurate scaling-law fit can itself require substantial compute, but this cost is often omitted when comparing transfer strategies. To enable a fair comparison, we propose measuring distinct power-law relationships under the same compute budget. Second, rather than jointly fitting the dependence on the data scale D, the model scale N , and the learning rate, we further quantify the extrapolation efficiency of different transfer strategies on two choices of the transfer axis, the data scale D versus the model scale N , and two parameterizations of the learning rate, the learning rate versus the effective learning rate. Here the effective learning rate is defined as [42] 
+
+ηeff (t) = ∥ ˆwt+1 − ˆwt∥2,
+
+where ˆw = w/ ∥w∥2 denotes the normalized weight direction. Motivated by the above two perspectives, we conduct a systematic empirical study of learning-rate transfer across model and data scales. Specifically, we train GPT-2–style models [ 34 ] ranging from 22M to 707M parameters on 5B to 100B tokens, and hold out the largest 707M model as the test set for evaluating optimal learning-rate prediction. We release a comprehensive dataset 1 spanning model sizes, data scales, and learning rates, with dense coverage of loss trajectories and optimization statistics. Our main findings from these experiments are as follows. 
+
+• We find that the optimal learning rate η∗ at large data scale D and model size N is higher than predicted by log-linear extrapolation from smaller D and N . In contrast, the effective learning rate ηeff exhibits substantially more linear scaling behavior (Section 5). 
+
+• Under controlled compute budgets, we quantitatively compare the extrapolation performance along the data-size and model-size axes. We find that fitting learning-rate scaling law along the data-size axis can yield much more accurate lr predictions: it incurs only 2% additional training compute relative to using the true optimal learning rate, and requires less than 20% of the compute of hyperparameter sweeping at the target scale (details in Table 1). 
+
+• By analyzing the implicit dynamics of AdamW and the mapping between η and ηeff , we explain the upward curvature observed in η∗. We further verify the linear scaling behavior of ηeff by explicitly controlling it during training with the AdamH optimizer [42] (Section 6). 
+
+# 2 Related Works 
+
+Transferring learning rate across training scales. Hyperparameter tuning is crucial for the efficient training of large language models. In this work, we focus on the transferring the learning rate. One common approach is to fit parametric scaling laws, which model the optimal learning rate as a power-law function of the training scale, such as model size [ 17 , 33 ], training loss [ 40 ], or compute budget [ 7]. Later work refines this formulation by making the optimal learning rate depend on both model size and data size [ 4, 48 ], and Li et al. [22] further study the joint tuning of learning rate and batch size. However, the extrapolation performance of these power-law relations, as well as the range of training scales over which they hold, remains insufficiently evaluated. We aim to address this gap. Another line of work for transferring learning rates across model scales is the theoretically motivated Maximal Update Parameterization ( μP) [ 45 ]. Later works extend the original width scaling to other training settings, such as depth scaling, different optimizers, and low-precision 
+
+> 1https://huggingface.co/datasets/neurips2026lrtransfer/LR-Transfer-Trajectory
+
+2training [ 5, 6, 8, 9, 44 ]. However, μP focuses on model scaling and does not directly cover transfer to larger data scales. 
+
+Effective learning rate. Many weight matrices in mordern architectures are scale-invariant due to normalization layers [ 2, 15 ]: rescaling such weights by a positive scalar leaves the network output, and hence the loss, unchanged [ 12 , 37 ]. As a result, the relevant training dynamics is governed primarily by changes in weight direction rather than weight scale. Previous work shows that the effective learning rate is jointly determined by the learning rate and weight decay [ 19 , 23 ]. This perspective has further motivated new optimizer designs that explicitly control the weight norm and update norm [ 11 , 26 , 43 ]. In this work, we further show that the effective learning rate, rather than the learning rate, is the right quantity to consider for hyperparameter transfer. We discuss more related works on hyperparameter tuning and transfer in Section A. 
+
+# 3 Power Laws for Optimal Learning Rates 
+
+Our experiments focus on the learning rate η as the hyperparameter of interest. Let D denote the number of training tokens and N denote the number of model parameters. Throughout this work, we fix the batch size B, so that the total number of training tokens satisfies D = BT , where T is the total number of training steps. We define η∗(D, N ) as the optimal learning rate that minimizes the target loss L after training on D tokens with a model of scale N :
+
+η∗(D, N ) := arg min 
+
+> η
+
+L (wT (η; D, N )) . (1) Previous works assume that the optimal learning rate follows a log-linear scaling law with respect to scale [4, 22, 48]: 
+
+log η∗(D, N ) = a log D + b log N + c, (2) where a, b, c are constants determined empirically. This formulation implies that the learning rate obeys a power law relationship η∗(D, N ) ∝ DaN b,
+
+Effective Learning Rate In this work, we also study the scaling behavior of the effective learning rate. Modern neural network architectures such as Transformers [ 38 ] are often scale-invariant with respect to their weights. In particular, for most matrix weights w, due to normalization layers, the loss remains unchanged under rescaling [12, 37]: 
+
+L(w) = L(αw ), ∀α > 0. (3) As a result, the optimization dynamics depend primarily on the direction of the weights rather than their magnitude. From this perspective, we define the effective learning rate as the step size in the normalized parameter space [42]: 
+
+ηeff (t) = ∥ ˆwt+1 − ˆwt∥2 , (4) where ˆwt = wt/∥wt∥2 denotes the normalized weight vector. Our experiments show that, when the learning rate is fixed, the effective learning rate varies slowly over the course of training; see Figure 6. This suggests that ηeff (t) can be approximated by a constant during training. For a given dataset size D, model size N , and learning rate η, we therefore summarize the effective learning rate by its average over training: 
+
+ηeff (η; D, N ) := 1
+
+T 
+
+> T−1
+
+X
+
+> t=0
+
+ηeff (t; η, D, N ), (5) 3where T is the total number of training steps. Hence, we define the optimal effective learning rate at scale (D, N ) as the average effective learning rate induced by the optimal learning rate η∗(D, N ):
+
+η∗ 
+
+> eff
+
+(D, N ) := arg min 
+
+> ηeff
+
+L ( ˆ wT (ηeff ; D, N )) . (6) 
+
+# 4 Experiment Design 
+
+In this work, we evaluate four log-linear scaling laws for the optimal learning rate and the optimal effective learning rate. First, for each fixed model size N , we study how the optimal learning rate scales with data size: 
+
+log η∗(D, N ) = aN log D + bN . (7) Further, for each fixed data size D, we study how the optimal learning rate scales with model size: 
+
+log η∗(D, N ) = cD log N + dD. (8) Similarly, we evaluate the corresponding scaling laws for the optimal effective learning rate. For each fixed model size N, D , we consider 
+
+log η∗ 
+
+> eff
+
+(D, N ) = ˜ aN log D + ˜bN , (9) 
+
+log η∗ 
+
+> eff
+
+(D, N ) = ˜ cD log N + ˜dD. (10) We estimate these quantities from training runs over a grid of model sizes, data budgets, and learning rates. For each (D, N ), we estimate η∗(D, N ) by fitting a cubic polynomial to validation loss as a function of log η (Figure 11). Similarly, we estimate η∗ 
+
+> eff
+
+(D, N ) by fitting a cubic polynomial to validation loss as a function of log ηeff (Figure 12). D              
+
+> N
+> 02Dtest 1Dtest Dtest
+> 2Ntest
+> 1Ntest
+> Ntest
+> (2Dtest ,Ntest )(1Dtest ,Ntest )
+> Training scale
+> used for D-axis
+> Extrapolation
+> (Dtest ,1Ntest )
+> (Dtest ,2Ntest )
+> Training scale
+> used for N-axis
+> Extrapolation
+> Predict at (Dtest ,Ntest )
+
+Compute Budget Constraint:   
+
+> Kk= 1
+> k
+
+=
+
+Figure 1: Compute-constrained extrapolation: D-axis extrapolation uses reduced data with the full model, while N -axis extrapolation uses smaller models with full data, both under a fixed compute budget. 
+
+Experimental Setup. We train GPT-2 [ 34 ] models ranging from 22M to 707M parameters on FineWeb-100B [ 32 ] with data budgets from 5B to 100B tokens in 2.5B-token increments, using a warmup–steady–decay (WSD) schedule [ 13 ]. We train language models with AdamW [ 25 ] and a fixed batch size of 0.52M tokens. All other AdamW hyperparameters except the learning rate, including 4β1, β2, ϵ, and weight decay λ, are fixed. For each model size and data budget, we sweep the learning rate over a logarithmic grid with log 2 η ∈ [−16 , −7] and unit increments. Further experimental details are provided in Appendix B. For each configuration (D, N, η ), we record the validation loss trajectories and key optimization statistics, including effective learning rates, weight norms ∥wt∥2, gradient norms ∥gt∥2, update norms 
+
+∥wt+1 − wt∥2, and the norm of the AdamW update ∥ut∥2. These trajectories and statistics are then used to estimate η∗(D, N ) and η∗
+
+> eff
+
+(D, N ) as described in Section 3. The ηeff is averaged on all weights except the embedding layer before averaging over t in Equation 5. Our dense data-budget and learning-rate sweeps enable interpolation along both the D- and 
+
+η-axes, densifying the (D, η ∗) for each model size N without additional training runs. 33.0 33.5 34.0 34.5 35.0 35.5 36.0 36.5                                          
+
+> log 2D
+> 12.0
+> 11.5
+> 11.0
+> 10.5
+> 10.0
+> 9.5
+> 9.0
+> 8.5
+> log 2
+> 22M params ( r=0.994 )
+> 64M params ( r=0.992 )
+> 124M params ( r=0.996 )
+> 203M params ( r=0.996 )
+> 417M params ( r=0.998 )
+> 707M params ( r=1.000 )
+> Extrapolation
+> 17.0 17.5 18.0 18.5 19.0 19.5 20.0 20.5
+> log 2N
+> 13
+> 12
+> 11
+> 10
+> 9
+> 8
+> log 2
+> log 2D33 (r=0.997 )
+> log 2D34 (r=0.988 )
+> log 2D35 (r=0.980 )
+> log 2D36 (r=0.971 )
+> Extrapolation
+
+Figure 2: Log-log relationships for the optimal learning rate η∗ as a function of training steps D
+
+and model size N . While approximately linear over limited ranges, systematic curvature appears at larger scales, indicating that log-linearity is only a local property. The extrapolation line is fitted by 
+
+D ∈ [20B , 40B] or N ∈ { 22M , 64M }, to evaluate extrapolation performance from small-scale fitting. 
+
+r refers to the Pearson correlation coefficient. 
+
+Evaluating Extrapolation Performance. We evaluate each scaling law on a test set Stest ⊆{(D, N, η ∗(D, N )) }. For each target tuple (D, N, η ∗(D, N )) ∈ S test , we define the reference compute 
+
+C(D, N ) = 6 N D , corresponding to one full training run of a dense Transformer [ 38 ] with N
+
+parameters on D tokens [ 17 ]. Given a compute-budget ratio β > 0, we construct a distinct training set Strain (D, N ) using at most βC (D, N ) total compute, fit each candidate scaling law on it, and evaluate the resulting prediction ˆη∗ 
+
+> β
+
+(D, N ) against the held-out empirical optimum η∗(D, N ).We first define the out-of-distribution coefficient of determination as 
+
+R2
+
+> OOD
+
+(β) = 1 −
+
+P 
+
+> (D,N )∈S test
+
+
+
+log η∗(D, N ) − log ˆ η∗ 
+
+> β
+
+(D, N )
+
+2
+
+P 
+
+> (D,N )∈S test
+
+ log η∗(D, N ) − log η∗2 , (11) where log η∗ = 1
+
+> |S test |
+
+P  
+
+> (D,N )∈S test
+
+log η∗(D, N ), measuring predictive accuracy in log-space on unseen scales. We remark that R2 
+
+> OOD
+
+can be negative, since the extrapolated prediction log ˆ η∗ 
+
+> β
+
+(D, N ) may deviate substantially from the true optimum. While R2 
+
+> OOD
+
+captures statistical accuracy, the practical value of a scaling law lies in reducing the compute needed to identify near-optimal hyperparameters. We thus define the extra compute 
+
+533.0 33.5 34.0 34.5 35.0 35.5 36.0 36.5                                          
+
+> log 2D
+> 9.5
+> 9.0
+> 8.5
+> 8.0
+> log 2 eff
+> 22M params ( r=0.999 )
+> 64M params ( r=1.000 )
+> 124M params ( r=1.000 )
+> 203M params ( r=1.000 )
+> 417M params ( r=1.000 )
+> 707M params ( r=0.999 )
+> Extrapolation
+> 17.0 17.5 18.0 18.5 19.0 19.5 20.0 20.5
+> log 2N
+> 9.75
+> 9.50
+> 9.25
+> 9.00
+> 8.75
+> 8.50
+> 8.25
+> 8.00
+> 7.75
+> log 2 eff
+> log 2D33 (r=0.997 )
+> log 2D34 (r=0.998 )
+> log 2D35 (r=0.998 )
+> log 2D36 (r=0.994 )
+> Extrapolation
+
+Figure 3: Log-log relationships for the optimal effective learning rate η∗ 
+
+> eff
+
+as a function of D
+
+and N . Compared with η∗, the trends remain closer to linear across scales, indicating more stable scaling behavior. The extrapolation line is fitted by D ∈ [20B , 40B] or N ∈ { 22M , 64M }, to evaluate extrapolation performance from small-scale fitting. r refers to the Pearson correlation coefficient. 
+
+ratio (ECR) to quantify the excess computation incurred by using predicted rather than optimal learning rates: 
+
+ECR( β) = 
+
+P  
+
+> (D,N )∈S test
+
+∆C(D, N )
+
+P  
+
+> (D,N )∈S test
+
+C(D, N ) , (12) where we approximately set C = 6 N D , and ∆C(D, N ) is the additional compute required for 
+
+ˆη∗ 
+
+> β
+
+(D, N ) to match the validation loss attained by η∗(D, N ). Together, R2 
+
+> OOD
+
+and ECR provide complementary views of extrapolation performance. 
+
+Test Set and Compute-constrained Training Sets. In our experiments, we fix Ntest to our largest model (hidden dimension 2048, 707M parameters) and vary Dtest ∈ [50 B, 100 B] tokens. We construct Strain via two strategies (Figure 1), both parameterized by coefficients {αk}Kk=1 :
+
+• Data-axis ( D) extrapolation: S(D) 
+
+> train
+
+= {(αkDtest , N test )}Kk=1 , testing scaling laws Equation 7 and Equation 9. 
+
+• Model-axis ( N ) extrapolation: S(N ) 
+
+> train
+
+= {(Dtest , α kNtest )}Kk=1 , testing scaling laws Equation 8 and Equation 10. Then the total training compute is 6Ntest Dtest 
+
+P 
+
+> k
+
+αk for both strategies. Enforcing the budget 
+
+βC (Dtest , N test ) yields the constraint PKk=1 αk = β, after which the fitted scaling law is extrapolated to predict η∗(Dtest , N test ).
+
+Estimating the Extra Compute Ratio. To compute ∆C(Dtest , N test ), we model the loss trajectory under the predicted learning rate ˆη∗ 
+
+> β
+
+as a power law [ 17 ] Lˆη(D) = L0 + AD −γ , fitted from the validation-loss trajectory and anchored at Lˆη(Dtest ) = Lreal (Dtest , N test , ˆη∗ 
+
+> β
+
+). Letting 
+
+L∗(Dtest , N test ) denote the validation loss under η∗, we solve Lˆη(Dtest + Dextra ) = L∗(Dtest , N test )
+
+for Dextra , the additional tokens needed to recover the optimal loss. The extra compute is then 
+
+∆C(Dtest , N test ) = 6 Ntest Dextra .65 Main Results 
+
+Deviation from Log-linear Scaling. We begin by examining whether the optimal learning rate follows the commonly assumed log-linear scaling laws. Figure 2 shows the relationship between the optimal learning rate η∗ and both training steps D
+
+and model size N in log-log space. While the trends appear approximately linear over moderate ranges, systematic upward curvature emerges as D and N increase. This deviation indicates that the log-linear scaling law is only locally valid and does not extend globally. In contrast, Figure 3 presents the corresponding results for the effective learning rate η∗ 
+
+> eff
+
+.Compared to η∗, the effective learning rate shows improved linearity with higher Pearson correlation, particularly at larger scales. This suggests that η∗ 
+
+> eff
+
+provides a more stable parameterization on scaling. 
+
+Quantifying Extrapolation Error Across Different Strategies. We next quantify how deviations from log-linearity affect extrapolation performance using the out-of-distribution coefficient of determination R2
+
+> OOD
+
+.Figure 4a compares R2 
+
+> OOD
+
+across different compute budgets for various scaling strategies. When the compute budget ratio increases, the precision of the prediction also increases, which indicates the non-linearity of learning rates versus log D and log N . We observe that scaling with respect to training steps D consistently outperforms scaling with respect to model size N . In addition, across all compute budgets and fitting strategies, η∗ 
+
+> eff
+
+consistently achieves higher R2 
+
+> OOD
+
+than η∗ for D-dim fit and N -dim fit respectively. In summary, these results show that the most reliable extrapolation is achieved by fitting along the dimension D and using the effective learning rate η∗ 
+
+> eff
+
+.0.2 0.4 0.6 0.8 1.0 1.2   
+
+> Compute budget ratio
+> 10
+> 8
+> 6
+> 4
+> 2
+> 0
+> R 2ood
+> D-dim
+> N-dim
+> eff D-dim
+> eff N-dim
+
+(a) 0 10 20 30 40 50          
+
+> 1R2ood
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> Extra compute ratio
+> 0.0 2.5 5.0 7.5 10.0
+> 0.00
+> 0.02
+> 0.04
+> D-dim
+> N-dim
+> eff D-dim
+> eff N-dim
+
+(b) 
+
+Figure 4: Left : R2 
+
+> OOD
+
+across different compute budgets for scaling along D and N , using both η∗
+
+and η∗ 
+
+> eff
+
+. Curves are smoothed with a sliding window in linear β of half-width ∆β = 0 .1; bands show 
+
+±0.5σ within each window. Scaling along the D consistently yields better extrapolation than scaling along N , and the effective learning rate further improves performance across all settings. Right :Relationship between OOD generalization error ( 1 − R2
+
+> OOD
+
+) and extra compute ratio. Each point corresponds to a test configuration. We see a clear linear relationship: ECR ∝ 1 − R2
+
+> OOD
+
+.7Table 1: Prediction error, validation loss gap, and extra compute ratio for each fitting setup across some budget ratios, tested on (Dtest , N test ) = (100B , 707M) . Bold indicates the lowest ECR within each β block. For some small β using D-dim fit, there is no N -dim correspondence. We always set 
+
+α1Dtest = 5B , α 2 = β − α1.
+
+Budget Ratio (%) Setup Log LR Prediction Error Val Loss Gap ( 10 −4) ECR (%) 
+
+13 .00 D-dim, ηeff +0 .1235 4.77 1.21 
+
+13 .00 D-dim, η −0.8144 66 .42 16 .96 17 .00 D-dim, ηeff +0 .1148 4.12 1.04 
+
+17 .00 D-dim, η −0.7295 53 .21 13 .72 20 .64 D-dim, ηeff +0 .1271 5.06 1.29 
+
+20 .64 N -dim, ηeff −0.1903 11 .04 2.21 20 .64 D-dim, η −0.5736 32 .82 8.65 20 .64 N -dim, η −0.5461 29 .74 7.87 37 .63 D-dim, ηeff +0 .0935 2.73 0.67 
+
+37 .63 N -dim, ηeff −0.1320 5.35 1.11 37 .63 D-dim, η −0.2061 4.21 1.20 37 .63 N -dim, η −0.2328 5.37 1.52 55 .10 D-dim, ηeff +0 .0983 3.02 0.75 
+
+55 .10 N -dim, ηeff −0.1357 5.64 1.17 55 .10 D-dim, η −0.2286 5.18 1.47 55 .10 N -dim, η −0.2179 4.71 1.34 
+
+Compute Cost of Extrapolation Error To quantify the practical consequences of extrapolation error, we relate prediction accuracy to the extra compute ratio ECR( β).Figure 4b plots ECR( β) against 1 − R2
+
+> OOD
+
+(β). Empirically, we observe a linear relationship, 
+
+ECR ∝ 1 − R2
+
+> OOD
+
+, (13) indicating that extrapolation error translates directly into additional compute cost. This relationship implies that even modest degradation in extrapolation quality leads to a proportional increase in required training compute, highlighting the practical importance of accurate scaling laws. To illustrate the practical impact, we present a concrete case study using a single test configuration, 
+
+(Dtest , N test ) = (100B , 707M) . The detailed results in Table 1 show how differences in extrapolation accuracy translate into practical compute overhead and validation-loss gaps. 
+
+# 6 Explaining Nonlinear Scaling via Implicit Effective Learning Rate Schedule 
+
+In our experiment, we observe that the optimal effective learning rates extrapolates more reliably than standard learning rate when t is large. We explain why optimal learning rate would bend upwards as the training horizon increases. Our explanation rests on one assumption: due to scale-invariance, the effective learning rate 
+
+ηeff , instead of the learning rate η, governs optimization dynamics . Form this perspective, ηeff is the quantity for which a clean scaling law should hold, and any apparent irregularity in η reflects the time-varying mapping between the two. To examine this hypothesis, we first study the case of Adam without weight decay. 8Validating The Assumption. The evolution of ∥wt∥2 with a constant η has already been derived from previous work [ 19 , 20 , 42 ]. If we train models without applying weight decay , the effective learning rate decays over time: 
+
+ηeff (t) ≈ 1
+
+q 1+ β1 
+
+> 1−β1
+
+t + W 20 
+
+> η2U2
+
+∼
+
+s
+
+1 − β1
+
+1 + β1
+
+1
+
+t , (14) where the asymptotic form holds for sufficiently large t. The key observation is that for sufficiently large η, the second term in the denominator becomes negligible, so ηeff (t), and hence the accumulated step size P 
+
+> t
+
+ηeff (t), converges to the same trajectory regardless of η (as shown in Figure 5a). Since training runs with similar accumulated step sizes are known to reach similar losses [ 27 , 36 ], using different large η should yield similar validation losses according to our assumption. Figure 5b confirms this prediction, which is aloTs consistent with observations from [ 20 , Figure 1]; see Appendix B for experimental details. 0 50000 100000 150000                             
+
+> Steps
+> 214
+> 213
+> 212
+> 211
+> 210
+> 29
+> 28
+> 27
+> eff
+> log =16.0
+> log =15.0
+> log =14.0
+> log =13.0
+> log =12.0
+> log =11.0
+> log =10.0
+> log =9.0
+> log =8.0
+> log =7.0
+
+(a) 15 14 13 12 11 10 9 8 7      
+
+> log 2
+> 3.3
+> 3.4
+> 3.5
+> 3.6
+> 3.7
+> 3.8
+> 3.9
+> Val Loss
+> t= 10000
+> t= 25000
+> t= 50000
+> t= 100000
+> t= 175000
+
+(b) 
+
+Figure 5: Validation loss and (smoothed) effective learning-rate dynamics for Adam without weight decay. The effective learning rate is computed from the Q matrix in the first attention layer. Experiments use N = 64M models trained with constant learning rates after a 1000-step warmup. 
+
+Left : For large η, the trajectories of ηeff (t) coincide at large t. Right : For large η, validation loss versus log 2 η becomes nearly flat across different training steps. 
+
+Two LR-Rate Phases For AdamW. The equilibrium of weight norms has been shown to play an important role in AdamW[ 20 ]. In this work, we want to show that the time it takes for the weight norm to reach equilibrium matters. Concretely, since ηeff depends on the weight norm ∥wt∥2, and 
+
+∥wt∥2 requires many steps to relax towards its equilibrium value, small η keeps training in a transient regime where the η ↔ ηeff relationship differs from its equilibrium form. We now make this precise. Similar to Equation 14, the evolution of ∥wt∥2 under AdamW with constant η is: 
+
+ηeff (t) = 
+
+vuut2ηλ 1 − β1
+
+1 + β1
+
+11 + 
+
+ W 20 
+
+> W2+∞
+
+− 1
+
+
+
+e−2ηλt 
+
+, (15) where W0 = ∥w0∥2 is the initial weight norm and W+∞ = U
+
+q η 
+
+> 2λ
+> 1+ β1
+> 1−β1
+
+is the equilibrium weight norm, with U denoting the (approximately constant [ 19 , 24 ]) Adam update norm ∥ut∥2. Convergence to 90 25000 50000 75000 100000 125000 150000 175000                                         
+
+> Steps
+> 214
+> 213
+> 212
+> 211
+> 210
+> 29
+> 28
+> 27
+> eff
+> 025000 50000 75000 100000 125000 150000 175000
+> Steps
+> 25
+> 26
+> 27
+> 28
+> wt
+> log =16.0
+> log =15.0
+> log =14.0
+> log =13.0
+> log =12.0 log =11.0 log =10.0 log =9.0 log =8.0 log =7.0
+
+Figure 6: (Smoothed) Evolution of the effective learning rate ηeff (t) and weight norm ∥wt∥2, from the Q matrix in the first attention layer. We train N = 417M with constant learning rates after a 1000-step warmup. The y-axis is shown on a log scale. Left : ηeff exhibits two regimes; adjacent curves are spaced by approximately 0.5 in the first regime and 1 in the second. Right : The weight-norm trajectory saturates exponentially toward equilibrium, with smaller η producing slower convergence. equilibrium occurs on a decay time (2 ηλ )−1, so smaller ηλ produces prolonged transient dynamics in 
+
+ηeff (t). For instance, with η = 2 −16 and λ = 0 .1, the decay time is 327 ,680 steps, which is comparable to or larger than typical training horizons. The detailed mathematical derivations largely follow prior work [19, 20, 23, 42] and are provided in Section C for completeness. Then we see that Equation 15 thus exhibits two asymptotic regimes: 
+
+Equilibrium regime ( t ≫ (2 ηλ )−1). The exponential term vanishes, giving 
+
+ηeff ∝ √η, i.e., log η = 2 log ηeff + const . (16) 
+
+Pre-equilibrium regime ( t ≪ (2 ηλ )−1). The weight-norm term dominates, giving 
+
+ηeff ∝ η, i.e., log η = log ηeff + const . (17) Both regimes are clearly visible in Figure 6. The smaller η relaxes more slowly toward equilibrium and therefore sits in the pre-equilibrium regime, where log η versus log ηeff has a slope 1; larger η
+
+reaches equilibrium quickly and follows the slope-2 relation. As the training horizon grows, the optimal learning rate decreases, pushing training from the equilibrium regime into the pre-equilibrium regime . This transition explains the upward curvature in Equation 7. 
+
+Explicit Control Effective Learning Rates via AdamH. Although ηeff exhibits a clean power law with D, it is not directly controlled during training. Instead, it emerges implicitly from optimizer dynamics. We therefore adopt AdamH [ 42 ] (Algorithm 1), an optimizer that controls ηeff explicitly by normalizing both the weight and the update to a fixed norm. Repeating the scaling analysis under AdamH, we recover the same log-linear relationship log η∗ 
+
+> eff
+
+∝ log D (Figure 7); see Appendix B for details. 10 33.0 33.5 34.0 34.5 35.0 35.5 36.0 36.5         
+
+> log 2D
+> 9.0
+> 8.5
+> 8.0
+> 7.5
+> log 2
+> 64M params
+> Extrapolation 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9
+> Compute Budget Ratio
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> Extra compute ratio
+> AdamH
+> AdamW
+
+Figure 7: Scaling behavior of AdamH and comparison of ECR with AdamW (Experiments on 
+
+N = 64M ). Left : AdamH exhibits a clear scaling relationship, log η∗ 
+
+> eff
+
+∝ log D. The extrapolation line is fitted by D ∈ [20B , 40B] . Pearson coefficent r = −0.9994 . Right : We compare the extra compute ratio (ECR) for (Dtest , N test ) = (100B , 64M) . AdamH achieves a much smaller ECR than AdamW at small compute-budget ratios β, indicating that AdamH follows a more linear scaling law. 
+
+# 7 Conclusions and Limitations 
+
+The contributions of this work are threefold. First, we show that the commonly used log-linear scaling law for the optimal learning rate can exhibit systematic upward curvature at larger scales, leading to underprediction when extrapolating from smaller runs. Second, we identify two choices that substantially improve transfer: parameterization by the effective learning rate, and extrapolating along the data axis rather than the model-size axis. Third, we provide a mechanistic explanation for the observed curvature: under AdamW, the mapping from the raw learning rate to the effective learning rate is shaped by weight-norm dynamics, whose transient behavior becomes more important when the optimal step size is small. Experiments with AdamH, which directly controls the effective learning rate, further support this interpretation. Several limitations should be acknowledged. (i) Model and optimizer coverage: our study uses GPT-2–style architectures trained on FineWeb with AdamW under fixed hyperparameters; generalization to other architectures and optimizers remains to be verified. (ii) Estimation of η∗: we rely on cubic fitting to determine η∗, which may introduce bias when the true optimum lies near the sweep boundary. (iii) Limited observed scales: our analysis is limited to scales up to 100B data and 707M model parameters, and does not probe more extreme regimes, where additional phenomena may emerge. 11 References 
+
+[1] Athanasiadis, T., Adriaensen, S., Müller, S., and Hutter, F. Tune my adam, please! arXiv preprint arXiv:2508.19733 , 2025. [2] Ba, J. L., Kiros, J. R., and Hinton, G. E. Layer normalization. arXiv preprint arXiv:1607.06450 ,2016. [3] Bergsma, S., Dey, N., Gosal, G., Gray, G., Soboleva, D., and Hestness, J. Power lines: Scaling laws for weight decay and batch size in llm pre-training. In Advances in Neural Information Processing Systems , 2025. [4] Bjorck, J., Benhaim, A., Chaudhary, V., Wei, F., and Song, X. Scaling optimal lr across token horizons. In International Conference on Learning Representations , 2025. [5] Blake, C., Eichenberg, C., Dean, J., Balles, L., Prince, L. Y., Deiseroth, B., Cruz-Salinas, A. F., Luschi, C., Weinbach, S., and Orr, D. u-μ p: The unit-scaled maximal update parametrization. In International Conference on Learning Representations , 2025. [6] Bordelon, B., Noci, L., Li, M., Hanin, B., and Pehlevan, C. Depthwise hyperparameter transfer in residual networks: Dynamics and scaling limit. In International Conference on Learning Representations , 2024. [7] DeepSeek-AI, Bi, X., Chen, D., Chen, G., Chen, S., Dai, D., Deng, C., Ding, H., Dong, K., Du, Q., Fu, Z., Gao, H., Gao, K., Gao, W., Ge, R., Guan, K., Guo, D., Guo, J., Hao, G., Hao, Z., He, Y., Hu, W., Huang, P., Li, E., Li, G., Li, J., Li, Y., Li, Y. K., Liang, W., Lin, F., Liu, A. X., Liu, B., Liu, W., Liu, X., Liu, X., Liu, Y., Lu, H., Lu, S., Luo, F., Ma, S., Nie, X., Pei, T., Piao, Y., Qiu, J., Qu, H., Ren, T., Ren, Z., Ruan, C., Sha, Z., Shao, Z., Song, J., Su, X., Sun, J., Sun, Y., Tang, M., Wang, B., Wang, P., Wang, S., Wang, Y., Wang, Y., Wu, T., Wu, Y., Xie, X., Xie, Z., Xie, Z., Xiong, Y., Xu, H., Xu, R. X., Xu, Y., Yang, D., You, Y., Yu, S., Yu, X., Zhang, B., Zhang, H., Zhang, L., Zhang, L., Zhang, M., Zhang, M., Zhang, W., Zhang, Y., Zhao, C., Zhao, Y., Zhou, S., Zhou, S., Zhu, Q., and Zou, Y. Deepseek llm: Scaling open-source language models with longtermism. arXiv preprint 2401.02954 , 2024. [8] Dey, N., Zhang, B. C., Noci, L., Li, M., Bordelon, B., Bergsma, S., Pehlevan, C., Hanin, B., and Hestness, J. Don’t be lazy: Completep enables compute-efficient deep transformers. arXiv preprint arXiv:2505.01618 , 2025. [9] Everett, K. E., Xiao, L., Wortsman, M., Alemi, A. A., Novak, R., Liu, P. J., Gur, I., Sohl-Dickstein, J., Kaelbling, L. P., Lee, J., et al. Scaling exponents across parameterizations and optimizers. In International Conference on Machine Learning , pp. 12666–12700. PMLR, 2024. [10] Fan, Z., Liu, Y., Zhao, Q., Yuan, A., and Gu, Q. Robust layerwise scaling rules by proper weight decay tuning. arXiv preprint arXiv:2510.15262 , 2025. [11] Fu, Y., Dong, X., Diao, S., Ye, H., Byeon, W., Karnati, Y., Liebenwein, L., Khadkevich, M., Keller, A., Kautz, J., et al. Nemotron-flash: Towards latency-optimal hybrid small language models. In The Thirty-ninth Annual Conference on Neural Information Processing Systems .[12] Hoffer, E., Banner, R., Golan, I., and Soudry, D. Norm matters: efficient and accurate normalization schemes in deep networks. Advances in Neural Information Processing Systems ,31, 2018. 12 [13] Hu, S., Tu, Y., Han, X., Cui, G., He, C., Zhao, W., Long, X., Zheng, Z., Fang, Y., Huang, Y., et al. Minicpm: Unveiling the potential of small language models with scalable training strategies. In First Conference on Language Modeling , 2024. [14] Hutter, F., Hoos, H. H., and Leyton-Brown, K. Sequential model-based optimization for general algorithm configuration. In International conference on learning and intelligent optimization ,pp. 507–523. Springer, 2011. [15] Ioffe, S. and Szegedy, C. Batch normalization: Accelerating deep network training by reducing internal covariate shift. In International conference on machine learning , pp. 448–456. pmlr, 2015. [16] Jastrzębski, S., Kenton, Z., Arpit, D., Ballas, N., Fischer, A., Bengio, Y., and Storkey, A. Three factors influencing minima in sgd. arXiv preprint arXiv:1711.04623 , 2017. [17] Kaplan, J., McCandlish, S., Henighan, T., Brown, T. B., Chess, B., Child, R., Gray, S., Radford, A., Wu, J., and Amodei, D. Scaling laws for neural language models. arXiv preprint arXiv:2001.08361 , 2020. [18] Karpathy, A. nanoGPT. https://github.com/karpathy/nanoGPT , 2022. GitHub repository. [19] Kosson, A., Messmer, B., and Jaggi, M. Rotational equilibrium: How weight decay balances learning across neural networks. In International Conference on Machine Learning , pp. 25333– 25369. PMLR, 2024. [20] Kosson, A., Welborn, J., Liu, Y., Jaggi, M., and Chen, X. Weight decay may matter more than mup for learning rate transfer in practice. arXiv preprint arXiv:2510.19093 , 2025. [21] Li, B., Wen, J., Zhou, Z., Zhu, J., and Chen, J. Efficient hyperparameter tuning via trajectory invariance principle. arXiv preprint arXiv:2509.25049 , 2025. [22] Li, H., Zheng, W., Wang, Q., Zhang, H., Wang, Z., Xuyang, S., Fan, Y., Ding, Z., Wang, H., Ding, N., Zhou, S., Zhang, X., and Jiang, D. Predictable scale: Part i, step law – optimal hyperparameter scaling law in large language model pretraining. arXiv preprint arXiv:2503.04715 , 2025. [23] Li, Z., Lyu, K., and Arora, S. Reconciling modern deep learning with traditional optimization analyses: The intrinsic learning rate. Advances in Neural Information Processing Systems , 33: 14544–14555, 2020. [24] Liu, J., Su, J., Yao, X., Jiang, Z., Lai, G., Du, Y., Qin, Y., Xu, W., Lu, E., Yan, J., et al. Muon is scalable for llm training. arXiv preprint arXiv:2502.16982 , 2025. [25] Loshchilov, I. and Hutter, F. Decoupled weight decay regularization. In International Conference on Learning Representations , 2019. [26] Loshchilov, I., Hsieh, C.-P., Sun, S., and Ginsburg, B. ngpt: Normalized transformer with representation learning on the hypersphere. In The Thirteenth International Conference on Learning Representations , 2025. [27] Luo, K., Wen, H., Hu, S., Sun, Z., Liu, Z., Sun, M., Lyu, K., and Chen, W. A multi-power law for loss curve prediction across learning rate schedules. In International Conference on Learning Representations , 2025. 13 [28] Malladi, S., Lyu, K., Panigrahi, A., and Arora, S. On the sdes and scaling rules for adaptive gradient algorithms. Advances in Neural Information Processing Systems , 35:7697–7711, 2022. [29] Marek, M., Lotfi, S., Somasundaram, A., Wilson, A. G., and Goldblum, M. Small batch size training for language models: When vanilla sgd works, and why gradient accumulation is wasteful. In The Thirty-ninth Annual Conference on Neural Information Processing Systems .[30] McCandlish, S., Kaplan, J., Amodei, D., and Team, O. D. An empirical model of large-batch training. arXiv preprint arXiv:1812.06162 , 2018. [31] Mlodozeniec, B., Ablin, P., Béthune, L., Busbridge, D., Klein, M., Ramapuram, J., and Cuturi, M. Completed hyperparameter transfer across modules, width, depth, batch and duration. 
+
+arXiv preprint arXiv:2512.22382 , 2025. [32] Penedo, G., Kydlíček, H., Lozhkov, A., Mitchell, M., Raffel, C., Von Werra, L., Wolf, T., et al. The fineweb datasets: Decanting the web for the finest text data at scale. Advances in Neural Information Processing Systems , 37:30811–30849, 2024. [33] Porian, T., Wortsman, M., Jitsev, J., Schmidt, L., and Carmon, Y. Resolving discrepancies in compute-optimal scaling of language models. arXiv:2406.19146 , 2024. [34] Radford, A., Wu, J., Child, R., Luan, D., Amodei, D., and Sutskever, I. Language models are un-supervised multitask learners. Technical report, OpenAI, 2019. URL https://cdn.openai.com/ better-language-models/language_models_are_unsupervised_multitask_learners.pdf .[35] Snoek, J., Larochelle, H., and Adams, R. P. Practical bayesian optimization of machine learning algorithms. Advances in neural information processing systems , 25, 2012. [36] Tissue, H., Wang, V., and Wang, L. Scaling law with learning rate annealing. arXiv preprint arXiv:2408.11029 , 2024. [37] Van Laarhoven, T. L2 regularization versus batch and weight normalization. arXiv preprint arXiv:1706.05350 , 2017. [38] Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A. N., Kaiser, L. u., and Polosukhin, I. Attention is all you need. In Guyon, I., Luxburg, U. V., Bengio, S., Wallach, H., Fergus, R., Vishwanathan, S., and Garnett, R. (eds.), Advances in Neural Information Processing Systems , volume 30. Curran Associates, Inc., 2017. URL https://proceedings.neurips.cc/ paper_files/paper/2017/file/3f5ee243547dee91fbd053c1c4a845aa-Paper.pdf .[39] Wang, J., Wang, M., Zhou, Z., Yan, J., Wu, L., et al. The sharpness disparity principle in transformers for accelerating language model pre-training. In International Conference on Machine Learning , pp. 64859–64879. PMLR, 2025. [40] Wang, S., Chen, Z., Li, B., He, K., Zhang, M., and Wang, J. Scaling laws across model architectures: A comparative analysis of dense and MoE models in large language mod-els. In Al-Onaizan, Y., Bansal, M., and Chen, Y.-N. (eds.), Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing , pp. 5583–5595. Associ-ation for Computational Linguistics, 2024. doi: 10.18653/v1/2024.emnlp-main.319. URL 
+
+https://aclanthology.org/2024.emnlp-main.319/ .[41] Wang, X. and Aitchison, L. How to set adamw’s weight decay as you scale model and dataset size. In International Conference on Machine Learning , 2025. 14 [42] Wen, K., Dang, X., Lyu, K., Ma, T., and Liang, P. Fantastic pretraining optimizers and where to find them 2.1: Hyperball optimization, 12 2025. URL https://tinyurl.com/muonh .[43] Xie, T., Luo, H., Tang, H., Hu, Y., Liu, J. K., Ren, Q., Wang, Y., Zhao, W. X., Yan, R., Su, B., et al. Controlled llm training on spectral sphere. arXiv preprint arXiv:2601.08393 , 2026. [44] Yang, G. and Hu, E. J. Tensor programs IV: feature learning in infinite-width neural networks. In Meila, M. and Zhang, T. (eds.), Proceedings of the 38th International Conference on Machine Learning, ICML 2021, 18-24 July 2021, Virtual Event , Proceedings of Machine Learning Re-search, pp. 11727–11737. PMLR, 2021. URL http://proceedings.mlr.press/v139/yang21c. html .[45] Yang, G., Hu, E., Babuschkin, I., Sidor, S., Liu, X., Farhi, D., Ryder, N., Pachocki, J., Chen, W., and Gao, J. Tuning large neural networks via zero-shot hyperparameter transfer. Advances in Neural Information Processing Systems , 34:17084–17097, 2021. [46] Zhang, H., Morwani, D., Vyas, N., Wu, J., Zou, D., Ghai, U., Foster, D., and Kakade, S. M. How does critical batch size scale in pre-training? In International Conference on Learning Representations , 2025. [47] Zhang, H., Wen, K., and Ma, T. Configuration-to-performance scaling law with neural ansatz. 
+
+arXiv preprint arXiv:2602.10300 , 2026. [48] Zhou, Y., Xing, S., Huang, J., Qiu, X., and Guo, Q. How to set the learning rate for large-scale pre-training? arXiv preprint arXiv:2601.05049 , 2026. 15 Appendix A Additional Related Works on Hyperparameter Tuning and Trans-fer 
+
+Beyond learning rate, recent work has also investigated tuning and transfer strategies for other hyperparameters. From a theoretical perspective, Wang & Aitchison [41] proposes scaling rules for weight decay by formulating model weights as an exponential moving average of optimization updates; subsequent works further demonstrate the role of weight decay in learning-rate transfer [10 , 20 ]. McCandlish et al. [30] , Zhang et al. [46] study critical batch size and its scaling behavior. Jastrzębski et al. [16] , Malladi et al. [28] , Marek et al. [29] study how learning rate and momentum should scale with batch size. More recently, Wang et al. [39] studies block-wise learning rates in Transformer architectures. For data-driven approaches, scaling laws have been used to fit and predict optimal hyperparame-ters beyond learning rate, including batch size [ 7, 13 , 40 ]. In the context of AdamW [ 25 ] optimization, they have also been used to tune weight decay [ 3, 21 ]. Luo et al. [27] , Tissue et al. [36] study how to predict loss curves from learning-rate schedules and identify optimal schedules. A more classical line of work tackles hyperparameter optimization through Bayesian optimization and related sequential model-based optimization methods [ 14 , 35 ]. More recent work further explores learned surrogate performance models [ 1, 47 ]. Synthesizing insights from prior work, Mlodozeniec et al. [31] proposes a joint transfer strategy for multiple hyperparameters. 
+
+# B Detailed Training Setups 
+
+All of our experiments were conducted on 16 H200 GPUs. Including interruptions caused by various intermediate issues, the experiments took approximately two months in total. 
+
+Training Details of Main Experiments All experiments are conducted using a 12-layer GPT-2 architecture with the attention head dimension fixed at 128. Our training code is based on nanoGPT [ 18 ], an open-source implementation for training and fine-tuning GPT-style models. You can check our implementation in https://anonymous.4open.science/r/LRTransfer . We vary the scale of the model by changing the hidden dimension over {256 , 512 , 768 , 1024 , 1536 , 2048 }, resulting in models with parameter counts ranging from 22M to 707M. All models are initialized following the scheme described in the original GPT-2 paper [34]. By default, weight matrices, including the token embedding matrix and linear projection matrices, are initialized from a normal distribution N (0 , 0.02) . As an exception, projection matrices in residual branches are initialized with a scaled standard deviation 0.02 /√2L, where L is the number of Transformer layers. Models are trained on FineWeb-100B with batch size 512, sequence length 1024 and vocabulary size 50304, corresponding to approximately 0.52M tokens per optimization step. We train for up to 200k steps, giving a maximum data budget of approximately 100B tokens. Optimization uses AdamW with weight decay 0.1, momentum parameters β1 = β2 = 0 .95 , and ϵ = 10 −8. For the main model parameters, we sweep the learning rate over a logarithmic grid defined by log 2 η ∈ [−15 , −7] 
+
+with unit increments. For the embedding layer, we use a separate AdamW optimizer with fixed learning rate 0.0036 ,weight decay 0.1, β1 = 0 .9, β2 = 0 .95 , and ϵ = 10 −8.16 Training follows a warmup–steady–decay (WSD) schedule. We use a 1000-step warmup followed by a steady training phase. To evaluate performance at different data budgets, we periodically save checkpoints throughout the steady phase, allowing us to reconstruct intermediate training states without re-running experiments. Using these checkpoints, we derive alternative training configurations with a longer decay phase of 5000 steps, which is used for all results reported in the main experiments. After the decay phase, we evaluate each checkpoint on 10M tokens and compute the validation loss. This procedure allows us to efficiently evaluate multiple training horizons ranging from 10k to 200k steps, corresponding to effective data sizes from 5B to 100B tokens. We organized these training logs into a dataset, LR-Transfer-Trajectory dataset. 
+
+Training Details for AdamH and Adam Experiments. All experimental settings are identical to those used in the main experiments, including model architecture, dataset (FineWeb-100B), and optimization hyperparameters. The embedding layer is optimized separately using Adam without weight decay. For AdamH, the algorithm is illustrated as Algorithm 1. The range of the learning rate sweep is η ∈ [−11 , −7] . A 5000-step decay has been applied to the results given in Figure 7. 
+
+Algorithm 1 AdamH Optimizer 
+
+Require: Initial weights W0, learning rate η, Adam hyperparameters (β1, β 2, ϵ ) 
+
+> 1:
+
+Initialize m0 ← 0, v0 ← 0, R ← ∥ W0∥2 
+
+> 2:
+
+for t = 1 , 2, . . . , T do  
+
+> 3:
+
+Compute gradient gt ← ∇ W L(Wt) 
+
+> 4:
+
+mt ← β1mt−1 + (1 − β1)gt 
+
+> 5:
+
+vt ← β2vt−1 + (1 − β2)g2 
+
+> t
+> 6:
+
+ˆmt ← mt/(1 − βt
+
+> 1
+
+) 
+
+> 7:
+
+ˆvt ← vt/(1 − βt
+
+> 2
+
+) 
+
+> 8:
+
+ut ← ˆmt/(√ˆvt + ϵ) ▷ Adam update  
+
+> 9:
+
+˜Wt+1 ← Wt − ηR · Normalize( ut) 
+
+> 10:
+
+Wt+1 ← R · Normalize( ˜Wt+1 ) 
+
+> 11:
+
+end for 
+
+# C The implicit Schedule of The Effective Learning Rate 
+
+Similar analysis can be find in [19, 20, 42]. Here we just derive these formulas in our notation. The AdamW update is 
+
+wt+1 = wt − η(ut + λw t) = αw t − ηu t, α = 1 − ηλ. (18) Let Wt = ∥wt∥2 denote the weight norm. 
+
+Assumptions. We make two simplifying assumptions about the dynamics, as in [42]: 
+
+• The update norm stabilizes quickly during training: ∥ut∥2 ≈ U .
+
+• Temporal correlations decay geometrically: ⟨ut, u t′ ⟩ ≈ U 2β|t−t′| 
+
+> 1
+
+.The first is an empirical observation [24], while the second follows from the momentum structure. 17 Weight Norm Dynamics. Unrolling the recursion expresses wt as a weighted sum of past updates: 
+
+wt = −η
+
+> t−1
+
+X
+
+> i=0
+
+αt−1−iui. (19) Taking inner product with ut and using the correlation assumption, we obtain 
+
+⟨ut, w t⟩ ≈ − ηU 2
+
+> t−1
+
+X
+
+> i=0
+
+αt−1−iβt−i 
+
+> 1
+
+≈ − ηβ 1
+
+1 − αβ 1
+
+U 2, (20) where the second step follows from summing a geometric series. We now compute how the norm evolves. Expanding the squared norm of the update, 
+
+W 2 
+
+> t+1
+
+= ∥αw t − ηu t∥22 = α2W 2 
+
+> t
+
++ η2U 2 − 2αη ⟨wt, u t⟩. (21) Substituting the expression above yields a closed recursion: 
+
+W 2 
+
+> t+1
+
+≈ α2W 2 
+
+> t
+
++ η2 1 + αβ 1
+
+1 − αβ 1
+
+U 2. (22) This recursion can be solved explicitly. When λ > 0,
+
+W 2 
+
+> t
+
+= η2
+
+1 − α2
+
+1 + αβ 1
+
+1 − αβ 1
+
+U 2(1 − α2t) + W 20 α2t. (23) For ηλ ≪ 1, we use α2t ≈ e−2ηλt to obtain 
+
+W 2 
+
+> t
+
+≈ η
+
+2λ
+
+1 + β1
+
+1 − β1
+
+U 2(1 − e−2ηλt ) + W 20 e−2ηλt . (24) This shows that the weight norm converges exponentially to 
+
+W+∞ = U
+
+s
+
+η
+
+2λ
+
+1 + β1
+
+1 − β1
+
+, (25) with a characteristic decay time (2 ηλ )−1.When λ = 0 , the recursion simplifies and yields linear growth: 
+
+W 2 
+
+> t
+
+= η2 1 + β1
+
+1 − β1
+
+U 2t + W 20 . (26) 
+
+Effective Learning Rate Evolution. According to the definition of the effective learning rate Equation 4: 
+
+ηeff (t) = ∥ ˆwt+1 − ˆwt∥2, ˆwt = wt
+
+∥wt∥ . (27) Using the cosine formula, 
+
+ηeff (t) = 
+
+s
+
+2 − 2 ⟨wt, w t+1 ⟩
+
+WtWt+1 
+
+, (28) and substituting 
+
+⟨wt, w t+1 ⟩ = αW 2 
+
+> t
+
+− η⟨wt, u t⟩, (29) 18 we obtain 
+
+ηeff (t) = 
+
+s
+
+2
+
+
+
+1 − α Wt
+
+Wt+1 
+
+− η2β1
+
+1 − αβ 1
+
+U 2
+
+WtWt+1 
+
+
+
+. (30) For sufficiently large t, we have Wt ≈ Wt+1 . This expression simplifies to 
+
+ηeff (t) ≈ ηU Wt
+
+, (31) showing that the effective learning rate is inversely proportional to the weight norm. Substituting the solutions for Wt, we obtain closed-form expressions. When λ > 0,
+
+ηeff (t) ≈
+
+vuut2ηλ 1 − β1
+
+1 + β1
+
+11 + 
+
+ W 20 
+
+> W2+∞
+
+− 1
+
+
+
+e−2ηλt 
+
+. (32) When λ = 0 ,
+
+ηeff (t) ≈ 1
+
+q 1+ β1 
+
+> 1−β1
+
+t + W 20 
+
+> η2U2
+
+∼
+
+s
+
+1 − β1
+
+1 + β1
+
+1
+
+t . (33) 
+
+Validating The Theory We validate the theory with data collected from the Q matrix of the first attention layer, with the model scale N = 124M .First, let us test the first assumption. As illustrated in Figure 8, this assumption holds well for large learning rates. For small learning rates, it still holds approximately, since ∥ut∥2 varies slowly. Next, for the second assumption, it’s hard to test it directly. Hence, we examine it by justifying Equation 20. From Figure 9, we find that the experimental results are very close to the prediction of the theory. Finally, we test how ∥wt∥22 changes over time. As ∥ut∥2 changes slowly, we can use ∥ut∥22 to replace U 2 in Equation 24. The result of the prediction is shown in Figure 10. 0 25000 50000 75000 100000 125000 150000 175000                     
+
+> Steps
+> 100
+> 150
+> 200
+> 250
+> 300
+> ut 2
+> log =16.0
+> log =15.0
+> log =14.0
+> log =13.0
+> log =12.0
+> log =11.0
+> log =10.0
+> log =9.0
+> log =8.0
+> log =7.0
+
+Figure 8: (Smoothed) Evolution of the ∥ut∥2.19 0 25000 50000 75000 100000 125000 150000 175000 
+
+Steps 
+
+2 13 
+
+2 11 
+
+2 9
+
+2 7
+
+2 5
+
+2 3
+
+> ut, wt / ut 22
+
+log = 16.0 
+
+log = 15.0 
+
+log = 14.0 
+
+log = 13.0 
+
+log = 12.0 
+
+log = 11.0 
+
+log = 10.0 
+
+log = 9.0 
+
+log = 8.0 
+
+log = 7.0 
+
+Theory Figure 9: (Smoothed) Evolution of the − ⟨ut,w t⟩∥ut∥2 .0 25000 50000 75000 100000 125000 150000 175000 
+
+Steps 
+
+27
+
+28
+
+29
+
+210 
+
+211 
+
+212 
+
+213 
+
+214 
+
+> wt 2
+
+log = 16.0 
+
+log = 15.0 
+
+log = 14.0 
+
+log = 13.0 
+
+log = 12.0 
+
+log = 11.0 
+
+log = 10.0 
+
+log = 9.0 
+
+log = 8.0 
+
+log = 7.0 
+
+Theory 
+
+Figure 10: (Smoothed) Evolution of the ∥wt∥2.20 D More Results 
+
+Cubic Fit Results For Figure 11 and Figure 12, we use circles to denote the raw data points from the learning rate sweep, and the dashed curve represents the cubic fit. R2 = 1 −
+
+> Pni=1 (yi−ˆyi)2
+> Pni=1 (yi−¯y)2
+
+indicates goodness of fit. The triangle marks the lowest validation loss observed among the raw data, while the × indicates the minimizer of the fitted curve, which we take as the optimal learning rates. We observe a clear asymmetry in the validation loss on the two sides of the extremum: it increases more rapidly for smaller learning rates. This justifies our use of a cubic fit. 16 14 12 10 8                
+
+> log 2
+> 2.8
+> 3.0
+> 3.2
+> 3.4
+> 3.6
+> 3.8
+> 4.0
+> val
+> t= 10000
+> 16 14 12 10 8
+> log 2
+> 2.8
+> 3.0
+> 3.2
+> 3.4
+> 3.6
+> 3.8
+> 4.0
+> val
+> t= 50000
+> 16 14 12 10 8
+> log 2
+> 2.8
+> 3.0
+> 3.2
+> 3.4
+> 3.6
+> 3.8
+> 4.0
+> val
+> t= 100000
+> 16 14 12 10 8
+> log 2
+> 2.8
+> 3.0
+> 3.2
+> 3.4
+> 3.6
+> 3.8
+> 4.0
+> val
+> t= 150000
+
+N = 22.3 M
+
+R 2 = 0.998 
+
+N = 63.5 M
+
+R 2 = 0.999 
+
+N = 124 M
+
+R 2 = 0.997 
+
+N = 203 M
+
+R 2 = 0.997 
+
+N = 417 M
+
+R 2 = 0.993 
+
+N = 707 M
+
+R 2 = 0.996 
+
+Figure 11: Validation loss fitted as a cubic function of log η for different steps. 
+
+Quadratic Fit Results In comparison, we show the performance of a quadratic fit in Figure 13 and Figure 14. We see that the R of the quadratic fit is lower than that of the cubic fit. 21 14 12 10 8 6 
+
+> log 2eff
+> 3.00
+> 3.25
+> 3.50
+> 3.75
+> 4.00
+> 4.25
+> 4.50
+> val
+
+t = 10000      
+
+> 14 12 10 86
+> log 2eff
+> 2.8
+> 3.0
+> 3.2
+> 3.4
+> 3.6
+> 3.8
+> 4.0
+> val
+
+t = 50000      
+
+> 14 12 10 86
+> log 2eff
+> 2.8
+> 3.0
+> 3.2
+> 3.4
+> 3.6
+> 3.8
+> 4.0
+> val
+
+t = 100000      
+
+> 14 12 10 86
+> log 2eff
+> 2.8
+> 3.0
+> 3.2
+> 3.4
+> 3.6
+> 3.8
+> val
+
+t = 150000 
+
+N = 22.3 M
+
+R 2 = 0.998 
+
+N = 63.5 M
+
+R 2 = 1.000 
+
+N = 124 M
+
+R 2 = 1.000 
+
+N = 203 M
+
+R 2 = 1.000 
+
+N = 417 M
+
+R 2 = 0.999 
+
+N = 707 M
+
+R 2 = 0.999 Figure 12: Validation loss fitted as a quadratic function of log ηeff for different steps. 
+
+Weight-wise Differences in Effective Learning Rates In the main text, all effective learning rates are averaged over different weights. From Figure 15, we see that there is a weight difference in effective learning rates. After taking the average, the two regimes still exist. 22 16 14 12 10 8
+
+log 2
+
+2.8 
+
+3.0 
+
+3.2 
+
+3.4 
+
+3.6 
+
+3.8 
+
+4.0 
+
+> val
+
+t = 10000 
+
+16 14 12 10 8
+
+log 2
+
+2.8 
+
+3.0 
+
+3.2 
+
+3.4 
+
+3.6 
+
+3.8 
+
+4.0 
+
+> val
+
+t = 50000 
+
+16 14 12 10 8
+
+log 2
+
+2.8 
+
+3.0 
+
+3.2 
+
+3.4 
+
+3.6 
+
+3.8 
+
+4.0 
+
+> val
+
+t = 100000 
+
+16 14 12 10 8
+
+log 2
+
+2.8 
+
+3.0 
+
+3.2 
+
+3.4 
+
+3.6 
+
+3.8 
+
+4.0 
+
+> val
+
+t = 150000 
+
+N = 22.3 M
+
+R 2 = 0.994 
+
+N = 63.5 M
+
+R 2 = 0.982 
+
+N = 124 M
+
+R 2 = 0.982 
+
+N = 203 M
+
+R 2 = 0.978 
+
+N = 417 M
+
+R 2 = 0.983 
+
+N = 707 M
+
+R 2 = 0.990 Figure 13: Validation loss fitted as a quadratic function of log η for different steps. 14 12 10 8 6
+
+log 2 eff 
+
+3.00 
+
+3.25 
+
+3.50 
+
+3.75 
+
+4.00 
+
+4.25 
+
+4.50 
+
+> val
+
+t = 10000 
+
+14 12 10 8 6
+
+log 2 eff 
+
+2.8 
+
+3.0 
+
+3.2 
+
+3.4 
+
+3.6 
+
+3.8 
+
+4.0 
+
+4.2 
+
+> val
+
+t = 50000 
+
+14 12 10 8 6
+
+log 2 eff 
+
+2.8 
+
+3.0 
+
+3.2 
+
+3.4 
+
+3.6 
+
+3.8 
+
+4.0 
+
+> val
+
+t = 100000 
+
+14 12 10 8 6
+
+log 2 eff 
+
+2.8 
+
+3.0 
+
+3.2 
+
+3.4 
+
+3.6 
+
+3.8 
+
+4.0 
+
+> val
+
+t = 150000 
+
+N = 22.3 M
+
+R 2 = 0.995 
+
+N = 63.5 M
+
+R 2 = 0.997 
+
+N = 124 M
+
+R 2 = 0.993 
+
+N = 203 M
+
+R 2 = 0.993 
+
+N = 417 M
+
+R 2 = 0.987 
+
+N = 707 M
+
+R 2 = 0.980 
+
+Figure 14: Validation loss fitted as a quadratic function of log ηeff for different steps. 23 0 50000 100000 150000 
+
+Steps 
+
+2 13 
+
+2 12 
+
+2 11 
+
+2 10 
+
+2 9
+
+2 8
+
+2 7
+
+2 6
+
+> eff
+
+log = 16.0 
+
+log = 15.0 
+
+log = 14.0 
+
+log = 13.0 
+
+log = 12.0 
+
+log = 11.0 
+
+log = 10.0 
+
+log = 9.0 
+
+log = 8.0 
+
+log = 7.0 Figure 15: Effective learning rates averaged over all weights (mean ± half a standard deviation) for 
+
+N = 124M .24

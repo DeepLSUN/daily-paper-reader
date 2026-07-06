@@ -6,87 +6,88 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-05
-- 运行时间：2026-07-05 21:47:50 UTC
+- 最新运行日期：2026-07-06
+- 运行时间：2026-07-06 22:22:13 UTC
 - 运行状态：成功
-- 本次总论文数：21
-- 精读区：8
+- 本次总论文数：22
+- 精读区：9
 - 速读区：13
 
 ### 今日简报（AI）
-今日共收录21篇论文，精读8篇，速读13篇，重点聚焦任务驱动SAR数据生成框架与LLM代理工作流生态。
-
-最值得关注的是《A Task-Driven and Quality-Assured Agent Framework for SAR Data Generation》与《Characterizing Large Language Model Agentic Workflows: A Study on N8n Ecosystem》，两者均获9.0高分，分别解决数据生成质量控制与代理工作流系统化特征问题。
-
-建议普通读者优先精读这两篇9分论文，了解如何通过任务驱动确保代理输出质量，以及LLM代理在低代码平台中的实际运作模式。
-- 详情：[/202607/05/README](/202607/05/README)
+1) 今日22篇论文中，精读聚焦LLM智能体工作流与训练优化，速读覆盖记忆攻击面、多智能体通信及扩散模型评估陷阱。
+2) 最值得关注：N8n生态下LLM代理工作流的系统性特征，以及学习率缩放非线性对训练效率的关键影响。
+3) 建议优先精读Agent记忆安全与层次化通信机制，为实际部署与多智能体协作提供核心防护思路。
+- 详情：[/202607/06/README](/202607/06/README)
 
 ### 精读区论文标签
-1. [A Task-Driven and Quality-Assured Agent Framework for SAR Data Generation](/202607/05/2606.28896v1-a-task-driven-and-quality-assured-agent-framework-for-sar-data-generation)  
+1. [Characterizing Large Language Model Agentic Workflows: A Study on N8n Ecosystem](/202607/06/2606.29116v1-characterizing-large-language-model-agentic-workflows-a-study-on-n8n-ecosystem)  
    标签：评分：9.0/10、query:agent
-   evidence：用于SAR数据生成的任务驱动智能体框架
-2. [Characterizing Large Language Model Agentic Workflows: A Study on N8n Ecosystem](/202607/05/2606.29116v1-characterizing-large-language-model-agentic-workflows-a-study-on-n8n-ecosystem)  
-   标签：评分：9.0/10、query:agent
-   evidence：低代码自动化平台上LLM代理工作流的大规模实证研究
-3. [Dynamo: Dynamic Skill-Tool Evolution for Vision-Language Agents](/202607/05/2606.30185v1-dynamo-dynamic-skill-tool-evolution-for-vision-language-agents)  
-   标签：评分：9.0/10、query:agent
-   evidence：一个无需训练的框架，使视觉语言代理能够动态演化技能和工具
-4. [Can Agents Generalize to the Open World? Unveiling the Fragility of Static Training in Tool Use](/202607/05/2607.01084v1-can-agents-generalize-to-the-open-world-unveiling-the-fragility-of-static-training-in-tool-use)  
-   标签：评分：9.0/10、query:agent
-   evidence：自主智能体在开放世界中的泛化与工具使用
-5. [SkillCoach: Self-Evolving Rubrics for Evaluating and Enhancing Agentic Skill-Use](/202607/05/2607.01874v1-skillcoach-self-evolving-rubrics-for-evaluating-and-enhancing-agentic-skill-use)  
-   标签：评分：9.0/10、query:agent
-   evidence：用于评估和提升智能体技能使用的自演化评分框架
-6. [ReContext: Recursive Evidence Replay as LLM Harness for Long-Context Reasoning](/202607/05/2607.02509v1-recontext-recursive-evidence-replay-as-llm-harness-for-long-context-reasoning)  
+   evidence：低代码平台中大语言模型智能体工作流的大规模实证研究
+2. [On the Nonlinearity of Learning Rate Scaling for LLM Training](/202607/06/2606.29158v1-on-the-nonlinearity-of-learning-rate-scaling-for-llm-training)  
    标签：评分：9.0/10、query:llm
-   evidence：大语言模型长上下文推理改进
-7. [The Red Queen Gödel Machine: Co-Evolving Agents and Their Evaluators](/202607/05/2606.26294v2-the-red-queen-gdel-machine-co-evolving-agents-and-their-evaluators)  
-   标签：评分：8.0/10、query:agent
-   evidence：共进化的智能体与评估器用于递归自我改进
-8. [Customized Generative AI Agent for Transportation Engineering Practice: A Development and Continued Pre-training Guideline](/202607/05/2606.29014v1-customized-generative-ai-agent-for-transportation-engineering-practice-a-development-and-continued-pre-training-guideline)  
-   标签：评分：8.0/10、query:agent
-   evidence：定制化生成式AI智能体开发指南
+   evidence：LLM训练中学习率缩放的非线性
+3. [BaRA: Bayesian Adaptive Rank Allocation for Parameter-Efficient Fine-Tuning](/202607/06/2606.29184v1-bara-bayesian-adaptive-rank-allocation-for-parameter-efficient-fine-tuning)  
+   标签：评分：9.0/10、query:llm
+   evidence：用于LLM参数高效微调的贝叶斯自适应秩分配。
+4. [Design and Implementation of Agentic Orchestrations and Orchestration of Agents](/202607/06/2606.31518v1-design-and-implementation-of-agentic-orchestrations-and-orchestration-of-agents)  
+   标签：评分：9.0/10、query:agent
+   evidence：代理编排的设计与实现框架
+5. [Prototype Language Models](/202607/06/2607.00510v1-prototype-language-models)  
+   标签：评分：9.0/10、query:llm
+   evidence：通过学习原型的稀疏非负混合实现可解释序列建模的原型语言模型架构。
+6. [Next-Generation Agentic Reinforcement Learning Systems Enable Self-Evolving Agents](/202607/06/2607.01120v1-next-generation-agentic-reinforcement-learning-systems-enable-self-evolving-agents)  
+   标签：评分：9.0/10、query:agent
+   evidence：通过自主强化学习实现自进化代理
+7. [The Wiola Architecture for Efficient Small Language Models](/202607/06/2607.01394v1-the-wiola-architecture-for-efficient-small-language-models)  
+   标签：评分：9.0/10、query:llm
+   evidence：包含五个原创组件的新型小型语言模型架构
+8. [InduceKV: Fixed-Footprint Continual Adaptation of Multimodal LLMs via Inducing KV Memories](/202607/06/2607.02010v1-inducekv-fixed-footprint-continual-adaptation-of-multimodal-llms-via-inducing-kv-memories)  
+   标签：评分：9.0/10、query:llm
+   evidence：通过诱导KV记忆实现多模态LLM的固定预算持续适应
+9. [WattGPU: Predicting Inference Power and Latency on Unseen GPUs and LLMs](/202607/06/2607.02391v1-wattgpu-predicting-inference-power-and-latency-on-unseen-gpus-and-llms)  
+   标签：评分：9.0/10、query:llm
+   evidence：预测LLM在未知GPU上的推理功耗和延迟
 
 ### 速读区论文标签
-1. [Autoformalization of Agent Instructions into Policy-as-Code](/202607/05/2606.26649v1-autoformalization-of-agent-instructions-into-policy-as-code)  
+1. [Memory as an Attack Surface in LLM Agents: A Study on Multiple-Choice Question Answering](/202607/06/2606.29030v1-memory-as-an-attack-surface-in-llm-agents-a-study-on-multiple-choice-question-answering)  
    标签：评分：8.0/10、query:agent
-   evidence：智能体指令自动形式化策略
-2. [Advancing Omnimodal Embodied Agents from Isolated Skills to Everyday Physical Autonomy](/202607/05/2606.27251v1-advancing-omnimodal-embodied-agents-from-isolated-skills-to-everyday-physical-autonomy)  
+   evidence：研究基于LLM的智能体中的记忆操纵攻击
+2. [HiComm: Hierarchical Communication for Multi-agent Reinforcement Learning](/202607/06/2606.29126v1-hicomm-hierarchical-communication-for-multi-agent-reinforcement-learning)  
    标签：评分：8.0/10、query:agent
-   evidence：持久具身智能体的层次异步架构
-3. [QueenBee Planner: Skill-Evolving Communication Topologies for Token-Efficient LLM Multi-Agent Systems](/202607/05/2606.27492v1-queenbee-planner-skill-evolving-communication-topologies-for-token-efficient-llm-multi-agent-systems)  
+   evidence：面向多智能体强化学习的即插即用分层通信模块
+3. [Understanding Evaluation Illusion in Diffusion Large Language Models](/202607/06/2606.29228v1-understanding-evaluation-illusion-in-diffusion-large-language-models)  
+   标签：评分：8.0/10、query:llm
+   evidence：扩散大语言模型解码方法的评估及其幻觉现象
+4. [UCOB: Learning to Utilize and Evolve Agentic Skills via Credit-Aware On-Policy Bidirectional Self-Distillation](/202607/06/2606.29502v1-ucob-learning-to-utilize-and-evolve-agentic-skills-via-credit-aware-on-policy-bidirectional-self-distillation)  
    标签：评分：8.0/10、query:agent
-   evidence：多智能体通信的框架设计
-4. [LLawCo: Learning Laws of Cooperation for Modeling Embodied Multi-Agent Behavior](/202607/05/2606.28182v1-llawco-learning-laws-of-cooperation-for-modeling-embodied-multi-agent-behavior)  
-   标签：评分：8.0/10、query:agent
-   evidence：学习具身多智能体行为的合作法则
-5. [A Fast Convergent Algorithm for Solving Non-convex Partially-Decoupled Generalized Nash Equilibrium Problems](/202607/05/2606.28617v1-a-fast-convergent-algorithm-for-solving-non-convex-partially-decoupled-generalized-nash-equilibrium-problems)  
-   标签：评分：8.0/10、query:agent
-   evidence：多智能体最优控制算法，用于非合作博弈
-6. [Telephony Voice Agent for Banking Services](/202607/05/2606.28779v1-telephony-voice-agent-for-banking-services)  
-   标签：评分：7.0/10、query:agent
-   evidence：提出基于Dialogflow CX的银行语音智能体系统
-7. [From Determinism to Delegation: AI-Native Software Engineering and the Evolution of the Agentic Engineer](/202607/05/2606.28791v1-from-determinism-to-delegation-ai-native-software-engineering-and-the-evolution-of-the-agentic-engineer)  
-   标签：评分：7.0/10、query:agent
-   evidence：智能体工程师、智能体工作流、范式转变
-8. [A Theoretical Interpretation of In-Context Learning via Probabilistic Modeling](/202607/05/2606.28926v1-a-theoretical-interpretation-of-in-context-learning-via-probabilistic-modeling)  
+   evidence：通过信用感知在策略双向自蒸馏学习从经验中利用和演化代理技能。
+5. [Smooth Scaling Laws Hide Stepwise Token Learning](/202607/06/2606.29858v1-smooth-scaling-laws-hide-stepwise-token-learning)  
+   标签：评分：8.0/10、query:llm
+   evidence：将缩放定律分解为局部学习事件的token级框架
+6. [Multi-Block Diffusion Language Models](/202607/06/2606.29215v2-multi-block-diffusion-language-models)  
    标签：评分：7.0/10、query:llm
-   evidence：LLM上下文学习的理论模型
-9. [DLR: Zero-Inference-Cost Latent Residuals for Low-Rank Pre-Training](/202607/05/2606.28932v1-dlr-zero-inference-cost-latent-residuals-for-low-rank-pre-training)  
+   evidence：提出多块扩散语言模型架构
+7. [Understanding Evaluation Illusion in Diffusion Large Language Models](/202607/06/2606.29228v2-understanding-evaluation-illusion-in-diffusion-large-language-models)  
    标签：评分：7.0/10、query:llm
-   evidence：大语言模型低秩预训练方法
-10. [Labeling Training Data for Entity Matching Using Large Language Models](/202607/05/2606.28823v1-labeling-training-data-for-entity-matching-using-large-language-models)  
+   evidence：提示模板敏感性导致扩散LLM评估幻觉
+8. [SurgVLA-Bench: Towards Evaluating Vision-Language-Action Models for Laparoscopic Surgical Robotics](/202607/06/2606.29247v1-surgvla-bench-towards-evaluating-vision-language-action-models-for-laparoscopic-surgical-robotics)  
+   标签：评分：7.0/10、query:agent
+   evidence：面向手术机器人的视觉-语言-行动模型，属于具身智能体
+9. [Diagnosing and Repairing Factual Errors in RAG under Budget Constraints](/202607/06/2606.29377v1-diagnosing-and-repairing-factual-errors-in-rag-under-budget-constraints)  
+   标签：评分：7.0/10、query:llm
+   evidence：模型无关且资源感知的RAG事实性错误诊断与修复框架。
+10. [CADENZA: Compiling Natural-Language Intent into Task-Specific Operator DAGs for Semantic Query Processing](/202607/06/2606.29151v1-cadenza-compiling-natural-language-intent-into-task-specific-operator-dags-for-semantic-query-processing)  
+   标签：评分：6.0/10、query:agent
+   evidence：将自然语言意图编译为操作符DAG的框架，用于语义查询处理。
+11. [CADENZA: Compiling Natural-Language Intent into Task-Specific Operator DAGs for Semantic Query Processing](/202607/06/2606.29151v2-cadenza-compiling-natural-language-intent-into-task-specific-operator-dags-for-semantic-query-processing)  
+   标签：评分：6.0/10、query:agent
+   evidence：将自然语言意图编译为操作DAG用于语义查询处理，与智能体查询框架相关
+12. [SemJoin: Semantic Join Optimization](/202607/06/2606.29532v1-semjoin-semantic-join-optimization)  
+   标签：评分：6.0/10、query:agent
+   evidence：基于LLM智能体的语义连接优化决策流水线
+13. [Reliability-Prioritized Fine-Grained Generation in Multimodal Large](/202607/06/2606.29573v2-reliability-prioritized-fine-grained-generation-in-multimodal-large)  
    标签：评分：6.0/10、query:llm
-   evidence：使用LLM标注训练数据，然后微调小模型用于实体匹配
-11. [Evolution Fine-Tuning: Learning to Discover Across 371 Optimization Tasks](/202607/05/2606.29082v1-evolution-fine-tuning-learning-to-discover-across-371-optimization-tasks)  
-   标签：评分：6.0/10、query:llm
-   evidence：使用LLM跨任务进化优化，与训练相关
-12. [Covering the Unseen: Information Demand Coverage Optimization for Retrieval-Augmented Generation](/202607/05/2606.29328v1-covering-the-unseen-information-demand-coverage-optimization-for-retrieval-augmented-generation)  
-   标签：评分：6.0/10、query:llm
-   evidence：通过需求覆盖优化RAG的上下文选择
-13. [ARKD: Adaptive Reinforcement Learning-Guided Bidirectional KL Divergence Distillation for Text Generation](/202607/05/2606.29869v1-arkd-adaptive-reinforcement-learning-guided-bidirectional-kl-divergence-distillation-for-text-generation)  
-   标签：评分：6.0/10、query:llm
-   evidence：面向大语言模型训练效率的知识蒸馏方法
+   evidence：多模态大模型细粒度生成的基准与评估
 
 
 <div class="dpr-home-promo-card">
