@@ -6,121 +6,104 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-07
-- 运行时间：2026-07-07 22:48:32 UTC
+- 最新运行日期：2026-07-08
+- 运行时间：2026-07-08 22:07:32 UTC
 - 运行状态：成功
-- 本次总论文数：33
-- 精读区：20
+- 本次总论文数：28
+- 精读区：15
 - 速读区：13
 
 ### 今日简报（AI）
-今日精读20篇速读13篇，长上下文注意力机制与多代理系统安全成焦点。  
-最值得关注两方向：MATCH通过上下文检索调制注意力以提升长文本效率，Linguistic Firewall用几何防御保障多代理路由安全。  
-建议优先精读这两篇高分论文，探索长文本处理优化与分布式系统安全实践。
-- 详情：[/202607/07/README](/202607/07/README)
+今日精读28篇论文，重点聚焦代码摘要多智能体系统与稀疏MoE语言模型剪枝两大方向。最值得关注的是《Agent4cs》提出的分层代码库多智能体摘要（9.0分）和《Generic Expert Coverage》的专家覆盖剪枝方法（9.0分）。建议优先深读这两篇高分论文，同时可速读“英文思维转韩文”多语言工具代理和移动GUI长程任务状态表示等应用方向。
+- 详情：[/202607/08/README](/202607/08/README)
 
 ### 精读区论文标签
-1. [MATCH: Modulating Attention via In-Context Retrieval for Long-Context Transformers](/202607/07/2606.29844v1-match-modulating-attention-via-in-context-retrieval-for-long-context-transformers)  
+1. [Agent4cs: A Multi-agent System for Code Summarization in Large Hierarchical Codebases](/202607/08/2607.01425v2-agent4cs-a-multi-agent-system-for-code-summarization-in-large-hierarchical-codebases)  
+   标签：评分：9.0/10、query:agent
+   evidence：用于代码摘要的多智能体系统
+2. [Generic Expert Coverage for Pruning SparseMixture-of-Experts Language Models](/202607/08/2607.01710v1-generic-expert-coverage-for-pruning-sparsemixture-of-experts-language-models)  
    标签：评分：9.0/10、query:llm
-   evidence：通过检索增强稀疏注意力提升推理效率
-2. [Linguistic Firewall: Geometry as Defense in Multi-Agent Systems Routing](/202607/07/2606.30555v1-linguistic-firewall-geometry-as-defense-in-multi-agent-systems-routing)  
-   标签：评分：9.0/10、query:agent
-   evidence：多智能体系统路由安全
-3. [Linguistic Firewall: Geometry as Defense in Multi-Agent Systems Routing](/202607/07/2606.30555v2-linguistic-firewall-geometry-as-defense-in-multi-agent-systems-routing)  
-   标签：评分：9.0/10、query:agent
-   evidence：多智能体系统路由安全
-4. [Multi-Turn Agentic Scientific Literature Search via Workflow Induction](/202607/07/2607.00597v2-multi-turn-agentic-scientific-literature-search-via-workflow-induction)  
-   标签：评分：9.0/10、query:agent
-   evidence：PaperPilot：基于工作流归纳的多轮科学文献搜索智能体
-5. [SwarmResearch: Orchestrating Coding Agents for Open-Ended Discovery](/202607/07/2607.02807v1-swarmresearch-orchestrating-coding-agents-for-open-ended-discovery)  
-   标签：评分：9.0/10、query:agent
-   evidence：编排编程智能体进行开放探索
-6. [OmniFocus: Query-Guided Modality-Balanced Token Compression for Omni-Modal Large Language Models](/202607/07/2607.03050v1-omnifocus-query-guided-modality-balanced-token-compression-for-omni-modal-large-language-models)  
+   evidence：基于覆盖感知的MoE语言模型专家剪枝方法，使用通用文本语料
+3. [Bayesian Sparse Low-Rank Adaptation for Large Language Model Uncertainty Estimation](/202607/08/2607.02182v1-bayesian-sparse-low-rank-adaptation-for-large-language-model-uncertainty-estimation)  
    标签：评分：9.0/10、query:llm
-   evidence：查询引导的令牌压缩用于高效多模态LLM推理
-7. [CONTRA: Red-Teaming Configurations of Personalizable Agents](/202607/07/2607.03220v1-contra-red-teaming-configurations-of-personalizable-agents)  
+   evidence：贝叶斯稀疏低秩自适应微调大语言模型
+4. [Agentic and Generative AI for Open-Source Intelligence and Cyber Investigations: Taxonomy, Evaluation, Challenges, and Future Directions](/202607/08/2607.03233v1-agentic-and-generative-ai-for-open-source-intelligence-and-cyber-investigations-taxonomy-evaluation-challenges-and-future-directions)  
    标签：评分：9.0/10、query:agent
-   evidence：可个性化自主代理配置的红队测试
-8. [HyperParallel-Mpipe: A Composable Algebra System for Optimizing MLLM Training over Supernode Clusters](/202607/07/2607.03229v1-hyperparallel-mpipe-a-composable-algebra-system-for-optimizing-mllm-training-over-supernode-clusters)  
+   evidence：关于代理AI的综述，涵盖分类、评估和挑战
+5. [Agent Reinforcement Learning via Pivotal-Aware Self-Feedback Retry](/202607/08/2607.03702v1-agent-reinforcement-learning-via-pivotal-aware-self-feedback-retry)  
+   标签：评分：9.0/10、query:agent
+   evidence：LLM代理自我反馈重试框架用于经验利用
+6. [MechMath Agent Team: LLM Driven Agents for Mathematical Research](/202607/08/2607.04394v1-mechmath-agent-team-llm-driven-agents-for-mathematical-research)  
+   标签：评分：9.0/10、query:agent
+   evidence：LLM驱动的智能体团队用于数学研究
+7. [ACE-Brain-0.5: A Unified Embodied Foundational Model for Physical Agentic AI](/202607/08/2607.04426v1-ace-brain-05-a-unified-embodied-foundational-model-for-physical-agentic-ai)  
+   标签：评分：9.0/10、query:agent
+   evidence：面向物理代理式AI的统一具身基础模型，包含五个耦合功能
+8. [AgentGym2: Benchmarking Large Language Model Agents in De-Idealized Real-World Environments](/202607/08/2607.05174v1-agentgym2-benchmarking-large-language-model-agents-in-de-idealized-real-world-environments)  
+   标签：评分：9.0/10、query:agent
+   evidence：面向去理想化真实环境的LLM代理基准测试
+9. [ResonatorLM: Causal Resonant Field Mixing for Efficient Long-Context Language Modelin](/202607/08/2607.05583v1-resonatorlm-causal-resonant-field-mixing-for-efficient-long-context-language-modelin)  
    标签：评分：9.0/10、query:llm
-   evidence：使用可组合代数和异构并行优化多模态大模型训练
-9. [Unbiased Alignment for Large Language Models with Noisy Preferences](/202607/07/2607.03248v1-unbiased-alignment-for-large-language-models-with-noisy-preferences)  
+   evidence：用物理启发的共振场混合替代注意力机制，用于高效长上下文建模
+10. [What Do AI Agents Actually Change? An Empirical Taxonomy of Mutation Patterns in Performance-Improving Pull Requests](/202607/08/2607.05666v1-what-do-ai-agents-actually-change-an-empirical-taxonomy-of-mutation-patterns-in-performance-improving-pull-requests)  
+   标签：评分：9.0/10、query:agent
+   evidence：AI编码代理性能改进拉取请求中突变模式的实证分类
+11. [SearchEyes: Towards Frontier Multimodal Deep Search Intelligence via Search World Simulation](/202607/08/2607.05943v1-searcheyes-towards-frontier-multimodal-deep-search-intelligence-via-search-world-simulation)  
+   标签：评分：9.0/10、query:agent
+   evidence：在模拟搜索世界中训练多模态搜索代理
+12. [WebRetriever: A Large-Scale Comprehensive Benchmark for Efficient Web Agent Evaluation](/202607/08/2607.06118v1-webretriever-a-large-scale-comprehensive-benchmark-for-efficient-web-agent-evaluation)  
+   标签：评分：9.0/10、query:agent
+   evidence：用于评估网络智能体的基准
+13. [Harnessing Code Agents for Automatic Software Verification](/202607/08/2607.06341v1-harnessing-code-agents-for-automatic-software-verification)  
+   标签：评分：9.0/10、query:agent
+   evidence：使用LLM代码代理进行自动形式验证
+14. [Data Analysis in the Wild: Benchmarking Large Language Models Against Real-World Data Complexities](/202607/08/2607.06482v1-data-analysis-in-the-wild-benchmarking-large-language-models-against-real-world-data-complexities)  
    标签：评分：9.0/10、query:llm
-   evidence：针对噪声偏好的无偏对齐方法（UDPO）
-10. [Is Agentic Code Review Helpful? Mining Developers' Feedback to CodeRabbit Reviews in the Wild](/202607/07/2607.03316v1-is-agentic-code-review-helpful-mining-developers-feedback-to-coderabbit-reviews-in-the-wild)  
-   标签：评分：9.0/10、query:agent
-   evidence：使用CodeRabbit进行代码代理审查的实证研究
-11. [SkillOpt-Lite: Better and Faster Agent Self-evolution via One Line of Vibe](/202607/07/2607.03451v1-skillopt-lite-better-and-faster-agent-self-evolution-via-one-line-of-vibe)  
-   标签：评分：9.0/10、query:agent
-   evidence：通过零阶优化实现自主智能体技能优化的最小化流水线
-12. [Don't Blame the Large Language Model: How Scaffolding Evolution Shapes Coding Agent Quality](/202607/07/2607.03691v1-dont-blame-the-large-language-model-how-scaffolding-evolution-shapes-coding-agent-quality)  
-   标签：评分：9.0/10、query:agent
-   evidence：编码代理的中间件演化研究
-13. [The Remarkable Effectiveness of Providing AI Agents with Natural Language Tools: A Replication Study Validating NLT Performance Across 14 Models](/202607/07/2607.03953v1-the-remarkable-effectiveness-of-providing-ai-agents-with-natural-language-tools-a-replication-study-validating-nlt-performance-across-14-models)  
-   标签：评分：9.0/10、query:agent
-   evidence：AI智能体自然语言工具的复制研究
-14. [BrownoutMoE: Structure-Aware Expert Grouping for Efficient and Accurate LLM Web-based Services](/202607/07/2607.04164v1-brownoutmoe-structure-aware-expert-grouping-for-efficient-and-accurate-llm-web-based-services)  
+   evidence：面向真实世界数据分析的LLM基准测试
+15. [DepthWeave-KV: Token-Adaptive Cross-Layer Residual Factorization for Long-Context KV Cache Compression](/202607/08/2607.06523v1-depthweave-kv-token-adaptive-cross-layer-residual-factorization-for-long-context-kv-cache-compression)  
    标签：评分：9.0/10、query:llm
-   evidence：BrownoutMoE：结构感知的专家分组方法，提升MoE大模型推理效率
-15. [Agentic IoT: Architectures, Applications, and Challenges Toward the Internet of Agents](/202607/07/2607.04219v1-agentic-iot-architectures-applications-and-challenges-toward-the-internet-of-agents)  
-   标签：评分：9.0/10、query:agent
-   evidence：智联网中自主AI代理与信息物理系统融合
-16. [HAS-Bench: Evaluating LLM-Based Human-Agent Systems under Configurable Human Participation](/202607/07/2607.04329v1-has-bench-evaluating-llm-based-human-agent-systems-under-configurable-human-participation)  
-   标签：评分：9.0/10、query:agent
-   evidence：评估基于LLM的人机协作系统的可配置基准
-17. [Memory-Orchestrated Semantic System (MOSS): An Auditable Agentic Memory Architecture](/202607/07/2607.04391v1-memory-orchestrated-semantic-system-moss-an-auditable-agentic-memory-architecture)  
-   标签：评分：9.0/10、query:agent
-   evidence：提出一种基于结构化关系数据库的新型代理记忆架构
-18. [evalci: A Python Library for Statistically Rigorous Comparison of Language Model Evaluations](/202607/07/2607.04429v1-evalci-a-python-library-for-statistically-rigorous-comparison-of-language-model-evaluations)  
-   标签：评分：9.0/10、query:llm
-   evidence：用于语言模型评估统计严谨比较的库
-19. [Train Smarter, Not Longer: Memorization-Guided Data Reuse for Efficient LLM Training](/202607/07/2607.04969v1-train-smarter-not-longer-memorization-guided-data-reuse-for-efficient-llm-training)  
-   标签：评分：9.0/10、query:llm
-   evidence：记忆引导的数据重用提升LLM训练效率
-20. [EvoAgentBench: Benchmarking Agent Self-Evolution via Ability Transfer](/202607/07/2607.05202v1-evoagentbench-benchmarking-agent-self-evolution-via-ability-transfer)  
-   标签：评分：9.0/10、query:agent
-   evidence：跨领域能力迁移的代理自我进化基准
+   evidence：标记自适应的KV缓存压缩方法
 
 ### 速读区论文标签
-1. [Automating the Design of Embodied Agent Architectures](/202607/07/2606.30111v2-automating-the-design-of-embodied-agent-architectures)  
+1. [Think in English, Answer in Korean: Efficient Adaptation of Multilingual Tool-Using Agents](/202607/08/2606.31648v1-think-in-english-answer-in-korean-efficient-adaptation-of-multilingual-tool-using-agents)  
    标签：评分：8.0/10、query:agent
-   evidence：自动化具身代理架构设计，直接针对代理框架设计
-2. [TraceLab: Characterizing Coding Agent Workloads for LLM Serving](/202607/07/2606.30560v1-tracelab-characterizing-coding-agent-workloads-for-llm-serving)  
+   evidence：多语言工具使用代理的RL和量化适配
+2. [CHERRY: Compressed Hierarchical Experts with Recurrent Representational Yield](/202607/08/2606.31796v1-cherry-compressed-hierarchical-experts-with-recurrent-representational-yield)  
+   标签：评分：8.0/10、query:llm
+   evidence：面向高效LLM训练的选择性监督与梯度耦合
+3. [A Task-State Representation for Long-Horizon Mobile GUI Agents](/202607/08/2607.00502v1-a-task-state-representation-for-long-horizon-mobile-gui-agents)  
    标签：评分：8.0/10、query:agent
-   evidence：编码代理工作负载特征分析，代码代理研究
-3. [Contrastive Reflection for Iterative Prompt Optimization](/202607/07/2606.30840v1-contrastive-reflection-for-iterative-prompt-optimization)  
+   evidence：用于长时程移动GUI代理的任务状态表示，解耦持久任务状态与瞬时观察。
+4. [When RAG Meets Query Planning: Logical Query Trees for Resolving Exploratory Reasoning Problems](/202607/08/2607.00508v2-when-rag-meets-query-planning-logical-query-trees-for-resolving-exploratory-reasoning-problems)  
    标签：评分：8.0/10、query:agent
-   evidence：面向代理信息检索的迭代提示优化框架
-4. [Beyond expert users: agents should help users construct preferences, not just elicit them](/202607/07/2606.30863v2-beyond-expert-users-agents-should-help-users-construct-preferences-not-just-elicit-them)  
+   evidence：基于逻辑查询树的RAG规划，适用于智能体探索性推理
+5. [MMBench-Live: A Continuously Evolving Benchmark for Multimodal Models](/202607/08/2607.01813v1-mmbench-live-a-continuously-evolving-benchmark-for-multimodal-models)  
    标签：评分：8.0/10、query:agent
-   evidence：智能体通过对话帮助用户构建偏好
-5. [ShopX: A Foundation Model for Intent-to-Item Fulfillment in Agentic Shopping](/202607/07/2606.31693v1-shopx-a-foundation-model-for-intent-to-item-fulfillment-in-agentic-shopping)  
-   标签：评分：8.0/10、query:agent
-   evidence：代理购物中的搜索智能体
-6. [MemDelta: Controlled Baselines and Hidden Confounds in Agent Memory Evaluation](/202607/07/2606.29914v1-memdelta-controlled-baselines-and-hidden-confounds-in-agent-memory-evaluation)  
+   evidence：多智能体流水线用于基准演化
+6. [TRACE: State-Aware Query Processing over Temporal Evidence Graphs for Conversational Data](/202607/08/2607.00339v1-trace-state-aware-query-processing-over-temporal-evidence-graphs-for-conversational-data)  
    标签：评分：7.0/10、query:agent
-   evidence：智能体记忆受控评估协议
-7. [Little Brains, Big Feats: Exploring Compact Language Models](/202607/07/2606.30062v1-little-brains-big-feats-exploring-compact-language-models)  
+   evidence：面向对话AI智能体的状态感知查询处理
+7. [Exploring the Semantic Gap in Agentic Data Systems: A Formative Study of Operationalization Failures in Analytical Workflows](/202607/08/2607.00828v1-exploring-the-semantic-gap-in-agentic-data-systems-a-formative-study-of-operationalization-failures-in-analytical-workflows)  
+   标签：评分：7.0/10、query:agent
+   evidence：智能体数据系统操作化失败的形成性研究
+8. [MultiSynt/MT: Trillion-Token Multi-Parallel Pre-Training Data Translated Across 36 Languages](/202607/08/2607.00890v1-multisyntmt-trillion-token-multi-parallel-pre-training-data-translated-across-36-languages)  
    标签：评分：7.0/10、query:llm
-   evidence：探索紧凑语言模型在RAG中的表现，涉及LLM评估
-8. [Efficient Retrieval-Augmented Generation via Token Co-occurrence Graphs](/202607/07/2606.30093v1-efficient-retrieval-augmented-generation-via-token-co-occurrence-graphs)  
+   evidence：万亿级多语言预训练数据生成，用于大语言模型训练
+9. [Rethinking Speech-LLM Integration for ASR: Effective Joint Speech-Text Training by Interleaving](/202607/08/2607.01733v1-rethinking-speech-llm-integration-for-asr-effective-joint-speech-text-training-by-interleaving)  
    标签：评分：7.0/10、query:llm
-   evidence：基于图的高效RAG用于LLM推理
-9. [CORTEX: High-Quality Cross-Domain Organization of Web-Scale Corpora through Ontological Corpus Graph](/202607/07/2606.30175v1-cortex-high-quality-cross-domain-organization-of-web-scale-corpora-through-ontological-corpus-graph)  
-   标签：评分：7.0/10、query:llm
-   evidence：为LLM训练数据质量提供语料组织框架
-10. [SrDetection: A Self-Referential Framework for Data Leakage Detection in Code Large Language Models](/202607/07/2606.29815v1-srdetection-a-self-referential-framework-for-data-leakage-detection-in-code-large-language-models)  
+   evidence：针对LLM的语音-文本交错联合预训练策略
+10. [Query-Centric Optimization of AI Workflows via Approximate Query Processing and Proxy Models](/202607/08/2607.00254v1-query-centric-optimization-of-ai-workflows-via-approximate-query-processing-and-proxy-models)  
+   标签：评分：6.0/10、query:agent
+   evidence：使用查询中心技术优化包括代理推理的AI工作流
+11. [When RAG Meets Query Planning: Logical Query Trees for Resolving Exploratory Reasoning Problems](/202607/08/2607.00508v1-when-rag-meets-query-planning-logical-query-trees-for-resolving-exploratory-reasoning-problems)  
    标签：评分：6.0/10、query:llm
-   evidence：代码LLM数据泄露检测基准
-11. [Gradient Smoothing: Coupling Layer-wise Updates for Improved Optimization](/202607/07/2606.30813v1-gradient-smoothing-coupling-layer-wise-updates-for-improved-optimization)  
+   evidence：提出PlanRAG，将查询规划与RAG结合用于复杂推理
+12. [Evaluating Chunking Strategies for Retrieval-Augmented Generation on Academic Texts](/202607/08/2607.01852v1-evaluating-chunking-strategies-for-retrieval-augmented-generation-on-academic-texts)  
    标签：评分：6.0/10、query:llm
-   evidence：可应用于大语言模型训练的通用优化方法
-12. [MS-Resampler: Multi-Scope Visual Resampling for Efficient Multimodal LLMs](/202607/07/2606.31383v1-ms-resampler-multi-scope-visual-resampling-for-efficient-multimodal-llms)  
+   evidence：检索增强生成中分块策略的评估
+13. [kNNGuard: Turning LLM Hidden Activations into a Training-Free Configurable Guardrail](/202607/08/2607.02072v1-knnguard-turning-llm-hidden-activations-into-a-training-free-configurable-guardrail)  
    标签：评分：6.0/10、query:llm
-   evidence：多尺度视觉重采样用于多模态大模型
-13. [SemRF: A Semantic Reference Frame for Residual-Stream Dynamics in Language Models](/202607/07/2606.32022v1-semrf-a-semantic-reference-frame-for-residual-stream-dynamics-in-language-models)  
-   标签：评分：6.0/10、query:llm
-   evidence：用于分析LLM残差流动的语义参考框架
+   evidence：利用LLM隐藏激活的无训练防护栏
 
 
 <div class="dpr-home-promo-card">
