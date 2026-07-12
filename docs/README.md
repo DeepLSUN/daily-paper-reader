@@ -6,94 +6,85 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-11
-- 运行时间：2026-07-11 21:07:45 UTC
+- 最新运行日期：2026-07-12
+- 运行时间：2026-07-12 21:36:08 UTC
 - 运行状态：成功
-- 本次总论文数：24
-- 精读区：11
+- 本次总论文数：21
+- 精读区：8
 - 速读区：13
 
 ### 今日简报（AI）
-今日精读24篇，聚焦高分论文《Agentic Orchestration of HPC Applications in Cloud》与《Amortising Bayesian Experimental Design for Sequential Information Gathering in LLMs》，分别探讨云端高性能计算智能编排和大型语言模型中的信息采集优化。  
-最值得关注：云原生HPC智能编排可提升资源效率；基于贝叶斯实验设计的LLMs交互策略能有效降低信息获取成本。  
-下一步建议：优先从以上两篇精读入手，深入理解其方法论与实验设计，再结合速读列表中“生成式智能体社会模拟”方向扩展认知。
-- 详情：[/202607/11/README](/202607/11/README)
+1) 今日研读21篇论文，聚焦智能体轨迹重标注、局部保持微调等高效训练新思路。  
+2) 精读推荐：通过事后标注优化LLM智能体轨迹，以及利用多模态熵结构保持本地特征的微调方法，均获9.0高分。  
+3) 建议优先浏览速读中的HAS-Bench人机评估框架与数学智能体团队，拓展应用视野。
+- 详情：[/202607/12/README](/202607/12/README)
 
 ### 精读区论文标签
-1. [Agentic Orchestration of HPC Applications in Cloud](/202607/11/2607.02925v1-agentic-orchestration-of-hpc-applications-in-cloud)  
+1. [Spinning Straw into Gold: Relabeling LLM Agent Trajectories in Hindsight for Successful Demonstrations](/202607/12/2607.04235v1-spinning-straw-into-gold-relabeling-llm-agent-trajectories-in-hindsight-for-successful-demonstrations)  
    标签：评分：9.0/10、query:agent
-   evidence：HPC应用的智能体驱动编排
-2. [Amortising Bayesian Experimental Design for Sequential Information Gathering in LLMs](/202607/11/2607.03426v1-amortising-bayesian-experimental-design-for-sequential-information-gathering-in-llms)  
-   标签：评分：9.0/10、query:agent
-   evidence：将LLM作为搜索智能体进行顺序信息收集
-3. [SelfMem: Self-Optimizing Memory for AI Agents](/202607/11/2607.03726v1-selfmem-self-optimizing-memory-for-ai-agents)  
-   标签：评分：9.0/10、query:agent
-   evidence：为AI智能体设计的自优化记忆框架
-4. [Harness-Aware Self-Evolving: Co-Evolving Model Weights, Harness, and Task Solutions](/202607/11/2607.03935v1-harness-aware-self-evolving-co-evolving-model-weights-harness-and-task-solutions)  
-   标签：评分：9.0/10、query:agent
-   evidence：智能体强化学习框架，协同进化模型权重、外部框架和任务解决方案
-5. [Beyond the Leaderboard: A Synthesis of Tool-Use, Planning, and Reasoning Failures in Large Language Model Agents](/202607/11/2607.05775v1-beyond-the-leaderboard-a-synthesis-of-tool-use-planning-and-reasoning-failures-in-large-language-model-agents)  
-   标签：评分：9.0/10、query:agent
-   evidence：LLM Agent在工具使用、规划、推理等方面的失败模式综述
-6. [Comprehensive Evaluation of Large Language Model Responses: A Multi-Factor Scoring System](/202607/11/2607.06940v1-comprehensive-evaluation-of-large-language-model-responses-a-multi-factor-scoring-system)  
+   evidence：通过重新标记轨迹改进代码智能体训练
+2. [LP-SFT: Local-Preserving Supervised Fine-Tuning via Multimodal Entropy Structure](/202607/12/2607.04733v1-lp-sft-local-preserving-supervised-fine-tuning-via-multimodal-entropy-structure)  
    标签：评分：9.0/10、query:llm
-   evidence：大语言模型响应的多因素评分系统
-7. [MMAgent-R$^2$: Learning to Rerank and Reject for Agentic mRAG](/202607/11/2607.07383v1-mmagent-r2-learning-to-rerank-and-reject-for-agentic-mrag)  
-   标签：评分：9.0/10、query:agent
-   evidence：用于知识库视觉问答的智能体多模态RAG，结合重排序和拒绝机制
-8. [SkillCenter: A Large-Scale Source-Grounded Skill Library for Autonomous AI Agents](/202607/11/2607.07676v1-skillcenter-a-large-scale-source-grounded-skill-library-for-autonomous-ai-agents)  
-   标签：评分：9.0/10、query:agent
-   evidence：面向自主AI代理的大规模技能库
-9. [ReCoLoRA: Spectrum-Aware Recursive Consolidation for Continual LLM Fine-Tuning](/202607/11/2607.07719v1-recolora-spectrum-aware-recursive-consolidation-for-continual-llm-fine-tuning)  
+   evidence：LLM微调方法以保持预训练能力
+3. [TriRoute: Unified Learned Routing for Joint Adaptive Attention, Experts, and KV-Cache Allocation](/202607/12/2607.06601v1-triroute-unified-learned-routing-for-joint-adaptive-attention-experts-and-kv-cache-allocation)  
    标签：评分：9.0/10、query:llm
-   evidence：持续微调，LoRA，频谱感知，大语言模型
-10. [Prismata: Confining Cross-Site Prompt Injection in Web Agents](/202607/11/2607.08147v1-prismata-confining-cross-site-prompt-injection-in-web-agents)  
+   evidence：针对LLM推理优化的统一学习路由
+4. [Seeing and Reflecting: Multimodal Memory-Enhanced Agent Collaboration for Recommendation](/202607/12/2607.07108v1-seeing-and-reflecting-multimodal-memory-enhanced-agent-collaboration-for-recommendation)  
    标签：评分：9.0/10、query:agent
-   evidence：针对Web智能体的提示注入防御
-11. [Resample or Reroute? Budget-Aware Test-Time Model Selection for Large Language Models](/202607/11/2607.08665v1-resample-or-reroute-budget-aware-test-time-model-selection-for-large-language-models)  
+   evidence：多模态记忆增强的智能体协作框架
+5. [Towards Agentic AI Governance: A Preliminary Assessment](/202607/12/2607.07612v1-towards-agentic-ai-governance-a-preliminary-assessment)  
+   标签：评分：9.0/10、query:agent
+   evidence：自主人工智能治理的系统综述
+6. [Aleena: Alignment Agent for Research Software Engineering Collaborations](/202607/12/2607.08043v1-aleena-alignment-agent-for-research-software-engineering-collaborations)  
+   标签：评分：9.0/10、query:agent
+   evidence：面向研究软件工程的对齐代理
+7. [It Takes a MAESTRO To Prune Bad Experts](/202607/12/2607.08601v1-it-takes-a-maestro-to-prune-bad-experts)  
    标签：评分：9.0/10、query:llm
-   evidence：预算感知的测试时模型选择用于LLM推理优化
+   evidence：MoE LLM结构化剪枝以提升推理效率
+8. [Agent Reinforcement Learning via Pivotal-Aware Self-Feedback Retry](/202607/12/2607.03702v1-agent-reinforcement-learning-via-pivotal-aware-self-feedback-retry)  
+   标签：评分：8.0/10、query:agent
+   evidence：提出用于LLM智能体的自反馈重试框架以提升经验利用
 
 ### 速读区论文标签
-1. [Evaluating Generative Agents with Actions Grounded in Socially Distributed Task Environments using Incognita](/202607/11/2607.02975v1-evaluating-generative-agents-with-actions-grounded-in-socially-distributed-task-environments-using-incognita)  
+1. [HAS-Bench: Evaluating LLM-Based Human-Agent Systems under Configurable Human Participation](/202607/12/2607.04329v1-has-bench-evaluating-llm-based-human-agent-systems-under-configurable-human-participation)  
    标签：评分：8.0/10、query:agent
-   evidence：在社会分布任务环境中评估生成式agent
-2. [Agent Reinforcement Learning via Pivotal-Aware Self-Feedback Retry](/202607/11/2607.03702v1-agent-reinforcement-learning-via-pivotal-aware-self-feedback-retry)  
+   evidence：评估基于LLM的人机协作智能体系统的基准
+2. [MechMath Agent Team: LLM Driven Agents for Mathematical Research](/202607/12/2607.04394v1-mechmath-agent-team-llm-driven-agents-for-mathematical-research)  
    标签：评分：8.0/10、query:agent
-   evidence：面向LLM代理的自反馈重试框架
-3. [Semantic-aware and Self-improving Program Reduction via Agentic Large Language Models](/202607/11/2607.03766v1-semantic-aware-and-self-improving-program-reduction-via-agentic-large-language-models)  
+   evidence：大模型驱动的数学研究智能体团队
+3. [Governed Individuation: Cryptographically Decoupling an Agent's Learning from Its Authority](/202607/12/2607.04613v1-governed-individuation-cryptographically-decoupling-an-agents-learning-from-its-authority)  
    标签：评分：8.0/10、query:agent
-   evidence：使用代理式LLM进行程序缩减，融合代理与LLM概念
-4. [HAS-Bench: Evaluating LLM-Based Human-Agent Systems under Configurable Human Participation](/202607/11/2607.04329v1-has-bench-evaluating-llm-based-human-agent-systems-under-configurable-human-participation)  
+   evidence：自主代理的加密约束方法，直接针对自主代理系统
+4. [Direct Model State Migration for Elastic Training of Large Language Models](/202607/12/2607.04749v1-direct-model-state-migration-for-elastic-training-of-large-language-models)  
+   标签：评分：8.0/10、query:llm
+   evidence：无检查点的大模型弹性训练状态迁移
+5. [PDEFlow: Autonomous Agentic PDE Pipelines for Neural Operator Learning and Solver-Free Inference](/202607/12/2607.05134v1-pdeflow-autonomous-agentic-pde-pipelines-for-neural-operator-learning-and-solver-free-inference)  
    标签：评分：8.0/10、query:agent
-   evidence：人机系统评估基准
-5. [MechMath Agent Team: LLM Driven Agents for Mathematical Research](/202607/11/2607.04394v1-mechmath-agent-team-llm-driven-agents-for-mathematical-research)  
-   标签：评分：8.0/10、query:agent
-   evidence：面向数学研究的LLM驱动智能体团队及三面架构
-6. [Biological Motifs for Agentic Control](/202607/11/2607.04240v1-biological-motifs-for-agentic-control)  
+   evidence：PDEFlow自主智能体PDE流水线用于神经算子学习和无求解器推理
+6. [Semantic-aware and Self-improving Program Reduction via Agentic Large Language Models](/202607/12/2607.03766v1-semantic-aware-and-self-improving-program-reduction-via-agentic-large-language-models)  
    标签：评分：7.0/10、query:agent
-   evidence：受生物学启发的智能体控制与架构设计模式
-7. [Agent-driven Long-tail Simulation for Autonomous Driving](/202607/11/2607.04331v1-agent-driven-long-tail-simulation-for-autonomous-driving)  
-   标签：评分：7.0/10、query:agent
-   evidence：自动驾驶仿真，大模型控制智能体，长尾场景
-8. [Don't Commit Alone: Joint Token Commitment in Diffusion Large Language Models](/202607/11/2607.04469v1-dont-commit-alone-joint-token-commitment-in-diffusion-large-language-models)  
+   evidence：基于代理大语言模型的程序缩减
+7. [A Unified Framework for In-Context Learning with Causal and Masked Language Models](/202607/12/2607.04081v1-a-unified-framework-for-in-context-learning-with-causal-and-masked-language-models)  
    标签：评分：7.0/10、query:llm
-   evidence：针对扩散LLM推理的联合令牌提交方法
-9. [MTEB-PT: A Text Embedding Benchmark for Brazilian Portuguese](/202607/11/2607.04581v1-mteb-pt-a-text-embedding-benchmark-for-brazilian-portuguese)  
+   evidence：覆盖因果和掩码语言模型的上下文学习统一理论框架
+8. [Uncertainty-Aware Abstention in Large Language Models with Provable Alignment Guarantees](/202607/12/2607.04430v1-uncertainty-aware-abstention-in-large-language-models-with-provable-alignment-guarantees)  
    标签：评分：7.0/10、query:llm
-   evidence：巴西葡萄牙语文本嵌入基准，评估93个模型
-10. [Distill Where the Student Goes: Teacher-Regularized RL for English-Evidence Cross-Lingual RAG](/202607/11/2607.02966v1-distill-where-the-student-goes-teacher-regularized-rl-for-english-evidence-cross-lingual-rag)  
-   标签：评分：6.0/10、query:llm
-   evidence：教师正则化强化学习用于跨语言RAG微调
-11. [High-Precision Formation Control for Heterogeneous Multi-Robot Systems via Hierarchical Hybrid Physics-Informed Deep Reinforcement Learning](/202607/11/2607.03512v1-high-precision-formation-control-for-heterogeneous-multi-robot-systems-via-hierarchical-hybrid-physics-informed-deep-reinforcement-learning)  
+   evidence：为大语言模型选择性回答提供可证明错误率保证的校准框架
+9. [RPAM: A Principled Metric for Evaluating Associations in Language Models with High Predictive Validity in Downstream Outputs](/202607/12/2607.05679v1-rpam-a-principled-metric-for-evaluating-associations-in-language-models-with-high-predictive-validity-in-downstream-outputs)  
+   标签：评分：7.0/10、query:llm
+   evidence：评估语言模型关联性的原则性度量
+10. [Mask-based Predictive Representations for Reinforcement Learning](/202607/12/2607.04153v1-mask-based-predictive-representations-for-reinforcement-learning)  
    标签：评分：6.0/10、query:agent
-   evidence：多机器人系统作为自主智能体
-12. [Beyond Scene Priors: Fine-Grained Traffic Scene Reasoning with Benchmarking and Query-Guided Small-Object Focus](/202607/11/2607.04149v1-beyond-scene-priors-fine-grained-traffic-scene-reasoning-with-benchmarking-and-query-guided-small-object-focus)  
+   evidence：面向强化学习智能体的掩码预测辅助任务
+11. [Fidelity-Diversity Metrics for Text](/202607/12/2607.04563v1-fidelity-diversity-metrics-for-text)  
    标签：评分：6.0/10、query:llm
-   evidence：多模态大语言模型在交通场景中的细粒度推理与评测
-13. [SQuaD-SQL: Efficient Text-to-SQL with Small Language Models via LLM-Guided Knowledge Distillation](/202607/11/2607.08161v1-squad-sql-efficient-text-to-sql-with-small-language-models-via-llm-guided-knowledge-distillation)  
+   evidence：开发了文本保真度和多样性指标，可用于评估LLM输出
+12. [Learning When to Automate: Queue Control in Human-AI Service Systems](/202607/12/2607.06017v1-learning-when-to-automate-queue-control-in-human-ai-service-systems)  
+   标签：评分：6.0/10、query:agent
+   evidence：带队列控制的自主代理系统
+13. [RSF-GLLM: Bridging the Semantic Gap in Multi-Hop Knowledge Graph QA via Recurrent Soft-Flow and Decoupled LLM Generation](/202607/12/2607.06527v1-rsf-gllm-bridging-the-semantic-gap-in-multi-hop-knowledge-graph-qa-via-recurrent-soft-flow-and-decoupled-llm-generation)  
    标签：评分：6.0/10、query:llm
-   evidence：知识蒸馏使小模型在Text-to-SQL上接近大模型性能
+   evidence：基于LLM的多跳问答与可微图推理
 
 
 <div class="dpr-home-promo-card">
