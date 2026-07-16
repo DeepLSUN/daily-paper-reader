@@ -6,92 +6,107 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-15
-- 运行时间：2026-07-15 21:40:53 UTC
+- 最新运行日期：2026-07-16
+- 运行时间：2026-07-16 21:39:44 UTC
 - 运行状态：成功
-- 本次总论文数：24
-- 精读区：11
+- 本次总论文数：29
+- 精读区：16
 - 速读区：13
 
 ### 今日简报（AI）
-今日全库24篇，精读2篇9分聚焦长上下文LLM自引导测试时训练与拍卖式智能体推理。最值得关注的是Self-Guided Test-Time Training与Agora拍卖分配机制在大模型长文本与推理领域的突破。建议读者速读《Seeing and Reflecting》及《Context Graphs》以把握多模态记忆增强推荐与主动企业智能体的前沿应用。
-- 详情：[/202607/15/README](/202607/15/README)
+今日共推荐29篇论文，精读16篇、速读13篇，最高分来自《Mach-Mind-4-Flash Technical Report》（10.0）与《ABot-AgentOS》（9.0）。最值得关注的方向是大模型智能体技术报告与通用机器人智能体操作系统。建议普通读者优先阅读这两篇精读，把握智能体OS与多模态记忆的前沿进展。
+- 详情：[/202607/16/README](/202607/16/README)
 
 ### 精读区论文标签
-1. [Self-Guided Test-Time Training for Long-Context LLMs](/202607/15/2607.09415v1-self-guided-test-time-training-for-long-context-llms)  
+1. [Mach-Mind-4-Flash Technical Report](/202607/16/2607.09375v1-mach-mind-4-flash-technical-report)  
+   标签：评分：10.0/10、query:llm-reports
+   evidence：报道35B MoE模型的技术细节和训练流程
+2. [ABot-AgentOS: A General Robotic Agent OS with Lifelong Multi-modal Memory](/202607/16/2607.10350v2-abot-agentos-a-general-robotic-agent-os-with-lifelong-multi-modal-memory)  
+   标签：评分：9.0/10、query:agent
+   evidence：智能体框架设计：通用机器人智能体操作系统
+3. [To Answer or to Abstain: Mitigating Search-Agent Hallucinations via Abstention-Aware Reinforcement Learning](/202607/16/2607.10738v1-to-answer-or-to-abstain-mitigating-search-agent-hallucinations-via-abstention-aware-reinforcement-learning)  
+   标签：评分：9.0/10、query:agent
+   evidence：基于弃权感知强化学习的搜索智能体幻觉缓解
+4. [Route, Communicate, and Reason: Gated Routing and Adaptive Depth for Efficient Multi-Agent Reasoning](/202607/16/2607.10836v1-route-communicate-and-reason-gated-routing-and-adaptive-depth-for-efficient-multi-agent-reasoning)  
+   标签：评分：9.0/10、query:agent
+   evidence：具有门控路由和自适应深度的层次多智能体推理
+5. [SETA: Scaling Environments for Terminal Agents](/202607/16/2607.10891v1-seta-scaling-environments-for-terminal-agents)  
+   标签：评分：9.0/10、query:agent
+   evidence：智能体框架设计：可扩展的终端智能体环境生成框架
+6. [QwenPaw-Data: Bridging Facts, Methodology, and Execution for Autonomous Enterprise Data Analytics](/202607/16/2607.11019v2-qwenpaw-data-bridging-facts-methodology-and-execution-for-autonomous-enterprise-data-analytics)  
+   标签：评分：9.0/10、query:agent
+   evidence：企业数据分析自主代理框架
+7. [Trust but Verify? Uncovering the Security Debt of Autonomous Coding Agents](/202607/16/2607.12428v1-trust-but-verify-uncovering-the-security-debt-of-autonomous-coding-agents)  
+   标签：评分：9.0/10、query:agent
+   evidence：自主编码代理的安全性分析
+8. [Self-Improving AI Coding Agents Through Accumulated Behavioral Rules: A Closed-Loop Framework](/202607/16/2607.13091v1-self-improving-ai-coding-agents-through-accumulated-behavioral-rules-a-closed-loop-framework)  
+   标签：评分：9.0/10、query:agent
+   evidence：通过累积行为规则实现自改进的AI编码代理
+9. [Oracle Agent Memory as an Enterprise Memory Substrate for Long-Horizon AI Agents](/202607/16/2607.13157v1-oracle-agent-memory-as-an-enterprise-memory-substrate-for-long-horizon-ai-agents)  
+   标签：评分：9.0/10、query:agent
+   evidence：长时智能体的记忆框架设计
+10. [Learning Latency-Aware Orchestration for Multi-Agent Systems](/202607/16/2607.13359v1-learning-latency-aware-orchestration-for-multi-agent-systems)  
+   标签：评分：9.0/10、query:agent
+   evidence：多智能体系统的延迟感知编排
+11. [Data-Efficient Adaptation of LLMs via Attention Head Reweighting](/202607/16/2607.13425v1-data-efficient-adaptation-of-llms-via-attention-head-reweighting)  
    标签：评分：9.0/10、query:llm
-   evidence：长上下文LLM的测试时训练适应
-2. [Agora: Enhancing LLM Agent Reasoning Via Auction-Based Task Allocation](/202607/15/2607.09600v1-agora-enhancing-llm-agent-reasoning-via-auction-based-task-allocation)  
+   evidence：通过注意力头重加权实现数据高效微调
+12. [MyAG: A Graph-Based Framework for Designing and Analyzing Composable LLM Agent Systems](/202607/16/2607.13474v1-myag-a-graph-based-framework-for-designing-and-analyzing-composable-llm-agent-systems)  
    标签：评分：9.0/10、query:agent
-   evidence：基于拍卖的LLM智能体推理任务分配框架
-3. [Can Agentic Trading Systems Pay for Their Own Intelligence?](/202607/15/2607.10286v1-can-agentic-trading-systems-pay-for-their-own-intelligence)  
+   evidence：面向可组合LLM智能体系统的图框架
+13. [JW-ASTClaw: A Generalizable Multi-Agent Framework for Autonomous Solar Telescope and Its Implementation within Chinese Meridian Project](/202607/16/2607.13549v1-jw-astclaw-a-generalizable-multi-agent-framework-for-autonomous-solar-telescope-and-its-implementation-within-chinese-meridian-project)  
    标签：评分：9.0/10、query:agent
-   evidence：通过TradeLens工具评估交易agent系统的成本利润可行性
-4. [Agentic-DPO: From Imitation to Agentic Policy Optimization on Expert Trajectories](/202607/15/2607.10601v1-agentic-dpo-from-imitation-to-agentic-policy-optimization-on-expert-trajectories)  
+   evidence：自主智能体系统：用于太阳望远镜的多智能体自主控制框架
+14. [AgentCompass: A Unified Evaluation Infrastructure for Agent Capabilities](/202607/16/2607.13705v1-agentcompass-a-unified-evaluation-infrastructure-for-agent-capabilities)  
    标签：评分：9.0/10、query:agent
-   evidence：离线智能体策略优化
-5. [Robo-Reporters: Evaluating Autonomous AI Agents as Algorithmic Gatekeepers in Computational Journalism](/202607/15/2607.10736v1-robo-reporters-evaluating-autonomous-ai-agents-as-algorithmic-gatekeepers-in-computational-journalism)  
+   evidence：为LLM智能体提供统一评估基础设施，包括基准、框架和环境
+15. [CAVA: Canonical Action Verification and Attestation for Runtime Governance of Agentic AI Systems](/202607/16/2607.13716v1-cava-canonical-action-verification-and-attestation-for-runtime-governance-of-agentic-ai-systems)  
    标签：评分：9.0/10、query:agent
-   evidence：系统比较四种agent架构在新闻任务中的表现
-6. [Reliability Scaling Laws for Quantized Large Language Models](/202607/15/2607.10855v1-reliability-scaling-laws-for-quantized-large-language-models)  
-   标签：评分：9.0/10、query:llm
-   evidence：对量化LLM进行全面的可靠性评估，包括不确定性和校准
-7. [SETA: Scaling Environments for Terminal Agents](/202607/15/2607.10891v1-seta-scaling-environments-for-terminal-agents)  
+   evidence：智能体AI运行时治理
+16. [DeepStress: Stress-Testing Deep Search Agents](/202607/16/2607.13920v1-deepstress-stress-testing-deep-search-agents)  
    标签：评分：9.0/10、query:agent
-   evidence：SETA框架用于为基于RL的agent训练生成可验证的终端环境
-8. [QwenPaw-Data: Bridging Facts, Methodology, and Execution for Autonomous Enterprise Data Analytics](/202607/15/2607.11019v2-qwenpaw-data-bridging-facts-methodology-and-execution-for-autonomous-enterprise-data-analytics)  
-   标签：评分：9.0/10、query:agent
-   evidence：面向自主企业数据分析的QwenPaw-Data agentic数据系统
-9. [How to Realize Recursively Self-Improving Agents and Personal Singularity: A Goal-, Scope-, Tool-, and Benchmark-Driven Multi-Agent Architecture](/202607/15/2607.12254v1-how-to-realize-recursively-self-improving-agents-and-personal-singularity-a-goal--scope--tool--and-benchmark-driven-multi-agent-architecture)  
-   标签：评分：9.0/10、query:agent
-   evidence：递归自我改进的多智能体架构
-10. [GRAFT: Graph-Matched Retrieval and Fusion of Tables in Data Lakes](/202607/15/2607.12717v1-graft-graph-matched-retrieval-and-fusion-of-tables-in-data-lakes)  
-   标签：评分：9.0/10、query:agent
-   evidence：面向自主数据代理的图检索与融合
-11. [PalmClaw: A Native On-Device Agent Framework for Mobile Phones](/202607/15/2607.13027v1-palmclaw-a-native-on-device-agent-framework-for-mobile-phones)  
-   标签：评分：9.0/10、query:agent
-   evidence：移动设备上的智能体框架
+   evidence：针对搜索代理对低质量证据鲁棒性的压力测试框架
 
 ### 速读区论文标签
-1. [Seeing and Reflecting: Multimodal Memory-Enhanced Agent Collaboration for Recommendation](/202607/15/2607.07108v1-seeing-and-reflecting-multimodal-memory-enhanced-agent-collaboration-for-recommendation)  
+1. [Agentic Data Environments](/202607/16/2607.07397v1-agentic-data-environments)  
    标签：评分：8.0/10、query:agent
-   evidence：提出多模态记忆增强的多智能体协作推荐框架
-2. [Agentic Data Environments](/202607/15/2607.07397v1-agentic-data-environments)  
+   evidence：面向安全自主智能体执行的智能体数据环境
+2. [Better Harnesses, Smaller Models: Building 90% Cheaper Agents via Automated Harness Adaptation](/202607/16/2607.08938v1-better-harnesses-smaller-models-building-90-cheaper-agents-via-automated-harness-adaptation)  
    标签：评分：8.0/10、query:agent
-   evidence：提出Agentic数据环境作为安全自主agent的执行基底
-3. [Context Graphs for Proactive Enterprise Agents](/202607/15/2607.07721v1-context-graphs-for-proactive-enterprise-agents)  
+   evidence：自动适配小型语言模型代理的框架
+3. [Secret Scanner Agent: Extracting Secrets and Access Context from Unstructured Documents](/202607/16/2607.09011v1-secret-scanner-agent-extracting-secrets-and-access-context-from-unstructured-documents)  
    标签：评分：8.0/10、query:agent
-   evidence：使用上下文图的主动企业代理
-4. [Structured Pruning of Large Language Models via Power Transformation and Sign-Preserving Score Aggregation with Adaptive Feature Retention](/202607/15/2607.08027v1-structured-pruning-of-large-language-models-via-power-transformation-and-sign-preserving-score-aggregation-with-adaptive-feature-retention)  
-   标签：评分：8.0/10、query:llm
-   evidence：大语言模型结构化剪枝方法，减小模型尺寸加速推理
-5. [ASMR: Agentic Schema Generation for Ship Maintenance Report Writing](/202607/15/2607.08177v1-asmr-agentic-schema-generation-for-ship-maintenance-report-writing)  
+   evidence：多代理LLM系统用于秘密提取
+4. [Neuro-Agentic Control: A Deep Learning-based LLM-Powered Agentic AI Framework for Controlling Security Controls](/202607/16/2607.09076v1-neuro-agentic-control-a-deep-learning-based-llm-powered-agentic-ai-framework-for-controlling-security-controls)  
    标签：评分：8.0/10、query:agent
-   evidence：智能体模式生成用于报告撰写
-6. [Demonstrating TOFFEE: A Learned System for Synthesizing Data Agent Trajectories at Scale](/202607/15/2607.06233v2-demonstrating-toffee-a-learned-system-for-synthesizing-data-agent-trajectories-at-scale)  
-   标签：评分：7.0/10、query:agent
-   evidence：合成数据智能体行动轨迹的系统
-7. [Out of Sight: Compression-Aware Content Protection against Agentic Crawlers](/202607/15/2607.08180v1-out-of-sight-compression-aware-content-protection-against-agentic-crawlers)  
-   标签：评分：7.0/10、query:agent
-   evidence：针对基于LLM的代理爬虫的内容保护
-8. [AgentKGV: Agentic LLM-RAG Framework with Two-Stage Training for the Fact Verification of Knowledge Graphs](/202607/15/2607.09092v1-agentkgv-agentic-llm-rag-framework-with-two-stage-training-for-the-fact-verification-of-knowledge-graphs)  
-   标签：评分：7.0/10、query:agent
-   evidence：用于知识图谱事实验证的代理框架
-9. [Complexity-Guided Component-wise Initialization for Language Model Pretraining](/202607/15/2607.09204v1-complexity-guided-component-wise-initialization-for-language-model-pretraining)  
+   evidence：LLM驱动的代理AI安全控制框架
+5. [Communication-Efficient Digital-Twin Coordination for Heterogeneous LLM Embodied Agents over Computing Power Networks](/202607/16/2607.09330v1-communication-efficient-digital-twin-coordination-for-heterogeneous-llm-embodied-agents-over-computing-power-networks)  
+   标签：评分：8.0/10、query:agent
+   evidence：解决异构LLM具身智能体团队的协调问题
+6. [UltraX: Refining Pre-Training Data at Scale with Adaptive Programmatic Editing](/202607/16/2607.08646v1-ultrax-refining-pre-training-data-at-scale-with-adaptive-programmatic-editing)  
    标签：评分：7.0/10、query:llm
-   evidence：面向语言模型预训练的分组件初始化方法
-10. [Eigenvalue Calibration for Semantic Embeddings of Large Language Models](/202607/15/2607.08377v1-eigenvalue-calibration-for-semantic-embeddings-of-large-language-models)  
-   标签：评分：6.0/10、query:llm
-   evidence：LLM评估与校准方法
-11. [LLM for EDA in Front-End Design: Challenges and Opportunities](/202607/15/2607.09616v1-llm-for-eda-in-front-end-design-challenges-and-opportunities)  
+   evidence：大规模精炼LLM预训练数据
+7. [Resample or Reroute? Budget-Aware Test-Time Model Selection for Large Language Models](/202607/16/2607.08665v2-resample-or-reroute-budget-aware-test-time-model-selection-for-large-language-models)  
+   标签：评分：7.0/10、query:llm
+   evidence：针对LLM的预算感知测试时模型选择
+8. [SPARK: Susceptibility-Guided Profiling and Steering of Latent Reasoning States in Large Language Models](/202607/16/2607.10296v1-spark-susceptibility-guided-profiling-and-steering-of-latent-reasoning-states-in-large-language-models)  
+   标签：评分：7.0/10、query:llm
+   evidence：LLM潜在推理状态的诊断和引导
+9. [A Stepwise Questioning Expert-Editor Multi-Agent Framework for Long-Document Summarization](/202607/16/2607.10390v1-a-stepwise-questioning-expert-editor-multi-agent-framework-for-long-document-summarization)  
+   标签：评分：7.0/10、query:agent
+   evidence：多代理框架用于长文档摘要
+10. [An LLM-powered Agentic Recommendation System for Connected TV Content Discovery](/202607/16/2607.09988v1-an-llm-powered-agentic-recommendation-system-for-connected-tv-content-discovery)  
    标签：评分：6.0/10、query:agent
-   evidence：讨论LLM在EDA中的智能体AI应用
-12. [Efficiently Adapting Spoken Language Models for the Singaporean Context](/202607/15/2607.10092v1-efficiently-adapting-spoken-language-models-for-the-singaporean-context)  
+   evidence：基于LLM的智能体推荐系统
+11. [The Effect of Multi-Lingual and Keyword Adversarial Injection on LLM Relevance Judgment](/202607/16/2607.10080v1-the-effect-of-multi-lingual-and-keyword-adversarial-injection-on-llm-relevance-judgment)  
    标签：评分：6.0/10、query:llm
-   evidence：对语音语言模型进行LoRA微调适配
-13. [UNIT: Unleash Large Language Models Potential for Graph Continual Learning](/202607/15/2607.10159v1-unit-unleash-large-language-models-potential-for-graph-continual-learning)  
+   evidence：对抗性注入对LLM相关性判断的影响
+12. [SVD-RAG: Efficient Tree-Organized Retrieval-Augmented Generation via Singular Value Decomposition](/202607/16/2607.10316v1-svd-rag-efficient-tree-organized-retrieval-augmented-generation-via-singular-value-decomposition)  
    标签：评分：6.0/10、query:llm
-   evidence：为大语言模型微调用于图持续学习
+   evidence：基于SVD的高效层级RAG
+13. [Structured Thoughts For Improved Reasoning And Context Pruning](/202607/16/2607.10386v1-structured-thoughts-for-improved-reasoning-and-context-pruning)  
+   标签：评分：6.0/10、query:llm
+   evidence：LLM的结构化推理框架，使用try-outcome块
 
 
 <div class="dpr-home-promo-card">
