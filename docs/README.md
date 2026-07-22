@@ -6,146 +6,110 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-21
-- 运行时间：2026-07-21 22:36:40 UTC
+- 最新运行日期：2026-07-22
+- 运行时间：2026-07-22 22:19:12 UTC
 - 运行状态：成功
-- 本次总论文数：42
-- 精读区：27
+- 本次总论文数：30
+- 精读区：15
 - 速读区：15
 
 ### 今日简报（AI）
-今日聚焦大语言模型后训练与多智能体协作，精读了两篇10分和9分高分论文。最值得关注的是CADENCE通过覆盖自适应策略蒸馏缩小推理差距，以及Proxy Exploration提出的模块化后训练范式。建议留意速读中多智能体探索失败与自主编码安全风险等方向，可进一步关注后续进展。
-- 详情：[/202607/21/README](/202607/21/README)
+今日处理30篇论文，精读15篇，重点关注社交模拟中的步骤级偏好学习与扩散大模型的精确缓存推理。最值得看两篇9.0分工作：社交模拟通过步骤级偏好学习提升生成代理真实性，以及LaCache实现扩散LLM的精确缓存与精度自适应推理，显著降低延迟。建议关注FastGraph驱动的轻量级RAG系统（SmartRAG）和监督式自学习系统（CatalogAgent），可用于移动端与上下文工程优化。
+- 详情：[/202607/22/README](/202607/22/README)
 
 ### 精读区论文标签
-1. [CADENCE: Closing the Reasoning Gap via Coverage-Adaptive On-Policy Distillation](/202607/21/2607.16955v1-cadence-closing-the-reasoning-gap-via-coverage-adaptive-on-policy-distillation)  
-   标签：评分：10.0/10、query:post-train
-   evidence：在线策略蒸馏方法
-2. [Proxy Exploration and Reusable Guidance: A Modular LLM Post-Training Paradigm via Proxy-Guided Update Signals](/202607/21/2607.11505v1-proxy-exploration-and-reusable-guidance-a-modular-llm-post-training-paradigm-via-proxy-guided-update-signals)  
-   标签：评分：9.0/10、query:post-train
-   evidence：提出一种基于代理引导更新信号的模块化LLM后训练范式
-3. [Step-Level Preference Learning for Generative Agents in Social Simulations](/202607/21/2607.14485v1-step-level-preference-learning-for-generative-agents-in-social-simulations)  
+1. [Step-Level Preference Learning for Generative Agents in Social Simulations](/202607/22/2607.14485v1-step-level-preference-learning-for-generative-agents-in-social-simulations)  
    标签：评分：9.0/10、query:agent
-   evidence：生成式智能体步骤级偏好学习
-4. [Behavioral Controllability of Agentic Models for Information Extraction: From Fixed Workflows to Reflective Agents](/202607/21/2607.15715v1-behavioral-controllability-of-agentic-models-for-information-extraction-from-fixed-workflows-to-reflective-agents)  
-   标签：评分：9.0/10、query:agent
-   evidence：LLM智能体在信息抽取中的行为对比研究
-5. [An MLIR-Based Compilation Method for Large Language Models](/202607/21/2607.15865v1-an-mlir-based-compilation-method-for-large-language-models)  
+   evidence：生成式智能体与步骤级偏好学习
+2. [LaCache: Exact Caching and Precision-Adaptive Inference for Diffusion Large Language Models](/202607/22/2607.16339v1-lacache-exact-caching-and-precision-adaptive-inference-for-diffusion-large-language-models)  
    标签：评分：9.0/10、query:llm
-   evidence：大语言模型推理编译优化
-6. [Understanding Reasoning from Pretraining to Post-Training](/202607/21/2607.16097v1-understanding-reasoning-from-pretraining-to-post-training)  
-   标签：评分：9.0/10、query:post-train
-   evidence：研究LLM强化学习后训练，使用国际象棋作为测试平台
-7. [Just A Rather Very Intelligent Spoken Agent](/202607/21/2607.16610v1-just-a-rather-very-intelligent-spoken-agent)  
+   evidence：扩散大语言模型缓存与精度自适应推理
+3. [Just A Rather Very Intelligent Spoken Agent](/202607/22/2607.16610v1-just-a-rather-very-intelligent-spoken-agent)  
    标签：评分：9.0/10、query:agent
-   evidence：长时程AI智能体，包含口语交互和中介基准
-8. [DataFlow-Harness: A Grounded Code-Agent Platform for Constructing Editable LLM Data Pipelines](/202607/21/2607.16617v1-dataflow-harness-a-grounded-code-agent-platform-for-constructing-editable-llm-data-pipelines)  
+   evidence：语音代理中介者和长期代理基准
+4. [RECON: Benchmarking Agent Memory for Compositional Reasoning over Long Contexts](/202607/22/2607.16716v1-recon-benchmarking-agent-memory-for-compositional-reasoning-over-long-contexts)  
    标签：评分：9.0/10、query:agent
-   evidence：用于LLM数据管道的代码代理平台
-9. [TopoTuner: Topological Finetuning of Large Language Models](/202607/21/2607.16637v1-topotuner-topological-finetuning-of-large-language-models)  
-   标签：评分：9.0/10、query:llm
-   evidence：拓扑引导的LLM微调
-10. [Trace-Based On-Policy Distillation for Masked Diffusion Language Models](/202607/21/2607.16872v1-trace-based-on-policy-distillation-for-masked-diffusion-language-models)  
-   标签：评分：9.0/10、query:post-train
-   evidence：扩散语言模型后训练中的在线蒸馏
-11. [Environment-free Synthetic Data Generation for API-Calling Agents](/202607/21/2607.16900v1-environment-free-synthetic-data-generation-for-api-calling-agents)  
+   evidence：基于长上下文的代理记忆与组合推理基准
+5. [Real-World Evaluation of an AI Agent Drafting Translational Impact Summaries](/202607/22/2607.16989v2-real-world-evaluation-of-an-ai-agent-drafting-translational-impact-summaries)  
    标签：评分：9.0/10、query:agent
-   evidence：API调用智能体的合成数据生成
-12. [Reward-Driven LLM Agent Workflows: Synthesizing POMDP Routing and Self-Correction for Autonomous Decision-Making](/202607/21/2607.17038v1-reward-driven-llm-agent-workflows-synthesizing-pomdp-routing-and-self-correction-for-autonomous-decision-making)  
-   标签：评分：9.0/10、query:agent
-   evidence：基于POMDP路由和自校正奖励模型的LLM智能体工作流
-13. [Learning from Synthetic Data without Model Collapse in Iterative Instruction Tuning](/202607/21/2607.17043v1-learning-from-synthetic-data-without-model-collapse-in-iterative-instruction-tuning)  
+   evidence：AI代理起草影响摘要
+6. [Learning from Synthetic Data without Model Collapse in Iterative Instruction Tuning](/202607/22/2607.17043v1-learning-from-synthetic-data-without-model-collapse-in-iterative-instruction-tuning)  
    标签：评分：9.0/10、query:llm-synth
-   evidence：合成数据自我改进指令微调避免模型坍塌
-14. [Otap:Structure-Aware Optimal Transport for Evaluating Planning and Execution in Agent Trajectories](/202607/21/2607.17082v1-otapstructure-aware-optimal-transport-for-evaluating-planning-and-execution-in-agent-trajectories)  
+   evidence：合成指令微调中避免模型坍塌
+7. [A Systematic Evaluation of Trajectory Data Curation for LoRA Fine-Tuning of Code Agents](/202607/22/2607.17205v1-a-systematic-evaluation-of-trajectory-data-curation-for-lora-fine-tuning-of-code-agents)  
    标签：评分：9.0/10、query:agent
-   evidence：使用最优运输评估agent轨迹
-15. [KyrgyzLLM-Bench: Benchmarking Kyrgyz Language Understanding](/202607/21/2607.17173v1-kyrgyzllm-bench-benchmarking-kyrgyz-language-understanding)  
+   evidence：针对代码代理的LoRA微调轨迹数据筛选的系统研究
+8. [Salience Induction against Multi-Hop RAG Agents: Threat and Defense](/202607/22/2607.17535v1-salience-induction-against-multi-hop-rag-agents-threat-and-defense)  
+   标签：评分：9.0/10、query:agent
+   evidence：针对多跳RAG agent的显著性诱导攻击威胁与防御
+9. [Search-on-Graph-R1: Training Large Language Models to Search Knowledge Graphs with Reinforcement Learning](/202607/22/2607.18481v1-search-on-graph-r1-training-large-language-models-to-search-knowledge-graphs-with-reinforcement-learning)  
+   标签：评分：9.0/10、query:agent
+   evidence：使用强化学习训练LLM搜索知识图谱
+10. [OntoBook: Ontology-Grounded Synthetic Textbooks for Medical Encoder Pretraining](/202607/22/2607.18927v1-ontobook-ontology-grounded-synthetic-textbooks-for-medical-encoder-pretraining)  
+   标签：评分：9.0/10、query:llm-synth
+   evidence：使用LLM生成合成数据进行预训练
+11. [Contrastive On-Policy Distillation](/202607/22/2607.19046v1-contrastive-on-policy-distillation)  
+   标签：评分：9.0/10、query:post-train
+   evidence：对比在线蒸馏用于语言模型训练
+12. [Beyond Score Prediction: LLM-Based Essay Scoring and Feedback Generation via Reinforcement Learning with Rubric Rewards](/202607/22/2607.19219v1-beyond-score-prediction-llm-based-essay-scoring-and-feedback-generation-via-reinforcement-learning-with-rubric-rewards)  
+   标签：评分：9.0/10、query:post-train
+   evidence：应用强化学习后训练于LLM的作文评分与反馈生成
+13. [AdaFlash: Adaptive Speculative Decoding via On-Policy Distilled Diffusion Drafters](/202607/22/2607.19223v1-adaflash-adaptive-speculative-decoding-via-on-policy-distilled-diffusion-drafters)  
    标签：评分：9.0/10、query:llm
-   evidence：用于评估LLM在吉尔吉斯语上的新基准套件
-16. [Distilled Reinforcement Learning for LLM Post-training](/202607/21/2607.17247v1-distilled-reinforcement-learning-for-llm-post-training)  
-   标签：评分：9.0/10、query:post-train
-   evidence：蒸馏强化学习用于LLM后训练
-17. [Agentic ERP: Multi-Agent Large Language Model Architecture for Autonomous Enterprise Resource Planning](/202607/21/2607.17331v1-agentic-erp-multi-agent-large-language-model-architecture-for-autonomous-enterprise-resource-planning)  
+   evidence：通过在线蒸馏扩散草稿模型的自适应推测解码
+14. [Graph-Based Agentic AI with LangGraph: Workflow Pathways for Long-Running Stateful Business Processes](/202607/22/2607.19297v1-graph-based-agentic-ai-with-langgraph-workflow-pathways-for-long-running-stateful-business-processes)  
    标签：评分：9.0/10、query:agent
-   evidence：面向自主ERP的多智能体架构
-18. [Adapting Embedding Models for Agent Capability Retrieval](/202607/21/2607.17347v1-adapting-embedding-models-for-agent-capability-retrieval)  
+   evidence：基于图的智能体工作流框架
+15. [Agents in the Wild: Where Research Meets Deployment](/202607/22/2607.19336v1-agents-in-the-wild-where-research-meets-deployment)  
    标签：评分：9.0/10、query:agent
-   evidence：agent能力检索
-19. [C$^2$KV: Compressed and Composable KV Cache Reuse for Efficient LLM Inference](/202607/21/2607.17715v1-c2kv-compressed-and-composable-kv-cache-reuse-for-efficient-llm-inference)  
-   标签：评分：9.0/10、query:llm
-   evidence：KV缓存压缩与复用优化LLM推理
-20. [MagicSelector: Joint Optimization for Agent Tool Selection via Counterfactual Decomposition and Progressive Reranking](/202607/21/2607.17751v1-magicselector-joint-optimization-for-agent-tool-selection-via-counterfactual-decomposition-and-progressive-reranking)  
-   标签：评分：9.0/10、query:agent
-   evidence：智能体工具选择的联合优化
-21. [How Agent Skills Fail under Long Contexts: A White-Box Study in Code Auditing](/202607/21/2607.17937v1-how-agent-skills-fail-under-long-contexts-a-white-box-study-in-code-auditing)  
-   标签：评分：9.0/10、query:agent
-   evidence：长上下文中代码代理技能失效的白盒研究
-22. [MADA-RL: Multi-Agent Debate-Aware Reinforcement Learning for Parameter-Efficient Reasoning in Compact Models](/202607/21/2607.18006v1-mada-rl-multi-agent-debate-aware-reinforcement-learning-for-parameter-efficient-reasoning-in-compact-models)  
-   标签：评分：9.0/10、query:post-train
-   evidence：提出面向紧凑型大语言模型的后训练RL框架，包含辩论感知学习信号
-23. [Test Coverage Analysis of Agentic Pull Requests](/202607/21/2607.18057v1-test-coverage-analysis-of-agentic-pull-requests)  
-   标签：评分：9.0/10、query:agent
-   evidence：分析AI编码代理生成的PR的测试覆盖情况
-24. [Autoresearch with Coding Agents: Generalizers and Metric-Maximizers on Quran Recitation Data](/202607/21/2607.18064v1-autoresearch-with-coding-agents-generalizers-and-metric-maximizers-on-quran-recitation-data)  
-   标签：评分：9.0/10、query:agent
-   evidence：分析编码代理在自动研究中的优化行为
-25. [LLM-as-a-Coach: Experiential Learning for Non-Verifiable Tasks](/202607/21/2607.18110v1-llm-as-a-coach-experiential-learning-for-non-verifiable-tasks)  
-   标签：评分：9.0/10、query:post-train
-   evidence：在线蒸馏用于LLM后训练
-26. [TRIM: Reducing AI-Generated CodeSlop via Agent Trajectory Minimization](/202607/21/2607.18161v1-trim-reducing-ai-generated-codeslop-via-agent-trajectory-minimization)  
-   标签：评分：9.0/10、query:agent
-   evidence：减少编码代理生成代码的冗长性
-27. [OR Else: A Differentiable Trust Region for Policy Optimization](/202607/21/2607.18163v1-or-else-a-differentiable-trust-region-for-policy-optimization)  
-   标签：评分：9.0/10、query:post-train
-   evidence：LLM后训练中可微信任区域策略优化
+   evidence：关于LLM智能体系统部署的综合教程
 
 ### 速读区论文标签
-1. [Multi-Agent LLMs Fail to Explore Each Other](/202607/21/2607.11250v1-multi-agent-llms-fail-to-explore-each-other)  
+1. [CatalogAgent: A Supervisor-mediated Self-Learning System Enabling Context Engineering for GenAI Models](/202607/22/2607.14396v1-catalogagent-a-supervisor-mediated-self-learning-system-enabling-context-engineering-for-genai-models)  
    标签：评分：8.0/10、query:agent
-   evidence：多智能体LLM探索失败原因及MACE框架
-2. [Trust but Verify? Uncovering the Security Debt of Autonomous Coding Agents](/202607/21/2607.12428v2-trust-but-verify-uncovering-the-security-debt-of-autonomous-coding-agents)  
+   evidence：用于目录增强的智能体系统
+2. [SmartRAG: Native Graph-Based RAG for Mobile Device](/202607/22/2607.14661v1-smartrag-native-graph-based-rag-for-mobile-device)  
    标签：评分：8.0/10、query:agent
-   evidence：自主编码代理PR中的安全代码异味实证研究
-3. [EvoGraph-R1: Self-Evolving Multimodal Knowledge Hypergraphs for Agentic Retrieval](/202607/21/2607.12764v1-evograph-r1-self-evolving-multimodal-knowledge-hypergraphs-for-agentic-retrieval)  
+   evidence：设备上代理框架，包含协调模块的智能助手
+3. [SmartRAG: Native Graph-Based RAG for Mobile Device](/202607/22/2607.14661v2-smartrag-native-graph-based-rag-for-mobile-device)  
    标签：评分：8.0/10、query:agent
-   evidence：用于Agent检索的自演进超图
-4. [CatalogAgent: A Supervisor-mediated Self-Learning System Enabling Context Engineering for GenAI Models](/202607/21/2607.14396v1-catalogagent-a-supervisor-mediated-self-learning-system-enabling-context-engineering-for-genai-models)  
+   evidence：设备端智能助手，包含智能体模块
+4. [Human-Robot Interaction in GenAI Architectures via the Agent-Client Protocol](/202607/22/2607.14919v1-human-robot-interaction-in-genai-architectures-via-the-agent-client-protocol)  
    标签：评分：8.0/10、query:agent
-   evidence：用于目录丰富的智能体系统
-5. [Stop Thinking, Start Looking: Efficient Post-Training for Multimodal Document Question Answering via Reasoning-Free Alignment](/202607/21/2607.14682v1-stop-thinking-start-looking-efficient-post-training-for-multimodal-document-question-answering-via-reasoning-free-alignment)  
-   标签：评分：8.0/10、query:post-train
-   evidence：基于强化学习的多模态文档问答后训练，使用GRPO
-6. [NGM-RAG: Neural Graph Matching based Retrieval-Augmented Generation](/202607/21/2607.11159v1-ngm-rag-neural-graph-matching-based-retrieval-augmented-generation)  
-   标签：评分：7.0/10、query:llm
-   evidence：基于图匹配的检索增强生成，提升大语言模型多跳推理
-7. [ProgramTab: Boosting Table Reasoning of LLMs via Programmatic Paradigm](/202607/21/2607.11207v1-programtab-boosting-table-reasoning-of-llms-via-programmatic-paradigm)  
-   标签：评分：7.0/10、query:llm
-   evidence：通过程序化范式提升LLM表格推理
-8. [Operationalising Multi-Dimensional Evaluation for Conversational Agents: A Scalable, Governed Pipeline with Selective Re-evaluation and Model Benchmarking](/202607/21/2607.12085v1-operationalising-multi-dimensional-evaluation-for-conversational-agents-a-scalable-governed-pipeline-with-selective-re-evaluation-and-model-benchmarking)  
+   evidence：机器人中基于代理的编排，提出Agent-Client协议用于人机交互
+5. [DataShield: Uncovering Risky Fine-Tuning Data Across LLMs Through Consensus Subspace Alignment](/202607/22/2607.15081v1-datashield-uncovering-risky-fine-tuning-data-across-llms-through-consensus-subspace-alignment)  
+   标签：评分：8.0/10、query:llm
+   evidence：大语言模型微调数据风险评估
+6. [EvoGraph-R1: Self-Evolving Multimodal Knowledge Hypergraphs for Agentic Retrieval](/202607/22/2607.12764v1-evograph-r1-self-evolving-multimodal-knowledge-hypergraphs-for-agentic-retrieval)  
    标签：评分：7.0/10、query:agent
-   evidence：面向对话代理的可扩展评估管道
-9. [Improving Text-to-Audio Instruction Following via Fine-Grained Feedback from Audio-Aware Large Language Models](/202607/21/2607.13408v1-improving-text-to-audio-instruction-following-via-fine-grained-feedback-from-audio-aware-large-language-models)  
+   evidence：自进化多模态知识超图用于RAG中的智能体检索
+7. [How to Guide LLM Generation: Dual-Surrogate Guided Search for Automated Heuristic Design](/202607/22/2607.13911v1-how-to-guide-llm-generation-dual-surrogate-guided-search-for-automated-heuristic-design)  
+   标签：评分：7.0/10、query:agent
+   evidence：基于LLM的自动化启发式设计，使用代理引导搜索
+8. [HABIB_TAZ at SemEval-2026 Task 11: Disentangling Formal Logic from Content via Synthetic Training and Multi-Objective Optimization](/202607/22/2607.14349v1-habibtaz-at-semeval-2026-task-11-disentangling-formal-logic-from-content-via-synthetic-training-and-multi-objective-optimization)  
+   标签：评分：7.0/10、query:llm-synth
+   evidence：使用合成数据训练逻辑推理
+9. [DS@GT ARC at LongEval: Citation Integrity and Factual Grounding in Scientific QA](/202607/22/2607.14400v1-dsgt-arc-at-longeval-citation-integrity-and-factual-grounding-in-scientific-qa)  
+   标签：评分：7.0/10、query:agent
+   evidence：面向科学问答的RAG流水线，可应用于搜索代理
+10. [Reasoning-Guided Part-Level Visual Grounding via Reinforcement Learning](/202607/22/2607.15374v1-reasoning-guided-part-level-visual-grounding-via-reinforcement-learning)  
    标签：评分：7.0/10、query:post-train
-   evidence：直接偏好优化用于对齐
-10. [Enhancing Small Language Models Reasoning through Knowledge Graph Grounding](/202607/21/2607.14149v1-enhancing-small-language-models-reasoning-through-knowledge-graph-grounding)  
-   标签：评分：7.0/10、query:agent
-   evidence：神经符号agent框架增强小模型推理
-11. [HermesHFL: Incentive-Compatible Hierarchical Federated Unlearning for Dynamic LLM Fine-Tuning](/202607/21/2607.11528v1-hermeshfl-incentive-compatible-hierarchical-federated-unlearning-for-dynamic-llm-fine-tuning)  
+   evidence：强化学习微调多模态大语言模型
+11. [MARS: Multi-hop Adaptive Retrieval and SPARQL Generation for KGQA](/202607/22/2607.14561v1-mars-multi-hop-adaptive-retrieval-and-sparql-generation-for-kgqa)  
    标签：评分：6.0/10、query:llm
-   evidence：LLM微调中的分层联邦遗忘
-12. [LakeQuest: A Three-Domain Benchmark for Grounded Question Answering across Data Lakes](/202607/21/2607.12310v1-lakequest-a-three-domain-benchmark-for-grounded-question-answering-across-data-lakes)  
+   evidence：无需微调的多跳自适应检索与SPARQL生成用于知识图谱问答
+12. [Large Language Models for Code Generation from Multilingual Prompts: A Curated Benchmark and a Study on Code Quality](/202607/22/2607.14816v1-large-language-models-for-code-generation-from-multilingual-prompts-a-curated-benchmark-and-a-study-on-code-quality)  
    标签：评分：6.0/10、query:llm
-   evidence：跨数据湖接地问答的基准测试
-13. [VisCo: Leveraging Large Language Models as Intrinsic Encoders for Visual Token Compression](/202607/21/2607.12756v1-visco-leveraging-large-language-models-as-intrinsic-encoders-for-visual-token-compression)  
+   evidence：多语言提示下代码生成质量的策展基准
+13. [In-Place Tokenizer Expansion for Pre-trained LLMs](/202607/22/2607.15232v1-in-place-tokenizer-expansion-for-pre-trained-llms)  
    标签：评分：6.0/10、query:llm
-   evidence：视觉token压缩以提升推理效率
-14. [DeltaMerge-LowRes: Composing Language and Task Deltas for Low-Resource Adaptation](/202607/21/2607.13967v1-deltamerge-lowres-composing-language-and-task-deltas-for-low-resource-adaptation)  
+   evidence：大语言模型的分词器扩展
+14. [IoUPD: IoU-Aware Privileged Distillation for Visual Grounding with Multimodal Large Language Models](/202607/22/2607.15732v1-ioupd-iou-aware-privileged-distillation-for-visual-grounding-with-multimodal-large-language-models)  
+   标签：评分：6.0/10、query:post-train
+   evidence：多模态大模型的特权蒸馏方法
+15. [Constraint-Anchored Reasoning Traces](/202607/22/2607.16727v1-constraint-anchored-reasoning-traces)  
    标签：评分：6.0/10、query:llm
-   evidence：通过语言和任务增量组合进行微调
-15. [SD-MAR: Multi-image Analytical Reasoning via Synthetic Data and Reinforcement Learning](/202607/21/2607.14333v1-sd-mar-multi-image-analytical-reasoning-via-synthetic-data-and-reinforcement-learning)  
-   标签：评分：6.0/10、query:llm-synth
-   evidence：用于VLM多图像分析推理的合成数据框架
+   evidence：多模态大语言模型推理与符号约束
 
 
 <div class="dpr-home-promo-card">
