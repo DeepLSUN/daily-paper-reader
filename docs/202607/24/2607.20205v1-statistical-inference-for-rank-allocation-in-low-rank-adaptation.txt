@@ -1,0 +1,6351 @@
+Title: Statistical Inference for Rank Allocation in Low-Rank Adaptation
+
+URL Source: https://arxiv.org/pdf/2607.20205v1
+
+Published Time: Thu, 23 Jul 2026 01:15:01 GMT
+
+Number of Pages: 77
+
+Markdown Content:
+# Statistical Inference for Rank Allocation in Low-Rank Adaptation 
+
+## Yihang Gao * Vincent Y. F. Tan †
+
+Abstract 
+
+Low-rank adaptation (LoRA) has become a widely used parameter-efficient fine-tuning method for large language models, owing to its computational efficiency, empirical effectiveness, and ease of implementation. Since different modules and layers may contribute unequally to down-stream adaptation, allocating rank resources under a fixed parameter budget is an important prob-lem for balancing efficiency, expressiveness, and generalization. Existing adaptive rank methods address this problem mainly through carefully designed importance scores constructed from gradient-derived sensitivity and uncertainty measures, without an explicit statistical interpreta-tion. In this paper, we formulate LoRA rank allocation as a statistical hypothesis testing problem and propose StatLoRA, a statistical inference-based rank allocation method. StatLoRA asso-ciates each LoRA component with a test statistic and uses estimated p-values to determine which components should be retained or pruned under a prescribed rank budget. Components with the weakest statistical evidence of contribution are removed first, yielding an allocation rule with explicit uncertainty quantification. The proposed testing procedure is supported by our central limit theory for stochastic optimizer trajectories. In particular, we establish asymptotic normality for a broad class of commonly used optimizers in deep learning, including AdamW, Adam, and Adafactor, and derive the corresponding asymptotic distributions for the proposed component scores used in hypothesis testing. We evaluate StatLoRA on LoRA fine-tuning of DeBERTaV3-base, BART-Large, and Qwen2.5-7B across natural language understanding, natural language generation, and question answering tasks. Experiments show that StatLoRA achieves compara-ble or better performance than vanilla LoRA, AdaLoRA, and IGU-LoRA under matched rank budgets. Sensitivity analyses and empirical diagnostics further support the stability of the pro-posed hypothesis-testing-based allocation rule and provide empirical evidence for the asymptotic theory of component scores. 
+
+# 1 Introduction 
+
+Large language models (LLMs) and related foundation models have demonstrated remarkable capa-bilities across a wide range of applications, including natural language processing [5, 17], computer vision [34, 50], and scientific tasks [40, 54]. Their successful deployment to downstream tasks, es-pecially in professional domains and specialized communities, often relies on fine-tuning to adapt pretrained models to task-specific data and objectives [10, 31]. While full fine-tuning can be effec-tive, updating all model parameters is computationally expensive and memory intensive, particularly 
+
+> *
+
+Department of Mathematics, National University of Singapore. Email: gaoyh@connect.hku.hk 
+
+> †
+
+Department of Mathematics and Department of Electrical and Computer Engineering, National University of Sin-gapore. Email: vtan@nus.edu.sg 
+
+1arXiv:2607.20205v1 [stat.ML] 22 Jul 2026 for modern large-scale scenarios. Parameter-efficient fine-tuning methods alleviate this difficulty by introducing a small number of trainable parameters while keeping most pretrained weights fixed, thereby reducing the computational and storage costs of model adaptation [26, 36]. Among these fine-tuning methods, low-rank adaptation (LoRA) [27] has become a widely used approach due to its simplicity, efficiency, and strong empirical performance. LoRA represents task-specific updates through trainable low-rank matrices inserted into selected model modules, reducing the number of trainable parameters while preserving sufficient adaptation capacity. A central question in LoRA fine-tuning is how to allocate a limited adaptation budget across layers and modules [58, 66]. Different parts of a model may play different roles: some modules may encode general-purpose knowledge that should be largely preserved, whereas others may need stronger adaptation to capture domain-specific information. Since the rank of each LoRA matrix controls the adaptation capacity, an effective allocation should assign more resources to components with strong statistical evidence while avoiding unnecessary over-parameterization. This creates a high-dimensional resource allocation problem under stochastic training dynamics, where observed component scores serve as noisy measures of component contributions and are affected by mini-batch noise and optimizer-induced randomness. From a statistical perspective, adaptive rank alloca-tion should not rely merely on the magnitude of empirical component scores but should also account for the uncertainty in estimating component contributions. Motivated by this viewpoint, this paper develops a statistically principled resource allocation method for LoRA based on hypothesis testing. Due to the matrix factorization structure of LoRA, the adaptation in each module can be decom-posed into a sum of rank-one components. Consequently, allocating the rank budget is equivalent to deciding which rank-one components should be retained or removed across layers and modules. This perspective naturally leads to a component selection problem: each candidate component rep-resents a potential direction of adaptation, and its empirical magnitude reflects the extent to which the pretrained model is modified along that direction. However, during fine-tuning, these quantities are generated by stochastic optimization algorithms and are affected by mini-batch sampling, adap-tive step sizes (learning rates), momentum, and other sources of training noise. Therefore, deciding whether a LoRA component is useful should not be viewed merely as a deterministic ranking prob-lem. Rather, it can be formulated as a statistical inference problem in which one seeks to distinguish genuine adaptation signals from stochastic observations. Several adaptive-rank methods have been proposed to address LoRA rank allocation. AdaLoRA [66] is among the first methods to explicitly identify the importance of adaptive resource allocation and develops a practical procedure based on component-wise importance scores. These scores are constructed from gradient-derived sensitivity measures and smoothed magnitude information, with gradients interpreted as indicators of how sensitive the training objective is to each component. More recently, IGU-LoRA [14] further refined this idea by incorporating uncertainty-aware and layer-wise grouping corrections into the component importance measure, aiming to stabilize rank allocation under noisy training dynamics, inspired by signal-to-noise ratio. Other automatic rank allocation methods include dynamic rank training [58], gating-based rank allocation [38], and meta-learning-based rank selection [67]. Although these methods are empirically effective, their importance scores are constructed through carefully designed combinations of gradient-based magnitude and sensitiv-ity. Such combinations are intuitively motivated by stochasticity in training dynamics, but they are not derived from an explicit statistical model, an optimization criterion, or a sampling distribution for the component signals. In particular, they do not provide p-values, error control, or a formal criterion for determining whether an observed component signal is distinguishable from stochas-tic optimization noise. Bayesian approaches provide another route to uncertainty-aware fine-tuning 2by placing prior distributions on model parameters and using posterior inference to quantify uncer-tainty [3, 47]. Recent Bayesian variants of LoRA adapt this idea to parameter-efficient fine-tuning by treating LoRA parameters or low-rank adaptation components as random variables and approx-imating their posterior distributions [18, 63]. However, these methods typically modify the training procedure by introducing priors, variational approximations, and posterior sampling, which may in-crease computational cost and alter the optimization dynamics of standard LoRA fine-tuning. These limitations motivate the development of a framework that preserves the standard training procedure while providing statistical decisions for rank allocation. 
+
+## 1.1 Overview: Statistical Inference for Rank Allocation 
+
+In this paper, we address LoRA rank allocation through a statistical inference framework. The central question is to determine which rank-one LoRA components provide sufficient statistical evidence of contribution to downstream adaptation. Let s⋆ℓ,j denote the importance score of the j-th component in the ℓ-th module, where ℓ = 1 , · · · , L and j = 1 , · · · , r . This score measures the contribution of the corresponding rank-one update, with larger values indicating stronger evidence for retaining the component. In practice, s⋆ℓ,j is not directly observed and must be estimated from the stochastic train-ing trajectory. Since LoRA fine-tuning involves mini-batch sampling, momentum, and adaptive step sizes, the resulting empirical component scores are random quantities generated by the optimizer dynamics. This observation motivates a statistical formulation of rank allocation. Instead of treat-ing empirical component scores as deterministic measures of importance, we view them as noisy estimates of underlying adaptation signals and make retain-or-prune decisions through hypothesis testing. Specifically, for a pre-specified threshold ∆ > 0, we consider the one-sided hypothesis testing problem 
+
+H0 
+
+> ℓ,j
+
+: s⋆ℓ,j ≥ ∆ versus H1 
+
+> ℓ,j
+
+: s⋆ℓ,j < ∆. (1) Here, the null hypothesis represents the event that the component has a sufficient contribution to be retained, whereas the alternative represents that its contribution falls below the threshold. Under this formulation, components with strong evidence against H0 
+
+> ℓ,j
+
+are removed first until the prescribed rank budget is reached. The key step in implementing this testing procedure is to characterize the distribution of score es-timates for components along the training trajectory. Motivated by asymptotic theory for stochastic approximation and stochastic gradient descent [30,49], we establish central limit theory for adaptive optimizers commonly used in LoRA fine-tuning, including AdamW [39], Adam [28], and Adafac-tor [53]. In particular, for the optimizer state or iterate sequence {zt}, we show that, under suitable regularity conditions, 
+
+γ−1/2 
+
+> t
+
+(zt − z⋆) d
+
+−→ N (0, Σ) , (2) and the Polyak–Ruppert average trajectory satisfies 
+
+√t 1
+
+t
+
+> t
+
+X 
+
+> τ=1
+
+zτ − z⋆
+
+!
+
+> d
+
+−→ N (0, Ω) , (3) where z⋆ denotes the limiting point of the optimizer dynamics, {γt} denotes the step-size sequence, and Σ, Ω ⪰ 0 are covariance matrices determined by the local curvature, stochastic gradient noise, and optimizer-specific dynamics. 3We define the empirical component score sℓ,j (t), which is an estimator for s⋆ℓ,j , as a function of the current iterate zt at time step t, then the delta method further yields the weak convergence 
+
+√t 1
+
+t
+
+> t
+
+X 
+
+> τ=1
+
+sℓ,j (τ ) − s⋆ℓ,j 
+
+!
+
+> d
+
+−→ N  0, ¯σ2
+
+> ℓ,j
+
+ , (4) where ¯σ2 
+
+> ℓ,j
+
+depends on the covariance Ω and the form of the component score function. Based on (4), we construct the test statistic in the boundary case 
+
+Tℓ,j (t) = 
+
+√t  1
+
+> t
+
+Ptτ =1 sℓ,j (τ ) − ∆b¯σℓ,j 
+
+,
+
+where b¯σℓ,j is estimated from the historical score trajectory using the batch-means estimator. The corresponding one-sided p-value is given by 
+
+pℓ,j (t) = Φ ( Tℓ,j (t)) ,
+
+where Φ( ·) denotes the cumulative distribution function of the standard normal distribution. A small p-value provides evidence against the null hypothesis, indicating that the component has insufficient statistical evidence for retention relative to the threshold ∆.This leads to our proposed method, StatLoRA, which integrates statistical inference with adap-tive LoRA rank allocation. Compared with existing methods, StatLoRA provides a statistically interpretable decision rule for component selection while preserving the standard LoRA training procedure. In particular, it does not require modifying the training loss, changing the model param-eterization, or altering the optimizer dynamics. Instead, it uses the stochastic trajectory and score quantities already generated during training to estimate the uncertainty of component contributions and guide retain-or-prune decisions. 
+
+## 1.2 Related Literature and Contributions 
+
+Our theoretical development is closely related to the asymptotic theory of stochastic approxima-tion and stochastic optimization [4, 51]. Classical results on Polyak–Ruppert averaging establish asymptotic normality and optimal covariance properties for averaged stochastic approximation re-cursions, with averaged stochastic gradient descent as a central example [49,52]. Subsequent studies have developed central limit theory and asymptotic distributions for stochastic quasi-Newton [32], non-smooth [15], constrained [19], and inexact [44] methods. These distributional results pro-vide a basis for statistical inference from optimization trajectories, including uncertainty quantifi-cation [56, 57, 62], confidence intervals [8, 20, 35], hypothesis testing [7, 9], and convergence di-agnostics [6, 13]. However, most existing statistical inference results focus on standard stochastic gradient methods and their averaged variants. Modern deep learning, such as LoRA fine-tuning, in contrast, is typically performed with adaptive optimizers such as AdamW [39], Adam [28], and Adafactor [53], whose momentum terms, coordinate-wise scaling, and adaptive learning rates lead to more complex stochastic dynamics. Our work extends this literature by establishing central limit theory for iterates generated by adaptive optimizers and by using the resulting asymptotic distribu-tions to construct hypothesis tests for LoRA rank allocation. The main contributions of this paper are summarized as follows: 4• We formulate adaptive rank allocation for LoRA as a component-wise statistical hypothesis testing problem, providing a statistical inference perspective on LoRA resource allocation under stochastic training dynamics. • We establish central limit theory for the trajectories of adaptive optimizers commonly used in deep learning and large-scale LLM fine-tuning, including AdamW, Adam, and Adafactor, un-der suitable regularity conditions. These results provide asymptotic distributions for optimizer states and, through the delta method, for empirical LoRA component scores. • We propose StatLoRA, a practical inference-based rank allocation algorithm that uses the derived asymptotic distributions to quantify uncertainty in component scores. Under a pre-scribed total rank budget, StatLoRA retains components with sufficient statistical evidence for contribution and prunes components with weak evidence for retention. • We conduct experiments on LoRA fine-tuning with DeBERTaV3-base, BART-Large, and Qwen2.5-7B across natural language understanding, natural language generation, and question answering tasks. The results show that StatLoRA achieves competitive performance compared with vanilla LoRA, AdaLoRA, and IGU-LoRA under matched rank budgets. We further con-duct sensitivity analyses for the statistical hyperparameters, examine the stability of the rank allocation, and provide empirical diagnostics for the asymptotic normality of the empirical component scores. 
+
+## 1.3 Organization and Notation 
+
+The remainder of this paper is organized as follows. Section 2 introduces the background on LoRA fine-tuning and formulates LoRA rank allocation as a hypothesis testing problem on each compo-nent. Section 3 develops asymptotic theory for adaptive optimizers commonly used in deep learning, with particular emphasis on AdamW. Section 4 derives central limit results for empirical component scores and presents the proposed StatLoRA algorithm, including practical variance estimation and p-value construction. Section 5 reports the experimental results. Section 6 concludes the paper and discusses possible directions for future work. Throughout this paper, we use lowercase letters, bold lowercase letters, and bold uppercase let-ters, such as a, a, and A, to denote scalars, vectors, and matrices, respectively. The notation ∥ · ∥ 
+
+represents the Euclidean norm for vectors and the spectral norm for matrices, while ∥ · ∥ F denotes the Frobenius norm. For two deterministic positive sequences {at} and {bt}, we write at = o(bt) if 
+
+at/b t → 0, and at = O(bt) if at/b t is bounded. For random sequences {Xt} and positive determin-istic sequences {at}, we write Xt = op(at) if Xt/a t → 0 in probability, and Xt = Op(at) if Xt/a t is bounded in probability. For vector- or matrix-valued quantities, these asymptotic notations are un-derstood with respect to the norm ∥ · ∥ . For vectors a, b ∈ Rd, we use a ⊙ b to denote the Hadamard product, i.e., element-wise multiplication. In particular, a⊙2 := a ⊙ a denotes the element-wise square of a. Other vector operations, including √a, a/b, and a + ϵ, are understood entry-wise whenever they appear. Moreover, for a vector a ∈ Rd, diag( a) ∈ Rd×d denotes the diagonal matrix whose diagonal entries are given by the entries of a. When stochastic processes are involved, all random variables are defined on a filtered probability space (Ω , F, {F t}t≥0, P), where {F t}t≥0 is an increasing sequence of sub-σ-algebras of F. Here, Ft represents the information available before the stochastic update at iteration t. The notation E[· | F t] denotes conditional expectation with respect to Ft.52 LoRA Rank Allocation as a Statistical Decision Problem 
+
+In this section, we first review the basic formulation of LoRA and the associated rank allocation problem. We then use the rank-one decomposition of LoRA updates to show that rank allocation can be represented as a component selection problem. Unlike existing methods that primarily rely on various designs of importance measures, we formulate component selection as a statistical decision problem and introduce a hypothesis testing framework for LoRA rank allocation. 
+
+## 2.1 Low-Rank Adaptation and Rank Allocation 
+
+In transfer learning, a fine-tuned parameter matrix Wft is obtained by adapting a pretrained parameter matrix Wpt :
+
+Wft = Wpt + ∆ W ,
+
+where Wft , Wpt , ∆W ∈ Rn1×n2 . Standard full fine-tuning directly updates the entire adaptation matrix ∆W , providing full flexibility on the adaptation matrix ∆W , but incurring substantial com-putational, memory, and storage costs. Low-rank adaptation (LoRA) [27] addresses this issue by imposing a low-rank structure on the adaptation matrix. Specifically, the update is parameterized as 
+
+∆W = BA ,
+
+where A ∈ Rr×n2 , B ∈ Rn1×r, and r ≪ min {n1, n 2}. Instead of training a full matrix of size n1n2,LoRA only updates the factor matrices A and B, reducing the number of trainable parameters to 
+
+r(n1 + n2). Beyond computational efficiency, the low-rank parameterization restricts adaptation to a lower-dimensional subspace, which can serve as an implicit regularization mechanism and improve the stability and generalization of fine-tuning [41, 65, 68]. For LoRA-based fine-tuning of a multi-layer neural network ϕ(·; Θ) , such as a transformer-based large language model [60], let Θ := {W1, W2, · · · , WL} denote the collection of parameter matri-ces to which LoRA is applied. For the ℓ-th parameter matrix, LoRA takes the form 
+
+Wft ,ℓ = Wpt ,ℓ + ∆ Wℓ = Wpt ,ℓ + BℓAℓ, (5) where Wft ,ℓ , Wpt ,ℓ , and ∆Wℓ ∈ Rn×n denote the fine-tuned parameter matrix, the pretrained param-eter matrix, and the adaptation matrix, respectively. Here Aℓ ∈ Rr×n and Bℓ ∈ Rn×r are the LoRA factor matrices associated with the ℓ-th parameter matrix. For notational simplicity, we present the formulation for square matrices of size n×n, and the same discussion extends directly to rectangular matrices. Since different layers and modules may play different roles in the neural network, a uniform rank allocation across all parameter matrices may be inefficient [66]. Some modules may encode general-purpose knowledge that should be largely preserved, whereas others may require stronger adaptation to capture task-specific or domain-specific information. Consequently, a small rank may be suffi-cient for some parameter matrices, while a larger rank may be needed for others. On the other hand, assigning unnecessarily large ranks can increase computational cost and may introduce excessive flexibility, potentially harming stability and generalization. In many standard LoRA implementa-tions, these ranks are treated as fixed hyperparameters, which may lead to suboptimal performance. This motivates rank allocation, which allows different layers or modules to use different ranks rather than imposing a uniform rank across the model [14, 58]. Several methods have been proposed for automatic rank allocation in LoRA fine-tuning [38, 58, 67]. AdaLoRA [66] is a pioneering work in this direction, introducing a budget allocation procedure 6based on importance scores for rank-one components in the LoRA update BℓAℓ. Its score construc-tion uses gradient-derived sensitivity and magnitude information to identify components that are likely to contribute more to model adaptation. More recently, IGU-LoRA [14] further refines compo-nent scoring by incorporating integrated-gradient information within the layer and uncertainty-aware adjustments, with the goal of stabilizing importance estimation under noisy training dynamics. Al-though these methods are empirically useful, their importance scores are typically constructed using a carefully designed combination of gradient magnitude and sensitivity. Such scoring rules are in-tuitively motivated by stochasticity in training dynamics, but they are not derived from an explicit statistical model, a statistical inference criterion, or a sampling distribution for component signals. As a result, it remains unclear how to interpret the numerical value of such scores, how to compare them across layers and modules, or how to distinguish genuine adaptation signals from optimizer-induced stochastic noise. 
+
+## 2.2 Statistical Formulation of LoRA Rank Allocation 
+
+We now formulate the LoRA rank allocation as a statistical decision problem. Suppose that, for each layer or module ℓ, LoRA is initialized with a relatively large rank r. The adaptation matrix can then be decomposed into a sum of rank-one components: 
+
+∆Wℓ = BℓAℓ =
+
+> r
+
+X
+
+> j=1
+
+bℓ,j a⊤ 
+
+> ℓ,j
+
+, (6) where bℓ,j ∈ Rn denotes the j-th column of Bℓ, and a⊤ 
+
+> ℓ,j
+
+∈ R1×n denotes the j-th row of Aℓ. Thus, each product bℓ,j a⊤ 
+
+> ℓ,j
+
+represents a rank-one adaptation component. Under this decomposition, rank allocation can be viewed as selecting which rank-one compo-nents should be retained or removed. Let rℓ ≤ r denote the number of retained components in the 
+
+ℓ-th module. Given a total rank budget R, the selected ranks are required to satisfy 
+
+> L
+
+X
+
+> ℓ=1
+
+rℓ ≤ R. 
+
+Equivalently, among the rL candidate rank-one components bℓ,j a⊤ 
+
+> ℓ,j
+
+, for ℓ = 1 , · · · , L and j =1, · · · , r , one needs to select at most R components to retain while removing the rest. Exhaus-tively searching over all possible subsets is computationally infeasible, since the search space grows combinatorially with rL . Moreover, evaluating the downstream performance of many candidate al-locations would require repeated fine-tuning or validation, which is computationally expensive for large language models. To avoid such an exhaustive search, we propose to make component-wise decisions through statistical inference. Let 
+
+∆W ⋆ℓ,j = b⋆ℓ,j a⋆⊤
+
+> ℓ,j
+
+denote the j-th rank-one component in the ℓ-th module. Here, the superscript ⋆ refers to the limiting value of the corresponding LoRA components under the stochastic fine-tuning dynamics, rather than to an observed finite-iteration estimate. In this sense, ∆W ⋆ℓ,j plays the role of the population-level target component in the LoRA framework. We measure the strength of this component and define the population score by the squared Frobenius norm 
+
+s⋆ℓ,j = ∆W ⋆ℓ,j  
+
+> 2F
+
+= b⋆ℓ,j a⋆⊤ 
+
+> ℓ,j
+> 2F
+
+= b⋆ℓ,j  
+
+> 2
+
+· a⋆ℓ,j  
+
+> 2
+
+. (7) 7The quantity s⋆ℓ,j represents the underlying adaptation signal of the corresponding component. In practice, however, s⋆ℓ,j is not directly observed. We only observe empirical estimates generated along the stochastic training trajectory, which are affected by mini-batch sampling, optimizer momentum, and adaptive step sizes. We therefore formulate component selection through the following one-sided hypothesis test. For a pre-specified threshold ∆ > 0, consider 
+
+H0 
+
+> ℓ,j
+
+: s⋆ℓ,j ≥ ∆ versus H1 
+
+> ℓ,j
+
+: s⋆ℓ,j < ∆. (8) Here, the null hypothesis represents that the component has a sufficiently large adaptation signal and should be retained, while the alternative represents that its contribution falls below the threshold. This choice of hypotheses is aligned with the pruning objective: a small p-value provides evidence against H0 
+
+> ℓ,j
+
+, suggesting that the corresponding component has insufficient statistical evidence for retention relative to ∆. Given the total rank budget R, we compute p-values for all candidate com-ponents and prune those with the strongest evidence against the null hypothesis until the budget constraint is satisfied. The remaining key ingredient is the distribution of the empirical component scores, which will be defined later. Since the exact scores s⋆ℓ,j are inaccessible, they must be estimated from the iterates generated during LoRA fine-tuning. This is nontrivial because the training trajectory is a complex stochastic process affected by mini-batch sampling, momentum, coordinate-wise scaling, and adap-tive step sizes. As a result, the empirical component scores, being functions of these iterates, inherit the uncertainty and temporal dependence induced by the training dynamics. If this uncertainty can be characterized through an asymptotic distribution of the empirical score process, then the hypothesis test in (8) can be implemented using estimated p-values. Thus, the central theoretical question is to characterize the asymptotic distribution of iterates generated by commonly used adaptive optimizers in LoRA fine-tuning, and then to transfer this distributional result to component score estimates. We address this question in the next section by first establishing central limit theory for stochastic opti-mizer trajectories and then applying the delta method to obtain asymptotic distributions for empirical component scores. 
+
+# 3 Asymptotic Theory for Stochastic Optimization 
+
+To implement the hypothesis testing framework in (8), we need to characterize the distributional be-havior of the quantities generated during LoRA fine-tuning. In this section, we study the asymptotic distribution of iterates produced by stochastic optimization algorithms commonly used in LoRA fine-tuning of LLMs, including AdamW, Adam, and Adafactor. We first develop a general central limit theory for stochastic approximation recursions. We then show that these adaptive optimiz-ers can be represented within this framework by introducing suitable augmented state variables and optimizer-specific mean fields. These results provide the distributional foundation for the component score inference developed in the next section. 
+
+## 3.1 General Stochastic Recursion 
+
+We consider the stochastic optimization problem 
+
+min 
+
+> x∈Rd
+
+f (x) := Eζ∼P [L(x; ζ)] , (9) 8where ζ denotes a random observation or mini-batch drawn from a sampling distribution P. The loss function L(x; ζ) is evaluated at the given sample ζ, and f : Rd → R is the population objective, assumed to be continuously differentiable. The formulation in (9) covers a broad class of problems arising in statistical learning and machine learning. In deep learning, x denotes the collection of trainable parameters of a neural network, L (x; ζ) is the loss function evaluated at mini-batches of samples, and f (x) is the corresponding population risk or expected training loss [23]. In statistical learning, x may represent the parameters of a statistical model, L (x; ζ) may correspond to a negative log-likelihood or a regularized risk evaluated at a data sample, and f (x) is the population objective associated with an M -estimator or expected risk minimization [59]. We use zt to denote the algorithmic state at iteration t for a stochastic optimization algorithm applied to (9). The parameter vector xt can be recovered from zt, while zt may also include auxil-iary variables needed to describe the algorithmic dynamics, such as momentum or adaptive second-moment estimates. We consider the following general stochastic approximation recursion: 
+
+zt+1 = zt + γt (F (zt) + ξt + rt) , (10) where t ∈ N, F represents the mean field (or drift) of the algorithm, ξt denotes the stochastic noise in the update direction, and rt represents a remainder term, accounting for approximation errors or additional algorithmic effects not captured by the leading mean field F . The step-size sequence is chosen as 
+
+γt = γ0t−κ, κ ∈ (1 /2, 1) , (11) where γ0 > 0. This corresponds to a polynomially decaying (or power-law) step size schedule. To characterize the uncertainty and asymptotic behavior of the stochastic recursion (10) under the step-size schedule (11), we impose the following regularity assumptions on the mean dynamics, stochastic noise, and remainder terms. 
+
+Assumption 1. The following conditions hold. (A1) Almost sure convergence to a limit. There exists a point z⋆ such that 
+
+F (z⋆) = 0,
+
+and zt → z⋆ almost surely as t → ∞ .(A2) Local differentiability of the mean field. The mean field F : Rd → Rd is continuously differ-entiable and ∇F is locally Lipschitz in a neighborhood of z⋆. Let 
+
+J := ∇F (z⋆).
+
+Then F (z⋆ + e) = F (z⋆) + Je + ρ(e), where 
+
+∥ρ(e)∥ = O(∥e∥2), as e → 0.
+
+(A3) Martingale-difference noise with bounded (2 + δ)-moment. With respect to the pre-update filtration {F t}, the noise sequence {ξt} satisfies 
+
+E[ξt | F t] = 0.
+
+Moreover, for some δ > 0,
+
+sup 
+
+> t≥0
+
+E ∥ξt∥2+ δ | F t
+
+ < ∞, a.s. 
+
+9(A4) Asymptotic conditional covariance. There exists a positive semidefinite matrix Q such that 
+
+E[ξtξ⊤ 
+
+> t
+
+| F t] → Q, a.s. (A5) Stability of the linearized dynamics. The Jacobian J is Hurwitz; that is, all eigenvalues of J
+
+have strictly negative real parts. (A6) Negligible remainder. The remainder term rt in (10) satisfies 
+
+E[∥rt∥2 | F t] = O(γ2 
+
+> t
+
+), a.s. 
+
+Remarks. Assumption 1 collects standard regularity conditions for deriving asymptotic normality of stochastic approximation recursions. Their roles are summarized as follows: (A1) The convergence condition localizes the analysis around a limiting point z⋆, so that the local distributional behavior of the iterates can be studied after convergence. (A2) The differentiability condition justifies a local linear approximation of the mean field F near 
+
+z⋆. The Jacobian J = ∇F (z⋆) determines the leading deterministic dynamics. (A3) The martingale-difference and moment conditions control the stochastic noise. They are standard requirements for martingale central limit arguments and tail control. (A4) The covariance condition ensures that the conditional covariance of the noise has a well-defined asymptotic limit, which determines the noise level in the limiting distribution. (A5) The stability condition requires the linearized mean dynamics to be locally attracting, ensur-ing that the deterministic drift pulls the iterates toward the limiting point. (A6) The remainder condition ensures that remainder terms are asymptotically negligible and do not affect the leading mean field and the limiting distribution. Overall, these assumptions are standard in central limit theory for stochastic approximation and stochastic optimization [8, 9, 15, 19, 44]. 
+
+Theorem 1 (Central limit theorem for the general stochastic recursion) . Under Assumptions (A1)– (A6) in Assumption 1, the stochastic approximation sequence {zt} generated by (10) with step sizes 
+
+γt = γ0t−κ, γ0 > 0, and κ ∈ (1 /2, 1) , is asymptotically normal around the limiting point z⋆. More precisely, we have 
+
+γ−1/2 
+
+> t
+
+(zt − z⋆) d
+
+−→ N (0, Σ), (12) 
+
+where the covariance matrix Σ is characterized as the unique positive semidefinite solution to the Lyapunov equation 
+
+JΣ + ΣJ⊤ + Q = 0. (13) 
+
+Moreover, the Polyak–Ruppert averaged iterate ¯zt = 1
+
+> t
+
+Ptτ =1 zτ satisfies 
+
+√t( ¯ zt − z⋆) d
+
+−→ N (0, J−1QJ −⊤ ). (14) 
+
+Proof sketch. The detailed proof is provided in Appendix A.3. We briefly summarize the main argument. Let et = zt − z⋆. By the local expansion of F around z⋆, the recursion can be written as 
+
+et+1 = ( I + γtJ)et + γtξt + γtO(∥et∥2)
+
+| {z }
+
+> Taylor remainder
+
++ γtrt
+
+|{z} 
+
+> original remainder
+
+.
+
+Under Assumptions (A1)–(A6), the Taylor remainder term and the original remainder term rt are asymptotically negligible. Hence, the leading term is governed by a stable linear stochastic recursion 10 driven by martingale-difference noise. Applying a martingale central limit theorem to the resulting weighted martingale array gives the asymptotic normality of γ−1/2 
+
+> t
+
+(zt − z⋆), with covariance char-acterized by the Lyapunov equation (see Lemma 4). For the Polyak–Ruppert average, summing the linearized recursion results in the asymptotic representation 
+
+√t( ¯ zt − z⋆) = −J−1 1
+
+√t
+
+> t
+
+X 
+
+> τ=1
+
+ξτ + op(1) .
+
+The martingale central limit theorem, together with Slutsky’s theorem, then implies the stated aver-aged central limit theorem. Theorem 1 provides the limiting distributions for the stochastic recursion (10). Such results are classical in stochastic approximation theory and are closely related to Polyak–Ruppert averaging and asymptotic normality for stochastic recursive algorithms [4, 30, 49]. The theorem shows that, under standard local regularity and stability conditions, both the last iterate and the Polyak–Ruppert averaged iterate admit Gaussian limits after appropriate normalization. These results provide the the-oretical foundation for studying the local asymptotic behavior of stochastic optimization algorithms. In the remainder of this section, we show how several adaptive optimizers used in LoRA fine-tuning can be represented in the form of (10), and derive their corresponding asymptotic distributions. 
+
+## 3.2 Central Limit Theory for AdamW 
+
+We next specialize the general stochastic approximation framework to AdamW, a widely used adap-tive optimizer in deep learning and LoRA fine-tuning [39]. Consider applying AdamW to the stochastic optimization problem in (9), where the population gradient is observed through stochastic gradient estimates. The updates are given by 
+
+mt+1 = (1 − αt)mt + αtgt,
+
+vt+1 = (1 − βt)vt + βtg⊙2 
+
+> t
+
+,
+
+xt+1 = xt − γt
+
+mt+1 
+
+√vt+1 + ε − γtλxt,
+
+(15) where gt := ∇L (xt; ζt) denotes the stochastic gradient evaluated at xt with data sample ζt, αt = αγ t
+
+and βt = βγ t are step sizes for momentum terms with α, β > 0, λ > 0 is the weight decay parameter, 
+
+γt is the step size as defined in (11), and ε > 0 is a numerical stabilization constant. Here, mt and vt
+
+denote the first- and second-moment variables, respectively. All vector operations in (15), including division and square root, are understood element-wise. We define the augmented state variable 
+
+zt := ( xt, mt, vt) ∈ R3d. (16) Let ∇f (xt) denote the population gradient at xt. The stochastic gradient is written as 
+
+gt = ∇L (xt; ζt) = ∇f (xt) + ξ(g) 
+
+> t
+
+,
+
+where ξ(g) 
+
+> t
+
+:= ∇L (xt; ζt) − ∇ f (xt) is the stochastic gradient noise. We assume that the stochastic gradient is conditionally unbiased with respect to the pre-update filtration Ft, that is, 
+
+E
+
+h
+
+ξ(g) 
+
+> t
+
+| F t
+
+i
+
+= 0, E [∇L (xt; ζt) | F t] = ∇f (xt).
+
+11 This corresponds to the standard mini-batch setting in stochastic optimization, where the mini-batch is sampled conditionally independently given the current iterate, such as neural network training and fine-tuning [23]. We define the second-moment function of the stochastic gradient by 
+
+q(x) := E ∇L (x; ζ)⊙2 . (17) Then the first- and second-moment updates in (15) can be written as 
+
+mt+1 = mt + αt
+
+ ∇f (xt) − mt
+
+ + αtξ(g) 
+
+> t
+
+,
+
+vt+1 = vt + βt
+
+ q(xt) − vt
+
+ + βt
+
+
+
+2∇f (xt) ⊙ ξ(g) 
+
+> t
+
++ ξ(g)⊙2 
+
+> t
+
+− E
+
+h
+
+ξ(g)⊙2 
+
+> t
+
+| F t
+
+i 
+
+.
+
+The parameter update can be rewritten as 
+
+xt+1 = xt + γt
+
+
+
+− mt
+
+√vt + ε − λxt
+
+
+
++ γtr(x) 
+
+> t
+
+,
+
+where 
+
+r(x) 
+
+> t
+
+= mt
+
+√vt + ε − mt+1 
+
+√vt+1 + ε
+
+collects the correction caused by replacing (mt+1 , vt+1 ) with (mt, vt) in the leading drift. Therefore, AdamW can be represented in the form of the general stochastic recursion (10). Specifically, for z = ( x, m, v), the mean-field mapping F : R3d → R3d is 
+
+F (z) = 
+
+
+
+− m
+
+√v + ε − λx
+
+α ∇f (x) − m
+
+β q(x) − v . (18) The martingale noise is given by 
+
+ξt =
+
+
+
+0
+
+αξ(g)
+
+> t
+
+β
+
+
+
+2∇f (xt) ⊙ ξ(g) 
+
+> t
+
++ ˆξ(g)
+
+> t
+
+ , (19) where ˆξ(g) 
+
+> t
+
+= ξ(g)⊙2 
+
+> t
+
+− E
+
+h
+
+ξ(g)⊙2 
+
+> t
+
+| F t
+
+i
+
+, (20) and the remainder term is 
+
+rt =
+
+r(x)
+
+> t
+
+00
+
+ . (21) Consequently, the AdamW iteration admits the stochastic approximation representation (10), with mean field, martingale noise, and remainder term given by (18), (19), and (21), respectively. The following proposition verifies the convergence condition and local stability requirement in Assumption 1 for the AdamW mean-field dynamics. Due to the decoupled weight decay term in (15), the limiting point of AdamW does not necessarily coincide with a stationary point of the population objective f , which differs from optimizers without decoupled weight decay. We further characterize the Jacobian of the AdamW mean field at the limiting point and provide a sufficient condition under which the local stability condition in Assumption (A5) holds. The proof is available in Appendix D.3. 12 Proposition 1. Consider the AdamW algorithm and its mean-field mapping in (18) . The following statements hold. 1. Let z⋆ = ( x⋆, m⋆, v⋆) satisfies the AdamW mean-field equation F (z⋆) = 0. Then, 
+
+m⋆ = ∇f (x⋆), v⋆ = q(x⋆), (22) 
+
+and x⋆ satisfies 
+
+∇f (x⋆)
+
+√v⋆ + ε + λx⋆ = 0. (23) 
+
+2. Suppose that the i-th entry of the vector v⋆ is nonzero for all i = 1 , . . . , d , i.e., v⋆i > 0, and define 
+
+D⋆ := diag 
+
+ 1
+
+√v⋆ + ε
+
+
+
+,
+
+C⋆ := diag 
+
+ m⋆
+
+2√v⋆(√v⋆ + ε)⊙2
+
+
+
+,
+
+where all vector operations are understood entry-wise. Then the Jacobian matrix of the AdamW mean field at z⋆ is 
+
+J =
+
+
+
+−λId −D⋆ C⋆
+
+α∇2f (x⋆) −αId 0
+
+β∇q(x⋆) 0 −βId
+
+ . (24) 
+
+Moreover, suppose that ∇2f (x⋆) ≻ 0, then there exists ϵ > 0 such that if ∥∇ f (x⋆)∥ < ϵ , the Jacobian matrix J in (24) is Hurwitz. 
+
+We now specialize Assumption 1 to the AdamW recursion in (15). The following conditions pro-vide optimizer-specific regularity assumptions under which AdamW fits into the general stochastic approximation framework. 
+
+Assumption 2. For the AdamW algorithm (15) , the following conditions hold. (B1) Almost sure convergence. The augmented iterate zt = ( xt, mt, vt) converges almost surely to a point 
+
+z⋆ = ( x⋆, m⋆, v⋆),
+
+satisfying (22) and (23) . Moreover, each entry of v⋆ = q(x⋆) is strictly positive. (B2) Local smoothness. The population objective f is twice continuously differentiable, the Hes-sian ∇2f is Lipschitz continuous, the second-moment function 
+
+q(x) = E ∇L (x; ζ)⊙2
+
+is continuously differentiable, and ∇q is Lipschitz continuous in a neighborhood of x⋆.(B3) Gradient noise with bounded moments. The stochastic gradient noise {ξ(g) 
+
+> t
+
+} is a martingale-difference sequence with respect to the pre-update filtration {F t}, namely 
+
+E
+
+h
+
+ξ(g) 
+
+> t
+
+| F t
+
+i
+
+= 0.
+
+Moreover, there exists δ > 0 such that 
+
+sup 
+
+> t≥1
+
+E
+
+h
+
+∥ξ(g) 
+
+> t
+
+∥4+ δ | F t
+
+i
+
+< ∞, a.s. 
+
+13 (B4) Asymptotic conditional covariance. There exist positive semidefinite matrices Q(g) and 
+
+bQ(g), and a matrix R(g), such that 
+
+E
+
+h
+
+ξ(g) 
+
+> t
+
+ξ(g)⊤ 
+
+> t
+
+| F t
+
+i
+
+→ Q(g), a.s. ,
+
+E
+
+h bξ(g) 
+
+> t
+
+bξ(g)⊤ 
+
+> t
+
+| F t
+
+i
+
+→ bQ(g), a.s. ,
+
+and 
+
+E
+
+h
+
+ξ(g) 
+
+> t
+
+bξ(g)⊤ 
+
+> t
+
+| F t
+
+i
+
+→ R(g), a.s. Here, bξ(g) 
+
+> t
+
+is defined in (20) .(B5) Stability of the linearized dynamics. The Jacobian matrix J defined in (24) is Hurwitz; that is, all eigenvalues of J have strictly negative real parts. 
+
+Remarks. The above conditions are sufficient to verify Assumption 1 for the AdamW recursion defined by (18), (19), and (21). Their roles are analogous to those discussed after Assumption 1, and we therefore do not repeat the full discussion here. We only highlight two AdamW-specific points. First, the bounded (4 + δ)-moment condition on the stochastic gradient noise is required because the second-moment update in (15) involves squared stochastic gradients. Second, the conditional co-variance assumptions in (B4) require the noise structure, including the second-order gradient noise, to stabilize asymptotically. These conditions allow the local behavior of the AdamW iterates to be characterized through the central limit theory for the augmented stochastic recursion. 
+
+Theorem 2 (Central limit theorem for AdamW) . Suppose that Assumption 2 holds. Then Assump-tions (A1)–(A6) in Assumption 1 are satisfied for the AdamW iterates (16) generated by (15) . Con-sequently, 
+
+γ−1/2 
+
+> t
+
+(zt − z⋆) d
+
+−→ N (0, Σ),
+
+and √t ( ¯ zt − z⋆) d
+
+−→ N (0, J−1QJ −⊤ ),
+
+where Σ is the unique positive semidefinite solution to the Lyapunov equation 
+
+JΣ + ΣJ⊤ + Q = 0.
+
+Here, J is given by (24) , and the asymptotic covariance matrix Q takes the block form 
+
+Q =
+
+
+
+0 0 00 Q22 Q23 
+
+0 Q32 Q33 
+
+ ,
+
+with 
+
+Q22 = α2Q(g),
+
+Q23 = αβ  2Q(g) diag  m⋆ + R(g),
+
+Q32 = αβ  2 diag  m⋆Q(g) + R(g)⊤,
+
+Q33 = β2
+
+
+
+4 diag  m⋆Q(g) diag  m⋆ + 2 diag  m⋆R(g) + 2 R(g)⊤ diag  m⋆ + ˆQ(g)
+
+
+
+.
+
+14 Proof sketch. The detailed proof is deferred to Appendix A.4. The proof proceeds by verifying that the AdamW recursion can be written in the general stochastic approximation form (10). Under As-sumption 2, the augmented state zt = ( xt, mt, vt) converges to a limiting point, the AdamW mean field is locally differentiable, the induced noise sequence is a martingale difference with a limiting conditional covariance, and the remainder term is asymptotically negligible. Hence, Assumptions (A1)–(A6) in Assumption 1 hold for the AdamW recursion. The last-iterate and Polyak–Ruppert averaged central limit theorems then follow directly from Theorem 1. The block covariance matrix 
+
+Q is obtained by computing the conditional covariance of the martingale noise vector in (19). Theorem 2 gives an explicit asymptotic distribution for the AdamW iterates and their Polyak– Ruppert averages. Compared with standard stochastic gradient methods, the analysis is more in-volved because AdamW contains first-moment averaging, second-moment adaptation, coordinate-wise scaling with momentum terms, and decoupled weight decay. These algorithmic components require an augmented-state formulation and lead to a nontrivial covariance structure. To the best of our knowledge, few existing results provide such an explicit central limit theorem for AdamW with both last-iterate and averaged-iterate limits. This result forms the main theoretical basis for the component score inference and hypothesis testing procedure developed in the next section. 
+
+## 3.3 Extensions to Adam and Adafactor 
+
+Adam [28] and Adafactor [53] are also commonly used optimizers in LoRA fine-tuning and large-scale model training. Both algorithms can be analyzed within the same stochastic approximation framework developed above, after introducing suitable augmented state variables and optimizer-specific mean-field mappings. Compared with AdamW, the main differences lie in the form of weight decay and the construction of the adaptive preconditioner. These differences lead to different limiting points, Jacobian matrices, and limiting covariance structures, but the underlying proof strat-egy remains similar: one verifies the corresponding stochastic approximation assumptions and then applies the general central limit theorem in Theorem 1. To keep the main content focused, we defer the detailed formulations and proofs for Adam and Adafactor to Appendices B and C. For completeness, we state the following general extension result. 
+
+Corollary 1 (Extensions to Adam and Adafactor) . Adam and Adafactor can be represented as aug-mented stochastic approximation recursions of the form (10) . Under optimizer-specific analogues of Assumption 1, their last iterates and Polyak–Ruppert averaged iterates satisfy central limit theorems of the same form as Theorem 1. 
+
+The precise augmented states, mean-field mappings, Jacobian matrices, limiting covariance ma-trices, and proofs are provided in Appendices B and C. The resulting covariance formulas differ across optimizers because they depend on the local linearization of the corresponding mean field and on the conditional covariance of the induced martingale noise. The unified formulation also suggests that the same analysis can be extended to some other optimizers in deep learning, provided that they admit an augmented-state representation satisfying the regularity conditions in Assumption 1. Recent work has studied central limit theory for Adam-type methods using optimizer-specific arguments [1, 2, 16]. In contrast, our approach emphasizes a common stochastic approximation structure, which allows AdamW, Adam, and Adafactor to be treated within a unified framework. 15 4 Hypothesis Testing for LoRA Rank Allocation 
+
+In this section, we develop the statistical methodology and algorithm for LoRA rank allocation. The central objects of inference are the empirical component scores generated along stochastic optimizer trajectories. Building on the central limit theory for optimizer iterates established in the previous section, we first transfer the asymptotic analysis from iterates to LoRA component scores and de-rive the limiting distribution of averaged empirical scores. We then introduce a practical variance estimation procedure to approximate the corresponding long-run variance from the observed score trajectory. These ingredients allow us to construct one-sided hypothesis tests for evaluating the sig-nificance of individual rank-one components. Finally, we incorporate the resulting p-values into an adaptive pruning procedure, leading to the proposed StatLoRA algorithm for statistically guided LoRA rank allocation. 
+
+## 4.1 Central Limit Theory for Empirical Scores 
+
+The population component scores s⋆ℓ,j , defined in (7), are unknown in practice. We therefore esti-mate them from the training trajectory generated by stochastic optimization. For the j-th rank-one component in the ℓ-th LoRA module, define the empirical score at iteration t by 
+
+sℓ,j (t) = ∥bℓ,j (t)∥2 · ∥ aℓ,j (t)∥2 , (25) where aℓ,j (t) and bℓ,j (t) denote the corresponding LoRA factors at iteration t, after running the stochastic optimization algorithms (e.g., AdamW) for fine-tuning. In the LoRA fine-tuning setting, the state variable z contains all trainable LoRA parameters {Aℓ, Bℓ}Lℓ=1 , possibly together with optimizer-specific auxiliary variables. Let Pℓ,j denote the selection matrices that extract wℓ,j := (aℓ,j , bℓ,j ) from the full state vector z, respectively. That is, 
+
+wℓ,j (t) = Pℓ,j zt.
+
+Define the induced joint covariance matrices 
+
+Σwℓ,j := Pℓ,j ΣP ⊤ 
+
+> ℓ,j
+
+, ¯Σwℓ,j := Pℓ,j J−1QJ −⊤ P ⊤ 
+
+> ℓ,j
+
+. (26) where Σ is the limiting covariance matrix for last-iterate, while J and Q are Jacobian and noise covariance matrices appearing in Theorem 2. By the central limit theory for iterates established in Theorem 2, these component-wise LoRA factors inherit asymptotic normality from the full optimizer state. In particular, 
+
+γ−1/2
+
+> t
+
+ wℓ,j (t) − w⋆ℓ,j 
+
+ d
+
+−→ N  0, Σwℓ,j 
+
+ , (27) and √t 1
+
+t
+
+> t
+
+X 
+
+> τ=1
+
+wℓ,j (τ ) − w⋆ℓ,j 
+
+!
+
+> d
+
+−→ N  0, ¯Σwℓ,j 
+
+ , (28) where w⋆ℓ,j := ( a⋆ℓ,j , b⋆ℓ,j ). These relations show that the joint LoRA component vector inherits an asymptotic distribution from the full optimizer state. We next transfer these results to the empirical component score sℓ,j (t).Since the empirical score sℓ,j (t) is a smooth function of the LoRA factors aℓ,j (t) and bℓ,j (t), the central limit theory for optimizer iterates can be transferred to the score process through the delta 16 method. The following theorem characterizes the asymptotic distribution of both the last-iterate score and the averaged empirical score. The first-order delta method may degenerate at the zero-score boundary s⋆ℓ,j = 0 , where one of the two LoRA factors may vanish. Since our null hypothesis is formulated as s⋆ℓ,j ≥ ∆ with 
+
+∆ > 0, the relevant testing regime is away from this degenerate boundary. In this regime, both a⋆ℓ,j 
+
+and b⋆ℓ,j are nonzero, and the first-order Taylor expansion of the score function provides the leading asymptotic term. 
+
+Theorem 3 (Central limit theorem for empirical scores) . Suppose that the assumptions for LoRA fine-tuning with AdamW in Assumption 2 hold. Fix a LoRA component (ℓ, j ) and assume that s⋆ℓ,j =
+
+∥a⋆ℓ,j ∥2∥b⋆ℓ,j ∥2 ≥ ∆ > 0. Then the empirical score defined in (25) satisfies 
+
+γ−1/2
+
+> t
+
+ sℓ,j (t) − s⋆ℓ,j 
+
+ d
+
+−→ N (0 , σ 2 
+
+> ℓ,j
+
+), (29) 
+
+and the averaged empirical score satisfies 
+
+√t 1
+
+t
+
+> t
+
+X 
+
+> τ=1
+
+sℓ,j (τ ) − s⋆ℓ,j 
+
+!
+
+> d
+
+−→ N (0 , ¯σ2 
+
+> ℓ,j
+
+), (30) 
+
+for some σ2 
+
+> ℓ,j
+
+, ¯σ2 
+
+> ℓ,j
+
+≥ 0.
+
+To express the limiting variances compactly, define the score function 
+
+h(wℓ,j ) := ∥aℓ,j ∥2∥bℓ,j ∥2.
+
+Then the variances in Theorem 3 are given by 
+
+σ2 
+
+> ℓ,j
+
+= ∇h(w⋆ℓ,j )⊤Σwℓ,j ∇h(w⋆ℓ,j ), ¯σ2 
+
+> ℓ,j
+
+= ∇h(w⋆ℓ,j )⊤ ¯Σwℓ,j ∇h(w⋆ℓ,j ),
+
+where 
+
+∇h(w⋆ℓ,j ) = 
+
+2∥b⋆ℓ,j ∥2a⋆ℓ,j 
+
+2∥a⋆ℓ,j ∥2b⋆ℓ,j 
+
+
+
+,
+
+and covariance matrices are defined in (26). 
+
+Proof sketch. The detailed proof is deferred to Appendix A.5. The proof follows from the delta method. Since sℓ,j (t) = h(wℓ,j (t)) , a first-order Taylor expansion around w⋆ℓ,j yields 
+
+sℓ,j (t) − s⋆ℓ,j = ∇h(w⋆ℓ,j )⊤  wℓ,j (t) − w⋆ℓ,j 
+
+ + op
+
+ ∥wℓ,j (t) − w⋆ℓ,j ∥ .
+
+The condition s⋆ℓ,j ≥ ∆ > 0 excludes the zero-score boundary at which the first-order expansion may degenerate. Combining the above expansion with the component-wise central limit theory inherited from the optimizer state gives (29). The averaged-score result (30) follows by averaging the Taylor expansion along the trajectory and showing that the averaged second-order remainder is op(t−1/2).Theorem 3 extends the optimizer-level central limit theory to the empirical component scores used for LoRA rank allocation. Thus, the empirical score is treated not merely as a deterministic importance measure, but as an estimator with an asymptotic distribution. This provides the basis for uncertainty quantification and for the hypothesis testing procedure developed below. 17 4.2 Hypothesis Testing for LoRA Components 
+
+The asymptotic distributions in Theorem 3 provide the basis for hypothesis testing for each LoRA component. Our goal is to use the empirical score trajectory to evaluate whether a population score 
+
+s⋆ℓ,j is sufficiently large, and hence whether the corresponding LoRA component should be retained or pruned. To implement such tests, however, one must estimate the asymptotic variance appearing in the central limit theorem for empirical scores. A direct approach is to use the explicit variance formula in Theorem 3. This leads to a plug-in estimator [9, 44, 48], where the optimizer-level covariance matrices, Jacobians, and score deriva-tives are estimated separately and substituted into the theoretical expression. Although conceptually straightforward, this approach is often impractical in large-scale fine-tuning, since it requires esti-mating high-dimensional covariance matrices and local derivative quantities that may be unstable or expensive to compute. As an alternative, we use a batch-means estimator [29, 69] to estimate the long-run variance of the scalar score process directly from its observed trajectory. Batch-means estimators are standard tools for variance estimation in central limit theorems for dependent stochastic processes and are particularly natural for averaged estimators. This motivates us to base the testing procedure on the Polyak–Ruppert averaged empirical score rather than the last-iterate score. Specifically, we use the averaged-score central limit theorem 
+
+√t 1
+
+t
+
+> t
+
+X 
+
+> τ=1
+
+sℓ,j (τ ) − s⋆ℓ,j 
+
+!
+
+> d
+
+−→ N  0, ¯σ2
+
+> ℓ,j
+
+ ,
+
+and estimate the long-run variance ¯σ2 
+
+> ℓ,j
+
+from the score trajectory. The following proposition states the consistency of the batch-means estimator under standard regularity conditions. 
+
+Proposition 2 (Consistency of the batch-means variance estimator) . Let st = sℓ,j (t) denote the empirical score process for a fixed LoRA component (ℓ, j ). Suppose that the averaged score process satisfies a functional central limit theorem with long-run variance ¯σ2 
+
+> ℓ,j
+
+. Let t = M b , where M is the number of batches and b is the batch size. Assume that 
+
+b → ∞ , M → ∞ , b/t → 0.
+
+Define the batch means and the overall average by 
+
+¯sm,b = 1
+
+b
+
+> mb
+
+X 
+
+> τ=( m−1) b+1
+
+sτ , m = 1 , . . . , M, 
+
+and 
+
+¯st = 1
+
+t
+
+> t
+
+X 
+
+> τ=1
+
+sτ .
+
+The batch-means variance estimator is defined as 
+
+b¯σ2 
+
+> ℓ,j
+
+= bM − 1
+
+> M
+
+X
+
+> m=1
+
+(¯ sm,b − ¯st)2 .
+
+Then, under the standard moment and weak-dependence conditions for batch-means estimation [21, 22], 
+
+b¯σ2
+
+> ℓ,j p
+
+−→ ¯σ2 
+
+> ℓ,j
+
+.
+
+18 Proposition 2 provides a practical way to estimate the unknown long-run variance in the averaged-score central limit theorem. Instead of estimating the full optimizer-state covariance matrix and the derivatives appearing in the delta-method formula, the batch-means estimator uses only the observed scalar score trajectory. In our setting, temporal dependence arises because the empirical scores are generated along a single stochastic optimizer trajectory. Under the usual functional central limit theorem, moment, weak-dependence, and batch-size conditions for batch-means consistency, the estimator is consistent. We defer the detailed regularity conditions and proof to Appendix D.4. The conditions b → ∞ , M → ∞ , and b/t → 0 are asymptotic requirements for consistency of the batch-means estimator. With the variance estimate b¯σ2 
+
+> ℓ,j
+
+, we define the test statistic 
+
+Tℓ,j (t) = 
+
+√t (¯ sℓ,j (t) − ∆) 
+
+b¯σℓ,j 
+
+, ¯sℓ,j (t) = 1
+
+t
+
+> t
+
+X 
+
+> τ=1
+
+sℓ,j (τ ).
+
+Here, b¯σℓ,j denotes the batch-means estimate of ¯σℓ,j . Under the null hypothesis 
+
+H0 
+
+> ℓ,j
+
+: s⋆ℓ,j ≥ ∆ versus H1 
+
+> ℓ,j
+
+: s⋆ℓ,j < ∆, (31) the corresponding one-sided p-value is 
+
+pℓ,j (t) = Φ ( Tℓ,j (t)) ,
+
+where Φ( ·) denotes the cumulative distribution function of the standard normal distribution. A small p-value provides evidence against the null hypothesis, indicating that the component has insufficient population score relative to the threshold ∆. Such components are therefore viewed as having weak statistical evidence for retention and are prioritized for pruning. 
+
+## 4.3 The StatLoRA Algorithm 
+
+We now describe the proposed StatLoRA algorithm, a statistical inference-based algorithm for LoRA rank allocation. StatLoRA starts from an over-parameterized LoRA model with an initial rank r
+
+for each selected module and gradually removes rank-one components that have weak statistical evidence for retention during fine-tuning. The method uses the empirical score trajectory of each component to estimate its signal strength and uncertainty, and then performs hypothesis testing based on the p-values. Proposition 2 provides a batch-means estimator for the long-run variance of the averaged empir-ical score. The consistency result is asymptotic and requires both the batch size b and the number of batches M to increase. In large-scale model fine-tuning, however, it is not practical to let b and 
+
+M grow indefinitely. We therefore use a fixed batch size b in finite training runs, and the number of batches is determined by the current trajectory length, M = t/b for notational simplicity. This provides a computationally efficient finite-sample approximation to the long-run variance. At a pruning step t, let At denote the set of active LoRA components, namely, the components that have not been pruned before iteration t. For each (ℓ, j ) ∈ A t, the score trajectory is partitioned into M consecutive batches, each of length b, so that t = M b . We prune a component when the null hypothesis in (31) is rejected, providing sufficient evidence that its limiting score is below the pre-specified threshold ∆. Specifically, define the batch means by 
+
+¯s(m) 
+
+> ℓ,j
+
+(t) = 1
+
+b
+
+> mb
+
+X 
+
+> τ=( m−1) b+1
+
+sℓ,j (τ ), m = 1 , . . . , M. 
+
+19 Algorithm 1 StatLoRA  
+
+> 1:
+
+Input: Dataset D; total iterations T ; budget schedule {b(t)}Tt=1 ; initial rank r; threshold quantile 
+
+q; batch-means batch size b; optimizer hyperparameters.  
+
+> 2:
+
+Initialize LoRA parameters {Aℓ, Bℓ}Lℓ=1 with rank r. 
+
+> 3:
+
+for t = 1 , . . . , T do  
+
+> 4:
+
+Sample a mini-batch from D and perform one standard LoRA optimizer update.  
+
+> 5:
+
+Compute component scores sℓ,j (t) = ∥bℓ,j (t)∥2∥aℓ,j (t)∥2 for all active components.  
+
+> 6:
+
+Estimate averaged scores ¯sℓ,j (t) and variances b¯σ2 
+
+> ℓ,j
+
+(t) using batch means with M = t/b . 
+
+> 7:
+
+Set the threshold ∆(t) in (31) as the q-quantile of {¯sℓ,j (t)} over active components.  
+
+> 8:
+
+Compute p-values 
+
+pℓ,j (t) = Φ 
+
+√t ¯sℓ,j (t) − ∆(t)b¯σℓ,j (t)
+
+!
+
+. 
+
+> 9:
+
+Prune components with the smallest p-values according to the budget b(t). 
+
+> 10:
+
+end for  
+
+> 11:
+
+Output: Fine-tuned LoRA parameters with the final adaptive rank allocation. Then, 
+
+¯sℓ,j (t) = 1
+
+t
+
+> t
+
+X 
+
+> τ=1
+
+sℓ,j (τ ) = 1
+
+M
+
+> M
+
+X
+
+> m=1
+
+¯s(m) 
+
+> ℓ,j
+
+(t). (32) Therefore, the long-run variance is estimated by 
+
+b¯σ2 
+
+> ℓ,j
+
+(t) = bM − 1
+
+> M
+
+X
+
+> m=1
+
+
+
+¯s(m) 
+
+> ℓ,j
+
+(t) − ¯sℓ,j (t)
+
+2
+
+. (33) The choice of the threshold ∆ in (31) is another important practical issue. Rather than fixing an absolute threshold, we choose it adaptively from the empirical score distribution. Therefore, we use the notation ∆(t) to denote the threshold in hypothesis testing at different time steps. Specifically, for a pre-specified quantile level q ∈ (0 , 1) , we set 
+
+∆(t) = Quantile q ({¯sℓ,j (t) : ( ℓ, j ) ∈ A t}) ,
+
+where At denotes the set of active components at iteration t and Quantile q denotes the empirical 
+
+q-quantile of the finite set of averaged component scores. For example, q = 0 .3 sets ∆(t) to the lower 30% empirical quantile of the averaged component scores among active components. Given ¯sℓ,j (t), b¯σℓ,j (t), and ∆(t), the algorithm uses the statistic: 
+
+Tℓ,j (t) = 
+
+√t  ¯sℓ,j (t) − ∆(t)b¯σℓ,j (t) .
+
+The corresponding p-value is 
+
+pℓ,j (t) = Φ( Tℓ,j (t)) .
+
+Since the null hypothesis is H0 
+
+> ℓ,j
+
+: s⋆ℓ,j ≥ ∆(t), a small p-value provides evidence that the com-ponent has insufficient population-level signal. StatLoRA therefore prunes components with the 20 smallest p-values according to the prescribed budget schedule. The full algorithm is summarized in Algorithm 1. StatLoRA introduces little additional computational overhead. The component scores are com-puted from vector norms of existing LoRA factors, and the averaged scores, batch-means variances, test statistics, and p-values are scalar quantities updated during training. Thus, the dominant compu-tational cost remains the standard LoRA fine-tuning procedure. In our experiments, the additional computation is small relative to the cost of model training. 
+
+# 5 Experiments 
+
+In this section, we evaluate the proposed StatLoRA method for LoRA fine-tuning across a range of language tasks, datasets, and pretrained models. The experiments are designed to validate both downstream task performance and the statistical behavior of the proposed rank allocation method. We first compare StatLoRA with existing LoRA rank allocation baselines on benchmark tasks, in-cluding natural language understanding, natural language generation, and question answering. We then conduct sensitivity analyses to examine the effect of the hyperparameters in StatLoRA and study the stability of rank allocation strategies. Finally, we provide empirical validations for the derived asymptotic normality for empirical scores. 
+
+## 5.1 Experimental Setups 
+
+We evaluate the proposed StatLoRA method on LoRA fine-tuning across three categories of lan-guage tasks: natural language understanding, natural language generation, and question answering. These experiments are designed to assess whether the proposed statistical rank allocation method is effective across different tasks, datasets, pretrained language models, and rank budgets. The task-specific datasets, evaluation metrics, and pretrained models are described in the corresponding subsections. We compare StatLoRA with vanilla LoRA [27], AdaLoRA [66], and IGU-LoRA [14]. Vanilla LoRA uses a fixed rank allocation, where the same rank is assigned to each selected module. AdaLoRA adaptively allocates ranks by constructing importance scores for rank-one components based on gradient-derived sensitivity estimates. IGU-LoRA further builds on AdaLoRA by mod-ifying the importance-score construction through gradient uncertainty and layer-wise information. These methods represent fixed-rank and adaptive-rank allocation strategies for LoRA, and therefore provide a natural comparison for the proposed hypothesis-testing-based allocation rule. For fair comparison, we follow the training schedule used in AdaLoRA [66], consisting of an initial warm-up phase, a rank-reduction phase, and a final fine-tuning phase after pruning. Across methods, we keep the pretrained model, dataset, LoRA target modules, total rank budget, optimizer, training steps, and evaluation protocol fixed whenever applicable. We use AdamW [39] as the op-timizer throughout the experiments. In StatLoRA, following the theoretical setup, the step size is chosen in the polynomially decaying form γt = γ0t−κ. We set κ = 0 .51 , which satisfies the con-dition κ ∈ (1 /2, 1) used in the asymptotic theory, and choose γ0 so that the resulting learning rate scale is comparable to that used in the AdaLoRA implementation. The momentum parameters α and 
+
+β are selected analogously so that the effective update magnitudes are comparable across methods. With these choices, the main difference among these methods lies in the criterion used to prune or retain rank-one components during the rank-reduction phase. 21 The final rank budget is set to one half of the initial total LoRA rank across all selected modules. For StatLoRA, the method-specific hyperparameters are the number of batches M , the batch size b
+
+used in the batch-means variance estimator, and the threshold quantile q. Since t = M b , we mainly choose b according to the length of the warm-up and pruning phases, typically in the range of 50 to 
+
+150 . The threshold quantile is set to q = 0 .3 in the main experiments, and its sensitivity is examined later. Each experiment follows the same three-stage training procedure. During the warm-up phase, no pruning is performed, and the learning rate gradually increases and stabilizes. During the rank-reduction phase, rank-one components are pruned according to the specific allocation rule. After the target budget is reached, the selected ranks are fixed, and the model continues fine-tuning in the final phase with a gradually decreasing learning rate. Unless otherwise specified, experiments are repeated over five random seeds, and we report the mean performance together with the empirical standard deviation. All experiments are conducted on a single NVIDIA A100 GPU. 
+
+## 5.2 Natural Language Understanding 
+
+We start with the natural language understanding (NLU) tasks. NLU verifies whether a model can understand and compare natural language inputs, including sentence classification, textual entail-ment, semantic similarity, paraphrase detection, and linguistic acceptability. These tasks provide a standard testbed for examining whether a rank allocation method can maintain or improve down-stream performance under a fixed rank budget. We conduct experiments on seven tasks from the GLUE benchmark [61]: MNLI, SST-2, CoLA, STS-B, QNLI, RTE, and MRPC. MNLI and RTE are natural language inference tasks, where the model predicts the logical relationship between a premise and a hypothesis. SST-2 is a binary sen-timent classification task. CoLA evaluates linguistic acceptability by asking whether a sentence is grammatically acceptable. STS-B measures the semantic similarity between two sentences. QNLI is a question-answering-derived entailment task. MRPC is a paraphrase identification task, where the model determines whether two sentences are semantically equivalent. We use DeBERTaV3-base [24] as the pretrained language model and apply LoRA-based fine-tuning to the same set of modules for all compared methods. The baselines include vanilla LoRA with a fixed rank allocation, AdaLoRA, and IGU-LoRA. Following the standard GLUE evaluation protocol [61], we report accuracy for MNLI, SST-2, QNLI, and RTE; Matthews correlation for CoLA; Pearson correlation for STS-B; and F1 score for MRPC. All methods are evaluated on the validation set under the same training schedule and final rank budget. For all NLU experiments, each LoRA module is initialized with rank r = 2 . For rank allocation methods, the final rank budget is chosen so that the average retained rank is one per module. Thus, the total rank budget is one-half of the initial total LoRA rank across the model. Under this budget, some modules may be assigned rank zero, whereas others may retain one or more rank-one com-ponents. This setting tests whether the allocation method can identify where the limited adaptation capacity should be used. For StatLoRA, we use the batch-means variance estimator with batch size 
+
+b = 120 , M = t/b batches, and set the threshold quantile to q = 0 .3. All methods are trained with AdamW and follow the same warm-up, rank-reduction, and final fine-tuning schedule. As shown in Table 1, StatLoRA achieves the best performance on four of the seven reported tasks and obtains the second-best performance on two additional tasks. Compared with the fixed-rank LoRA baseline, StatLoRA improves the mean performance on all tasks under the same total rank budget. This suggests that adaptive allocation of rank-one components can improve parameter 22 Table 1: Results on NLU tasks from the GLUE benchmark using DeBERTaV3-base. Higher values indicate better performance ( ↑). Results are reported as the mean over five random seeds, with the empirical standard deviation shown in the subscript. The best result is shown in bold, and the second-best result is underlined. Method MNLI SST-2 CoLA STS-B QNLI RTE MRPC LoRA 90 .26 ±0.28 95 .32 ±0.50 69 .10 ±0.28 91 .82 ±0.12 94 .17 ±0.22 87 .40 ±0.85 90 .10 ±0.51 
+
+AdaLoRA 90 .52 ±0.17 95 .83 ±0.15 70 .57 ±0.56 91 .94 ±0.16 94 .49 ±0.13 87 .81 ±0.93 90 .24 ±0.53 
+
+IGU-LoRA 90 .36 ±0.08 95 .50 ±0.26 69 .98 ±0.99 91 .78 ±0.14 94 .38 ±0.10 88 .22 ±0.65 89 .37 ±0.41 
+
+StatLoRA 90 .62 ±0.15 95 .93 ±0.10 70 .98 ±0.98 91 .81 ±0.12 94 .46 ±0.11 88 .09 ±0.26 90 .54 ±0.22 
+
+utilization when the number of adaptation components is limited. Compared with AdaLoRA and IGU-LoRA, StatLoRA remains competitive across the GLUE tasks, with favorable results on MNLI, SST-2, CoLA, and MRPC. The gains are not uniform across all tasks, which is expected because the GLUE tasks differ in sample size, task structure, and sensitivity to the available adaptation capacity. Overall, the NLU results show that the proposed hypothesis-testing-based allocation rule pro-vides a reliable alternative to heuristic importance-score criteria for LoRA rank allocation. By in-corporating uncertainty estimates into component selection, StatLoRA can allocate the limited rank budget in a way that is at least competitive with existing adaptive-rank methods and often improves upon the fixed-rank baseline. 
+
+## 5.3 Natural Language Generation 
+
+We next evaluate StatLoRA on natural language generation (NLG) tasks. In contrast to NLU tasks, which are typically formulated as classification or matching problems over input texts, NLG tasks require the model to generate fluent and semantically faithful output sequences. We focus on ab-stractive summarization, where the goal is to produce a concise summary that captures the main information in a source document. This setting provides a useful testbed for examining whether an adaptive rank allocation method can preserve generation quality under a fine-tuning budget. We conduct experiments on two widely used summarization datasets: XSum [46] and CNN/Dai-lyMail [25, 45]. XSum is an extreme summarization dataset in which each input document is paired with a short, one-sentence summary. It therefore requires the model to generate highly compressed summaries and is sensitive to whether the model can identify salient information. CNN/DailyMail consists of news articles paired with multi-sentence summaries, and evaluates the model’s ability to generate longer summaries while preserving the main semantic content. We use BART-Large [33] as the pretrained language model and apply LoRA-based fine-tuning to the same set of selected modules for all compared methods. The baselines include vanilla LoRA, AdaLoRA, and IGU-LoRA. All methods use the same pretrained model, training schedule, opti-mizer, target modules, and final rank budget. As in the NLU experiments, each LoRA module is initialized with rank r = 2 , and the final rank budget is set to one-half of the initial total LoRA rank. For StatLoRA, we use the batch-means variance estimator with batch size b = 100 , M = t/b 
+
+batches, and set the threshold quantile to q = 0 .3. Rank-one components are pruned during the rank-reduction phase according to the method-specific allocation rule. Following standard evaluation practice for summarization, we report ROUGE-1, ROUGE-2, and ROUGE-L scores [37]. ROUGE-1 measures unigram overlap between the generated and reference summaries, ROUGE-2 measures bigram overlap, and ROUGE-L is based on the longest common 23 Table 2: Results on NLG tasks using BART-Large. We report ROUGE-1, ROUGE-2, and ROUGE-L scores, where ↑ indicates that higher values are better. Results are reported as the mean over five random seeds, with the empirical standard deviation shown in the subscript. The best result is shown in bold, and the second-best result is underlined. Method XSum (↑) CNN/DailyMail (↑)
+
+ROUGE-1 ROUGE-2 ROUGE-L ROUGE-1 ROUGE-2 ROUGE-L LoRA 34 .79 ±1.46 15 .82 ±0.66 28 .16 ±1.18 36 .95 ±1.60 17 .24 ±0.68 25 .13 ±1.11 
+
+AdaLoRA 34 .13 ±3.19 15 .40 ±1.31 27 .58 ±2.49 37 .77 ±0.55 17 .61 ±0.25 25 .72 ±0.34 
+
+IGU-LoRA 33 .53 ±1.80 14 .28 ±0.69 26 .74 ±1.41 38 .27 ±0.32 17 .21 ±0.18 25 .83 ±0.14 
+
+StatLoRA 35 .03 ±2.50 15 .85 ±1.07 28 .33 ±1.96 38 .15 ±0.80 17 .75 ±0.42 25 .94 ±0.52 
+
+subsequence. These metrics provide complementary measures of lexical overlap between generated summaries and reference summaries. As shown in Table 2, StatLoRA achieves competitive performance on both summarization datasets under the same rank budget. On XSum, StatLoRA obtains the highest mean score across all three ROUGE metrics. The improvements over vanilla LoRA are modest, especially relative to the empir-ical standard deviations, but the results indicate that the proposed statistical allocation rule can retain useful LoRA components in the highly compressed summarization setting of XSum. On CNN/DailyMail, StatLoRA obtains the highest mean ROUGE-2 and ROUGE-L scores and the second-highest mean ROUGE-1 score. Compared with vanilla LoRA, StatLoRA improves all three reported metrics under the same rank budget. IGU-LoRA gives a slightly higher ROUGE-1 score, whereas StatLoRA provides the best overall performance across ROUGE-2 and ROUGE-L. This suggests that StatLoRA remains competitive on longer-document summarization tasks, where the model must generate more detailed summaries while preserving semantic content. Overall, the NLG results show that the proposed rank allocation rule is not limited to classification-style NLU tasks. Across both summarization datasets, StatLoRA matches or improves upon existing LoRA variants under the same rank budget. This suggests that incorporating uncertainty estimates into component selection can provide a reliable alternative to heuristic importance-score rules for adaptive LoRA rank allocation. 
+
+## 5.4 Question Answering 
+
+We further evaluate StatLoRA on question answering tasks using a larger pretrained language model. Compared with the previous experiments based on medium-scale pretrained models, this setting is closer to practical large language model adaptation, where parameter-efficient fine-tuning is impor-tant due to the computational and memory costs of updating all model parameters. Question an-swering tasks require the model to select correct answers from natural language questions, and may involve reading comprehension, factual knowledge, scientific reasoning, or commonsense reasoning. These tasks, therefore, provide a complementary setting for evaluating whether the proposed statis-tically guided rank allocation method remains effective for larger models and reasoning-oriented tasks. We conduct experiments on four question answering datasets: BoolQ [11], ARC-Easy [12], OpenBookQA [42], and CommonsenseQA [55]. BoolQ is a binary question answering dataset in which the model answers yes/no questions based on a short passage. ARC-Easy consists of 24 Table 3: Results on question answering tasks using Qwen2.5-7B. We report accuracy as the mean over five random seeds, with the empirical standard deviation shown in the subscript. Here, ↑ in-dicates that higher values are better. The best result is shown in bold, and the second-best result is underlined. Method BoolQ ( ↑) ARC-Easy ( ↑) OpenBookQA ( ↑) CommonsenseQA ( ↑)LoRA 89 .25 ±0.12 92 .39 ±0.83 91 .72 ±0.83 86 .37 ±0.53 
+
+AdaLoRA 89 .42 ±0.22 92 .95 ±0.23 92 .20 ±0.47 85 .90 ±0.13 
+
+IGU-LoRA 89 .31 ±0.19 92 .74 ±0.16 90 .52 ±0.54 86 .49 ±0.51 
+
+StatLoRA 89 .40 ±0.20 93 .02 ±0.15 92 .40 ±0.37 86 .60 ±0.55 
+
+grade-school science questions with multiple-choice answers and evaluates basic scientific reason-ing. OpenBookQA is a multiple-choice benchmark that requires combining elementary science facts with commonsense reasoning. CommonsenseQA evaluates commonsense reasoning through multiple-choice questions constructed from commonsense knowledge relations. Together, these datasets cover reading comprehension, scientific question answering, and commonsense reasoning. Qwen2.5-7B [64] is used as the pretrained language model, and we apply LoRA-based fine-tuning to the same set of selected modules for all compared methods. The baselines include vanilla LoRA, AdaLoRA, and IGU-LoRA. For these large-model experiments, each LoRA module is ini-tialized with rank r = 16 , and the final rank budget is set to one-half of the initial total LoRA rank. For StatLoRA, we use the batch-means variance estimator with batch size b = 100 , and set the threshold quantile to q = 0 .3. All methods are trained with the same optimizer, learning-rate schedule, warm-up phase, rank-reduction phase, and final fine-tuning phase. Following standard evaluation practice for binary and multiple-choice question answering tasks, we report accuracy as the evaluation metric. As shown in Table 3, StatLoRA achieves the highest mean accuracy on three of the four question answering tasks and the second-highest mean accuracy on BoolQ. On ARC-Easy and OpenBookQA, StatLoRA improves over both the fixed-rank LoRA and the adaptive-rank methods. On Common-senseQA, StatLoRA also attains the highest mean accuracy, suggesting that the proposed allocation rule remains competitive on commonsense reasoning tasks. On BoolQ, AdaLoRA gives the highest mean accuracy, while StatLoRA obtains a close second-best result. Overall, these results indicate that StatLoRA remains competitive when applied to a larger pre-trained language model. Compared with the medium-scale experiments above, this setting is more representative of practical large language model fine-tuning, where full-parameter updates are often computationally expensive and parameter-efficient adaptation is desirable. The empirical pattern across ARC-Easy, OpenBookQA, and CommonsenseQA suggests that uncertainty-aware compo-nent selection can identify useful adaptation directions even in larger models and reasoning-oriented tasks. 
+
+## 5.5 Statistical Validation and Sensitivity Analysis 
+
+In this subsection, we examine the statistical behavior of the proposed StatLoRA method beyond its performance over other baseline methods. We first study the sensitivity of StatLoRA to its sta-tistical hyperparameters, including the batch size b used in the batch-means variance estimator and the quantile level q used to construct the threshold in hypothesis testing. We then investigate the 25 40 60 80 100 120 140 160 200           
+
+> 95 .6
+> 95 .8
+> 96
+> 96 .2
+> Batch size b
+> Accuracy
+> (a) Sensitivity to batch size b.10 20 30 40 50 80 90
+> 95 .6
+> 95 .8
+> 96
+> 96 .2
+> Threshold quantile q
+> Accuracy (b) Sensitivity to threshold quantile q.
+
+Figure 1: Sensitivity analysis of StatLoRA on the SST-2 dataset in the NLU task. Each setting is evaluated over five independent random seeds. Points represent mean accuracy, and gray error bars represent one empirical standard deviation. stability of the rank allocation across repeated runs and use the resulting allocation patterns to study how different layers and modules contribute to fine-tuning on specific datasets. Finally, we provide empirical diagnostics for the asymptotic theory of component scores in Theorem 3. 
+
+5.5.1 Sensitivity to Hyperparameters 
+
+We examine the sensitivity of StatLoRA to hyperparameters used in the statistical inference for LoRA components. In particular, StatLoRA involves two hyperparameters that directly enter the hypothesis-testing step: the batch size b in the batch-means variance estimator and the quantile level 
+
+q used to determine the adaptive threshold. Since M b determines the number of past score values used for estimating the long-run variance, we vary b to study its effect. The batch size b controls the length of each batch used to estimate the long-run variance of the averaged score process. A smaller b uses more local information but may lead to noisier variance estimates, whereas a larger b produces more stable averages but reduces the number of batches. The quantile level q determines the threshold ∆(t) in the hypothesis testing by taking the q-quantile of the averaged component scores among active components. Thus, q controls the relative stringency of the component’s hypothesis testing criterion. We conduct this ablation study on SST-2 from the GLUE datasets, using the same DeBERTaV3-base model and training protocol as in the main NLU experiments. We vary b and q separately while keeping all other hyperparameters fixed, including the initial LoRA rank, final rank budget, optimizer, learning-rate schedule, and rank-reduction schedule. This design isolates the effect of the variance-estimation and threshold-selection parameters on the final performance of StatLoRA. As shown in Figure 1, StatLoRA is stable over the tested ranges of b and q. Figure 1a reports the sensitivity to the batch size b in the batch-means variance estimator. When b is small, the block averages may not adequately capture the temporal dependence of the score trajectory, which can lead to unstable variance estimates. When b is relatively large, it can still maintain satisfactory per-formances. In this experiment, b = 120 gives the highest mean accuracy and the smallest empirical standard deviation among the tested values, suggesting a favorable batch size given a fixed number of total iterations. Figure 1b reports the sensitivity to the threshold quantile q. The performance remains stable 26 across a range of values, indicating that StatLoRA is not highly sensitive to the precise choice of q.Very small or very large quantile levels lead to slightly lower mean accuracy or larger variability. This behavior is consistent with the role of q in determining the adaptive threshold: a smaller value of 
+
+q yields a more permissive pruning criterion, whereas a larger value yields a more stringent criterion. The default value q = 0 .3 gives the highest mean accuracy with relatively small variability in this experiment. Overall, these results suggest that StatLoRA is robust to moderate changes in the batch means and thresholding parameters. Based on this sensitivity analysis, we use b = 120 , and q = 0 .3 as the default configuration in the main NLU experiments. 
+
+5.5.2 Stability of Rank Allocation 
+
+Beyond performance comparisons with existing methods, we further examine the stability of the rank allocation produced by StatLoRA. Adaptive rank allocation is inherently data- and optimization-dependent, and different random seeds may lead to different selected components even under the same total rank budget. For a statistical inference-based pruning procedure, it is therefore important to evaluate whether the resulting allocation patterns are reproducible and stable across independent runs, rather than being driven primarily by stochastic variation from random initialization, data sam-pling, or optimization noise. We conduct this analysis on the OpenBookQA dataset in the question answering task using Qwen2.5-7B as the pretrained language model. The experiment is repeated over five independent random seeds, while keeping the pretrained model, optimizer, training schedule, initial rank, final rank budget, and StatLoRA hyperparameters fixed. For each run, we record the final retained rank of each LoRA module after the rank-reduction phase. We then compute the mean and empirical standard deviation of the retained ranks across runs. The mean heatmap in Figure 2a summarizes the typical allocation pattern selected by StatLoRA, whereas the standard-deviation heatmap in Fig-ure 2b measures the stability of these allocation decisions across independent training trajectories. This analysis complements the accuracy results in Table 3. While the performance measures the final task outcome, the rank allocation heatmaps provide a more direct view of the component-selection behavior of StatLoRA. Stable allocation patterns indicate that the hypothesis-testing-based pruning rule tends to select similar modules across repeated stochastic training runs, whereas large variability would indicate sensitivity to randomness during training and pruning. As shown in Figure 2, the rank allocation produced by StatLoRA exhibits a structured and sta-ble pattern. The mean-rank heatmap in Figure 2a shows that the retained ranks are not uniformly distributed across layers and module types. Larger ranks are assigned mainly to middle layers, par-ticularly from layers 7 to 19, and later layers (layers 22-24) tend to receive less adaptation. The corresponding standard deviation heatmap in Figure 2b shows that the variability is generally mod-erate relative to the scale of the retained ranks. This suggests that the proposed StatLoRA method is robust to randomness during fine-tuning. The heatmaps also reveal module-wise heterogeneity. In particular, the MLP-related modules, especially Wup and Wgate , tend to receive larger retained ranks than many of the attention pro-jection matrices. This pattern suggests that, for OpenBookQA fine-tuning with Qwen2.5-7B, the feed-forward transformation blocks may play an important role in task-specific adaptation. This observation is consistent with the functional role of these modules: Wup expands the hidden rep-resentation into a higher-dimensional intermediate space, while Wgate controls the gated nonlinear transformation. We also observe that the key and value projection matrices, Wk and Wv, receive relatively large rank allocations, indicating that the attention mechanism also contributes substan-27 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24                                                                                                                                                                  
+
+> Layer
+> Wq
+> Wk
+> Wv
+> Wo
+> Wgate
+> Wup
+> Wdown
+> 12 10 10 13 5913 813 13 14 13 11 13 13 13 12 14 15 12 11 415
+> 12 11 12 96613 10 11 13 13 13 12 12 13 13 11 12 14 10 8322
+> 38537711 7811 11 8869696823644
+> 7910 578778910 79674511 611101
+> 312 846612 10 14 915 15 15 15 14 16 16 14 11 72146
+> 396412 10 16 16 16 16 16 16 16 16 16 16 16 16 16 60123
+> 27543411 13 12 15 14 12 13 15 13 11 10 7511111
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+> 12
+> 14
+> 16
+> The final rank
+
+(a) Mean retained rank across five independent runs. 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24                                                                                                                                                                  
+
+> Layer
+> Wq
+> Wk
+> Wv
+> Wo
+> Wgate
+> Wup
+> Wdown
+> 2.5 2.6 2.3 3.6 1.1 1.3 2.0 1.8 2.9 3.5 2.9 2.6 1.5 1.8 0.8 1.5 0.4 1.5 1.3 1.0 2.4 3.1 1.1 2.6
+> 2.1 1.9 1.0 1.5 1.5 4.8 1.8 2.9 2.0 1.8 1.9 2.8 1.5 1.7 1.3 1.1 2.3 3.1 2.0 2.5 1.8 1.6 1.3 1.1
+> 1.5 1.5 1.3 2.3 1.2 1.5 1.3 2.3 2.5 1.3 0.7 1.9 2.1 3.1 2.2 0.9 1.5 0.5 1.5 1.5 1.1 1.8 1.1 2.3
+> 2.7 1.9 2.5 1.6 3.2 2.0 1.3 2.6 0.5 2.3 2.1 2.7 1.2 2.5 3.5 1.9 2.2 1.2 2.1 1.1 1.0 1.1 0.4 1.2
+> 1.5 2.1 2.6 2.4 0.8 1.5 1.6 4.5 1.8 2.9 1.3 1.7 0.7 1.1 1.5 0.5 0.0 1.4 1.9 3.1 0.8 0.5 1.5 2.4
+> 1.9 0.8 2.3 2.9 0.9 1.7 0.0 0.0 0.5 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.4 4.0 0.4 1.4 1.5 1.5
+> 0.5 0.4 1.8 1.9 3.1 1.1 4.3 2.1 3.8 1.3 2.8 2.9 2.1 1.0 2.7 2.9 3.5 3.6 2.1 0.9 1.0 0.9 0.5 0.9
+> 0
+> 1
+> 2
+> 3
+> 4
+> Std
+
+(b) Standard deviation of retained rank across five independent runs. 
+
+Figure 2: Stability analysis of the selected rank allocation produced by StatLoRA on OpenBookQA with Qwen2.5-7B. Figure (a) reports the mean retained rank of each LoRA module across five inde-pendent runs, while Figure (b) reports the corresponding standard deviation. tially to task adaptation. We regard these patterns as descriptive evidence derived from the learned rank allocations. The standard-deviation heatmap provides further information about the uncertainty of the allo-cation. Modules with consistently large retained ranks, such as several Wup modules in earlier and middle layers, tend to have relatively small variability across runs, indicating that these allocation decisions are stable under different random seeds. Larger standard deviations appear mainly in tran-sition regions where the mean retained rank is neither clearly high nor clearly low. This suggests that the main source of allocation variability is concentrated around statistically ambiguous modules, where the statistical evidence for retaining rank-one components is less decisive. Overall, the rank-allocation analysis indicates that StatLoRA produces structured and stable al-location patterns across layers and module types. These observations provide additional evidence that the proposed hypothesis-testing-based pruning strategy is not merely optimizing evaluation ac-28 0.00 0.05 0.10 0.15 0.20 0.25 0.30 0.35 
+
+> p-value
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> Proportion
+> 76.9%
+
+Figure 3: Distribution of p-values for pruned LoRA components. The red dashed line indicates the classical significance level 0.05 . The majority of pruned components have p-values concentrated near zero, with 76 .9% falling below 0.05 , indicating that most pruning decisions are associated with strong evidence against the null hypothesis. curacy, but also providing interpretable component selection behavior under a fixed rank budget. 
+
+5.5.3 P-value Diagnostics for Pruned Components 
+
+We next examine the p-values associated with the components removed by StatLoRA. This analy-sis is intended as a diagnostic check of the proposed hypothesis-testing interpretation. Recall that StatLoRA is based on the null hypothesis 
+
+H0 
+
+> ℓ,j
+
+: s⋆ℓ,j ≥ ∆,
+
+where s⋆ℓ,j denotes the population score of the (ℓ, j )-th rank-one component and ∆ is the threshold. A small one-sided p-value provides evidence against this null hypothesis, and hence indicates that the corresponding component has insufficient statistical support for being retained. During the rank-reduction phase, StatLoRA removes components with the smallest p-values. We collect the p-values of the removed components and visualize their empirical distribution. As shown in Figure 3, the p-values of the pruned components are concentrated near zero. In particular, 76 .9% of the removed components have p-values below 0.05 . This pattern is consistent with the intended statistical interpretation of StatLoRA: the components selected for removal are typically those for which the null hypothesis is not well supported by the empirical score trajectory. In other words, the pruning rule is not based only on the magnitude of the empirical score, but also incorporates the estimated uncertainty of that score through the standardized test statistic. This analysis should be interpreted as a diagnostic. The purpose of this diagnostic is to verify that the empirical pruning behavior is consistent with the proposed hypothesis testing criterion. The observed concentration near zero suggests that, in this experiment, most removed components have weak statistical evidence for retention relative to the threshold. 29 4 3 2 1 0 1 2 3 4
+
+> Theoretical normal quantiles
+> 4
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> 4
+> Empirical standardized score quantiles
+
+Figure 4: Q–Q plot for the standardized averaged score statistic of a representative LoRA compo-nent on OpenBookQA with Qwen2.5-7B. The training procedure is repeated over 200 independent random seeds without pruning. The empirical quantiles are plotted against the theoretical quantiles of the standard normal distribution. The approximate agreement with the reference line provides empirical evidence consistent with the asymptotic normality established in Theorem 3. 
+
+5.5.4 Empirical Evidence for Asymptotic Normality 
+
+We further examine the asymptotic normality underlying the hypothesis testing for component scores in StatLoRA. The central limit theorem in Theorem 3 is asymptotic and is derived for each empirical component score. Therefore, an empirical validation that closely reflects the asymptotic theorem requires repeated training runs under the same and suitable experimental setting. To provide such a diagnostic, we conduct an additional experiment on OpenBookQA with Qwen2.5-7B. We repeat the training procedure over 200 independent random seeds without pruning, and randomly select a LoRA component for evaluation. For each run, we compute the averaged em-pirical score and construct the corresponding standardized statistic. Since the population score s⋆ℓ,j 
+
+is unknown, we approximate it by the average score over the final 100 iterations. The variance is estimated using the same batch-means estimator as in StatLoRA. As shown in Figure 4, the empirical distribution of the standardized statistics is broadly con-sistent with the asymptotic normality result in Theorem 3. The histogram is centered near zero and approximately follows the general shape of the standard normal density, while the Q-Q plot shows that most empirical quantiles lie close to the diagonal reference line. Deviations are still vis-ible, especially in the tails and around the central region. Such discrepancies are expected because the theoretical result is asymptotic, whereas the experiment is based on a finite training horizon of approximately 6000 iterations. In addition, s⋆ℓ,j is approximated by a late-stage average, and the variance is estimated by batch means, both of which introduce finite-sample approximation error. Overall, this experiment provides empirical support for the asymptotic normality of the aver-aged score statistic derived in Theorem 3. We interpret the result as an empirical diagnostic for the 30 asymptotic theory. 
+
+# 6 Conclusion and Discussion 
+
+In this paper, we developed StatLoRA, a statistically guided method for LoRA rank allocation. The key idea is to formulate component selection as a hypothesis testing problem, where rank-one LoRA components are retained or pruned according to their estimated contribution and the associ-ated uncertainty. This provides a statistical interpretation of rank allocation, in contrast to existing adaptive rank methods based primarily on carefully designed importance scores. To support this hypothesis-testing-based procedure, we established asymptotic theory for stochastic optimization algorithms commonly used in deep learning, with particular emphasis on AdamW. Within the LoRA fine-tuning setting, we further derived central limit theory for empirical LoRA scores using the delta method. To make the inference procedure practically implementable, we used a batch-means estimator to estimate the long-run variance of the averaged score statistic and established its con-sistency under suitable conditions. These theoretical ingredients lead to a practical p-value-based pruning rule, which is integrated into the StatLoRA fine-tuning procedure. Comprehensive experi-ments across natural language understanding, natural language generation, and question answering tasks demonstrate that StatLoRA is competitive with, and often improves upon, existing fixed-rank and adaptive-rank LoRA methods under matched rank budgets. Beyond performance comparisons, we conducted sensitivity analyses for the statistical hyperparameters, examined the stability of the selected rank allocation across repeated runs, and provided empirical diagnostics for the asymp-totic normality of component scores. These results support the practical usefulness of the proposed uncertainty-aware and hypothesis-testing-based rank allocation method. The proposed framework also has several limitations. The p-values used by StatLoRA should be interpreted as evidence of pruning for each component, rather than as formal guarantees for simultaneous multiple testing. In addition, the testing procedure relies on asymptotic normality and finite-sample variance estimation from stochastic training trajectories. Although our empirical results suggest that the resulting method is stable and practically useful, the calibration of the tests may depend on the training dynamics, batch-means estimation, and finite-sample behavior of large-scale fine-tuning. Thus, StatLoRA should be viewed as a statistically guided rank allocation method. Several directions remain for future work. First, it would be natural to incorporate multiple-testing correction or false discovery rate control into the component selection rule, especially when the number of LoRA components is large. The current framework performs hypothesis testing for each individual component, whereas a joint or multiple testing formulation may provide a more principled approach to rank allocation by accounting for dependence and interactions among com-ponents. Second, finite-sample calibration and inference methods would be valuable. Possible di-rections include self-normalized statistics, bootstrap calibration, and refined concentration bounds. Such results would strengthen the statistical guarantees beyond the asymptotic regime considered in this paper. Third, future work may consider adaptive procedures that both prune and reallocate com-ponents during training, allowing the rank budget to move more flexibly across layers and modules. 31 References 
+
+[1] Sunyoung An and Xiaoming Huo. A polyak-ruppert central limit theorem for SA-Adam with momentum and non-convergent adaptive preconditioning. arXiv preprint arXiv:2606.17364 ,2026. [2] Anas Barakat and Pascal Bianchi. Convergence and dynamical behavior of the ADAM algo-rithm for nonconvex stochastic optimization. SIAM Journal on Optimization , 31(1):244–274, 2021. [3] Charles Blundell, Julien Cornebise, Koray Kavukcuoglu, and Daan Wierstra. Weight uncer-tainty in neural network. In International Conference on Machine Learning , pages 1613–1622. PMLR, 2015. [4] Vivek S Borkar and Vivek S Borkar. Stochastic approximation: a dynamical systems viewpoint ,volume 100. Springer, 2008. [5] Tom Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared D Kaplan, Prafulla Dhari-wal, Arvind Neelakantan, Pranav Shyam, Girish Sastry, Amanda Askell, et al. Language mod-els are few-shot learners. Advances in Neural Information Processing Systems , 33:1877–1901, 2020. [6] Jerry Chee and Panos Toulis. Convergence diagnostics for stochastic gradient descent with constant learning rate. In Amos Storkey and Fernando Perez-Cruz, editors, Proceedings of the Twenty-First International Conference on Artificial Intelligence and Statistics , volume 84, pages 1476–1485. PMLR, 09–11 Apr 2018. [7] Haoyu Chen, Wenbin Lu, and Rui Song. Statistical inference for online decision making via stochastic gradient descent. Journal of the American Statistical Association , 116(534):708– 719, 2021. [8] Xi Chen, Zehua Lai, He Li, and Yichen Zhang. Online statistical inference for stochastic optimization via kiefer-wolfowitz methods. Journal of the American Statistical Association ,119(548):2972–2982, 2024. [9] Xi Chen, Jason D. Lee, Xin T. Tong, and Yichen Zhang. Statistical inference for model param-eters in stochastic gradient descent. The Annals of Statistics , 48(1), February 2020. [10] Hyung Won Chung, Le Hou, Shayne Longpre, Barret Zoph, Yi Tay, William Fedus, Yunxuan Li, Xuezhi Wang, Mostafa Dehghani, Siddhartha Brahma, et al. Scaling instruction-finetuned language models. Journal of Machine Learning Research , 25(70):1–53, 2024. [11] Christopher Clark, Kenton Lee, Ming-Wei Chang, Tom Kwiatkowski, Michael Collins, and Kristina Toutanova. BoolQ: Exploring the surprising difficulty of natural yes/no questions. In Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies, Volume 1 (Long and Short Papers) , pages 2924–2936, 2019. [12] Peter Clark, Isaac Cowhey, Oren Etzioni, Tushar Khot, Ashish Sabharwal, Carissa Schoenick, and Oyvind Tafjord. Think you have solved question answering? try ARC, the AI2 reasoning challenge. arXiv preprint arXiv:1803.05457 , 2018. 32 [13] Mary Kathryn Cowles and Bradley P Carlin. Markov chain Monte Carlo convergence diagnos-tics: a comparative review. Journal of the American Statistical Association , 91(434):883–904, 1996. [14] Xuan Cui, HuiYue Li, Run Zeng, Yunfei Zhao, Jinrui Qian, Wei Duan, Bo Liu, and Zhanpeng Zhou. IGU-loRA: Adaptive rank allocation via integrated gradients and uncertainty-aware scoring. In The Fourteenth International Conference on Learning Representations , 2026. [15] Damek Davis, Dmitriy Drusvyatskiy, and Liwei Jiang. Asymptotic normality and optimality in nonsmooth stochastic approximation. The Annals of Statistics , 52(4):1485–1508, 2024. [16] Steffen Dereich and Arnulf Jentzen. Central limit theorem for the averaged Adam optimizer. 
+
+arXiv preprint arXiv:2606.21433 , 2026. [17] Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. Bert: Pre-training of deep bidirectional transformers for language understanding. In Proceedings of the 2019 Con-ference of the North American Chapter of the Association for Computational Linguistics: Hu-man Language Technologies, Volume 1 (Long Papers) , pages 4171–4186, 2019. [18] Zhibin Duan, Yuhong Wang, Jiahong Fu, Zongsheng Yue, Bo Chen, and Zongben Xu. Bara: Bayesian adaptive rank allocation for parameter-efficient fine-tuning. arXiv preprint arXiv:2606.29184 , 2026. [19] John C Duchi and Feng Ruan. Asymptotic optimality in stochastic optimization. The Annals of Statistics , 49(1):21–48, 2021. [20] Yixin Fang, Jinfeng Xu, and Lei Yang. Online bootstrap confidence intervals for the stochastic gradient descent estimator. Journal of Machine Learning Research , 19(78):1–21, 2018. [21] James M Flegal and Galin L Jones. Batch means and spectral variance estimators in Markov chain Monte Carlo. The Annals of Statistics , pages 1034–1070, 2010. [22] Peter W Glynn and Ward Whitt. Estimating the asymptotic variance with batch means. Oper-ations Research Letters , 10(8):431–435, 1991. [23] Ian Goodfellow, Yoshua Bengio, and Aaron Courville. Deep Learning . MIT Press, 2016. [24] Pengcheng He, Jianfeng Gao, and Weizhu Chen. DeBERTaV3: Improving DeBERTa using electra-style pre-training with gradient-disentangled embedding sharing. In The Eleventh In-ternational Conference on Learning Representations , 2023. [25] Karl Moritz Hermann, Tomas Kocisky, Edward Grefenstette, Lasse Espeholt, Will Kay, Mustafa Suleyman, and Phil Blunsom. Teaching machines to read and comprehend. Advances in Neural Information Processing Systems , 28, 2015. [26] Neil Houlsby, Andrei Giurgiu, Stanislaw Jastrzebski, Bruna Morrone, Quentin De Laroussilhe, Andrea Gesmundo, Mona Attariyan, and Sylvain Gelly. Parameter-efficient transfer learning for NLP. In International Conference on Machine Learning , pages 2790–2799. PMLR, 2019. [27] Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen. LoRA: Low-rank adaptation of large language models. In Inter-national Conference on Learning Representations , 2022. 33 [28] Diederik P. Kingma and Jimmy Ba. Adam: A method for stochastic optimization. In Interna-tional Conference on Learning Representations , 2015. [29] Wei Kuang, Mihai Anitescu, and Sen Na. Online covariance matrix estimation in sketched Newton methods. arXiv preprint arXiv:2502.07114 , 2025. [30] Harold J Kushner and G George Yin. Stochastic approximation and recursive algorithms and applications . Springer, 2003. [31] Jinhyuk Lee, Wonjin Yoon, Sungdong Kim, Donghyeon Kim, Sunkyu Kim, Chan Ho So, and Jaewoo Kang. BioBERT: a pre-trained biomedical language representation model for biomed-ical text mining. Bioinformatics , 36(4):1234–1240, 2020. [32] R´ emi Leluc and Franc ¸ois Portier. Asymptotic analysis of conditioned stochastic gradient de-scent. Transactions on Machine Learning Research , 2023. [33] Mike Lewis, Yinhan Liu, Naman Goyal, Marjan Ghazvininejad, Abdelrahman Mohamed, Omer Levy, Veselin Stoyanov, and Luke Zettlemoyer. BART: Denoising sequence-to-sequence pre-training for natural language generation, translation, and comprehension. In Proceedings of the 58th annual meeting of the Association for Computational Linguistics , pages 7871–7880, 2020. [34] Junnan Li, Dongxu Li, Silvio Savarese, and Steven Hoi. BLIP-2: Bootstrapping language-image pre-training with frozen image encoders and large language models. In International Conference on Machine Learning , pages 19730–19742. PMLR, 2023. [35] Tianyang Li, Liu Liu, Anastasios Kyrillidis, and Constantine Caramanis. Statistical inference using SGD. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 32, 2018. [36] Xiang Lisa Li and Percy Liang. Prefix-tuning: Optimizing continuous prompts for generation. In Proceedings of the 59th Annual Meeting of the Association for Computational Linguistics and the 11th International Joint Conference on Natural Language Processing (Volume 1: Long Papers) , pages 4582–4597, 2021. [37] Chin-Yew Lin. ROUGE: A package for automatic evaluation of summaries. In Text Summariza-tion Branches Out , pages 74–81, Barcelona, Spain, July 2004. Association for Computational Linguistics. [38] Zequan Liu, Jiawen Lyn, Wei Zhu, Xing Tian, and Yvette Graham. ALoRA: Allocating low-rank adaptation for fine-tuning large language models. In Proceedings of the 2024 Conference of the North American Chapter of the Association for Computational Linguistics: Human Lan-guage Technologies (Volume 1: Long Papers) , pages 622–641, 2024. [39] Ilya Loshchilov and Frank Hutter. Decoupled weight decay regularization. In International Conference on Learning Representations , 2019. [40] Andres M. Bran, Sam Cox, Oliver Schilter, Carlo Baldassari, Andrew D White, and Philippe Schwaller. Augmenting large language models with chemistry tools. Nature Machine Intelli-gence , 6(5):525–535, 2024. 34 [41] Sadhika Malladi, Alexander Wettig, Dingli Yu, Danqi Chen, and Sanjeev Arora. A kernel-based view of language model fine-tuning. In International Conference on Machine Learning ,pages 23610–23641. PMLR, 2023. [42] Todor Mihaylov, Peter Clark, Tushar Khot, and Ashish Sabharwal. Can a suit of armor conduct electricity? a new dataset for open book question answering. In Proceedings of the 2018 Conference on Empirical Methods in Natural Language Processing , pages 2381–2391, 2018. [43] Sen Na. Derivative-free sequential quadratic programming for equality-constrained stochastic optimization. arXiv preprint arXiv:2510.22458 , 2025. [44] Sen Na and Michael Mahoney. Statistical inference of constrained stochastic optimization via sketched sequential quadratic programming. Journal of Machine Learning Research , 26(33):1– 75, 2025. [45] Ramesh Nallapati, Bowen Zhou, Cicero Dos Santos, C ¸ a˘ glar Gulc ¸ehre, and Bing Xiang. Ab-stractive text summarization using sequence-to-sequence RNNs and beyond. In Proceedings of the 20th SIGNLL Conference on Computational Natural Language Learning , pages 280–290, 2016. [46] Shashi Narayan, Shay B Cohen, and Mirella Lapata. Don’t give me the details, just the sum-mary! topic-aware convolutional neural networks for extreme summarization. In Proceedings of the 2018 Conference on Empirical Methods in Natural Language Processing , pages 1797– 1807, 2018. [47] Radford M Neal. Bayesian learning for neural networks , volume 118. Springer Science & Business Media, 2012. [48] Whitney K Newey. The asymptotic variance of semiparametric estimators. Econometrica: Journal of the Econometric Society , pages 1349–1382, 1994. [49] Boris T Polyak and Anatoli B Juditsky. Acceleration of stochastic approximation by averaging. 
+
+SIAM Journal on Control and Optimization , 30(4):838–855, 1992. [50] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agar-wal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning transferable visual models from natural language supervision. In International Conference on Machine Learning , pages 8748–8763. PMLR, 2021. [51] Herbert Robbins and Sutton Monro. A stochastic approximation method. The Annals of Math-ematical Statistics , pages 400–407, 1951. [52] David Ruppert. Efficient estimations from a slowly convergent Robbins-Monro process. Tech-nical report, Cornell University Operations Research and Industrial Engineering, 1988. [53] Noam Shazeer and Mitchell Stern. Adafactor: Adaptive learning rates with sublinear memory cost. In International Conference on Machine Learning , pages 4596–4604. PMLR, 2018. [54] Karan Singhal, Shekoofeh Azizi, Tao Tu, S Sara Mahdavi, Jason Wei, Hyung Won Chung, Nathan Scales, Ajay Tanwani, Heather Cole-Lewis, Stephen Pfohl, et al. Large language mod-els encode clinical knowledge. Nature , 620(7972):172–180, 2023. 35 [55] Alon Talmor, Jonathan Herzig, Nicholas Lourie, and Jonathan Berant. CommonsenseQA: A question answering challenge targeting commonsense knowledge. In Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics ,pages 4149–4158, 2019. [56] Panagiotis Toulis, Edoardo Airoldi, and Jason Rennie. Statistical analysis of stochastic gradient methods for generalized linear models. In International Conference on Machine Learning ,pages 667–675. PMLR, 2014. [57] Panos Toulis and Edoardo M. Airoldi. Asymptotic and finite-sample properties of estimators based on stochastic gradients. The Annals of Statistics , 45(4), August 2017. [58] Mojtaba Valipour, Mehdi Rezagholizadeh, Ivan Kobyzev, and Ali Ghodsi. DyLoRA: Parameter-efficient tuning of pre-trained models using dynamic search-free low-rank adap-tation. In Proceedings of the 17th Conference of the European Chapter of the Association for Computational Linguistics , pages 3274–3287, 2023. [59] Vladimir N. Vapnik. Statistical Learning Theory . Wiley, 1998. [60] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Lukasz Kaiser, and Illia Polosukhin. Attention is all you need. In Advances in Neural Infor-mation Processing Systems , volume 30, pages 5998–6008, 2017. [61] Alex Wang, Amanpreet Singh, Julian Michael, Felix Hill, Omer Levy, and Samuel R. Bowman. Glue: A multi-task benchmark and analysis platform for natural language understanding. In 
+
+Proceedings of the 2018 EMNLP Workshop BlackboxNLP: Analyzing and Interpreting Neural Networks for NLP , pages 353–355, 2018. [62] Haoxuan Wang, Xinchen Du, and Sen Na. Inference of online newton methods with nesterov’s accelerated sketching. In International Conference on Machine Learning , 2026. [63] Adam Yang, Maxime Robeyns, Xi Wang, and Laurence Aitchison. Bayesian low-rank adap-tation for large language models. In International Conference on Learning Representations ,volume 2024, pages 1812–1842, 2024. [64] An Yang, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chengyuan Li, Dayiheng Liu, Fei Huang, Haoran Wei, et al. Qwen2.5 technical report. arXiv preprint arXiv:2412.15115 , 2024. [65] Yuchen Zeng and Kangwook Lee. The expressive power of low-rank adaptation. In Interna-tional Conference on Learning Representations , volume 2024, pages 5078–5123, 2024. [66] Qingru Zhang, Minshuo Chen, Alexander Bukharin, Pengcheng He, Yu Cheng, Weizhu Chen, and Tuo Zhao. Adaptive budget allocation for parameter-efficient fine-tuning. In International Conference on Learning Representations , 2023. [67] Ruiyi Zhang, Rushi Qiang, Sai Ashish Somayajula, and Pengtao Xie. AutoLoRA: Automat-ically tuning matrix ranks in low-rank adaptation based on meta learning. In Proceedings of the 2024 Conference of the North American Chapter of the Association for Computational Lin-guistics: Human Language Technologies (Volume 1: Long Papers) , pages 5048–5060, 2024. 36 [68] Jiacheng Zhu, Kristjan Greenewald, Kimia Nadjahi, Haitz S´ aez De Oc´ ariz Borde, Rickard Br¨ uel Gabrielsson, Leshem Choshen, Marzyeh Ghassemi, Mikhail Yurochkin, and Justin Solomon. Asymmetry in low-rank adapters of foundation models. In Ruslan Salakhut-dinov, Zico Kolter, Katherine Heller, Adrian Weller, Nuria Oliver, Jonathan Scarlett, and Felix Berkenkamp, editors, Proceedings of the 41st International Conference on Machine Learn-ing , volume 235 of Proceedings of Machine Learning Research , pages 62369–62385. PMLR, 21–27 Jul 2024. [69] Wanrong Zhu, Xi Chen, and Wei Biao Wu. Online covariance matrix estimation in stochastic gradient descent. Journal of the American Statistical Association , 118(541):393–404, July 2021. 37 A Proofs of Main Theorems 
+
+## A.1 Preparation Lemmas 
+
+We first present several auxiliary lemmas that are used in the proofs of the main theorems. Their proofs are deferred to Appendix E. 
+
+Lemma 1 (Lemma B.3 in [44]) . Let αk = ι1k−b1 and βk = ι2k−b2 for some ι1, ι 2 > 0 and b1, b 2 > 0.Define χ = 0 if 0 < b 2 < 1 and χ = −b1/ι 2 if b2 = 1 . If Plt=1 at + χ > 0, then 
+
+lim 
+
+> k→∞
+
+1
+
+αkkX
+
+> i=1
+> k
+
+Y
+
+> j=i+1
+> l
+
+Y
+
+> t=1
+
+(1 − atβj ) βiαi = 1
+
+Plt=1 at + χ.
+
+Moreover, for any b ∈ R and any sequence ek satisfying lim  
+
+> k→∞
+
+ek → 0, we have 
+
+lim 
+
+> k→∞
+
+(
+
+1
+
+αkkX
+
+> i=1
+> k
+
+Y
+
+> j=i+1
+> l
+
+Y
+
+> t=1
+
+(1 − atβj ) βiαiei + b
+
+> k
+
+Y
+
+> j=1
+> l
+
+Y
+
+> t=1
+
+(1 − atβj )
+
+)
+
+= 0 .
+
+Lemma 2 (Stability estimate for the transition matrices) . Let J ∈ Rd×d be a Hurwitz matrix, and let 
+
+Φt,k := 
+
+> t
+
+Y
+
+> j=k
+
+(I + γj J), 1 ≤ k ≤ t, 
+
+with the convention Φt,t +1 = I. Assume that γj > 0 and γj → 0. Then there exist a vector norm 
+
+∥ · ∥ ∗ on Rd, the associated induced matrix norm still denoted by ∥ · ∥ ∗, a constant c > 0, and N ∈ N
+
+such that for all t ≥ k ≥ N ,
+
+∥I + γkJ∥∗ ≤ 1 − cγ k,
+
+and consequently 
+
+∥Φt,k ∥∗ ≤
+
+> t
+
+Y
+
+> j=k
+
+(1 − cγ j ).
+
+Moreover, by norm equivalence, there exists a constant C0 > 0 such that 
+
+∥Φt,k ∥2 ≤ C0
+
+> t
+
+Y
+
+> j=k
+
+(1 − cγ j ), t ≥ k ≥ N. (34) 
+
+Lemma 3. Let J ∈ Rd×d be Hurwitz, and let Q ∈ Rd×d be a symmetric positive semidefinite matrix. Let 
+
+γt = γ0t−κ, γ0 > 0, κ ∈ (1 /2, 1) ,
+
+and define 
+
+Φt,k := 
+
+> t
+
+Y
+
+> j=k
+
+(I + γj J), 1 ≤ k ≤ t, 
+
+with the convention Φt,t +1 = I. Define 
+
+Ut := 
+
+> t
+
+X
+
+> k=1
+
+γ2
+
+> k
+
+γt
+
+Φt,k +1 QΦ⊤
+
+> t,k +1
+
+.
+
+Then Ut converges to a matrix Σ, where Σ is the unique positive semidefinite solution to the Lya-punov equation 
+
+JΣ + ΣJ⊤ + Q = 0.
+
+38 A.2 Main Lemmas 
+
+We present several key lemmas that are used in the proof of the asymptotic theory for the general stochastic recursion. Their detailed proofs are deferred to Section D. 
+
+Lemma 4 (Martingale central limit theory for the weighted noise term) . Let 
+
+Jt := 
+
+> t
+
+X
+
+> k=1
+
+Φt,k +1 
+
+γk
+
+√γt
+
+ξk, Φt,k := 
+
+> t
+
+Y
+
+> j=k
+
+(I + γj J).
+
+Under Assumption 1, we have 
+
+Jtd
+
+−→ N (0, Σ),
+
+where Σ is characterized by the following Lyapunov equation: 
+
+JΣ + ΣJ⊤ + Q = 0.
+
+Lemma 5. Define 
+
+et = zt − z⋆,
+
+where {zt} is the stochastic approximation sequence. Under Assumption 1, we have 
+
+> t
+
+X
+
+> k=1
+
+Φt,k +1 γk (ρ(ek) + rk) = op
+
+
+
+γ1/2
+
+> t
+
+
+
+.
+
+## A.3 Proof of Theorem 1 
+
+Define the error process 
+
+et := zt − z⋆.
+
+Since F (z⋆) = 0, the recursion 
+
+zt+1 = zt + γt
+
+ F (zt) + ξt + rt
+
+
+
+can be rewritten as 
+
+et+1 = et + γt
+
+ F (z⋆ + et) − F (z⋆) + ξt + rt
+
+.
+
+By (A2) in Assumption 1, F is continuously differentiable in a neighborhood of z⋆, and hence admits the local expansion 
+
+F (z⋆ + et) = F (z⋆) + Je t + ρ(et) = Je t + ρ(et),
+
+where ∥ρ(et)∥ = O(∥et∥2) as et → 0. Therefore, 
+
+et+1 = ( I + γtJ)et + γtξt + γt
+
+ ρ(et) + rt
+
+. (35) Let 
+
+Φt,k := 
+
+> t
+
+Y
+
+> j=k
+
+(I + γj J).
+
+39 By repeated substitution of (35), we obtain the variation-of-constants representation 
+
+γ−1/2 
+
+> t
+
+et+1 = γ−1/2 
+
+> t
+
+Φt, 1e1 +
+
+> t
+
+X
+
+> k=1
+
+Φt,k +1 
+
+γk
+
+√γt
+
+ξk + γ−1/2
+
+> tt
+
+X
+
+> k=1
+
+Φt,k +1 γk
+
+ ρ(ek) + rk
+
+.
+
+For the first term, it follows from (34) that 
+
+γ−1/2 
+
+> t
+
+Φt, 1e1 ≤ C0γ−1/2
+
+> tt
+
+Y
+
+> j=1
+
+(1 − cγ j ) ∥e1∥≤ C0γ−1/2 
+
+> t
+
+exp 1 − c
+
+> t
+
+X
+
+> j=1
+
+γj
+
+!
+
+∥e1∥ → 0.
+
+We then consider the third term, by Lemma 5, we have 
+
+γ−1/2
+
+> tt
+
+X
+
+> k=1
+
+Φt,k +1 γk
+
+ ρ(ek) + rk
+
+ p
+
+−→ 0.
+
+It therefore remains to analyze the martingale term 
+
+Jt := 
+
+> t
+
+X
+
+> k=1
+
+Φt,k +1 
+
+γk
+
+√γt
+
+ξk.
+
+By Lemma 4, under Assumption 1, we have 
+
+Jtd
+
+−→ N (0, Σ),
+
+where Σ is the unique positive semidefinite solution to the corresponding Lyapunov equation. Hence, by Slutsky’s theorem, 
+
+γ−1/2 
+
+> t
+
+(zt − z⋆) = γ−1/2 
+
+> t
+
+etd
+
+−→ N (0, Σ).
+
+Now, we proceed to prove the asymptotic normality for the Polyak-Ruppert average. We continue from 
+
+et+1 = et + γt
+
+ Je t + ξt + ρ(et) + rt
+
+.
+
+For simplicity, we denote δt = ρ(et) + rt. Rearranging gives 
+
+Je t = et+1 − et
+
+γt
+
+− ξt − δt. (36) Summing (36) from t = 1 to T yields 
+
+J
+
+> T
+
+X
+
+> t=1
+
+et =
+
+> T
+
+X
+
+> t=1
+
+et+1 − et
+
+γt
+
+−
+
+> T
+
+X
+
+> t=1
+
+ξt −
+
+> T
+
+X
+
+> t=1
+
+δt. (37) Hence 
+
+√T ( ¯ zT − z⋆) = −J−1 1
+
+√T
+
+> T
+
+X
+
+> t=1
+
+ξt + J−1RT, 1 − J−1RT, 2, (38) 40 where 
+
+RT, 1 := 1
+
+√T
+
+> T
+
+X
+
+> t=1
+
+et+1 − et
+
+γt
+
+, RT, 2 := 1
+
+√T
+
+> T
+
+X
+
+> t=1
+
+δt.
+
+We now show that both remainder terms are negligible. From the last-iterate result proved above, we have et = Op(γ1/2 
+
+> t
+
+). Then, Assumption 1 gives 
+
+ρ(et) = Op(∥et∥2) = Op(γt).
+
+The negligible-remainder condition from Theorem 1 yields rt = Op(γt), hence 
+
+δt = Op(γt).
+
+Therefore, 
+
+∥RT, 2∥ ≤ 1
+
+√T
+
+> T
+
+X
+
+> t=1
+
+Op(γt) = Op T −1/2
+
+> T
+
+X
+
+> t=1
+
+t−κ
+
+!
+
+= Op
+
+ T 1/2−κ = op(1) ,
+
+since κ > 1/2.For RT, 1, summation by parts gives 
+
+> T
+
+X
+
+> t=1
+
+et+1 − et
+
+γt
+
+= eT +1 
+
+γT
+
+− e1
+
+γ1
+
++
+
+> T
+
+X
+
+> t=2
+
+et
+
+ 1
+
+γt−1
+
+− 1
+
+γt
+
+
+
+.
+
+Since et = Op(γ1/2 
+
+> t
+
+) and γt = γ0t−κ,
+
+∥eT +1 ∥√T γ T
+
+= Op
+
+ T κ/ 2−1/2 = op(1) ,
+
+and 
+
+1
+
+√T
+
+> T
+
+X
+
+> t=2
+
+∥et∥
+
+ 1
+
+γt
+
+− 1
+
+γt−1
+
+
+
+= Op
+
+1
+
+√T
+
+> T
+
+X
+
+> t=2
+
+t−κ/ 2tκ−1
+
+!
+
+= Op
+
+ T κ/ 2−1/2 = op(1) .
+
+Thus RT, 1 = op(1) .Finally, by the martingale central limit theorem and the conditional covariance assumption, 
+
+1
+
+√T
+
+> T
+
+X
+
+> t=1
+
+ξtd
+
+−→ N (0, Q).
+
+Applying Slutsky’s theorem to (38) proves 
+
+√T ( ¯ zT − z⋆) d
+
+−→ N (0, J−1QJ −⊤ ).
+
+## A.4 Proof of Theorem 2 
+
+We verify Assumptions (A1)–(A6) in Assumption 1 one by one. 41 Verification of (A1). By Assumption (B1), the augmented iterate zt converges almost surely to a limiting point 
+
+z⋆ = ( x⋆, m⋆, v⋆),
+
+satisfying (22) and (23). In particular, 
+
+F (z⋆) = 0,
+
+and 
+
+zt → z⋆, a.s. as t → ∞ .
+
+Hence Assumption (A1) holds. 
+
+Verification of (A2). By Assumption (B2), the objective function f is twice continuously differ-entiable and the function q(x) is continuously differentiable in a neighborhood of x⋆. Therefore, the mappings 
+
+x 7 → ∇ f (x), x 7 → q(x)
+
+are continuously differentiable in a neighborhood of x⋆. Moreover, since ε > 0 , the map 
+
+(m, v) 7 → m
+
+√v + ε
+
+is continuously differentiable on any neighborhood where the denominator remains positive compo-nentwise. It follows that the mean-field mapping 
+
+F (z) = 
+
+
+
+− m
+
+√v + ε − λx
+
+α ∇f (x) − m
+
+β q(x) − v
+
+is continuously differentiable in a neighborhood of z⋆. Moreover, due to the local Lipschitzness of 
+
+∇2f and ∇q, ∇F is also locally Lipschitz continuous. Hence, there exists a Jacobian matrix 
+
+J := ∇F (z⋆),
+
+such that 
+
+F (z⋆ + e) = F (z⋆) + Je + ρ(e), ∥ρ(e)∥ = O(∥e∥2), e → 0.
+
+Thus Assumption (A2) holds. 
+
+Verification of (A3). Recall that the augmented noise is 
+
+ξt =
+
+
+
+0
+
+αξ(g)
+
+> t
+
+β
+
+
+
+2∇f (xt) ⊙ ξ(g) 
+
+> t
+
++ ˆξ(g)
+
+> t
+
+ ,
+
+where ˆξ(g) 
+
+> t
+
+= ξ(g)⊙2 
+
+> t
+
+− E
+
+h
+
+ξ(g)⊙2 
+
+> t
+
+| F t
+
+i
+
+.
+
+By Assumption (B3), 
+
+E[ξ(g) 
+
+> t
+
+| F t] = 0.
+
+42 Also, 
+
+E[ ˆξ(g) 
+
+> t
+
+| F t] = E[ξ(g)⊙2 
+
+> t
+
+| F t] − E[ξ(g)⊙2 
+
+> t
+
+| F t] = 0.
+
+Therefore, 
+
+E[ξt | F t] = 0,
+
+so that {ξt} is a martingale difference sequence. Next, we verify the bounded (2 + δ)-moment. Since zt → z⋆ almost surely, the sequence {xt} is almost surely bounded for all sufficiently large t, and hence {∇ f (xt)} is also almost surely bounded. Therefore, 
+
+∥ξt∥ ≤ C
+
+
+
+∥ξ(g) 
+
+> t
+
+∥ + ∥ξ(g) 
+
+> t
+
+∥2
+
+
+
+for some deterministic constant C > 0. By Assumption (B3), 
+
+sup 
+
+> t≥1
+
+E
+
+h
+
+∥ξ(g) 
+
+> t
+
+∥4+ δ | F t
+
+i
+
+< ∞, a.s. It follows that, 
+
+sup 
+
+> t≥1
+
+E∥ξt∥2+ δ/ 2 | F t
+
+ < ∞, a.s. Hence, Assumption (A3) holds. 
+
+Verification of (A4). By definition, 
+
+ξt =
+
+
+
+0
+
+αξ(g)
+
+> t
+
+β
+
+
+
+2∇f (xt) ⊙ ξ(g) 
+
+> t
+
++ ˆξ(g)
+
+> t
+
+ ,
+
+where ˆξ(g) 
+
+> t
+
+= ξ(g)⊙2 
+
+> t
+
+− E
+
+h
+
+ξ(g)⊙2 
+
+> t
+
+| F t
+
+i
+
+.
+
+Since xt → x⋆ almost surely and ∇f is continuous, we have 
+
+∇f (xt) → ∇ f (x⋆), a.s. Hence, 
+
+2∇f (xt) ⊙ ξ(g) 
+
+> t
+
+= 2 diag  ∇f (xt)ξ(g) 
+
+> t
+
+→ 2 diag  ∇f (x⋆)ξ(g) 
+
+> t
+
+= 2 diag  m⋆ξ(g)
+
+> t
+
+in the conditional second moment. Therefore, 
+
+E[ξtξ⊤ 
+
+> t
+
+| F t] → Q, a.s. ,
+
+where 
+
+Q =
+
+
+
+0 0 00 Q22 Q23 
+
+0 Q32 Q33 
+
+ , (39) with 
+
+Q22 = α2Q(g),
+
+43 Q23 = αβ  2Q(g) diag  m⋆ + R(g),
+
+Q32 = αβ  2 diag  m⋆Q(g) + R(g)⊤,
+
+Q33 = β2
+
+
+
+4 diag  m⋆Q(g) diag  m⋆ + 2 diag  m⋆R(g) + 2 R(g)⊤ diag  m⋆ + ˆQ(g)
+
+
+
+.
+
+Thus, Assumption (A4) holds. 
+
+Verification of (A5). Assumption (B5) states exactly that the Jacobian matrix J, defined in (24), is Hurwitz. Hence Assumption (A5) holds. 
+
+Verification of (A6). The remainder term is 
+
+rt =
+
+r(x)
+
+> t
+
+00
+
+ , r(x) 
+
+> t
+
+= mt
+
+√vt + ε − mt+1 
+
+√vt+1 + ε.
+
+Since 
+
+mt+1 − mt = αt
+
+ ∇f (xt) − mt
+
+ + αtξ(g) 
+
+> t
+
+,
+
+and 
+
+vt+1 − vt = βt
+
+ q(xt) − vt
+
+ + βt
+
+
+
+2∇f (xt) ⊙ ξ(g) 
+
+> t
+
++ ˆξ(g)
+
+> t
+
+
+
+,
+
+we obtain 
+
+E∥mt+1 − mt∥2 | F t
+
+ = O(γ2 
+
+> t
+
+),
+
+and 
+
+E∥vt+1 − vt∥2 | F t
+
+ = O(γ2 
+
+> t
+
+), a.s. Since the map 
+
+(m, v) 7 → m
+
+√v + ε
+
+is locally Lipschitz in a neighborhood of (m⋆, v⋆), there exists C > 0 such that 
+
+∥r(x) 
+
+> t
+
+∥ ≤ C
+
+
+
+∥mt+1 − mt∥ + ∥vt+1 − vt∥
+
+
+
+, a.s. Hence 
+
+∥rt∥2 ≤ 2C2∥mt+1 − mt∥2 + 2 C2∥vt+1 − vt∥2, a.s. and therefore 
+
+E∥rt∥2 | F t
+
+ = O(γ2 
+
+> t
+
+), a.s. which implies the required negligibility of the remainder term. Thus Assumption (A6) holds. Combining the above verifications, we conclude that Assumptions (A1)–(A6) in Assumption 1 are satisfied. Therefore, Theorem 1 applies directly to the AdamW iterates, and 
+
+γ−1/2 
+
+> t
+
+(zt − z⋆) d
+
+−→ N (0, Σ),
+
+√t ( ¯ zt − z⋆) d
+
+−→ N (0, J−1QJ −⊤ ),
+
+where Σ is the unique positive semidefinite solution to 
+
+JΣ + ΣJ⊤ + Q = 0.
+
+This completes the proof. 44 A.5 Proof of Theorem 3 
+
+Fix a LoRA component (ℓ, j ). Recall that the full optimizer state is denoted by zt, and let Pℓ,j be the selection matrix such that 
+
+wℓ,j (t) := 
+
+aℓ,j (t)
+
+bℓ,j (t)
+
+
+
+= Pℓ,j zt.
+
+Similarly, 
+
+w⋆ℓ,j = Pℓ,j z⋆.
+
+By the central limit theorem for the optimizer state under Assumption 2, we have 
+
+γ−1/2 
+
+> t
+
+(zt − z⋆) d
+
+−→ N (0, Σ),
+
+and √t( ¯ zt − z⋆) d
+
+−→ N (0 , J−1QJ −⊤ ), ¯zt := 1
+
+t
+
+> t
+
+X 
+
+> τ=1
+
+zτ .
+
+Applying the continuous mapping theorem to the linear map Pℓ,j , we obtain 
+
+γ−1/2
+
+> t
+
+ wℓ,j (t) − w⋆ℓ,j 
+
+ d
+
+−→ N (0 , Σwℓ,j ),
+
+where 
+
+Σwℓ,j := Pℓ,j ΣP ⊤ 
+
+> ℓ,j
+
+.
+
+Similarly, √t   ¯wℓ,j,t − w⋆ℓ,j 
+
+ d
+
+−→ N (0 , ¯Σwℓ,j ),
+
+where 
+
+¯wℓ,j,t := 1
+
+t
+
+> t
+
+X 
+
+> τ=1
+
+wℓ,j (τ ), ¯Σwℓ,j := Pℓ,j J−1QJ −⊤ P ⊤ 
+
+> ℓ,j
+
+.
+
+Define 
+
+h(wℓ,j ) := ∥aℓ,j ∥2∥bℓ,j ∥2.
+
+Then 
+
+sℓ,j (t) = h(wℓ,j (t)) , s⋆ℓ,j = h(w⋆ℓ,j ).
+
+Since 
+
+s⋆ℓ,j = ∥a⋆ℓ,j ∥2∥b⋆ℓ,j ∥2 ≥ ∆ > 0,
+
+both a⋆ℓ,j and b⋆ℓ,j are nonzero. Hence h is continuously differentiable in a neighborhood of w⋆ℓ,j , and its gradient is 
+
+∇h(w⋆ℓ,j ) = 
+
+2∥b⋆ℓ,j ∥2a⋆ℓ,j 
+
+2∥a⋆ℓ,j ∥2b⋆ℓ,j 
+
+
+
+.
+
+By a first-order Taylor expansion, 
+
+h(wℓ,j (t)) − h(w⋆ℓ,j ) = ∇h(w⋆ℓ,j )⊤  wℓ,j (t) − w⋆ℓ,j 
+
+ + rt,
+
+where 
+
+rt = op
+
+ ∥wℓ,j (t) − w⋆ℓ,j ∥ .
+
+45 Since 
+
+wℓ,j (t) − w⋆ℓ,j = Op(γ1/2 
+
+> t
+
+),
+
+we have 
+
+γ−1/2 
+
+> t
+
+rt = op(1) .
+
+Therefore, 
+
+γ−1/2
+
+> t
+
+ sℓ,j (t) − s⋆ℓ,j 
+
+ = ∇h(w⋆ℓ,j )⊤γ−1/2
+
+> t
+
+ wℓ,j (t) − w⋆ℓ,j 
+
+ + op(1) .
+
+Combining this expansion with the component-wise CLT and Slutsky’s theorem yields 
+
+γ−1/2
+
+> t
+
+ sℓ,j (t) − s⋆ℓ,j 
+
+ d
+
+−→ N (0 , σ 2 
+
+> ℓ,j
+
+),
+
+where 
+
+σ2 
+
+> ℓ,j
+
+= ∇h(w⋆ℓ,j )⊤Σwℓ,j ∇h(w⋆ℓ,j ).
+
+This proves (29). We next prove the averaged-score result. For each τ , the Taylor expansion gives 
+
+sℓ,j (τ ) − s⋆ℓ,j = ∇h(w⋆ℓ,j )⊤  wℓ,j (τ ) − w⋆ℓ,j 
+
+ + rτ ,
+
+where 
+
+rτ = Op
+
+ ∥wℓ,j (τ ) − w⋆ℓ,j ∥2
+
+under the local smoothness of h. Since the optimizer-state central limit theory implies 
+
+wℓ,j (τ ) − w⋆ℓ,j = Op(γ1/2 
+
+> τ
+
+),
+
+we have 
+
+rτ = Op(γτ ).
+
+Therefore, 
+
+1
+
+√t
+
+> t
+
+X 
+
+> τ=1
+
+rτ = Op
+
+1
+
+√t
+
+> t
+
+X 
+
+> τ=1
+
+γτ
+
+!
+
+.
+
+Because γτ = γ0τ −κ with κ ∈ (1 /2, 1) ,
+
+1
+
+√t
+
+> t
+
+X 
+
+> τ=1
+
+γτ = O  t1/2−κ = o(1) .
+
+Hence 
+
+1
+
+√t
+
+> t
+
+X 
+
+> τ=1
+
+rτ = op(1) .
+
+It follows that 
+
+√t 1
+
+t
+
+> t
+
+X 
+
+> τ=1
+
+sℓ,j (τ ) − s⋆ℓ,j 
+
+!
+
+= ∇h(w⋆ℓ,j )⊤√t 1
+
+t
+
+> t
+
+X 
+
+> τ=1
+
+wℓ,j (τ ) − w⋆ℓ,j 
+
+!
+
++ op(1) .
+
+Using the averaged-state central limit theory and Slutsky’s theorem, we obtain 
+
+√t 1
+
+t
+
+> t
+
+X 
+
+> τ=1
+
+sℓ,j (τ ) − s⋆ℓ,j 
+
+!
+
+> d
+
+−→ N (0 , ¯σ2 
+
+> ℓ,j
+
+),
+
+46 where 
+
+¯σ2 
+
+> ℓ,j
+
+= ∇h(w⋆ℓ,j )⊤ ¯Σwℓ,j ∇h(w⋆ℓ,j ).
+
+This proves (30). Finally, since Σwℓ,j and ¯Σwℓ,j are positive semidefinite covariance matrices, both limiting variances are nonnegative: 
+
+σ2 
+
+> ℓ,j
+
+≥ 0, ¯σ2 
+
+> ℓ,j
+
+≥ 0.
+
+The limiting normal distribution is understood to be degenerate when the corresponding variance is zero. 47 B Adam Optimizer 
+
+## B.1 Main Results 
+
+We consider the Adam optimizer [28] applied to the stochastic optimization problem (9), where only noisy gradients are available. Given a sequence of stochastic gradients gt := ∇L (xt; ζt), Adam updates are given by 
+
+mt+1 = (1 − αt)mt + αtgt,
+
+vt+1 = (1 − βt)vt + βtg⊙2 
+
+> t
+
+,
+
+xt+1 = xt − γt
+
+mt+1 
+
+√vt+1 + ε,
+
+(40) where αt = αγ t, β t = βγ t are step sizes, ε > 0 is a small number, and the division is understood elementwise. We define the augmented state 
+
+zt := ( xt, mt, vt) ∈ R3d, (41) which are considered and updated during Adam’s iteration. Let ∇f (xt) denote the true gradient, and write the stochastic gradient as 
+
+gt = ∇f (xt) + ξ(g) 
+
+> t
+
+,
+
+where {ξ(g) 
+
+> t
+
+} is a martingale difference sequence for gradients. We denote 
+
+q(x) = E ∇L (x; ζ)⊙2 .
+
+Then the updates can be rewritten as 
+
+mt+1 = mt + αt
+
+ ∇f (xt) − mt
+
+ + αtξ(g) 
+
+> t
+
+,
+
+vt+1 = vt + βt
+
+ q(xt) − vt
+
+ + βt
+
+
+
+2∇f (xt) ⊙ ξ(g) 
+
+> t
+
++ ξ(g)⊙2 
+
+> t
+
+− E
+
+h
+
+ξ(g)⊙2 
+
+> t
+
+| F t
+
+i 
+
+.
+
+The update of xt can be written as 
+
+xt+1 = xt − γt
+
+mt
+
+√vt + ε + γtr(x) 
+
+> t
+
+,
+
+where r(x) 
+
+> t
+
+= mt√vt+ε − mt+1  
+
+> √vt+1 +ε
+
+collects the higher-order terms arising from the difference between 
+
+(mt+1 , vt+1 ) and (mt, vt).Based on the analysis and reformulation of the Adam algorithm, we define the mean-field map-ping F : R3d → R3d as 
+
+F (z) = 
+
+
+
+− m
+
+√v + εα ∇f (x) − m
+
+β q(x) − v . (42) Then, the corresponding martingale noise is given by 
+
+ξt =
+
+
+
+0
+
+αξ(g)
+
+> t
+
+β 2∇f (xt) ⊙ ξ(g) 
+
+> t
+
++ ξ(g)⊙2 
+
+> t
+
+− E[ξ(g)⊙2 
+
+> t
+
+|F t] . (43) 48 The remainder term rt collects all higher-order corrections, defined as 
+
+rt =
+
+r(x)
+
+> t
+
+00
+
+ =
+
+ 
+
+> mt√vt+ε
+
+− mt+1 
+
+> √vt+1 +ε
+
+00
+
+ . (44) With the above definitions, the Adam iteration can be written in the stochastic approximation form 
+
+zt+1 = zt + γt
+
+ F (zt) + ξt + rt
+
+.
+
+Proposition 3. The following statements hold for the Adam optimizer (40) :1. The point z⋆ = ( x⋆, 0, q(x⋆)) satisfies the Adam mean-field equation F (z⋆) = 0, where x⋆ is a stationary point of the objective function. 2. Assume that q(x) is differentiable in a neighborhood of x⋆. Then, the Jacobian matrix at z⋆
+
+admits 
+
+J =
+
+
+
+0 − diag   1√q⋆+ε
+
+ 0
+
+α∇2f (x⋆) −αId 0
+
+β∇q(x⋆) 0 −βId
+
+ , (45) 
+
+where we denote q(x⋆) as q⋆. Moreover, J is Hurwitz if ∇2f (x⋆) ≻ 0.
+
+Assumption 3. For the Adam recursion (40) , we impose the following conditions. (C1) Almost sure convergence. The augmented iterate zt = ( xt, mt, vt) converges almost surely to a limiting point 
+
+z⋆ = ( x⋆, 0, q⋆),
+
+where x⋆ is a strict local minimizer of the objective function, i.e., ∇f (x⋆) = 0 , ∇2f (x⋆) ≻
+
+0, and q⋆ = q(x⋆).(C2) Local smoothness. The objective function f (x) is twice continuously differentiable, the Hessian ∇2f is Lipschitz continuous, the function q(x) is continuously differentiable, and the Jacobian ∇q is Lipschitz continuous in a neighborhood of x⋆.(C3) Gradient noise with bounded moments. The stochastic gradient admits the decomposition 
+
+gt = ∇f (xt) + ξ(g) 
+
+> t
+
+,
+
+where {ξ(g) 
+
+> t
+
+} is a martingale difference sequence with respect to {F t}, i.e., 
+
+E[ξ(g) 
+
+> t
+
+| F t] = 0.
+
+Moreover, there exists δ > 0 such that 
+
+sup 
+
+> t≥1
+
+E
+
+h
+
+∥ξ(g) 
+
+> t
+
+∥4+ δ | F t
+
+i
+
+< ∞, a.s. (C4) Asymptotic conditional covariance. Denote ˆξ(g) 
+
+> t
+
+= ξ(g)⊙2 
+
+> t
+
+− E[ξ(g)⊙2 
+
+> t
+
+|F t]. There exist posi-tive semidefinite matrices Q(g) and ˆQ(g), and a matrix R(g) such that 
+
+Eξ(g) 
+
+> t
+
+ξ(g)⊤ 
+
+> t
+
+| F t
+
+ → Q(g),
+
+E ˆξ(g) 
+
+> t
+
+ˆξ(g)⊤ 
+
+> t
+
+| F t
+
+ = Eξ(g)⊙2 
+
+> t
+
+ξ(g)⊙2⊤ 
+
+> t
+
+| F t
+
+ − Eξ(g)⊙2 
+
+> t
+
+| F t
+
+ Eξ(g)⊙2 
+
+> t
+
+| F t
+
+⊤ → ˆQ(g),
+
+Eξ(g) 
+
+> t
+
+ˆξ(g)⊤ 
+
+> t
+
+| F t
+
+ = Eξ(g) 
+
+> t
+
+ξ(g)⊙2⊤ 
+
+> t
+
+| F t
+
+ → R(g), a.s. 
+
+(46) 49 Theorem 4. Suppose that Assumption 3 holds. Then Assumption 1 is satisfied for the Adam iter-ates generated by (40) with the state variable zt defined in (41) . Consequently, Theorem 1 applies directly: 
+
+γ−1/2 
+
+> t
+
+(zt − z⋆) d
+
+−→ N (0, Σ),
+
+and √t ( ¯ zt − z⋆) d
+
+−→ N (0, J−1QJ −⊤ ),
+
+where the covariance matrix Σ is the unique positive semidefinite solution to the Lyapunov equation 
+
+JΣ + ΣJ⊤ + Q = 0,
+
+with J given in (45) , and 
+
+Q =
+
+
+
+0 0 00 α2Q(g) αβ R(g)
+
+0 αβ R(g)⊤ β2 ˆQ(g)
+
+ .
+
+## B.2 Proof of Theorem 4 
+
+We verify (A1)–(A6) in Assumption 1 one by one. 
+
+Verification of (A1). Assumption (C1) states that the augmented iterate zt = ( xt, mt, vt) con-verges almost surely to 
+
+z⋆ = ( x⋆, 0, q⋆),
+
+where ∇f (x⋆) = 0 and q⋆ = q(x⋆). By the definition of the Adam mean-field mapping 
+
+F (z) = 
+
+
+
+− m
+
+√v + εα(∇f (x) − m)
+
+β(q(x) − v)
+
+ ,
+
+we have 
+
+F (z⋆) = 
+
+
+
+0
+
+α(∇f (x⋆) − 0)
+
+β(q(x⋆) − q⋆)
+
+ = 0.
+
+Hence Assumption (A1) holds. 
+
+Verification of (A2). By Assumption (C2), the objective function f is twice continuously differ-entiable in a neighborhood of x⋆. Therefore, the mappings 
+
+x 7 → ∇ f (x), x 7 → ∇ f (x)⊙2
+
+are continuously differentiable in a neighborhood of x⋆. Since the map 
+
+(m, v) 7 → m
+
+√v + ε
+
+50 is continuously differentiable for ε > 0 and v > 0, and the function q(x) is continuously differen-tiable in a neighborhood of x⋆, it follows that the mean-field mapping F is continuously differen-tiable in a neighborhood of z⋆. Moreover, the Lipschitzness of ∇2f and ∇q implies that the Jacobian 
+
+∇F is Lipschitz continuous in a neighborhood of z⋆. Consequently, its first-order expansion 
+
+F (z⋆ + e) = F (z⋆) + Je + ρ(e), ∥ρ(e)∥ = O(∥e∥2),
+
+holds, and Assumption (A2) is satisfied. 
+
+Verification of (A3). By definition, 
+
+ξt =
+
+
+
+0
+
+αξ(g)
+
+> t
+
+β 2∇f (xt) ⊙ ξ(g) 
+
+> t
+
++ ˆξ(g)
+
+> t
+
+ , ˆξ(g) 
+
+> t
+
+= ξ(g)⊙2 
+
+> t
+
+− E[ξ(g)⊙2 
+
+> t
+
+| F t].
+
+Since {ξ(g) 
+
+> t
+
+} is a martingale difference sequence, 
+
+E[ξ(g) 
+
+> t
+
+| F t] = 0.
+
+Moreover, 
+
+E[ ˆξ(g) 
+
+> t
+
+| F t] = E[ξ(g)⊙2 
+
+> t
+
+| F t] − E[ξ(g)⊙2 
+
+> t
+
+| F t] = 0.
+
+Therefore, 
+
+E[ξt | F t] = 0,
+
+so that {ξt} is a martingale difference sequence. It remains to verify the bounded (2 + δ)-moment. By Assumption (C3), 
+
+sup 
+
+> t≥1
+
+E
+
+h
+
+∥ξ(g) 
+
+> t
+
+∥4+ δ | F t
+
+i
+
+< ∞, a.s. Since xt → x⋆ a.s. and the iterates are locally bounded, ∇f (xt) is almost surely bounded for all sufficiently large t. Hence 
+
+∥2∇f (xt) ⊙ ξ(g) 
+
+> t
+
++ ˆξ(g) 
+
+> t
+
+∥ ≤ C ∥ξ(g) 
+
+> t
+
+∥ + ∥ξ(g) 
+
+> t
+
+∥2
+
+for some deterministic constant C > 0. It follows that 
+
+sup 
+
+> t≥1
+
+E∥ξt∥2+ δ | F t
+
+ < ∞, a.s. ,
+
+possibly after reducing δ if necessary. Therefore Assumption (A3) holds. 
+
+Verification of (A4). By definition, the noise term admits 
+
+ξt =
+
+
+
+0
+
+αξ(g)
+
+> t
+
+β 2∇f (xt) ⊙ ξ(g) 
+
+> t
+
++ ˆξ(g)
+
+> t
+
+ .
+
+51 Hence, 
+
+ξtξ⊤ 
+
+> t
+
+=
+
+
+
+0 0 00 α2ξ(g) 
+
+> t
+
+ξ(g)⊤ 
+
+> t
+
+αβ ξ(g)
+
+> t
+
+ 2∇f (xt) ⊙ ξ(g) 
+
+> t
+
++ ˆξ(g)
+
+> t
+
+⊤
+
+0 αβ  2∇f (xt) ⊙ ξ(g) 
+
+> t
+
++ ˆξ(g)
+
+> t
+
+ξ(g)⊤ 
+
+> t
+
+β2 2∇f (xt) ⊙ ξ(g) 
+
+> t
+
++ ˆξ(g)
+
+> t
+
+  2∇f (xt) ⊙ ξ(g) 
+
+> t
+
++ ˆξ(g)
+
+> t
+
+⊤
+
+ .
+
+(47) Since xt → x⋆ almost surely and ∇f (x⋆) = 0, we have 
+
+∇f (xt) → 0, a.s. Therefore, every term involving the factor ∇f (xt) vanishes asymptotically. Taking conditional ex-pectation with respect to Ft gives 
+
+E[ξtξ⊤ 
+
+> t
+
+| F t] = 
+
+
+
+0 0 00 α2E[ξ(g) 
+
+> t
+
+ξ(g)⊤ 
+
+> t
+
+| F t] o(1) + αβ E
+
+h
+
+ξ(g) 
+
+> t
+
+ˆξ(g)⊤ 
+
+> t
+
+| F t
+
+i
+
+0 o(1) + αβ E
+
+h ˆξ(g) 
+
+> t
+
+ξ(g)⊤ 
+
+> t
+
+| F t−1
+
+i
+
+β2E[ ˆξ(g) 
+
+> t
+
+ˆξ(g)⊤ 
+
+> t
+
+| F t] + o(1) 
+
+ , a.s. Using the assumed limits, 
+
+E[ξ(g) 
+
+> t
+
+ξ(g)⊤ 
+
+> t
+
+| F t] → Q(g), E[ ˆξ(g) 
+
+> t
+
+ˆξ(g)⊤ 
+
+> t
+
+| F t] → ˆQ(g),
+
+we conclude that 
+
+E[ξtξ⊤ 
+
+> t
+
+| F t] →
+
+
+
+0 0 00 α2Q(g) αβ R(g)
+
+0 αβ R(g)⊤ β2 ˆQ(g)
+
+ = Q, a.s. (48) 
+
+Verification of (A5). Since ∇2f (x⋆) ≻ 0 by Assumption (C1), the matrix J is Hurwitz, according to Proposition 3. Hence, Assumption (A5) is satisfied. 
+
+Verification of (A6). The remainder term is given by 
+
+rt =
+
+r(x)
+
+> t
+
+00
+
+ , r(x) 
+
+> t
+
+= mt
+
+√vt + ε − mt+1 
+
+√vt+1 + ε.
+
+Since 
+
+mt+1 − mt = αt(∇f (xt) − mt) + αtξ(g) 
+
+> t
+
+,
+
+and 
+
+vt+1 − vt = βt(q(xt) − vt) + βt
+
+ 2∇f (xt) ⊙ ξ(g) 
+
+> t
+
++ ˆξ(g)
+
+> t
+
+,
+
+we have 
+
+E ∥mt+1 − mt∥2 | F t
+
+ = O(γ2 
+
+> t
+
+), E ∥vt+1 − vt∥2 | F t
+
+ = O(γ2 
+
+> t
+
+), a.s. ,
+
+under Assumptions (C1)–(C3). Since the map 
+
+(m, v) 7 → m
+
+√v + ε
+
+52 is locally Lipschitz, it follows that 
+
+∥r(x) 
+
+> t
+
+∥ ≤ C ∥mt+1 − mt∥ + ∥vt+1 − vt∥, a.s. Therefore, 
+
+E ∥rt∥2 | F t
+
+ = O(γ2 
+
+> t
+
+), a.s. ,
+
+and Assumption (A6) holds. Combining the above verifications, we conclude that Assumptions (A1)–(A6) in Assumption 1 are satisfied under Assumption 3. Therefore, Theorem 1 applies directly to the Adam optimizer, and the corresponding asymptotic covariance matrix Q is given by (48). 53 C Adafactor Optimizer 
+
+## C.1 Main Results 
+
+We consider the AdaFactor optimizer applied to the stochastic optimization problem (9), where only noisy gradients are available. Given a sequence of stochastic gradients gt := ∇L (xt; ζt), AdaFactor updates are given by 
+
+vt+1 = (1 − βt)vt + βtg⊙2 
+
+> t
+
+,
+
+xt+1 = xt − γt
+
+gt
+
+√vt+1 + ε, (49) where βt = βγ t, ε > 0 is a small constant, and the division is understood elementwise. We define the augmented state 
+
+zt := ( xt, vt) ∈ R2d.
+
+Let ∇f (xt) denote the true gradient, and write 
+
+gt = ∇f (xt) + ξ(g) 
+
+> t
+
+,
+
+where {ξ(g) 
+
+> t
+
+} is a martingale difference sequence. Then, 
+
+vt+1 = vt + βt
+
+ q(xt) − vt
+
+ + βt
+
+
+
+2∇f (xt) ⊙ ξ(g) 
+
+> t
+
++ ξ(g)⊙2 
+
+> t
+
+− E
+
+h
+
+ξ(g)⊙2 
+
+> t
+
+| F t
+
+i 
+
+,
+
+xt+1 = xt − γt
+
+∇f (xt)
+
+√vt + ε − γt
+
+ξ(g)
+
+> t
+
+√vt + ε + γtr(x) 
+
+> t
+
+,
+
+where 
+
+r(x) 
+
+> t
+
+= gt
+
+√vt + ε − gt
+
+√vt+1 + ε.
+
+We define the mean-field mapping F : R2d → R2d by 
+
+F (z) = 
+
+ − ∇f (x)
+
+√v + εβ q(x) − v . (50) The corresponding martingale noise is 
+
+ξt =
+
+ − ξ(g)
+
+> t√vt+ε
+
+β
+
+
+
+2∇f (xt) ⊙ ξ(g) 
+
+> t
+
++ ˆξ(g)
+
+> t
+
+ , (51) where ˆξ(g) 
+
+> t
+
+= ξ(g)⊙2 
+
+> t
+
+− E
+
+h
+
+ξ(g)⊙2 
+
+> t
+
+| F t
+
+i
+
+.
+
+The remainder term is 
+
+rt =
+
+r(x)
+
+> t
+
+0
+
+
+
+. (52) Hence, the AdaFactor iteration can be written in the stochastic approximation form 
+
+zt+1 = zt + γt
+
+ F (zt) + ξt + rt
+
+.
+
+54 Proposition 4. The following statements hold for the AdaFactor optimizer (49) .1. The point z⋆ = ( x⋆, v⋆), satisfies the Adafactor mean-field equation F (z⋆) = 0, where 
+
+∇f (x⋆) = 0, v⋆ = q(x⋆).
+
+2. The Jacobian matrix at z⋆ is 
+
+J = − diag 
+
+ 1√v⋆+ε
+
+
+
+∇2f (x⋆) 0
+
+β∇q(x⋆) −βId
+
+!
+
+. (53) 
+
+Moreover, the Jacobian matrix J is Hurwitz if ∇2f (x⋆) ≻ 0.
+
+Assumption 4. For the Adafactor recursion (49) , we impose the following conditions. (D1) Almost sure convergence. The augmented iterate zt = ( xt, vt) converges almost surely to a point 
+
+z⋆ = ( x⋆, v⋆),
+
+where x⋆ is a strict local minimizer of the objective function, i.e., ∇f (x⋆) = 0 and ∇2f (x⋆) ≻
+
+0, and v⋆ = q(x⋆).(D2) Local smoothness. The objective function f (x) is twice continuously differentiable, the Hessian ∇2f is Lipschitz continuous, the function q(x) is continuously differentiable, and the Jacobian ∇q is Lipschitz continuous in a neighborhood of x⋆.(D3) Gradient noise with bounded moments. The stochastic gradient admits the decomposition 
+
+gt = ∇f (xt) + ξ(g) 
+
+> t
+
+,
+
+where {ξ(g) 
+
+> t
+
+} is a martingale difference sequence with respect to {F t}, i.e., 
+
+E[ξ(g) 
+
+> t
+
+| F t] = 0.
+
+Moreover, there exists δ > 0 such that 
+
+sup 
+
+> t≥1
+
+E
+
+h
+
+∥ξ(g) 
+
+> t
+
+∥4+ δ | F t
+
+i
+
+< ∞, a.s. (D4) Asymptotic conditional covariance. Denote ˆξ(g) 
+
+> t
+
+= ξ(g)⊙2 
+
+> t
+
+− E[ξ(g)⊙2 
+
+> t
+
+|F t]. There exist posi-tive semidefinite matrices Q(g) and ˆQ(g), and a matrix R(g) such that 
+
+Eξ(g) 
+
+> t
+
+ξ(g)⊤ 
+
+> t
+
+| F t
+
+ → Q(g),
+
+E ˆξ(g) 
+
+> t
+
+ˆξ(g)⊤ 
+
+> t
+
+| F t
+
+ = Eξ(g)⊙2 
+
+> t
+
+ξ(g)⊙2⊤ 
+
+> t
+
+| F t
+
+ − Eξ(g)⊙2 
+
+> t
+
+| F t
+
+ Eξ(g)⊙2 
+
+> t
+
+| F t
+
+⊤ → ˆQ(g),
+
+Eξ(g) 
+
+> t
+
+ˆξ(g)⊤ 
+
+> t
+
+| F t
+
+ = Eξ(g) 
+
+> t
+
+ξ(g)⊙2⊤ 
+
+> t
+
+| F t
+
+ → R(g), a.s. 
+
+Theorem 5. Suppose that Assumption 4 holds. Then Assumptions (A1)–(A6) in Assumption 1 are satisfied for the AdaFactor iterates generated by (49) . Consequently, 
+
+γ−1/2 
+
+> t
+
+(zt − z⋆) d
+
+−→ N (0, Σ),
+
+55 and √t ( ¯ zt − z⋆) d
+
+−→ N (0, J−1QJ −⊤ ),
+
+where Σ is the unique positive semidefinite solution to 
+
+JΣ + ΣJ⊤ + Q = 0,
+
+with J given in (53) , and 
+
+Q =
+
+diag 
+
+ 1√v⋆+ε
+
+
+
+Q(g)diag 
+
+ 1√v⋆+ε
+
+
+
+−diag 
+
+ β√v⋆+ε
+
+
+
+R(g)
+
+−diag 
+
+ β√v⋆+ε
+
+
+
+R(g)⊤ β2 ˆQ(g)
+
+ .
+
+## C.2 Proof of Theorem 5 
+
+We verify Assumptions (A1)–(A6) in Assumption 1 one by one. 
+
+Verification of (A1). By Assumption (D1), the augmented iterate zt = ( xt, vt) converges almost surely to a limiting point 
+
+z⋆ = ( x⋆, v⋆),
+
+where ∇f (x⋆) = 0. By the definition of the AdaFactor mean-field mapping 
+
+F (z) = 
+
+ − ∇f (x)
+
+√v + εβ q(x) − v ,
+
+we have 
+
+F (z⋆) = 
+
+ − ∇f (x⋆)
+
+√v⋆ + εβ q(x⋆) − v⋆ = 0.
+
+Hence Assumption (A1) holds. 
+
+Verification of (A2). By Assumption (D2), the objective function f is twice continuously differ-entiable and the function q(x) is continuously differentiable in a neighborhood of x⋆. Therefore, the mappings 
+
+x 7 → ∇ f (x), x 7 → q(x)
+
+are continuously differentiable in a neighborhood of x⋆. Since ε > 0 and v > 0, the map 
+
+v 7 → 1
+
+√v + ε
+
+is also continuously differentiable. Hence, the mean-field mapping F is continuously differentiable in a neighborhood of z⋆. Moreover, the Lipschitzness of ∇2f and ∇q implies that the Jacobian ∇F
+
+is Lipschitz continuous in a neighborhood of z⋆. Consequently, its first-order expansion admits 
+
+F (z⋆ + e) = F (z⋆) + Je + ρ(e), ∥ρ(e)∥ = O(∥e∥2), e → 0.
+
+Thus Assumption (A2) holds. 56 Verification of (A3). Recall that the augmented noise is 
+
+ξt =
+
+ − ξ(g)
+
+> t√vt+ε
+
+β
+
+
+
+2∇f (xt) ⊙ ξ(g) 
+
+> t
+
++ ˆξ(g)
+
+> t
+
+ ,
+
+where ˆξ(g) 
+
+> t
+
+= ξ(g)⊙2 
+
+> t
+
+− E
+
+h
+
+ξ(g)⊙2 
+
+> t
+
+| F t
+
+i
+
+.
+
+By Assumption (D3), 
+
+E[ξ(g) 
+
+> t
+
+| F t] = 0.
+
+Moreover, 
+
+E[ ˆξ(g) 
+
+> t
+
+| F t] = E[ξ(g)⊙2 
+
+> t
+
+| F t] − E[ξ(g)⊙2 
+
+> t
+
+| F t] = 0.
+
+Hence, 
+
+E[ξt | F t] = 0,
+
+so that (ξt) is a martingale difference sequence. Next, since xt → x⋆ almost surely and ∇f is continuous, the sequence of ∇f (xt) is almost surely bounded for all sufficiently large t. Therefore, 
+
+∥ξt∥ ≤ C
+
+
+
+∥ξ(g) 
+
+> t
+
+∥ + ∥ξ(g) 
+
+> t
+
+∥2
+
+
+
+for some deterministic constant C > 0. By Assumption (D3), 
+
+sup 
+
+> t≥1
+
+E
+
+h
+
+∥ξ(g) 
+
+> t
+
+∥4+ δ | F t
+
+i
+
+< ∞, a.s. It follows that 
+
+sup 
+
+> t≥1
+
+E∥ξt∥2+ δ/ 2 | F t
+
+ < ∞, a.s. Hence Assumption (A3) holds. 
+
+Verification of (A4). By definition, 
+
+ξt =
+
+ − ξ(g)
+
+> t√vt+ε
+
+β
+
+
+
+2∇f (xt) ⊙ ξ(g) 
+
+> t
+
++ ˆξ(g)
+
+> t
+
+ .
+
+Since xt → x⋆ almost surely and ∇f (x⋆) = 0, we have 
+
+∇f (xt) → 0, a.s. Therefore, the term 2∇f (xt) ⊙ ξ(g) 
+
+> t
+
+vanishes asymptotically in conditional second moment, and the conditional covariance matrix converges to 
+
+Q =
+
+diag 
+
+ 1√v⋆+ε
+
+
+
+Q(g)diag 
+
+ 1√v⋆+ε
+
+
+
+−diag 
+
+ β√v⋆+ε
+
+
+
+R(g)
+
+−diag 
+
+ β√v⋆+ε
+
+
+
+R(g)⊤ β2 ˆQ(g)
+
+ .
+
+Hence 
+
+E[ξtξ⊤ 
+
+> t
+
+| F t] → Q, a.s. Thus Assumption (A4) holds. 57 Verification of (A5). By the proposition for AdaFactor, the Jacobian matrix at the limiting point is 
+
+J = − diag 
+
+ 1√v⋆+ε
+
+
+
+∇2f (x⋆) 0
+
+β∇q(x⋆) −βId
+
+!
+
+.
+
+Since ∇2f (x⋆) ≻ 0 by Assumption (D1), the matrix J is Hurwitz, by Proposition 4. Therefore, Assumption (A5) holds. 
+
+Verification of (A6). The remainder term is 
+
+rt =
+
+r(x)
+
+> t
+
+0
+
+
+
+, r(x) 
+
+> t
+
+= gt
+
+√vt + ε − gt
+
+√vt+1 + ε.
+
+We decompose 
+
+r(x) 
+
+> t
+
+=
+
+ ∇f (xt)
+
+√vt + ε − ∇f (xt)
+
+√vt+1 + ε
+
+
+
++ ξ(g)
+
+> t
+
+√vt + ε − ξ(g)
+
+> t
+
+√vt+1 + ε
+
+!
+
+.
+
+Using the local Lipschitz continuity of v 7 → (√v + ε)−1, together with 
+
+vt+1 − vt = βt
+
+ q(xt) − vt
+
+ + βt
+
+
+
+2∇f (xt) ⊙ ξ(g) 
+
+> t
+
++ ˆξ(g)
+
+> t
+
+
+
+,
+
+one obtains 
+
+E∥vt+1 − vt∥2 | F t
+
+ = O(γ2 
+
+> t
+
+), a.s. Hence the first term in the above decomposition of r(x) 
+
+> t
+
+is of order O(γt) in conditional L2. The second term is controlled by the bounded fourth moments of ξ(g) 
+
+> t
+
+. Therefore, 
+
+E∥rt∥2 | F t
+
+ = O(γ2 
+
+> t
+
+), a.s. which implies the required negligibility of the remainder term. Thus Assumption (A6) holds. Combining the above verifications, we conclude that Assumptions (A1)–(A6) in Assumption 1 are satisfied. Therefore, Theorem 1 applies directly to the AdaFactor iterates, and 
+
+γ−1/2 
+
+> t
+
+(zt − z⋆) d
+
+−→ N (0, Σ),
+
+√t ( ¯ zt − z⋆) d
+
+−→ N (0, J−1QJ −⊤ ),
+
+where Σ is the unique positive semidefinite solution to 
+
+JΣ + ΣJ⊤ + Q = 0.
+
+58 D Proofs of Main Lemmas 
+
+## D.1 Proof of Lemma 4 
+
+We aim to analyze the fluctuation term 
+
+Jt := 
+
+> t
+
+X
+
+> k=1
+
+Φt,k +1 
+
+γk
+
+√γt
+
+ξk,
+
+where 
+
+Φt,k := 
+
+> t
+
+Y
+
+> j=k
+
+(I + γj J).
+
+To prove the asymptotic normality of Jt, we apply the Cram´ er–Wold theorem. Fix any d ∈ Rd,and define 
+
+∆t,k := d⊤Φt,k +1 
+
+γk
+
+√γt
+
+ξk, 1 ≤ k ≤ t. (54) Then 
+
+d⊤Jt =
+
+> t
+
+X
+
+> k=1
+
+∆t,k .
+
+Since Φt,k +1 γk/√γt is Fk-measurable and 
+
+E[ξk | F k] = 0,
+
+it follows that 
+
+E[∆ t,k | F k] = 0 .
+
+Hence, for each fixed t, (∆ t,k )1≤k≤t is a martingale difference array. We now verify the two standard conditions of the martingale central limit theorem. 
+
+Step 1: conditional variance convergence. Define 
+
+Vt(d) := 
+
+> t
+
+X
+
+> k=1
+
+E∆2 
+
+> t,k
+
+| F k
+
+.
+
+Using the definition of ∆t,k in (54), we obtain 
+
+Vt(d) = 
+
+> t
+
+X
+
+> k=1
+
+γ2
+
+> k
+
+γt
+
+d⊤Φt,k +1 Eξkξ⊤ 
+
+> k
+
+| F k
+
+Φ⊤
+
+> t,k +1
+
+d.
+
+Note that 
+
+Vt(d) −
+
+> t
+
+X
+
+> k=1
+
+γ2
+
+> k
+
+γt
+
+d⊤Φt,k +1 QΦ⊤
+
+> t,k +1
+
+d
+
+≤ γ−1 
+
+> t
+
+∥d∥2
+
+> t
+
+X
+
+> k=1
+
+∥Φt,k +1 ∥2 γ2 
+
+> k
+
+Eξkξ⊤ 
+
+> k
+
+| F k
+
+ − Q
+
+≤ C20 γ−1 
+
+> t
+
+∥d∥2
+
+> t
+
+X
+
+> k=1
+> t
+
+Y
+
+> j=k+1
+
+(1 − cγ j )2 γ2 
+
+> k
+
+Eξkξ⊤ 
+
+> k
+
+| F k
+
+ − Q → 0,
+
+59 where the last inequality comes from (34) and the convergence is implied by Lemma 1 and Assump-tion 1 (A4). Hence, 
+
+Vt(d) −
+
+> t
+
+X
+
+> k=1
+
+γ2
+
+> k
+
+γt
+
+d⊤Φt,k +1 QΦ⊤
+
+> t,k +1
+
+d −→ 0,
+
+Let 
+
+Ut := 
+
+> t
+
+X
+
+> k=1
+
+γ2
+
+> k
+
+γt
+
+Φt,k +1 QΦ⊤
+
+> t,k +1
+
+.
+
+Then, by the standard discrete Lyapunov argument in Lemma 3, 
+
+Ut → Σ,
+
+where Σ is the unique positive semidefinite solution of 
+
+JΣ + ΣJ⊤ + Q = 0.
+
+Therefore, 
+
+Vt(d) → d⊤Σd.
+
+Step 2: Lindeberg condition. For any ¯ε > 0, consider 
+
+Lt(¯ ε, d) := 
+
+> t
+
+X
+
+> k=1
+
+E
+
+h
+
+∆2
+
+> t,k
+
+1{| ∆t,k |>¯ε} Fk
+
+i
+
+. (55) By H¨ older’s inequality and the elementary bound 
+
+1{| x|>¯ε} ≤ |x|δ
+
+¯εδ , δ > 0,
+
+we have 
+
+∆2
+
+> t,k
+
+1{| ∆t,k |>¯ε} ≤ ¯ε−δ|∆t,k |2+ δ.
+
+Therefore, 
+
+Lt(¯ ε, d) ≤ ¯ε−δtX
+
+> k=1
+
+E|∆t,k |2+ δ | F k
+
+.
+
+Since 
+
+|∆t,k | ≤ ∥ d∥ ∥ Φt,k +1 ∥ γk
+
+√γt
+
+∥ξk∥,
+
+we obtain 
+
+E|∆t,k |2+ δ | F k
+
+ ≤ ∥ d∥2+ δ ∥Φt,k +1 ∥2+ δ
+
+ γk
+
+√γt
+
+2+ δ
+
+E∥ξk∥2+ δ | F k
+
+.
+
+By Assumption 1 (A4), 
+
+sup 
+
+> k
+
+E∥ξk∥2+ δ | F k
+
+ < ∞ a.s. Hence 
+
+Lt(¯ ε, d) ≤ C
+
+> t
+
+X
+
+> k=1
+
+∥Φt,k +1 ∥2+ δ
+
+ γk
+
+√γt
+
+2+ δ
+
+,
+
+60 for some constants C > 0. Using the exponential stability estimate 
+
+∥Φt,k +1 ∥ ≤ C0
+
+> t
+
+Y
+
+> j=k+1
+
+(1 − cγ j ) ,
+
+and Lemma 1, it follows that 
+
+Lt(¯ ε, d) = O
+
+
+
+γδ/ 2
+
+> t
+
+
+
+→ 0.
+
+Thus, the Lindeberg condition holds. By the martingale central limit theorem for triangular arrays, we conclude that 
+
+d⊤Jtd
+
+−→ N (0 , d⊤Σd).
+
+Since d ∈ Rd is arbitrary, the Cram´ er–Wold theorem yields 
+
+Jtd
+
+−→ N (0, Σ).
+
+## D.2 Proof of Lemma 5 
+
+Since J is Hurwitz, there exists a symmetric positive definite matrix P such that 
+
+J⊤P + P J = −I.
+
+Define the function 
+
+Vt := e⊤ 
+
+> t
+
+P e t.
+
+Since P ≻ 0, there exist constants 0 < c 1 ≤ c2 < ∞ such that 
+
+c1∥et∥2 ≤ Vt ≤ c2∥et∥2.
+
+By the definition of ρ(e) and the mean-value theorem, there exists matrix Ht such that ρ(et) = 
+
+Htet and Ht → 0 as t → ∞ , almost surely. We first introduce the following conditions: 1. ∥zt∥ ≤ M ,2. ∥Ht∥ ≤ M ,for some constants M > 0. According to Assumption 1, these conditions hold for all sufficiently large t, almost surely. In other words, we define the stopping time 
+
+τt0 = inf  
+
+> j
+
+{j ≥ t0 : any of the above conditions does not hold at j-th iteration }.
+
+Then there exists a (potentially random) finite time t0 < ∞ such that τt0 = ∞, almost surely. We denote by 1A the indicator function of an event A, which equals 1 if the event holds and 0 otherwise. We fix a sufficiently large t0 > 0. We define Gt = J + Ht, and consider the recursion 
+
+et+1 = et + γtGtet + γtξt + γtrt,
+
+we have 
+
+Vt+1 = ( et + γtGtet + γtξt + γtrt)⊤P (et + γtGtet + γtξt + γtrt)
+
+61 = e⊤ 
+
+> t
+
+P e t + 2 γte⊤ 
+
+> t
+
+P G tet + 2 γte⊤ 
+
+> t
+
+P ξ t + 2 γte⊤ 
+
+> t
+
+P r t
+
++ γ2 
+
+> t
+
+(Gtet + ξt + rt)⊤P (Gtet + ξt + rt).
+
+Taking conditional expectation with respect to Ft, and using E[ξt | F t] = 0, we get 
+
+E[Vt+1 1τt0 ≥t+1 | F t] ≤ Vt1τt0 ≥t + 2 γte⊤ 
+
+> t
+
+P G tet1τt0 ≥t + 2 γte⊤ 
+
+> t
+
+P Ert1τt0 ≥t | F t
+
+
+
++ γ2 
+
+> t
+
+E(Gtet + ξt + rt)⊤P (Gtet + ξt + rt)1τt0 ≥t | F t
+
+.
+
+We now estimate each term separately. 
+
+Step 1: estimate of the drift term. 
+
+Since Gt = J + Ht, we have 
+
+2e⊤ 
+
+> t
+
+P G tet = 2 e⊤ 
+
+> t
+
+P Je t + 2 e⊤ 
+
+> t
+
+P H tet.
+
+For the first term, 
+
+2e⊤ 
+
+> t
+
+P Je t = e⊤ 
+
+> t
+
+(J⊤P + P J )et = − ∥ et∥2 .
+
+For the perturbation term, 
+
+2e⊤ 
+
+> t
+
+P H tet ≤ 2∥P ∥ ∥ Ht∥ ∥ et∥2.
+
+Hence 
+
+2e⊤ 
+
+> t
+
+P G tet ≤ −∥ et∥2 + 2 ∥P ∥ ∥ Ht∥ ∥ et∥2 ≤ − 12∥et∥2
+
+Using the norm equivalence Vt ≤ c2∥et∥2, we further obtain 
+
+2e⊤ 
+
+> t
+
+P G tet1τt0 ≥t ≤ − 12c2
+
+Vt1τt0 ≥t := −c0Vt1τt0 ≥t, (56) where we denote c0 = 12c2
+
+Step 2: estimate of the quadratic term. 
+
+Using 
+
+(u + v + w)⊤P (u + v + w) ≤ 3 ∥P ∥  ∥u∥2 + ∥v∥2 + ∥w∥2 ,
+
+we get 
+
+(Gtet + ξt + rt)⊤P (Gtet + ξt + rt) ≤ 3∥P ∥  ∥Gtet∥2 + ∥ξt∥2 + ∥rt∥2 .
+
+Hence 
+
+E(Gtet + ξt + rt)⊤P (Gtet + ξt + rt) | F t
+
+
+
+≤ 3∥P ∥  ∥Gt∥2∥et∥2 + E∥ξt∥2 | F t
+
+ + E∥rt∥2 | F t
+
+ .
+
+By Assumption 1 (A3) and (A6), 
+
+E[∥ξt∥2 | F t] ≤ Cξ, E[∥rt∥2 | F t] ≤ Crγ2 
+
+> t
+
+,
+
+for some Cξ, C r > 0. Therefore, for some constant C > 0,
+
+E(Gtet + ξt + rt)⊤P (Gtet + ξt + rt) | F t
+
+ ≤ C(∥et∥2 + 1) .
+
+62 Using again the equivalence between Vt and ∥et∥2, we obtain 
+
+E(Gtet + ξt + rt)⊤P (Gtet + ξt + rt) | F t
+
+ ≤ C(Vt + 1) . (57) 
+
+Step 3: one-step recursive inequality. 
+
+Combining the previous bounds in (56) and (57) yields 
+
+E[Vt+1 1τt0 ≥t+1 | F t] ≤ Vt1τt0 ≥t − c0γtVt1τt0 ≥t + Cγ 2 
+
+> t
+
+(Vt + 1) 1τt0 ≥t.
+
+Since γt → 0, for all sufficiently large t,
+
+Cγ 2 
+
+> t
+
+Vt ≤ c0
+
+2 γtVt.
+
+Thus, 
+
+E[Vt+1 1τt0 ≥t+1 | F t] ≤ (1 − c1γt)Vt1τt0 ≥t + Cγ 2 
+
+> t
+
+,
+
+for some constant c1 > 0.Taking full expectation, we obtain 
+
+E[Vt+1 1τt0 ≥t+1 ] ≤ (1 − c1γt)E[Vt1τt0 ≥t] + Cγ 2 
+
+> t
+
+.
+
+Step 4: the convergence rates for et and ρ(et).
+
+The scalar recursion 
+
+ut+1 ≤ (1 − c1γt)ut + Cγ 2
+
+> t
+
+implies 
+
+ut = O(γt).
+
+Applying this with ut = E[Vt1τt0 ≥t], we conclude that 
+
+E[Vt1τt0 ≥t] = O(γt).
+
+Finally, since c1∥et∥2 ≤ Vt, we obtain 
+
+E[∥et∥21τt0 ≥t] = O(γt).
+
+Therefore, ∥et∥1τt0 ≥t = Op
+
+
+
+γ1/2
+
+> t
+
+
+
+and ∥ρ(et)∥ 1τt0 ≥t = op
+
+
+
+γ1/2
+
+> t
+
+
+
+.
+
+Step 5: the convergence rate for the weighted term. 
+
+Finally, we are ready to bound 
+
+> t
+
+X
+
+> k=1
+
+Φt,k +1 γkρ(ek)
+
+≤
+
+> t
+
+X
+
+> k=0
+
+∥Φt,k +1 ∥ γk ∥ρ(ek)∥≤ C0
+
+> t
+
+X
+
+> k=0
+> t
+
+Y
+
+> j=k+1
+
+(1 − cγ j ) γk ∥ρ(ek)∥ .
+
+Since ∥ρ(et)∥ 1τt0 ≥t = op
+
+
+
+γ1/2
+
+> t
+
+
+
+, we have Ptk=1 Φt,k +1 γkρ(ek) = op
+
+
+
+γ1/2
+
+> t
+
+
+
+, by Lemma C.3 in [43]. We also note that ∥rt∥ = Op(γt) = op(γ1/2 
+
+> t
+
+) implies Ptk=1 Φt,k +1 γkrk = op
+
+
+
+γ1/2
+
+> t
+
+
+
+,which completes the proof. 63 D.3 Proof of Proposition 1 
+
+We prove the two statements separately. 
+
+Characterization of the limiting point. Let z⋆ = ( x⋆, m⋆, v⋆) be a solution point of the AdamW mean-field dynamics. By definition, 
+
+F (z⋆) = 0,
+
+that is, 
+
+− m⋆
+
+√v⋆ + ε − λx⋆ = 0, (58) 
+
+α ∇f (x⋆) − m⋆ = 0, (59) 
+
+β q(x⋆) − v⋆ = 0. (60) Since α, β > 0, (59) and (60) imply 
+
+m⋆ = ∇f (x⋆), v⋆ = q(x⋆) = q⋆.
+
+Substituting these identities into (58), we obtain 
+
+− ∇f (x⋆)
+
+√v⋆ + ε − λx⋆ = 0,
+
+or equivalently, 
+
+∇f (x⋆)
+
+√v⋆ + ε + λx⋆ = 0.
+
+This proves the first statement. 
+
+Computation of the Jacobian matrix. Write 
+
+F (z) = 
+
+
+
+F1(x, m, v)
+
+F2(x, m, v)
+
+F3(x, m, v)
+
+ ,
+
+where 
+
+F1(x, m, v) = − m
+
+√v + ε − λx, (61) 
+
+F2(x, m, v) = α ∇f (x) − m, (62) 
+
+F3(x, m, v) = β q(x) − v. (63) We compute the block derivatives of F at z⋆ = ( x⋆, m⋆, v⋆).
+
+Derivative of the first block. Since 
+
+F1(x, m, v) = −λx − diag 
+
+ 1
+
+√v + ε
+
+
+
+m,
+
+64 we have ∂F 1
+
+∂x (z⋆) = −λId.
+
+Differentiating with respect to m gives 
+
+∂F 1
+
+∂m(z⋆) = − diag 
+
+ 1
+
+√v⋆ + ε
+
+
+
+=: −D⋆.
+
+Next, for each component, 
+
+[F1]i(x, m, v) = − mi
+
+√vi + ε − λx i.
+
+Hence, for v⋆i > 0,
+
+∂[F1]i
+
+∂v i
+
+(z⋆) = m⋆i
+
+2pv⋆i (pv⋆i + ε)2 .
+
+Therefore, ∂F 1
+
+∂v (z⋆) = diag 
+
+ m⋆
+
+2√v⋆(√v⋆ + ε)⊙2
+
+
+
+=: C⋆,
+
+where the division and multiplication are conducted elementwise for vectors in m⋆ 
+
+> 2√v⋆(√v⋆+ε)⊙2
+
+, i.e., 
+
+h m⋆
+
+> 2√v⋆(√v⋆+ε)⊙2
+
+i
+
+> i
+
+= m⋆i
+
+> 2
+
+√v⋆i (√v⋆i +ε)2 .
+
+Derivative of the second block. Since 
+
+F2(x, m, v) = α ∇f (x) − m,
+
+we immediately obtain 
+
+∂F 2
+
+∂x (z⋆) = α∇2f (x⋆), ∂F 2
+
+∂m(z⋆) = −αId, ∂F 2
+
+∂v (z⋆) = 0.
+
+Derivative of the third block. For 
+
+F3(x, m, v) = β q(x) − v,
+
+we have ∂F 3
+
+∂m(z⋆) = 0, ∂F 3
+
+∂v (z⋆) = −βId,
+
+and ∂F 3
+
+∂x (z⋆) = β∇q(x⋆).
+
+Collecting all block derivatives, we conclude that 
+
+J = DF (z⋆) = 
+
+
+
+−λId −D⋆ C⋆
+
+α∇2f (x⋆) −αId 0
+
+β∇q(x⋆) 0 −βId
+
+ .
+
+65 Hurwitz property. Now we prove the Hurwitzness of the Jacobian matrix J, under certain condi-tions. We decompose J as 
+
+J = J0 + E,
+
+where 
+
+J0 =
+
+
+
+−λId −D⋆ 0
+
+α∇2f (x⋆) −αId 0
+
+β∇q(x⋆) 0 −βId
+
+ , (64) and 
+
+E =
+
+
+
+0 0 C⋆
+
+0 0 00 0 0
+
+ . (65) We first show that J0 is Hurwitz. Observe that J0 is block lower triangular, so its eigenvalues are the union of those of 
+
+M =
+
+ −λId −D⋆
+
+α∇2f (x⋆) −αId
+
+
+
+and those of −βId. Since β > 0, the block −βId is clearly Hurwitz. It therefore suffices to show that M is Hurwitz. The proof is similar to that for Proposition 3. Let μ ∈ C be an eigenvalue of M with corresponding eigenvector (u⊤, v⊤)⊤̸ = 0. Then 
+
+ −λId −D⋆
+
+α∇2f (x⋆) −αId
+
+  uv
+
+
+
+= μ
+
+uv
+
+
+
+,
+
+which is equivalent to 
+
+−(λ + μ)u − D⋆v = 0, (66) 
+
+α∇2f (x⋆)u − (α + μ)v = 0. (67) From (67), we obtain 
+
+v = αα + μ∇2f (x⋆)u.
+
+Substituting this into (66), we get 
+
+(μ + λ)u + αα + μD⋆∇2f (x⋆)u = 0.
+
+Equivalently, 
+
+(μ + λ)( μ + α)u + αD⋆∇2f (x⋆)u = 0.
+
+Now define 
+
+H⋆ := ∇2f (x⋆), B := ( D⋆)1/2H⋆(D⋆)1/2.
+
+Since D⋆ ≻ 0 and H⋆ ≻ 0, we have B ≻ 0. Hence every eigenvalue θ of B satisfies θ > 0. It follows that every eigenvalue μ of M must satisfy 
+
+(μ + λ)( μ + α) + αθ = 0 ,
+
+that is, 
+
+μ2 + ( α + λ)μ + α(λ + θ) = 0 , θ > 0.
+
+66 Since all coefficients are strictly positive, both roots have strictly negative real parts. Therefore, every eigenvalue of M lies in the open left half-plane, and thus M is Hurwitz. Consequently, J0 is Hurwitz. Since J0 is Hurwitz, by the Lyapunov theorem there exists a symmetric positive definite matrix 
+
+P ≻ 0 such that 
+
+J⊤ 
+
+> 0
+
+P + P J 0 = −I.
+
+For the full matrix J = J0 + E, we have 
+
+J⊤P + P J = −I + E⊤P + P E .
+
+Thus, if 
+
+∥E⊤P + P E ∥ < 1,
+
+then J⊤P + P J ≺ 0, and therefore J is Hurwitz. Using the submultiplicative property of the operator norm, 
+
+∥E⊤P + P E ∥ ≤ 2∥P ∥ ∥ E∥ = 2 ∥P ∥ ∥ C⋆∥.
+
+Hence it suffices to require 
+
+2∥P ∥ ∥ C⋆∥ < 1.
+
+It remains to estimate ∥C⋆∥. Since 
+
+m⋆ = ∇f (x⋆)
+
+and v⋆i ≥ v > 0, we have 
+
+|C⋆ii | = m⋆i
+
+2pv⋆i (pv⋆i + ε)2 ≤ ∥∇ f (x⋆)∥∞
+
+2√v(√v + ε)2 .
+
+Therefore, 
+
+∥C⋆∥ ≤ ∥∇ f (x⋆)∥∞
+
+2√v(√v + ε)2 .
+
+It follows that if 
+
+∥∇ f (x⋆)∥∞ <
+
+√v(√v + ε)2
+
+∥P ∥ ,
+
+then 
+
+2∥P ∥ ∥ C⋆∥ < 1,
+
+and hence J is Hurwitz. 
+
+## D.4 Proof of Proposition 2 
+
+We provide a proof of the consistency of the batch-means estimator used in Proposition 2. The argument follows the standard batch-means variance-estimation principle for dependent stochastic processes. We state the regularity conditions explicitly for completeness. Let st = sℓ,j (t) be the empirical score process for a fixed LoRA component and let s⋆ = s⋆ℓ,j .Define 
+
+Xt := st − s⋆.
+
+67 We assume that the centered score process satisfies a functional central limit theorem with long-run variance ¯σ2 
+
+> ℓ,j
+
+, that is, 
+
+1
+
+√t
+
+> ⌊ct ⌋
+
+X 
+
+> τ=1
+
+Xτ ⇒ ¯σℓ,j B(c), c ∈ [0 , 1] ,
+
+where B(·) is a standard Brownian motion. In addition, we assume the usual moment and weak-dependence conditions for non-overlapping batch-means consistency. Equivalently, for batch length 
+
+b → ∞ , number of batches M → ∞ , and t = M b with b/t → 0, the block variables 
+
+Ym,b := 1
+
+√b
+
+> mb
+
+X 
+
+> τ=( m−1) b+1
+
+Xτ , m = 1 , . . . , M, 
+
+satisfy 
+
+1
+
+M
+
+> M
+
+X
+
+> m=1
+
+Y 2
+
+> m,b p
+
+−→ ¯σ2 
+
+> ℓ,j
+
+, 1
+
+M
+
+> M
+
+X
+
+> m=1
+
+Ym,b p
+
+−→ 0.
+
+These conditions hold under standard mixing and moment assumptions used for batch-means esti-mators of long-run variances. Recall that 
+
+¯sm,b = 1
+
+b
+
+> mb
+
+X 
+
+> τ=( m−1) b+1
+
+sτ , ¯st = 1
+
+t
+
+> t
+
+X 
+
+> τ=1
+
+sτ .
+
+Since subtracting the constant s⋆ does not change centered batch differences, we have 
+
+¯sm,b − ¯st = ¯Xm,b − ¯Xt,
+
+where 
+
+¯Xm,b = 1
+
+b
+
+> mb
+
+X 
+
+> τ=( m−1) b+1
+
+Xτ , ¯Xt = 1
+
+t
+
+> t
+
+X 
+
+> τ=1
+
+Xτ .
+
+By the definition of Ym,b ,
+
+¯Xm,b = 1
+
+√bYm,b .
+
+Moreover, 
+
+¯Xt = 1
+
+M
+
+> M
+
+X
+
+> m=1
+
+¯Xm,b = 1
+
+√b
+
+1
+
+M
+
+> M
+
+X
+
+> m=1
+
+Ym,b 
+
+!
+
+.
+
+Therefore, 
+
+¯sm,b − ¯st = 1
+
+√b
+
+ Ym,b − ¯YM,b 
+
+ , ¯YM,b := 1
+
+M
+
+> M
+
+X
+
+> m=1
+
+Ym,b .
+
+Substituting this expression into the batch-means estimator gives 
+
+b¯σ2 
+
+> ℓ,j
+
+= bM − 1
+
+> M
+
+X
+
+> m=1
+
+(¯ sm,b − ¯st)2
+
+= 1
+
+M − 1
+
+> M
+
+X
+
+> m=1
+
+ Ym,b − ¯YM,b 
+
+2 .
+
+68 Expanding the centered empirical second moment, we obtain 
+
+b¯σ2 
+
+> ℓ,j
+
+= MM − 1
+
+ 1
+
+M
+
+> M
+
+X
+
+> m=1
+
+Y 2 
+
+> m,b
+
+− 1
+
+M
+
+> M
+
+X
+
+> m=1
+
+Ym,b 
+
+!2 .
+
+By the batch-means regularity conditions, 
+
+1
+
+M
+
+> M
+
+X
+
+> m=1
+
+Y 2
+
+> m,b p
+
+−→ ¯σ2 
+
+> ℓ,j
+
+, 1
+
+M
+
+> M
+
+X
+
+> m=1
+
+Ym,b 
+
+!2
+
+> p
+
+−→ 0.
+
+Since M/ (M − 1) → 1, Slutsky’s theorem yields 
+
+b¯σ2
+
+> ℓ,j p
+
+−→ ¯σ2 
+
+> ℓ,j
+
+.
+
+This proves the consistency of the batch-means variance estimator. 
+
+## D.5 Proof for Proposition 3 
+
+We prove the two statements separately. 
+
+Characterization of the limiting point. Recall that the mean-field mapping for Adam is given by 
+
+F (z) = 
+
+
+
+− m
+
+√v + εα ∇f (x) − m
+
+β q(x) − v , z = ( x, m, v) ∈ R3d,
+
+where the division is understood componentwise. A solution z⋆ = ( x⋆, m⋆, v⋆) of the mean-field function satisfies 
+
+F (z⋆) = 0.
+
+Hence its three blocks must satisfy 
+
+− m⋆
+
+√v⋆ + ε = 0, (68) 
+
+α ∇f (x⋆) − m⋆ = 0, (69) 
+
+β q(x⋆) − v⋆ = 0. (70) Since α, β > 0 and √v⋆ + ε is strictly positive componentwise, (68) implies 
+
+m⋆ = 0.
+
+Substituting this into (69) yields 
+
+∇f (x⋆) = 0,
+
+so that x⋆ is a stationary point of the objective function. Finally, (70) gives 
+
+v⋆ = q(x⋆) = q⋆.
+
+Therefore, every solution is of the form 
+
+z⋆ = ( x⋆, 0, q⋆), ∇f (x⋆) = 0.
+
+69 Jacobian matrix at the limiting point. We now compute the Jacobian matrix J = DF (z⋆) at the limiting point 
+
+z⋆ = ( x⋆, 0, q⋆), ∇f (x⋆) = 0.
+
+Write 
+
+F (z) = 
+
+
+
+F1(x, m, v)
+
+F2(x, m, v)
+
+F3(x, m, v)
+
+ ,
+
+where 
+
+F1(x, m, v) = − m
+
+√v + ε, (71) 
+
+F2(x, m, v) = α ∇f (x) − m, (72) 
+
+F3(x, m, v) = β q(x) − v. (73) We compute each block derivative. 
+
+Derivative of the first block. Since F1 does not depend explicitly on x, we have 
+
+∂F 1
+
+∂x (z⋆) = 0.
+
+Differentiating with respect to m gives 
+
+∂F 1
+
+∂m(z⋆) = − diag 
+
+ 1
+
+√q⋆ + ε
+
+
+
+.
+
+Finally, differentiating F1 with respect to v produces terms proportional to m, and therefore 
+
+∂F 1
+
+∂v (z⋆) = 0
+
+since m⋆ = 0.
+
+Derivative of the second block. For 
+
+F2(x, m, v) = α ∇f (x) − m,
+
+we immediately obtain 
+
+∂F 2
+
+∂x (z⋆) = α∇2f (x⋆), ∂F 2
+
+∂m(z⋆) = −αId, ∂F 2
+
+∂v (z⋆) = 0.
+
+Derivative of the third block. For 
+
+F3(x, m, v) = β q(x) − v,
+
+we have ∂F 3
+
+∂m(z⋆) = 0, ∂F 3
+
+∂v (z⋆) = −βId.
+
+Moreover, the derivative of q(x) with respect to x is β∇q(x⋆).Collecting all the block derivatives, we conclude that 
+
+J = DF (z⋆) = 
+
+
+
+0 − diag   1√q⋆+ε
+
+ 0
+
+α∇2f (x⋆) −αId 0
+
+β∇q(x⋆) 0 −βId
+
+ ,
+
+70 Hurwitz property. Write J in the block form 
+
+J =
+
+M 0
+
+N −βId
+
+
+
+,
+
+where 
+
+M =
+
+ 0 −D⋆
+
+α∇2f (x⋆) −αId
+
+
+
+, N =  β∇q(x⋆) 0 .
+
+Since J is block lower triangular, its eigenvalues are the union of those of M and those of −βId.The latter are all equal to −β < 0. Therefore, it remains to show that M is Hurwitz. Let μ ∈ C be an eigenvalue of M with corresponding eigenvector (u⊤, v⊤)⊤̸ = 0. Then 
+
+ 0 −D⋆
+
+α∇2f (x⋆) −αId
+
+  uv
+
+
+
+= μ
+
+uv
+
+
+
+,
+
+which yields 
+
+−D⋆v = μu, (74) 
+
+α∇2f (x⋆)u − αv = μv. (75) From (74), we obtain 
+
+v = −μ(D⋆)−1u.
+
+Substituting this into (75) gives 
+
+α∇2f (x⋆)u + αμ (D⋆)−1u = −μ2(D⋆)−1u.
+
+Equivalently, 
+
+α∇2f (x⋆)u + ( αμ + μ2)( D⋆)−1u = 0.
+
+Now define 
+
+w := ( D⋆)−1/2u, B := ( D⋆)1/2∇2f (x⋆)( D⋆)1/2.
+
+Then the above equation becomes 
+
+αBw + ( αμ + μ2)w = 0.
+
+Since ∇2f (x⋆) ≻ 0 and D⋆ ≻ 0, it follows that B ≻ 0. Hence every eigenvalue θ of B is strictly positive, and μ must satisfy 
+
+μ2 + αμ + αθ = 0 , θ > 0.
+
+Because both coefficients α and αθ are strictly positive, both roots of this quadratic have strictly negative real parts. Therefore, every eigenvalue of M lies in the open left half-plane, and hence M
+
+is Hurwitz. Combining this with the fact that −βId is Hurwitz, we conclude that J is Hurwitz. 
+
+## D.6 Proof for Proposition 4 
+
+We prove the two statements separately. 71 Characterization of the limiting point. Recall that the mean-field mapping for AdaFactor is 
+
+F (z) = 
+
+ − ∇f (x)
+
+√v + εβ q(x) − v , z = ( x, v) ∈ R2d, (76) where the division is understood componentwise. Let z⋆ = ( x⋆, v⋆) be a solution of the mean-field function. Then 
+
+F (z⋆) = 0,
+
+which is equivalent to 
+
+− ∇f (x⋆)
+
+√v⋆ + ε = 0, (77) 
+
+β q(x⋆) − v⋆ = 0. (78) Since ε > 0, the vector √v⋆ + ε is strictly positive componentwise. Therefore, (77) implies 
+
+∇f (x⋆) = 0.
+
+Substituting this identity into (78), and using β > 0, we obtain 
+
+v⋆ = q(x⋆) = q⋆.
+
+Hence, every solution is of the form 
+
+z⋆ = ( x⋆, v⋆), ∇f (x⋆) = 0, v⋆ = q⋆.
+
+Computation of the Jacobian matrix. We now compute the Jacobian matrix J = DF (z⋆) at the limiting point 
+
+z⋆ = ( x⋆, v⋆), ∇f (x⋆) = 0.
+
+Write 
+
+F (z) = 
+
+F1(x, v)
+
+F2(x, v)
+
+
+
+,
+
+where 
+
+F1(x, v) = − ∇f (x)
+
+√v + ε, (79) 
+
+F2(x, v) = β q(x) − v. (80) We compute each block derivative. 
+
+Derivative of the first block. Since 
+
+F1(x, v) = − diag 
+
+ 1
+
+√v + ε
+
+
+
+∇f (x),
+
+we have ∂F 1
+
+∂x (z⋆) = − diag 
+
+ 1
+
+√v⋆ + ε
+
+
+
+∇2f (x⋆).
+
+72 Next, we compute the derivative with respect to v. Componentwise, 
+
+[F1]i(x, v) = − ∂if (x)
+
+√vi + ε.
+
+Hence ∂[F1]i
+
+∂v i
+
+(z⋆) = ∂if (x⋆)2pv⋆i (pv⋆i + ε)2 .
+
+Since ∇f (x⋆) = 0, we conclude that 
+
+∂F 1
+
+∂v (z⋆) = 0.
+
+Derivative of the second block. For 
+
+F2(x, v) = β q(x) − v,
+
+we have ∂F 2
+
+∂x (z⋆) = β∇q(x⋆),
+
+and ∂F 2
+
+∂v (z⋆) = −βId.
+
+Collecting all block derivatives, we obtain 
+
+J = DF (z⋆) = − diag 
+
+ 1√v⋆+ε
+
+
+
+∇2f (x⋆) 0
+
+β∇q(x⋆) −βId
+
+!
+
+.
+
+Hurwitz property. The matrix J is block lower triangular. Therefore, its eigenvalues are the union of those of 
+
+− diag 
+
+ 1
+
+√v⋆ + ε
+
+
+
+∇2f (x⋆)
+
+and those of 
+
+−βId.
+
+Since β > 0, the block −βId is Hurwitz. Now assume that ∇2f (x⋆) ≻ 0. Since ε > 0, the diagonal matrix 
+
+D⋆ := diag 
+
+ 1
+
+√v⋆ + ε
+
+
+
+is positive definite. Then 
+
+D⋆∇2f (x⋆)
+
+has strictly positive eigenvalues, because it is similar to 
+
+(D⋆)1/2∇2f (x⋆)( D⋆)1/2 ≻ 0.
+
+Hence 
+
+−D⋆∇2f (x⋆)
+
+has strictly negative eigenvalues. Therefore, the upper-left block is Hurwitz. Since both diagonal blocks are Hurwitz, J is Hurwitz. 73 E Proofs for Some Technical Lemmas 
+
+## E.1 Proof for Lemma 2 
+
+Proof. Since J is Hurwitz, by the Lyapunov theorem, there exists a symmetric positive definite matrix P ≻ 0 such that 
+
+J⊤P + P J = −I.
+
+Define the vector norm 
+
+∥x∥∗ := ( x⊤P x )1/2, x ∈ Rd,
+
+and let ∥ · ∥ ∗ denote the associated induced matrix norm: 
+
+∥A∥∗ := sup 
+
+> x̸=0
+
+∥Ax ∥∗
+
+∥x∥∗
+
+.
+
+Since ∥ · ∥ ∗ is an induced matrix norm, it is submultiplicative: 
+
+∥AB ∥∗ ≤ ∥ A∥∗ ∥B∥∗. (81) Now fix γ > 0. For any x ∈ Rd,
+
+∥(I + γJ)x∥2 
+
+> ∗
+
+= x⊤(I + γJ)⊤P (I + γJ)x.
+
+Expanding, 
+
+(I + γJ)⊤P (I + γJ) = P + γ(J⊤P + P J ) + γ2J⊤P J .
+
+Using J⊤P + P J = −I, we get 
+
+(I + γJ)⊤P (I + γJ) = P − γI + γ2J⊤P J .
+
+Since P ≻ 0, there exists b > 0 such that 
+
+J⊤P J ⪯ bP .
+
+Also, since P ≻ 0, there exists a > 0 such that 
+
+I ⪰ aP .
+
+Therefore 
+
+(I + γJ)⊤P (I + γJ) ⪯ P − aγ P + bγ 2P = (1 − aγ + bγ 2)P .
+
+Hence 
+
+∥I + γJ∥2 
+
+> ∗
+
+≤ 1 − aγ + bγ 2.
+
+Choose γ∗ > 0 small enough so that for all 0 < γ ≤ γ∗,
+
+1 − aγ + bγ 2 ≤ (1 − cγ )2
+
+for some c ∈ (0 , a/ 2) . Then 
+
+∥I + γJ∥∗ ≤ 1 − cγ, 0 < γ ≤ γ∗.
+
+74 Since γk → 0, there exists N such that γk ≤ γ∗ for all k ≥ N . Thus for all k ≥ N ,
+
+∥I + γkJ∥∗ ≤ 1 − cγ k.
+
+By submultiplicativity in (81), 
+
+∥Φt,k ∥∗ =
+
+> t
+
+Y
+
+> j=k
+
+(I + γj J)
+
+> ∗
+
+≤
+
+> t
+
+Y
+
+> j=k
+
+∥I + γj J∥∗ ≤
+
+> t
+
+Y
+
+> j=k
+
+(1 − cγ j ).
+
+Finally, since all matrix norms on Rd×d are equivalent, there exists C0 > 0 such that 
+
+∥A∥2 ≤ C0∥A∥∗
+
+for all matrices A, which yields 
+
+∥Φt,k ∥2 ≤ C0
+
+> n
+
+Y
+
+> j=k
+
+(1 − cγ j ).
+
+## E.2 Proof for Lemma 3 
+
+Since J is Hurwitz, the Lyapunov equation 
+
+JΣ + ΣJ⊤ + Q = 0
+
+admits a unique positive semidefinite solution Σ. We show that Ut → Σ.
+
+Step 1: a recursion for Ut.
+
+By definition, 
+
+Ut+1 =
+
+> t+1
+
+X
+
+> k=1
+
+γ2
+
+> k
+
+γt+1 
+
+Φt+1 ,k +1 QΦ⊤
+
+> t+1 ,k +1
+
+.
+
+Separating the last term k = t + 1 , and noting that Φt+1 ,t +2 = I, we obtain 
+
+Ut+1 = γt
+
+γt+1 
+
+(I + γt+1 J)
+
+> t
+
+X
+
+> k=1
+
+γ2
+
+> k
+
+γt
+
+Φt,k +1 QΦ⊤
+
+> t,k +1
+
+!
+
+(I + γt+1 J)⊤ + γt+1 Q.
+
+Hence 
+
+Ut+1 = γt
+
+γt+1 
+
+(I + γt+1 J)Ut(I + γt+1 J)⊤ + γt+1 Q. (82) 
+
+Step 2: expand the ratio γt/γ t+1 .
+
+Since 
+
+γt = γ0t−κ, κ ∈ (1 /2, 1) ,
+
+we have γt
+
+γt+1 
+
+=
+
+t + 1 
+
+t
+
+κ
+
+= 1 + κt + o(t−1).
+
+75 Because κ < 1, we have 1
+
+t = o(γt),
+
+and thus γt
+
+γt+1 
+
+= 1 + o(γt).
+
+Therefore, (82) implies that 
+
+Ut+1 = (1 + o(γt))( I + γt+1 J)Ut(I + γt+1 J)⊤ + γt+1 Q.
+
+and expanding the product yields 
+
+Ut+1 = Ut + γt(JU t + UtJ⊤ + Q) + Rt,
+
+where the residual term satisfies 
+
+∥Rt∥ ≤ o(γt)(1 + ∥Ut∥).
+
+Note that 
+
+∥Ut∥ ≤ Cγ −1
+
+> tt
+
+X
+
+> k=1
+> t
+
+Y
+
+> j=k+1
+
+(1 − cγ j )2 γ2 
+
+> k
+
+= O (1) ,
+
+we have 
+
+∥Rt∥ ≤ o(γt).
+
+Step 3: compare Ut with the Lyapunov solution Σ.
+
+Define 
+
+Et := Ut − Σ.
+
+Since Σ solves 
+
+JΣ + ΣJ⊤ + Q = 0,
+
+we get 
+
+Et+1 = Et + γt(JE t + EtJ⊤) + Rt
+
+= ( I + γtJ) Et
+
+ I + γtJ⊤ + eRt, (83) where eRt = Rt − γ2 
+
+> t
+
+JE tJ⊤ and thus eRt = o(γt).
+
+Step 4: stability of the homogeneous part. 
+
+Applying the recursion for Et in (83) multiple times, we obtain 
+
+Et = Φ t, 1E1Φ⊤ 
+
+> t, 1
+
++
+
+> t−1
+
+X
+
+> k=1
+
+Φt,k +1 eRkΦ⊤
+
+> t,k +1
+
+.
+
+The first term vanishes because of the exponential stability: 
+
+Φt, 1E1Φ⊤ 
+
+> t, 1
+
+→ 0.
+
+76 For the second term, since eRk = o(γk), we have 
+
+> t−1
+
+X
+
+> k=1
+
+Φt,k +1 eRkΦ⊤
+
+> t,k +1
+
+≤
+
+> t−1
+
+X
+
+> k=1
+
+∥Φt,k +1 ∥2 eRk
+
+≤ C
+
+> t−1
+
+X
+
+> k=1
+> t−1
+
+Y
+
+> j=k+1
+
+(1 − cγ j )2 eRk = o(1) .
+
+Hence 
+
+Et → 0,
+
+that is, 
+
+Ut → Σ.
+
+This completes the proof. 77
