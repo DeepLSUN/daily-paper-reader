@@ -1,0 +1,828 @@
+Title: Multi-Agent Debate and Visual Information Extraction for SeePhys Pro: A 1st-Place Technical Report from ICML 2026 AI4Math Track 3 Challenge
+
+URL Source: https://arxiv.org/pdf/2607.21946v1
+
+Published Time: Mon, 27 Jul 2026 00:22:13 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+# Multi-Agent Debate and Visual Information Extraction for SeePhys Pro: A 1st-Place Technical Report from ICML 2026 AI4Math Track 3 Challenge 
+
+Jiseok Kwak 1 Suhyeon Jo 1 Taewoo Kim 1 Yeongmin Kim 1 Byeonghu Na 1 Il-Chul Moon 1 2 
+
+## Abstract 
+
+This technical report presents our approach to Challenge Track 3: SeePhys Pro at the 3rd AI for Math Workshop, where the task is to answer college-level physics questions whose statement and figure may be given partly or entirely as an image. Visual physics problems become substan-tially harder for large language models when the decisive information resides in a figure rather than in the text, and this modality gap widens as more of the problem migrates into the image. We ad-dress the task with a two-stage framework: a vi-sual information extraction stage that re-expresses figure content as solver-readable text to close the modality gap, and a reasoning stage that orches-trates three heterogeneous solvers through multi-agent debate. Our analysis yields two findings: the gain from orchestration comes from reliable answer selection rather than from additional de-bate, and the value of a figure aid scales with how much of the problem is locked inside the image. The resulting pipeline improves overall accuracy over a single-agent baseline from 0.643 to 0.802 on the public split, and won 1st place on both the public and the private leaderboard (private overall 0.743). 
+
+## 1. Introduction 
+
+Coordinating multiple large language models has emerged as a scaling axis in its own right, separate from enlarging any single model’s weights. Multi-agent debate with mem-ory masking (MAD-M 2) (Tian et al., 2026) and learned orchestrators such as Sakana’s Fugu (Tang et al., 2026) both surpass the strongest single model in their pool by coordi-nating heterogeneous solvers (Du et al., 2024; Tian et al., 2026; Tang et al., 2026): the coordination protocol, not the 
+
+> 1
+
+KAIST 2summary.ai. Correspondence to: Il-Chul Moon <ic-moon@kaist.ac.kr >, Jiseok Kwak <jskwak@kaist.ac.kr >.
+
+Preprint. Technical report for the SeePhys Pro Challenge, ICML 2026 AI4Math Workshop (Track 3). Copyright 2026 by the au-thor(s). 
+
+base weights, becomes the lever. We bring this lens to visual physics problem solving. SeePhys Pro (Xiang et al., 2026), the benchmark for Challenge Track 3 at the 3rd AI for Math Workshop (ICML 2026), is unusually suited to the question. Its Lev-els 1–4 re-encode the same underlying physics problems at escalating visual difficulty, from text-only (L1) to image-only (L4), where the entire problem lives in a single image, so any accuracy difference across levels is attributable to modality alone. This turns the multimodal–text gap that the ICML 2025 SeePhys winners observed (Liang et al., 2025) into a controlled measurement, and lets us study a two-stage pipeline, visual information extraction followed by reasoning, along the two orthogonal axes the design sep-arates: orchestrating reasoning , and closing the modality gap .Our two findings mirror these axes. On text-only L1, where no modality gap exists, orchestration’s payoff is reliable answer selection rather than additional reasoning: a cheap value-aware canonicalizer matches a premium adjudicator in the tie-breaking role; once value-equal ties are resolved, the premium adjudicator adds no correct answers. On L2– L4, holding the reasoning stack fixed and varying only the visual front-end, the value of a figure aid scales with the size of the modality gap: large on image-only L4, where visual extraction is the bottleneck, and negligible where the figure merely duplicates the text. We extend caption-assisted reasoning (Liang et al., 2025) from prose captions to a structured SVG representation that preserves figure geometry. Our contributions are as follows: • Multi-agent debate for physics problem solving. We bring multi-agent debate to physics, running three fron-tier solvers drawn from different model families, and show that together they substantially outperform a single-solver baseline. The improvement comes from reliably selecting among the answers the solvers produce, rather than from the debate itself. • Visual information extraction that closes the modality gap. We re-express each figure as text the solvers can read: a prose transcription, a structured SVG, and, at the 1arXiv:2607.21946v1 [cs.LG] 24 Jul 2026 Two-Axis Reasoning for Visually-Grounded Physics Problem Solving 
+
+hardest level, a crop-and-OCR front-end. The benefit of this extraction grows in step with how much of the problem is locked inside the image. • First place on both leaderboards. Combining the two, our system improves on a single-pass baseline at every level of SeePhys Pro and finished first on both the public and the private leaderboard of Challenge Track 3. 
+
+## 2. Preliminary 
+
+2.1. Multi-Agent Debate with Memory Masking (MAD-M 2)
+
+Multi-agent debate coordinates several LLMs that indepen-dently propose answers, critique one another, and revise over successive rounds, aggregating by majority vote; it is a canonical instance of orchestration as a scaling lever (Du et al., 2024). Its weakness is that unreliable intermediate reasoning is shared verbatim between rounds, so a confident but wrong chain can propagate and contaminate the other agents. MAD-M 2 adds an explicit memory-masking step: at the start of each round it evaluates every prior-round solu-tion and masks the unreliable ones, so agents re-solve from cleaner context rather than compounding earlier errors (Tian et al., 2026). On mathematical and logical reasoning bench-marks this yields a clear progression over plain chain-of-thought and vanilla debate (e.g., GSM8K with Qwen2.5-7B: CoT 64 .8 → MAD 81 .2 → MAD-M 2 89 .0), showing that the coordination protocol drives the gain. Our reasoning stage (Section 3.3) instantiates MAD-M 2 over three het-erogeneous frontier solvers and departs from pure majority voting by adding a value-aware Canonicalizer. 
+
+2.2. From Figures to Structured Representations via LLM Captioning 
+
+The same model often solves a physics problem more reli-ably from text than from an equivalent figure, motivating 
+
+caption-assisted reasoning : re-expressing a figure as text the model can read, so that visual content enters the reasoning channel the model handles best. The ICML 2025 SeePhys 1st-place solution framed this as bridging the multimodal– text gap with model-generated prose captions (Liang et al., 2025). Prose captions, however, discard the geometric and relational structure that many physics figures encode: spa-tial layout, region boundaries, connectivity, and part–whole relations that are often decisive for the correct analysis. We therefore extend this lineage from flat prose to a struc-tured representation (Lu et al., 2021; Zhang et al., 2022; Rodriguez et al., 2023): a figure-to-SVG rendering that preserves geometry and labels, paired with a prose transcrip-tion and, at the highest visual difficulty, a crop-and-OCR front-end. This background is generalized by the modality-adaptive extraction stage (Section 3.2). 
+
+## 3. Methodology 
+
+3.1. Overview 
+
+We propose an agent-based framework that composes mul-tiple LLM agents across two stages ( Visual Information Extraction and Reasoning ) and adapts which modules are active to each level’s visual complexity. Figure 1 shows the full Level 4 pipeline and Table 1 summarizes the per-level configuration; overviews for the remaining levels appear in Section A. The Visual Information Extraction stage renders a figure into a solver-readable form. For the image-only Level 4, a 
+
+Problem Parser (Cropper, Image Sharpening, Text OCR) first splits the single image into a cleaned diagram and an OCR-derived problem text; Levels 1–3 use the provided image and text directly. A Visual Extractor then emits a structured SVG of the diagram (Levels 3–4), and a Visual-Grounded Problem Reconstructor rewrites the figure and text into a self-contained problem statement (Levels 2–4). Level 1 is text-only and skips this stage. The Reasoning stage solves the enriched problem with the multi-agent debate pipeline of Section 3.3: three heteroge-neous solvers answer independently, a Canonicalizer settles the result by value, and, on disagreement, a Pruner filters unreliable intermediate solutions before a re-solving round (Section 3.3). Level 5 (photographs) departs from Levels 1– 4 and uses a single Gemini solver (Section 3.3.3). 
+
+Use of information across levels. Although Levels 1–4 re-encode the same problems, each evaluation instance is solved using only its own inputs; at inference no information from other levels of the same problem is accessed. 
+
+3.2. Visual Information Extraction 
+
+3.2.1. P ROBLEM PARSER 
+
+At Level 4 each image contains both the problem text and the figure, which degrade extraction when read jointly; the 
+
+Problem Parser therefore separates them into a text region (converted to text) and a diagram region (lightly refined) before downstream use. 
+
+Cropper. Because a bad crop is unrecoverable, the Crop-per is a propose–verify loop over Gemini-3.5-Flash 
+
+(prompts in Sections C.1 and C.2). Since the text region is always a contiguous block on the left or top, a single straight boundary suffices: we query the model three times for the boundary orientation, text side, and split fraction (majority vote on the first two, median on the last), then draw the candidate boundary on the image and ask whether the split is clean, moving it as instructed for up to five itera-tions. Samples that still fail to parse are re-cropped without 2Two-Axis Reasoning for Visually-Grounded Physics Problem Solving Visual 
+
+Extractor 
+
+Visual Information Extraction 
+
+Extracted Text Extracted Image 
+
+Visual -Grounded 
+
+Problem 
+
+Reconstructor 
+
+> Formalized
+> SVG
+> Representation
+> Self -contained
+> Problem Statetment
+
+Solver 1 (GPT)  Solver 2 (Gemini)  Solver 3 (Claude) 
+
+> Reasoning & Answer
+
+Consensus?  Multi -agent 
+
+Debate  
+
+> Final Reasoning & Answer
+> Reasoning & Answer Reasoning & Answer
+
+Pruner 
+
+No Yes 
+
+> Selected Reasoning & Answer
+
+Reasoning 
+
+Problem Image 
+
+Problem Text 
+
+Empty 
+
+Cropper 
+
+> Cropped
+> Image
+> Part
+> Cropped
+> Text
+> Part
+
+Text 
+
+OCR 
+
+> Image
+> Sharp -
+> ening
+> Extracted
+> Text
+> Extracted
+> Image
+
+“As shown in the schematic diagram, what color 
+
+should the test lead connected to terminal A be?” 
+
+Canonicalizer 
+
+Figure 1. Proposed pipeline for end-to-end visual reasoning on Level 4 problems in the SeePhys Pro dataset. 
+
+Table 1. Level-specific configuration of the proposed pipeline. 
+
+Level 1 Level 2 Level 3 Level 4 Level 5 Module Text-only Structure Variable Image-only Photography 
+
+Visual Information Extraction 
+
+Cropper & Image Sharpening & Text OCR ✗ ✗ ✗ ✓ ✗
+
+Visual Extractor ✗ ✗ ✓ ✓ ✗
+
+Visual-Grounded Problem Reconstructor ✗ ✓ ✓ ✓ ✗
+
+Reasoning 
+
+Solvers Multi-agent Multi-agent Multi-agent Multi-agent Single-agent Canonicalizer ✓ ✓ ✓ ✓ ✗
+
+Pruner ✓ ✓ ✓ ✓ ✗
+
+verification to guarantee an output. 
+
+Image Sharpening. To close the size and quality gap between original Level-3 images and cropped Level-4 dia-grams, we refine the crop with deterministic image opera-tions, avoiding an LLM editor, which may distort content. We estimate the background from border pixels, re-crop tightly to the content bounding box, whiten near-white and isolated dark-pixel noise while preserving connected strokes, and apply a mild UnsharpMask . The procedure never re-sizes or warps the figure, so its geometry is preserved. 
+
+Text OCR. We transcribe the cropped text region into a LaTeX-formatted string with Gemini-3.5-Flash (Sec-tion C.3), rejecting outputs that contain meta-commentary rather than the problem statement (“garbage”). For robust-ness we retry over temperatures {0.0, 0.4, 0.7, 0.9}, fall back to Gemini-2.5-Flash , and finally accept the tran-scription with the garbage check disabled. 3.2.2. V ISUAL EXTRACTOR 
+
+The Visual Extractor converts the diagram into a single self-contained SVG that preserves geometry, topology, la-bels, numerical values, units, arrows, and angles, using 
+
+Gemini-3.5-Flash (prompt in Section C.4). It reads the level-appropriate inputs: the cropped diagram with OCR text for Level 4, the original image and text otherwise. For reliability it first generates with thinking enabled and a large output budget, falling back to a smaller no-thinking pass if the SVG is incomplete. As post-processing we inline 
+
+<tspan> sub/superscripts (e.g., N 1 ) and cap the SVG at 
+
+12 ,000 characters to bound downstream context. 3Two-Axis Reasoning for Visually-Grounded Physics Problem Solving 
+
+SVG versus a symbolic parse. A natural alternative is a plane-geometry diagram parse (PGDP) (Zhang et al., 2022) of primitives and their relations. We adopt SVG for general-ity (it describes arbitrary physics figures (circuits, free-body diagrams, plots), whereas a PGDP is specialized to geo-metric primitives) and for coverage and accuracy : SVG is defined for every question and matches or exceeds a re-fined PGDP on Level 3 ( 0.780 vs. 0.765 ; Table 4). SVG is therefore used at all structure-extracting levels (Levels 3–4). 3.2.3. VISUAL -G ROUNDED PROBLEM RECONSTRUCTOR 
+
+Because reasoning models may not fully exploit raw SVG markup, the Visual-Grounded Problem Reconstructor (Gemini-3.5-Flash ; Section C.5) rewrites the figure together with the partial problem text into a single, self-contained natural-language problem statement. The prompt enforces strict anti-hallucination: every numerical value, unit, symbol, angle marking, and multiple-choice option is preserved verbatim, no physical relationship or reference frame is inferred, and content that is illegible or ambiguous is flagged rather than guessed. 
+
+3.3. Multi-Agent Debate for Reasoning 
+
+The reasoning stage instantiates the MAD-M 2
+
+pipeline of Section 2.1 with three heterogeneous solvers, chosen for their complementary strengths and failure modes: GPT-5.5 (OpenAI, 2026a) and 
+
+Claude-Opus-4.8 (Anthropic, 2026b) at reasoning-effort xhigh , and Gemini-3.1-Pro (Google, 2026) decoded greedily at temperature 0. Drawing solvers from different families decorrelates errors (a misreading by one model is unlikely to recur in the others), which is exactly what the memory-masking step exploits. Because these commercial models expose no fixed seed, the pipeline is not bitwise reproducible. Table 2 summarizes the four stages; Level 5 uses a single Gemini-3.1-Pro solver in place of the ensemble. 
+
+Solving. Each solver answers independently from the en-riched problem, i.e., the problem text (original or OCR-derived) and, at the SVG levels, the extracted SVG with its figure transcription, and it emits a <reasoning> block followed by an <answer> (option letter(s), or a value with units). This yields one clean candidate per solver, the round-1 memory set M1 = {(a(1)  
+
+> i
+
+, r (1)  
+
+> i
+
+)}3
+
+> i=1
+
+. Solvers use up to 
+
+32 ,768 output tokens ( Claude-Opus-4.8 : 32 ,000 ); the round-1 prompt is the solving prompt from the SeePhys Pro baseline of the ICML 2025 SeePhys first-place team (Liang et al., 2026), which we use directly and extend only with a multiple-choice answer-format rule (Section C.6). 
+
+Aggregation and re-solving. The Canonicalizer (Sec-tion 3.3.1) compares the normalized answers by value and returns a majority directly. Otherwise the Pruner (Section 3.3.2) masks the unreliable memories to M2 =
+
+M1 ⊗ Mask , and the solvers re-solve conditioned only on the surviving memories, for at most two rounds (three solving passes in total). If no majority emerges, a final 
+
+GPT-5.5 step selects the most reliable round-3 candidate, defaulting to the Gemini-3.1-Pro answer if it abstains. Agents never exchange rebuttals directly (each round only re-exposes vetted memories), so unreliable reasoning is sup-pressed rather than propagated. 3.3.1. C ANONICALIZER 
+
+The Canonicalizer denotes the full answer-standardization stage that turns the solvers’ raw outputs into a single, grading-ready final answer; it comprises three steps. (i) Per-agent normalization : each solver’s answer is first cleaned by a lightweight pass ( gpt-5.4-mini ) that re-extracts the final answer from the solver’s reasoning when the emitted answer is malformed or empty; well-formed answers are left unchanged. This yields one clean, comparable answer per solver (the per-solver step in Figure 1). (ii) Agreement and false-tie resolution : the normalized answers are com-pared by physical value (ignoring formatting, units, notation, ordering, and approximation) and the majority answer is selected. Answers differing only in surface form are recog-nized as equal by the GPT-5.5 value comparison, resolv-ing the apparent tie rather than triggering an unnecessary debate round. (iii) Grading-standard rendering : the agreed answer is rendered once into the final grading-standard form: preserving the exact value, attaching SI units, using standard LaTeX, and reducing multiple-choice answers to bare option letters ( GPT-5.5 ; Appendix C.9). If no majority emerges, the candidates enter the prune–mask–re-solve rounds (Ta-ble 2). 3.3.2. P RUNER 
+
+Our Pruner realizes the memory-masking step of Section 2.1. We reuse the Gemini-3.1-Pro solver (Solver 2) as a shared Pruner; this is a separate, stateless call to the same model and does not carry over the solver’s prior conversa-tion. For efficiency, the Pruner runs at a reduced Gemini thinking budget of 2,048 tokens; empirically, this reduced budget does not change its verdicts relative to full reasoning effort. At the start of each re-solving round it evaluates ev-ery memory once with the pruning prompt (Appendix C.8): grounding its judgment in the figure, it labels each candidate solution YES , NO , or NOT SURE according to whether the solution is fully correct, paying particular attention to figure misreadings (wrong topology, swapped labels, or misread values). A subjective mask is then applied: memories la-beled YES are preserved, while NO and, in our strict setting,  
+
+> NOT SURE
+
+memories are masked out. Only the preserved memories are injected into the next round (Table 2); if the 4Two-Axis Reasoning for Visually-Grounded Physics Problem Solving 
+
+mask removes all of them, the agents re-solve without peer context. 3.3.3. L EVEL 5: S INGLE -A GENT REASONING 
+
+For the photograph-based Level 5 problems we replace the ensemble with a single Gemini-3.1-Pro solver, using the same model version, greedy decoding (temperature 0), and Round-1 solver prompt (Appendix C.6) as the Gem-ini solver in the multi-agent setting. Level 5 runs a single solve pass: there is no debate, pruning, or aggregation, and the solver’s answer is taken directly as the final answer without a separate canonicalization step. We adopt this sim-plified pipeline because, empirically, the visual-information-extraction and multi-agent-reasoning modules yielded no measurable gain on this level. 
+
+## 4. Experiments 
+
+We analyze the pipeline along two orthogonal axes that mirror its two stages. The first, multi-agent reasoning , im-proves answer quality once the problem is fully textual and is isolated on the text-only Level 1 (Section 4.2). The sec-ond, closing the modality gap , converts each figure into a form the solver can read and is studied on Levels 2–4 (Sec-tion 4.3). We study each axis on its own before reporting overall performance (Section 4.4). 
+
+4.1. Experimental Settings Benchmark. We evaluate on the SeePhys Pro benchmark (Challenge Track 3) (Xiang et al., 2026), which presents the same physics problems at five levels of increasing visual complexity. Levels 1–4 contain 200 questions each and Level 5 contains 30 photograph-based questions, for 830 
+
+questions in total; this is the public ( testmini ) split, exactly 20% of each level; the private test ( 800 per level and 120 
+
+for Level 5, 3,320 questions in total) determines the final ranking. We report per-level accuracy (correct /level-size) and the overall accuracy, computed as the micro-average 
+
+total correct /830 (so Level 5 accounts for only ∼3.6% of the overall weight). 
+
+Evaluation. Submissions must contain both a final an-swer and supporting reasoning for every question, and are scored by the organizers’ OpenAI-based semantic judge 
+
+against hidden reference answers 1: the judge checks that the submitted answer is equivalent to the reference (respecting required units) and that the reasoning is relevant and sup-ports it. During development, ground-truth answers were not available locally; every score we report was obtained from the official organizer leaderboard. Two properties 
+
+> 1https://www.codabench.org/competitions/ 16010/
+
+of the scorer shape our analysis: (i) it is format-sensitive 
+
+(multiple-choice answers must be reduced to option let-ter(s) and numeric answers to a canonical value/unit form); and (ii) repeated submissions of near-identical files vary by roughly one to three questions ( ±0.005 –0.015 ), which we treat as noise. We therefore emphasize consistent, sizeable differences rather than single-point gaps. 
+
+Models. The reasoning ensemble combines three hetero-geneous solvers from different model families: GPT-5.5 
+
+and Claude-Opus-4.8 at the xhigh reasoning-effort level and Gemini-3.1-Pro decoded greedily at tem-perature 0. Visual information extraction (cropping, OCR, SVG generation, and figure transcription) uses 
+
+Gemini-3.5-Flash ; per-agent answer normalization uses gpt-5.4-mini ; and the canonicalization / value-comparison stage uses GPT-5.5 .
+
+4.2. Multi-Agent Debate on Level 1 (Axis 1) 
+
+The reasoning stage is isolated on the text-only Level 1, which has no modality gap, so that any gain is attributable to reasoning alone. Three heterogeneous solvers ( GPT-5.5 ,
+
+Gemini-3.1-Pro , Claude-Opus-4.8 ) answer inde-pendently, and a value-based majority vote forwards only the disagreements to further rounds. Consensus is a reliable and inexpensive signal: when two solvers agree on a value they are correct ∼83% of the time, so confident questions termi-nate early and computation is concentrated on the contested ones. Drawing the solvers from different model families is itself beneficial; replacing an earlier second Gemini sam-pler with a different-family solver improved accuracy, as cross-family disagreement exposes errors that same-family sampling conceals. 
+
+A premium tie-breaker is unnecessary. A natural design is to resolve disagreements with a stronger model, so they were initially routed to GPT-5.5-Pro (OpenAI, 2026b). This tie-breaker did not improve accuracy over the single solver ( 0.720 in both cases); the gain came instead from the three-model ensemble itself with value-based selection, which lifts accuracy from 0.720 to 0.795 , while additional debate rounds oscillate within grader noise and add no net correct answers. In the controlled comparison (the same 
+
+debate pipeline with and without the tie-breaker), removing it and substituting a lightweight Canonicalizer slightly ex-ceeds it: 0.805 without GPT-5.5-Pro versus 0.795 with it (Table 3, Figure 2). 
+
+The apparent value of the tie-breaker: false ties and an-swer format. The Canonicalizer performs two inexpensive operations: value-equivalence voting , a majority that com-pares answers by physical value rather than surface string, and grading-standard rendering into SI units and standard LATEX, each of which removes an artifact that had inflated 5Two-Axis Reasoning for Visually-Grounded Physics Problem Solving 
+
+Table 2. Logic of the multi-agent debate pipeline, adopted from MAD-M 2. Each stage targets a different model: the three Solvers (GPT-5.5 , Gemini-3.1-Pro , Claude-Opus-4.8 ), the Canonicalizer, and the Pruner (the Gemini solver acting in a separate role). M1 is the round-1 memory set, M2 = M1 ⊗ Mask its pruned version, and M3 the re-solved set; the superscript on ai, r i indexes the memory set. Steps 3–4 run only when step 2 finds no majority and loop back to step 2 for at most two re-solving rounds. If no majority emerges after the final round, a GPT-5.5 selection step picks the most reliable of the three final-round candidates, which is then canonicalized. 
+
+Stage Model Input Output 
+
+1. Solving Solvers 1–3 Problem + Solving System Prompt (Liang et al., 2026) 
+
+M1 = {(a(1)  
+
+> i
+
+, r (1)  
+
+> i
+
+)}3
+
+> i=1
+
+2. Aggregation Canonicalizer a1, a 2, a 3 (compared by value) Majority ✓: canonicalized final answer. Majority ✗ (tie): the Canonicalizer resolves it by value: if a shared value emerges it is the final answer; otherwise go to step 3. 3. Pruning Pruner Problem + M1 + Pruning prompt (Tian et al., 2026) 
+
+M2 = M1 ⊗ Mask 
+
+4. Re-solving Solvers 1–3 Problem + M2 + Debate prompt (Tian et al., 2026) (Section C.7) 
+
+M3 = {(a(3)  
+
+> i
+
+, r (3)  
+
+> i
+
+)}3 
+
+> i=1
+
+⟳ repeat from step 2 
+
+the tie-breaker’s apparent contribution. First, naive string voting mislabels value-equal answers (e.g. 4mRv 0/B 2d2
+
+and 4mRv 0 
+
+> B2d2
+
+) as three-way ties; approximately 58 of 63 “ties” were spurious and were escalated unnecessarily. Resolving ties by value makes genuine ties rare, so the tie-breaker seldom fires. Second, because the grader is format-sensitive, the tie-breaker’s measured gain reduces to re-rendering an already-correct value into graded form: value-majority on the raw answers scores 0.745 , standard rendering alone raises it to 0.795 , and rendering the same values in the tie-breaker’s own style likewise yields 0.795 . The +0 .050 is therefore attributable to formatting rather than reasoning, and the Canonicalizer reproduces it at no premium cost. 
+
+The remaining error reflects a capability ceiling. Sub-stituting an even stronger tie-breaker ( Fable 5 (An-thropic, 2026a)) on the hardest contested questions, where 
+
+GPT-5.5-Pro had hedged, added zero correct answers. This indicates that the ∼0.800 Level-1 accuracy is a base-capability ceiling rather than a tie-breaking gap (Section B shows a verbatim instance). The premium models were never run as standalone full-set solvers, so the claim is lim-ited to their marginal value as a tie-breaker , which is neg-ligible (Section 5). Removing the tie-breaker additionally eliminates its ∼$60 –70 per-run cost at no loss in accuracy (Figure 2). 
+
+4.3. Closing the Modality Gap (Axis 2) 
+
+With the reasoning stack of Section 3.3 held fixed, only the visual front-end (the component that converts a figure into a solver-readable form) is varied. The central empiri-cal finding is that the value of a figure aid scales with how much of the problem is locked inside the image, i.e. with the 
+
+modality gap . Table 4 reports the evidence; all configura-
+
+Table 3. Axis 1 on the text-only Level 1: the premium tie-breaker is unnecessary. Top block (controlled comparison): the full debate +
+
+Canonicalizer (no Pro) reaches 0.805 , above debate + Pro ( 0.795 ). 
+
+Bottom block (rendering isolated): holding the answer values fixed at the value-majority, the premium model’s only measurable gain is format rendering ( 0.745 → 0.795 ), which the Canonicalizer reproduces at no premium cost; the full Canonicalizer’s extra point (to 0.805 ) comes from the value-equivalence voting (false-tie resolution) in the top block. All values are public-leaderboard (testmini) accuracy. Configuration Acc. 
+
+controlled comparison (debate ± tie-breaker) 
+
+single solver ( GPT-5.5 , xhigh ) 0.720 consensus + Pro tie-breaker on disagreements 0.720 3-model debate + Pro tie-breaker 0.795 
+
+3-model debate + Canonicalizer (no Pro) 0.805 
+
+rendering isolated (values fixed at value-majority) 
+
+value-majority, raw answer form 0.745 
+
++ grading-standard rendering only 0.795 
+
++ Pro’s rendering only (same values) 0.795 
+
+tions share the same debate-and-canonicalization solver and differ only in the figure representation. Worked examples of these effects, with verbatim model outputs, are collected in Section B. 
+
+Level 2 (structure): a prose transcription is the most ef-fective aid. At Level 2 the pipeline uses the figure transcrip-tion alone, without SVG. The transcription raises accuracy from 0.790 (image +text) to 0.830 , the best Level-2 result, whereas an SVG-only front-end reaches 0.800 ; the improve-ment is therefore attributable to the transcription rather than the SVG. Level 2 provides the cleanest single-aid evidence, since by construction no other figure representation is active at this level. 6Two-Axis Reasoning for Visually-Grounded Physics Problem Solving 
+
+Table 4. Axis 2 (modality-gap) ablation: only the visual front-end is varied; the reasoning stack is held fixed. All values are public-leaderboard (testmini) accuracy. Where repeated, near-identical submissions of the same front-end differed within grader noise, we report the best observed score: the noisy grader can erroneously reject a correct answer but does not accept an incorrect one, so the maximum best reflects the front-end’s accuracy. The gain tracks the modality gap (L4 ≫ L2 > L3). Level Visual front-end (figure representation) Acc. L2 
+
+structure 
+
+image + text, no aid 0.790 
+
++ SVG 0.800 
+
++ transcription (no SVG) 0.830 
+
+L3 
+
+text-redundant 
+
+image + text, no aid (bare) 0.755 figure →text / transcription-only (no image) 0.755 
+
++ transcription + image 0.780 
+
++ transcription + SVG + image (transsvg) 0.780 
+
+refined PGDP parse + image 0.765 L4 
+
+image-only 
+
+figure dropped (image-handling bug) 0.000 original image only (baseline) 0.540 figure →text, no image 0.710 figure-text + image 0.735 transcription + SVG + image (transsvg) 0.765 crop + OCR + SVG + transcription 0.775      
+
+> 050 100 150 200
+> 0.79
+> 0.795
+> 0.8
+> 0.805
+> 0.81
+> Canonicalizer (no premium model) 0.805
+> Fable 5
+> 0.795
+> GPT-5.5-Pro
+> 0.795
+
+tie-breaker output-token price (USD / Mtok) 
+
+> Level-1 accuracy
+
+Figure 2. Paying more per token for the tie-breaker buys no Level-1 accuracy. Both premium tie-breakers evaluated, Fable 5
+
+($50/Mtok output) and GPT-5.5-Pro ($180/Mtok), score 0.795 ,adding zero correct over the debate pipeline, while the Canonical-izer, which resolves false ties and renders the graded answer format with no premium model, reaches 0.805 . Output-token prices from Table 6. 
+
+Level 4 (image-only): extraction is the bottleneck. 
+
+Level 4 carries no problem text (the entire question re-sides in the image), so the figure must be recovered be-fore reasoning can begin. When an image-handling bug silently dropped the figure, Level 4 accuracy collapsed to 0 (near-total refusal); restoring the image recovered 
+
+0.540 . Notably, the raw image alone (“bare”) underper-forms a textual rendering of the same figure: on the subset where Levels 1 and 2 agree, the textual rendering matches 
+
+112 /149 questions against 106 /149 for the bare image (−6). The figure is therefore converted into a textual or structured form rather than read directly, and extraction fidelity is then increased progressively. Each step raises accuracy roughly monotonically: figure →text 0.710 →
+
+text +image 0.735 → transcription +SVG +image 0.765 →
+
+crop +OCR +SVG +transcription 0.775 , a net +0 .235 over the raw-image baseline. The final Level-4 front-end crops the page into separate text and diagram regions (OCR for the former, SVG and a natural-language transcription for the latter) so that embedded text and figure no longer corrupt each other. 
+
+Level 3 (text-redundant): figure aids fall within grader noise. At Level 3 the figure largely duplicates informa-tion already present in the text, and the results form a flat plateau: three independent, generalizable front-ends (no aid, figure →text, and transcription-only) all score exactly 
+
+0.755 . Injecting the image at the answer-resolution stage changes only 23 /200 predictions and is neutral-to-harmful, confirming that the Level-3 image is effectively redundant. A cumulative comparison (image retained) gives no-aid 
+
+0.755 → +transcription 0.780 → +SVG ( =transsvg) 
+
+0.780 , so transcription is a marginal lever and the added SVG sits within grader noise. A refined symbolic diagram parse (refined PGDP; see Section 3.2) scores 0.765 , below the SVG-based transsvg. 
+
+The figure-aid gain scales with the modality gap. Across levels the gain tracks the gap directly: Level 4 (image-only) 
+
++0 .235 ≫ Level 2 (structure; transcription 0.790 → 0.830 ,
+
++0 .040 ) > Level 3 (text-redundant; ≈ 0). Level 3’s flatness is thus the low-gap end of a single trend rather than a failure of the method. 
+
+Caveats. All scores come from the organizer leaderboard (no local ground truth) and carry ±1–3 question ( ±0.005 –
+
+0.015 ) grader noise. The claims therefore rest on the large cross-level pattern and the Level-4 ladder rather than on fine per-representation rankings, and a fully controlled aid ×aid factorial was not run. 7Two-Axis Reasoning for Visually-Grounded Physics Problem Solving 
+
+4.4. Overall Performance 
+
+Combining the per-level configurations, Table 5 reports the full pipeline against a single-pass GPT-5.5 baseline. The framework improves every level, raising overall accuracy from 0.643 to 0.802 , with the largest gains on the image-only Level 4 ( 0.540 → 0.775 ) and the photograph Level 5 (0.670 → 0.933 ). Level 5 uses a single Gemini-3.1-Pro 
+
+solver: the three-agent ensemble degrades to ∼0.500 be-cause, for options drawn inside the figure, GPT-5.5 and 
+
+Claude report the computed value rather than the option 
+
+letter and outvote Gemini’s correct letters, so a single solver avoids the format clash and reaches 0.933 (a verbatim in-stance appears in Section B). The submitted system won 1st place on both the public and the private leaderboard of Track 3; on the private test that determines the final ranking it scores 0.743 overall ( 0.745 /0.765 /0.730 /0.713 /0.875 
+
+on L1–L5). 
+
+4.5. Cost and Efficiency 
+
+Accuracy was pursued under an explicit efficiency budget rather than through brute-force scaling; Table 7 summa-rizes the main levers, each of which holds or improves accuracy while reducing cost or latency. Dropping the premium tie-breaker removes its ∼$60 –70 per-run cost, since GPT-5.5-Pro is priced at $30/$180 per Mtok (in-put/output), far above the standard solvers (Table 6); the Canonicalizer matches and slightly exceeds it. Reducing the pruner’s reasoning effort to a 2,048 -token thinking budget reduces its output tokens by 5–9× and its per-call latency from ∼18 to ∼1 minute, with identical prune ver-dicts ( 9/9 on the probe set). Early-stopping on consen-sus concentrates computation on the disagreements, saving roughly half of the debate cost at no measurable accuracy loss. Capping the debate at two rounds avoids the linear per-round cost of additional rounds, which yield zero or negative gain. Finally, output (reasoning) tokens dominate cost ( ∼91% ), so prompt caching is not a useful lever in this setting. The strongest single design choice (removing the premium tie-breaker) therefore reduces cost and improves accuracy simultaneously. 
+
+Table 5. Per-level and overall accuracy on SeePhys Pro (organizer leaderboard). The top two rows are public (testmini) scores; the bottom row is the hidden private test, which determines the final ranking (1st place). System L1 L2 L3 L4 L5 Overall GPT-5.5 single-pass 0.720 0.660 0.650 0.540 0.670 0.643 Full pipeline (ours) 0.805 0.830 0.780 0.775 0.933 0.802       
+
+> Full pipeline, private test 0.745 0.765 0.730 0.713 0.875 0.743
+
+Table 6. API token prices used for cost accounting (USD per mil-lion tokens). Output (reasoning) tokens dominate spend ( ∼91% ), so the output rate sets the per-run total. The two premium models were used only as tie-breakers on contested questions; 
+
+GPT-5.5-Pro ’s $180 output rate is what made routing ties to it the dominant cost. Model Input Output ($/Mtok) ($/Mtok) 
+
+solvers 
+
+GPT-5.5 5 30 Gemini-3.1-Pro 2 12 Claude-Opus-4.8 5 25 
+
+tie-breakers (contested questions only) 
+
+Fable 5 10 50 GPT-5.5-Pro 30 180 
+
+Table 7. Efficiency levers on the reasoning stage. Each cuts cost or latency while holding or improving leaderboard accuracy; the last column reports the resulting accuracy change ( ∆). Design decision Cost / latency effect ∆ Acc. Drop the GPT-5.5-Pro tie-breaker saves $60–70 / run +0 .010                 
+
+> Pruner effort →2,048 tokens 5–9×fewer tokens; 18 →1min 0.000 (9/9verdicts )Early-stop on consensus ∼half the debate compute ≈0.000
+> Cap debate at two rounds avoids linear per-round cost ≈0.000
+
+## 5. Limitations 
+
+Our study has several limitations. (i) Leaderboard-only evaluation. We had no local ground truth; all scores come from the organizer leaderboard and carry ∼1–3 question grader noise, so we rely on consistent trends rather than single-point gaps. (ii) Tie-breaker, not standalone, compar-ison. The premium models ( GPT-5.5-Pro , Fable 5)were only ever used as tie-breakers / re-solvers on contested questions, never as standalone full-set solvers. We therefore claim that their marginal value as a tie-breaker on top of our pipeline is negligible, not that our pipeline outperforms them as standalone systems; a cost-matched standalone com-parison is left to future work. (iii) Incomplete factorial. We did not run a fully controlled aid ×aid factorial for the visual front-ends, and several per-step modality deltas sit at the noise floor. (iv) Reproducibility. The commercial models expose no fixed seed and decode by reasoning effort, so outputs are not bitwise reproducible. 
+
+## 6. Conclusion 
+
+We presented a two-stage pipeline, visual information extrac-tion followed by multi-agent reasoning, for visual physics problem solving and used the same-problem-across-levels design of SeePhys Pro to study it along two orthogonal axes. On the reasoning axis, isolated on the text-only Level 1, the return from orchestrating heterogeneous solvers came from reliable and inexpensive answer selection (consensus-based early termination and value-aware canonicalization) 8Two-Axis Reasoning for Visually-Grounded Physics Problem Solving 
+
+rather than from additional debate; a premium model used as the adjudicator added cost but no correct answers once value-equal ties were resolved, and accuracy was bounded by base-model capability. On the modality axis, holding the reasoning stack fixed and varying only the visual front-end, the value of a figure aid scaled with the fraction of the prob-lem locked in the image: large on the image-only Level 4, where visual extraction rather than reasoning is the bottle-neck, and negligible where the figure merely duplicates the text. Combining consensus-routed debate with modality-adaptive extraction, and extending caption-assisted reasoning to a structured SVG representation, the full pipeline improved over a single-pass baseline from 0.643 to 0.802 overall on the public split and finished 1st on both the public and the private leaderboard of Challenge Track 3. The broader lesson is to spend orchestration where it pays: cheap, value-aware selection on the reasoning side, and faithful figure extraction on the perception side. As all scores come from the organizer leaderboard, we report consistent cross-level trends rather than single-point gaps; a cost-matched com-parison against premium models as standalone solvers, and a fully controlled aid-by-aid factorial, remain natural direc-tions for future work. 
+
+## Acknowledgments 
+
+This work was supported in part by the Institute of Informa-tion & Communications Technology Planning & Evaluation (IITP)-Information Technology Research Center (ITRC) grant funded by the Korea government (MSIT) (IITP-2026-RS-2024-00437268) (50%), and in part by the IITP grant funded by the Korea government (MSIT) (No. RS-2022-II220077, AI Technology Development for Commonsense Extraction, Reasoning, and Inference from Heterogeneous Data) (50%). 
+
+## References 
+
+Anthropic. Introducing Fable 5. https://www. anthropic.com/news/claude-fable-5 ,2026a. Model ID claude-fable-5 . Accessed: 2026-06-16. Anthropic. Introducing Claude Opus 4.8. https://www. anthropic.com/news/claude-opus-4-8 ,2026b. Accessed: 2026-06-16. Du, Y., Li, S., Torralba, A., Tenenbaum, J. B., and Mor-datch, I. Improving factuality and reasoning in language models through multiagent debate. In Salakhutdinov, R., Kolter, Z., Heller, K., Weller, A., Oliver, N., Scarlett, J., and Berkenkamp, F. (eds.), Proceedings of the 41st International Conference on Machine Learning , volume 235 of Proceedings of Machine Learning Research , pp. 11733–11763. PMLR, 21–27 Jul 2024. URL https:// proceedings.mlr.press/v235/du24e.html .Google. Gemini 3.1 Pro: A smarter model for your most complex tasks. https: //blog.google/innovation-and-ai/ models-and-research/gemini-models/ gemini-3-1-pro/ , 2026. Accessed: 2026-06-16. Liang, H., Wu, R., Zeng, B., Niu, J., Zhang, W., and Dong, B. Multimodal reasoning for science: Technical report and 1st place solution to the icml 2025 seephys challenge. 
+
+arXiv preprint arXiv:2509.06079 , 2025. Liang, H., Wu, R., Zeng, B., Niu, J., Zhang, W., and Dong, B. SciReasoner: SeePhys Pro baseline and solution code. https://github.com/OpenDCAI/ SciReasoner/tree/main/seephys_pro_ codabench , 2026. Accessed 2026-07-02. Lu, P., Gong, R., Jiang, S., Qiu, L., Huang, S., Liang, X., and Zhu, S.-C. Inter-GPS: Interpretable geometry problem solving with formal language and symbolic reasoning. In 
+
+Proceedings of the 59th Annual Meeting of the Associa-tion for Computational Linguistics (ACL) , 2021. OpenAI. Introducing GPT-5.5. https://openai.com/ index/introducing-gpt-5-5/ , 2026a. Ac-cessed: 2026-06-16. OpenAI. GPT-5.5 Pro. https://openai.com/ index/introducing-gpt-5-5/ , 2026b. GPT-5.5 Pro reasoning tier. Accessed: 2026-06-16. Rodriguez, J. A., Puri, A., Agarwal, S., Laradji, I. H., Rodriguez, P., Rajeswar, S., Vazquez, D., Pal, C., and Pedersoli, M. StarVector: Generating scalable vector graphics code from images and text. arXiv preprint arXiv:2312.11556 , 2023. Tang, Y., Cetin, E., Xu, J., Sun, Q., Nielsen, S., Richard, V., Goda, H., Tymchenko, I., Nguyen, N., Lee, H., Ashiga, M., Kotyan, S., Kuroki, S., and Clanuwat, T. Sakana fugu technical report. arXiv preprint arXiv:2606.21228 , 2026. URL https://arxiv.org/abs/2606.21228 .Tian, H., Feng, X., Zhao, Z., Zhu, X., Yan, R., and Han, B. Multi-agent debate with memory masking. In The Four-teenth International Conference on Learning Represen-tations , 2026. URL https://openreview.net/ forum?id=EdTt8nMAMA .Xiang, K., Zhang, T. J., Liu, Z., Zhou, B., Tang, Y., Yu, J., Lu, J., Huang, S., Li, H., Zhang, L., Liu, K., Zhang, C., Fang, Y., Guo, B., Zhen, H.-L., Tu, D., Huang, Y., and Liang, X. Seephys pro: Diagnosing modality transfer and blind-training effects in multimodal rlvr for physics 9Two-Axis Reasoning for Visually-Grounded Physics Problem Solving 
+
+reasoning. arXiv preprint arXiv:2605.09266 , 2026. URL 
+
+https://arxiv.org/abs/2605.09266 .Zhang, M.-L., Yin, F., Hao, Y.-H., and Liu, C.-L. Plane geometry diagram parsing. In Proceedings of the 31st International Joint Conference on Artificial Intelligence (IJCAI) , 2022. 10 Two-Axis Reasoning for Visually-Grounded Physics Problem Solving 
+
+## A. Pipeline Overview by Level 
+
+This section provides pipeline overviews for the remaining levels of the SeePhys Pro dataset. Figure 3 shows the Level 1 pipeline, which performs text-only reasoning. Figure 4 presents the Level 2 pipeline, where the Visual-Grounded Problem Reconstructor incorporates structural visual information into a self-contained problem statement. Figure 5 shows the pipeline for Level 3, which additionally employs the Visual Extractor to capture variable-level information from the diagram and generate a structured SVG representation. Finally, Figure 6 depicts the Level 5 pipeline, which adopts a simplified Gemini-based single-agent reasoning framework for photograph-based questions. Visual Information Extraction 
+
+Problem Text Problem Image 
+
+Solver 1 (GPT)  Solver 2 (Gemini)  Solver 3 (Claude) 
+
+> Reasoning & Answer
+
+Consensus?  Multi -agent 
+
+Debate 
+
+> Final Reasoning & Answer
+
+Canonicalizer  
+
+> Reasoning & Answer Reasoning & Answer
+
+Pruner 
+
+No Yes 
+
+> Selected Reasoning & Answer
+
+Reasoning 
+
+“In a simple ohmmeter circuit, a battery of emf  𝐸 = 1.5𝑉  and 
+
+internal resistance  𝑟 = 0.5Ω is connected in series … What 
+
+color should the test lead connected to terminal  𝐴  be?” 
+
+Empty 
+
+Figure 3. Proposed pipeline for text-only reasoning on Level 1 problems in the SeePhys Pro dataset. Visual Information Extraction 
+
+Problem Text Problem Image 
+
+Solver 1 (GPT)  Solver 2 (Gemini)  Solver 3 (Claude) 
+
+> Reasoning & Answer
+
+Consensus?  Multi -agent 
+
+Debate 
+
+> Final Reasoning & Answer
+
+Canonicalizer  
+
+> Reasoning & Answer Reasoning & Answer
+
+Canonicalizer  Canonicalizer 
+
+Pruner 
+
+No Yes 
+
+> Selected Reasoning & Answer
+
+Reasoning 
+
+“As shown in the figure, it is a schematic diagram …  𝐸 = 1.5𝑉 ,
+
+and the internal resistance is  𝑟 = 0.5Ω. …, what color should 
+
+the test lead connected to terminal A be?” 
+
+Visual -Grounded 
+
+Problem 
+
+Reconstructor 
+
+> Self -contained
+> Problem Statetment
+
+Canonicalizer 
+
+Figure 4. Proposed pipeline for structure-grounded visual reasoning on Level 2 problems in the SeePhys Pro dataset. 
+
+11 Two-Axis Reasoning for Visually-Grounded Physics Problem Solving Visual Information Extraction 
+
+Problem Text Problem Image 
+
+Solver 1 (GPT)  Solver 2 (Gemini)  Solver 3 (Claude) 
+
+> Reasoning & Answer
+
+Consensus?  Multi -agent 
+
+Debate  
+
+> Final Reasoning & Answer
+> Reasoning & Answer Reasoning & Answer
+
+Pruner 
+
+No Yes 
+
+> Selected Reasoning & Answer
+
+Reasoning 
+
+“As shown in the schematic diagram, what color 
+
+should the test lead connected to terminal A be?” 
+
+Visual 
+
+Extractor 
+
+Visual -Grounded 
+
+Problem 
+
+Reconstructor 
+
+> Formalized
+> SVG
+> Representation
+> Self -contained
+> Problem Statetment
+
+Canonicalizer 
+
+Figure 5. Proposed pipeline for variable-grounded visual reasoning on Level 3 problems in the SeePhys Pro dataset. Visual Information Extraction 
+
+Problem Text Problem Image 
+
+Reasoning 
+
+Empty 
+
+Solver 1 (GPT)  Solver 2 (Gemini)  Solver 3 (Claude) 
+
+> Reasoning & Answer
+
+Consensus?  
+
+> Final Reasoning & Answer
+> Reasoning & Answer Reasoning & Answer
+
+Pruner 
+
+No Yes 
+
+> Selected Reasoning & Answer
+
+Reasoning 
+
+Canonicalizer 
+
+Solver 2 (Gemini) 
+
+> Reasoning & Answer
+> Final Reasoning & Answer
+
+Figure 6. Proposed pipeline for photo-based visual reasoning on Level 5 problems in the SeePhys Pro dataset. 
+
+12 Two-Axis Reasoning for Visually-Grounded Physics Problem Solving 
+
+## B. Worked Examples 
+
+This appendix collects the concrete cases behind the findings of Sections 3.3.3, 4.2 and 4.3. Model outputs are quoted verbatim from our runs; problem inputs are shown as given to the solvers (abridged where marked with “ . . . ”). 
+
+B.1. A Reasoning Failure on Text-Only Level 1 
+
+On level1 testmini 000087 (text-only: a block leaves a rough incline, θ = 37 ◦, μ = 0 .3, and passes through a slot in a platform at height 2R rotating at angular velocity ω), GPT-5.5 at xhigh , solving alone, derives the correct answer and then argues itself out of it: 
+
+GPT-5.5 (xhigh), solving alone — verbatim excerpts 
+
+“First trip from A to C: v21 = 14 5 gR , u21 = v21 − 2gR = 45 gR .The time between upward and downward crossings of the platform is ∆t1 = 2u1 
+
+> g
+
+= 4√5
+
+pR/g .If this corresponded to one full revolution, then ω = 2π 
+
+> ∆t1
+
+= π√52
+
+pg/R .” ← the correct answer 
+
+“However, we must check the later stated condition. . . . the slider cannot reach the platform a second time at all. The stated conditions are mutually inconsistent, so no angular velocity can satisfy the full problem as written.” Submitted answer: “No physical solution” ← rejects its own correct value 
+
+The answer existed in the candidate pool; the failure was in settling on it, which is exactly what the value-aware selection of Section 4.2 repairs. 
+
+B.2. A Perception Failure on Level 3 and Its Recovery Input (Level 3, level3 testmini 000013 ) — problem text and figure 
+
+“As shown in the figure, the coil has resistance r, and each turn has area S. The coil supplies power to the external resistor through slip rings and brushes. Regarding this power generation process, the following statements are correct: ( ) 
+
+. . . B. The peak value of the induced electromotive force is 40 V . . . D. The average electric power on resistor R is 
+
+9 W ”
+
+The decisive fact exists only in the figure: the field region ( × marks) covers only the half-plane to the right of the rotation axis 
+
+OO ′.
+
+Claude-Opus-4.8 (xhigh), raw image — verbatim excerpt 
+
+“Peak EMF: ε0 = nBSω = 10 × (2 /π ) × 0.20 × 10 π = 40 V .Average power on R: Irms = √2 A ; PR = ( √2) 2 · 18 = 36 W ( ̸= 9 W) .” misses the half-region field → wrong 
+
+13 Two-Axis Reasoning for Visually-Grounded Physics Problem Solving 
+
+With the half-region constraint recovered, the effective area halves: ε0 = 20 V and PR = 9 W (choice D). Given the prose transcription, all three solvers stated the constraint in round 1 and agreed on D immediately. 
+
+B.3. Extraction Flips the Vote on Image-Only Level 4 Input (Level 4, level4 testmini 000002 ) — a single image; the problem-text field is empty 
+
+The answer hinges on the internal battery’s polarity at terminal A, a fact that exists only in the figure. The extraction stage recovers it in the transcription — “The negative terminal of the battery is connected to terminal A . . . ” — and the structured SVG encodes the same fact in its markup. 
+
+Claude-Opus-4.8 (xhigh) — verbatim excerpts, before and after extraction 
+
+Raw image only: “In resistance mode, the internal battery’s POSITIVE terminal is connected to the COM jack → black lead . . . Since the lead connected to the battery’s negative side in ohm mode is the red lead, terminal A’s test lead must be red .” → Red; majority among the three solvers: Red With extraction: “Terminal A is connected to the negative terminal of the battery . . . By multimeter color convention, the negative/common probe is black . . . its lead should be black.” → Black; majority among the three solvers: Black 
+
+Same model, same question — only the input changed; the majority answer among the three solvers flips from Red to the correct Black .
+
+B.4. Level 5: the Letter-versus-Value Clash 
+
+On solve150 testmini 000020 (a photograph: a 6 V battery drives a 1.25 Ω load; the options are printed inside the photo and the prompt requires the option letter): 
+
+GPT-5.5 vs. Gemini-3.1-Pro — verbatim 
+
+GPT-5.5: “P = V 2/R = 6 2/1.25 = 28 .8. So the power supplied is 28 .8 W, corresponding to option D .” Submitted answer: “28.8” names the letter, submits the value Gemini-3.1-Pro: “. . . So the correct option is D.” Submitted answer: “D” correct letter 
+
+Under value voting the two value-format answers outvote the correct letter, which is why Level 5 uses a single Gemini solver (Section 3.3.3). 14 Two-Axis Reasoning for Visually-Grounded Physics Problem Solving 
+
+## C. Full Prompts 
+
+C.1. Cropper Prompt Prompt for Boundary Proposal 
+
+This image is a physics problem. It contains a printed problem statement with multiple-choice options (the "text" region) and afigure/diagram/plot (the "diagram" region). They sit side by side or stacked. Decide the single straight line that best separates the two regions, and tell me which side holds the problem text. Return ONLY this JSON (no markdown): {"orientation": "vertical" | "horizontal", "text_side": "left" | "right" | "top" | "bottom", "split_fraction": 0.0 }- "vertical": the separating line is vertical (text and diagram are left/right). - "horizontal": the line is horizontal (text and diagram are top/bottom). - "split_fraction": where the line sits along the relevant axis, 0..1 (for vertical = x fraction from the left; for horizontal = y fraction from top). - A rough estimate is fine; it will be checked and refined afterwards. - Short labels inside the figure (A, B, R1, M, N) belong to the DIAGRAM. 
+
+C.2. Cropper Verification Prompt Prompt for Boundary Verification 
+
+You are a strict QA checker for an image-cropping pipeline. The attached image is a physics problem. A RED line has been drawn to split it into two parts: one part should contain ONLY the printed problem statement and its multiple-choice options (the "text" region), and the other part should contain ONLY the figure/diagram/plot (the "diagram" region). Short axis labels that belong to the figure (like A, B, R1, M, N) count as part of the DIAGRAM, not as problem text. Judge whether the red line splits these two regions CLEANLY. Return ONLY this JSON (no markdown, no commentary): {"clean": true | false, "text_region": "left" | "right" | "top" | "bottom", "issue": "none" | "text_truncated" | "diagram_truncated" | "diagram_leaks_into_text" |"text_leaks_into_diagram", ,→
+
+"move": "none" | "toward_text" | "toward_diagram", "move_fraction": 0.0 }Definitions: - "clean": true only if the problem text/options are entirely on one side AND the figure is entirely on the other side, with nothing important cut by the line. - issue "text_truncated": some problem text/options got cut and ended up on the diagram side -> the line must move TOWARD the diagram to give text more room. - issue "diagram_leaks_into_text": part of the figure is on the text side -> the line must move TOWARD the text. - "move": which direction the line should shift to fix it. "none" if clean. - "move_fraction": how far to move, as a fraction of image width/height (e.g. 0.04). 0.0 if clean. 
+
+C.3. Text OCR Prompt Prompt for Text OCR 
+
+You are an OCR transcription engine. Transcribe the text in this image into one clean string, and output that string and NOTHING else. ABSOLUTE OUTPUT RULES (follow exactly): - Output ONLY the transcribed problem text. No preface, no notes, no commentary, no explanations, no markdown, no code fences. 
+
+15 Two-Axis Reasoning for Visually-Grounded Physics Problem Solving 
+
+- Do NOT think out loud or show any working. NEVER write meta words such as "Let's write", "Let's use", "Let me", "Wait", "the prompt says", "Correction", "Cleaning", or discuss how to format anything. - NEVER list alternatives (e.g. 'X or X or X'). NEVER repeat a phrase. Write every piece of text exactly ONCE. - Begin immediately with the first word of the problem. Stop immediately after the last option. Produce the transcription a single time, then stop. TRANSCRIPTION RULES: - Transcribe faithfully and completely. Do NOT solve, add, drop, paraphrase, or reorder. - The image may wrap text mid-word or mid-line because of its width. Join it back into natural continuous prose and fix broken words (e.g. "th e right" -> "the right"). - Output as ONE continuous block with NO line breaks. Keep the multiple-choice options (A., B., C., D., ...) inline and in order, separated by a single space. - Wrap mathematical content (symbols, variables, sub/superscripts, units inside aformula, equations) in single dollar signs, e.g. $v_0$, $R_2$, $2\text{ s}$, $a=\frac{3Bˆ2dˆ2v_0}{2mR}$. Choose the simplest valid LaTeX and commit to it immediately; do not consider or show alternatives. 
+
+C.4. Visual Extractor Prompt Prompt for Visual Extractor 
+
+System Prompt 
+
+You are a Visual Extractor for a physics problem-solving pipeline. Convert the figure(s) into ONE self-contained SVG so a downstream solver can reason about the geometry. Output ONLY the raw <svg>...</svg> markup: NO JSON, NO markdown fence, NO prose before or after. 
+
+User Prompt 
+
+Render the figure(s) in this physics problem as a single SVG. Problem text, possibly empty: {problem} SVG FORMAT: - Use viewBox="0 0 100 100". - Use ONLY line, circle, ellipse, rect, polygon, polyline, path, and text. - Use semantic id attributes for important elements, e.g. id="mass_A", id="string", id="pulley", id="angle_30deg", id="field_B", id="label_25". - Do NOT use <tspan>. Write any subscript/superscript INLINE as plain text inside the <text>. - The SVG MUST end with </svg>. CRITICAL EXTRACTION RULES: - INCLUDE EVERY visible text label, number, variable, symbol, and unit shown in the figure as <text> elements. - Every <text> element must correspond to visible text in the source figure. - Transcribe all numeric text EXACTLY as shown, digit-for-digit, with its unit. - Do NOT add, remove, or move decimal points. - Do NOT invent missing values, velocities, directions, forces, constraints, or reference frames. - Preserve the exact object-to-label association. GEOMETRY RULES: - Represent all visible objects, supports, pulleys, belts, strings, springs, coils, masses, blocks, tracks, inclines, rods, wires, axes, regions, fields, vectors, contact points, and angles. - Preserve orientations and relative positions. - Preserve topology exactly. - Do NOT create or remove connections. - Do NOT complete or infer hidden geometry. - Draw labeled angles as arcs or paths and include the angle label exactly as shown. STRICT FIDELITY RULES: 1. COPY NUMBERS EXACTLY. 2. TRANSCRIBE ONLY VISIBLE LABELS. 3. DO NOT OMIT ANY LABEL. 4. PRESERVE ANGLES AS SHOWN. 5. PRESERVE LABEL SCOPE. 6. PRESERVE TOPOLOGY. 
+
+16 Two-Axis Reasoning for Visually-Grounded Physics Problem Solving 
+
+7. HANDLE AMBIGUITY CONSERVATIVELY. Before finalizing, silently verify: - Every visible label appears as a <text> element. - Every number matches the figure digit-for-digit. - Every unit matches exactly. - Every labeled angle is represented geometrically. - Every visible object and connection is represented. - No invisible or inferred physics has been added. - The markup starts with <svg and ends with </svg>. Output ONLY the raw SVG markup. 
+
+C.5. Visual-Grounded Problem Reconstructor Prompt Prompt for Visual-Grounded Problem Reconstructor 
+
+System Prompt 
+
+You convert a physics figure into a COMPLETE textual problem statement for a reader who CANNOT see any image. ,→
+
+User Prompt 
+
+A physics problem is given with PARTIAL text; the rest of the information is ONLY in the attached figure. Write the COMPLETE, self-contained problem statement in clear prose so someone with NO access to the figure can solve it. ,→
+
+CRITICAL ANTI-HALLUCINATION RULES: - Transcribe ONLY what is explicitly written in the text or visibly shown in the figure. - Do NOT infer, assume, deduce, or invent any physical condition, quantity, relationship, orientation, motion, or reference frame. ,→
+
+- Do NOT introduce descriptions such as 'relative to the belt', 'slides downward', 'moves upward', 'hangs vertically', 'horizontal', 'vertical', or similar unless explicitly stated or visually indicated. - If a value, label, direction, angle reference, or condition is ambiguous, illegible, or unclear, write 'ambiguous/unclear in the figure' rather than guessing. REQUIREMENTS: - Include EVERY numerical value, variable, symbol, label, unit, arrow, and annotation shown in the figure. - Fully describe the physical setup and geometry: what is connected to what, object locations, orientations, reference axes, angle markings, angle references, initial conditions, and any indicated directions. - Preserve the exact association between each quantity and the object it labels. - Distinguish carefully between total quantities and per-object quantities. - If multiple-choice, transcribe the EXACT wording of EVERY option (A, B, C, D, ...). - Do NOT solve, simplify, interpret, explain, or add reasoning. - Output ONLY the restated problem. STRICT FIDELITY RULES (violating these corrupts the downstream solver): 1. TRANSCRIBE ONLY WHAT IS PRESENT. Do NOT add any value, variable, condition, relationship, or quantity that is not explicitly written or shown. ,→
+
+2. DO NOT ADD PHYSICAL RELATIONSHIPS. Do NOT introduce reference frames, motion descriptions, constraints, force relationships, equilibrium conditions, or geometric interpretations unless explicitly provided. 3. ATTRIBUTE QUANTITIES TO THE CORRECT OBJECT. Preserve exactly which object each number, label, mass, force, velocity, angle, length, charge, current, or other quantity belongs to. Do NOT redistribute, aggregate, or reinterpret quantities. 4. PRESERVE EVERY DIGIT AND UNIT EXACTLY. Copy all numbers character-for-character. Do NOT add, remove, or move decimal points. Do NOT change scale-looking numbers into decimals: 25 must remain 25, not 2.5; 15 must remain 15, not 1.5. Do NOT misread time labels: 3 s must remain 3 s, not 35; 7 s must remain 7 s, not 75. Examples: - '3 s' is NOT '35' - '7 s' is NOT '75' - '2.5' is NOT '25' - '0.5 m' is NOT '5 m' 5. PRESERVE ALL SYMBOLS AND NOTATION. 
+
+17 Two-Axis Reasoning for Visually-Grounded Physics Problem Solving 
+
+Keep subscripts, superscripts, primes, vector arrows, Greek letters, signs, and mathematical notation exactly as shown. 6. PRESERVE EVERY ANGLE EXACTLY. Copy the angle value and its indicated reference. Do NOT convert an angle into an unstated orientation. For example, do NOT replace '30' with 'vertical' or 'horizontal' unless explicitly indicated. 7. HANDLE AMBIGUITY CONSERVATIVELY. If any label, number, symbol, unit, angle reference, arrow direction, or condition is unclear, write 'ambiguous/unclear in the figure' rather than guessing. Before finalizing, silently verify: - Every visible figure label appears in your output. - No value appears that is not present in the source. - Every number matches the source digit-for-digit. - Every unit matches the source exactly. - Every angle and its reference are preserved. - No inferred physics has been added. PARTIAL TEXT: {ptext} 
+
+C.6. Round-1 Solver Prompt Prompt for Round-1 Solver 
+
+System Prompt 
+
+You are an expert physics tutor. CRITICAL ANSWER-FORMAT RULE: If the problem is MULTIPLE-CHOICE -- i.e. lettered options (A, B, C, D, ...) appear in the text or the figure -- your final answer MUST be ONLY the chosen option LETTER(S), e.g. 'C' or 'BD'. NEVER write the option's words/value/concept (e.g. write 'C', not 'gravity'). For each problem, you must: 1. Carefully read the text and inspect any provided diagram(s). 2. Identify all known/unknown quantities and the physical principles involved. 3. Reason step-by-step with explicit equations. 4. Track units and report numeric answers to a sensible precision. 5. End with a clearly delimited final answer. Output STRICTLY in this format: <reasoning> ...your full chain of reasoning here... </reasoning> <answer>...the final answer only. If MULTIPLE-CHOICE, output ONLY the option letter(s), e.g. A or BD -- NOT the option's text/content. Otherwise a concise value (units only if asked), no extra text...</answer> 
+
+User Prompt 
+
+Solve the following physics problem. {problem} Remember: produce exactly one <reasoning>...</reasoning> block followed by exactly one <answer>...</answer> block. The final answer should be concise (a number, expression, or option letter(s) like 'BD'). 
+
+C.7. Debate (Re-solving) Prompt Prompt for Re-solving (Debate) 
+
+System Prompt 
+
+You are an expert physics tutor. CRITICAL ANSWER-FORMAT RULE: If the problem is MULTIPLE-CHOICE (lettered options A,B,C,D... in the text or figure), the final answer MUST be ONLY the chosen option LETTER(S), e.g. 'C' or 'BD' NEVER the option's words/value (write 'C', not 'gravity'). 
+
+> ,→
+> ,→
+
+For each problem, you must: 1. Carefully read the text and inspect any provided diagram(s). 2. Identify all known/unknown quantities and the physical principles involved. 3. Reason step-by-step with explicit equations. 
+
+18 Two-Axis Reasoning for Visually-Grounded Physics Problem Solving 
+
+4. Track units and report numeric answers to a sensible precision. 5. End with a clearly delimited final answer. 6. If the problem is MULTIPLE-CHOICE (options shown in the text or figure), the final answer must be ONLY the option letter(s) (e.g. A, BD), NOT the option's text/content. ,→
+
+User Prompt 
+
+These are the potential solutions to the problem: {context} Use the potential solutions as additional information for the following question. An image of the figure is attached, and a structured parse of the SAME figure (PGDP) is included in the question below. As you reconsider, explicitly check whether any of the potential solutions (or your own previous reasoning) MISREAD or MISINTERPRETED the figure e.g. wrong connectivity/topology, mislabeled or swapped points, incorrect geometry, or quantities/values read incorrectly from the diagram and correct for it using the image and the PGDP parse. 
+
+> ,→
+> ,→
+> ,→
+> ,→
+
+Question:{question} Please think step by step and solve the problem. ### Response format (MUST be strictly followed) (DO NOT include any other formats except for the given XML format): ,→
+
+<think>YOUR THINKING HERE</think> <answer>YOUR FINAL ANSWER ONLY, NO OTHER TEXT</answer>. 
+
+C.8. Pruning Prompt Prompt for Pruning 
+
+Evaluate the given solution to the question. An image of the figure is attached, and a structured parse of the SAME figure (PGDP) is included in the Question below. ** Use BOTH the attached image and the PGDP parse. In particular, check whether the solution MISREAD or MISINTERPRETED the figure e.g. wrong connectivity/topology, mislabeled or swapped points, incorrect geometry, or quantities/values read incorrectly from the diagram. If the solution's reasoning depends on any such misinterpretation of the figure, treat it as incorrect. ** ** Your reponse MUST end with the following format: <label>YES</label> or <label>NO</label> or <label>NOT SURE</label>. ** Return YES if the solution is completely correct, NO if any part of the solution is incorrect (including figure misinterpretation), and NOT SURE if you are unsure. 
+
+> ,→
+> ,→
+> ,→
+> ,→
+> ,→
+> ,→
+> ,→
+> ,→
+
+Question: {question} Solutions: {solution} 
+
+C.9. Canonicalizer Prompt Prompt for Canonicalizer 
+
+Render a physics FINAL ANSWER in clean grading-standard form. PRESERVE THE EXACT VALUE. Include SI unit (infer if missing). Standard LaTeX (\frac, \sqrt, \mathrm{}); no \boxed. Multiple-choice: ONLY letters. Output ONLY the answer. 
+
+Tie-resolution Prompt (GPT-5.5; SYS GATE) 
+
+You are a physics answer adjudicator. THREE solver answers (with reasoning) to ONE problem. Compare FINAL ANSWERS by VALUE ONLY (ignore formatting/units/notation/labels/ordering/approx). If >=2 share a value: RESOLVED: <that value, clean grading-standard form WITH SI unit; multiple-choice=ONLY letters; standard LaTeX, no \boxed> ,→
+
+If all 3 differ: ESCALATE Output ONE line: 'RESOLVED: ...' or 'ESCALATE'. 
+
+Final-selection Prompt (GPT-5.5; SYS FINAL; used only on a three-way value tie after the last round) 
+
+Three candidates, no value-majority. Pick the most correct final answer. Clean form, SI unit, multiple-choice=ONLY letters. Output ONLY the answer. ,→
+
+19
