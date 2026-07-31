@@ -1,0 +1,1784 @@
+Title: Frustratingly Simple Black-Box Adaptation of Language Models via Logit Bias
+
+URL Source: https://arxiv.org/pdf/2607.22837v1
+
+Published Time: Tue, 28 Jul 2026 00:11:30 GMT
+
+Number of Pages: 36
+
+Markdown Content:
+# Frustratingly Simple Black-Box Adaptation of Language Models via Logit Bias 
+
+Ofek I. Cohen Tel Aviv University 
+
+ofeki@mail.tau.ac.il 
+
+Lior Shani Google Research 
+
+liorshani@google.com 
+
+Aviv Rosenberg Google Research 
+
+avivros@google.com 
+
+Ankur Samanta Columbia University 
+
+as7416@columbia.edu 
+
+Tal Wagner Tel Aviv University 
+
+talwag@tauex.tau.ac.il 
+
+Yonathan Efroni Tel Aviv University 
+
+yefroni@tauex.tau.ac.il 
+
+Abstract 
+
+Many organizations aim to adapt language models for internal use, both to improve perfor-mance on domain-specific tasks and to address privacy concerns around sensitive data. However, such adaptation remains non-trivial: it often requires operationally challenging fine-tuning of open-source models or ad hoc prompt optimization. We study a minimal alternative based on a simple API-level control: allowing users to bias the model’s logits with a user-defined vector. We develop a black-box method for learning a single context-independent logit-bias vector, added at every decoding step, without modifying model weights or requiring gradients. Starting from a KL-regularized reinforcement learning (RL) objective, we characterize when such a fixed logit-bias vector can approximate the optimal prefix-dependent correction and derive a closed-form inverse-propensity estimator from rollouts, rewards, and token probabilities. Empirically, this simple decoding-time intervention improves over base models on mathematical and reasoning benchmarks while using far fewer trainable parameters than conventional fine-tuning. Our results suggest that learned logit bias is a lightweight mechanism for adapting language models under minimal access requirements. 
+
+# 1 Introduction 
+
+Deploying frontier language models often requires adapting them to narrow operational needs: shorter reasoning traces, stricter output formatting, or improved accuracy on small, confidential in-house distributions [ 48 , 47 , 21 , 58 , 2]. In many practical settings, however, the model is available only through an inference API: the deployer cannot inspect or modify weights, cannot backpropagate through the model, and must work with the controls exposed at decoding time [ 55 , 54 , 8, 16 ]. This makes standard adaptation—fine-tuning, PEFT, prompt embeddings, RLHF-style optimization [ 18 ,25, 24, 19, 1, 28, 63, 40]—unavailable or mismatched to the setting. 
+
+Can a single learned logit-bias vector provide useful black-box adaptation? 
+
+We study logit bias as a minimal adaptation primitive. Token-level logit-bias controls are documented in major inference stacks and hosted APIs [ 57 , 50 , 31 , 30 , 37 , 33 , 11 ]. We consider the simplest possible intervention: starting from a frozen base model with no learned logit bias, add a single context-independent logit-bias vector δ over the vocabulary to the model’s logits at 1arXiv:2607.22837v1 [cs.LG] 24 Jul 2026 Input (x, y 1: t−1) Frozen LM Logits ℓt +   
+
+> Bias δ
+> Softmax Sample yt
+
+Figure 1: Overview of logit-bias steering. The fixed logit-bias vector δ is added to the base model’s logits at every decoding step before sampling. Only δ is optimized; model weights remain unchanged. every decoding step. The base model’s weights are never modified; only δ is learned, using black-box rollouts rather than gradients or access to model internals. This intervention is deliberately weak. The fixed logit-bias vector δ cannot encode arbitrary prompt- or prefix-dependent behavior, unlike prompts that can express explicit conditional instruc-tions [ 38 , 34 ]. But this weakness is also what makes the primitive attractive: when the desired correction is approximately token-specific and stable across contexts, a single vector may capture a useful slice of adaptation with little serving overhead. A particularly relevant case is verbosity control: although δ cannot decide which reasoning steps are mathematically necessary, it may still learn reusable finalization, formatting, and stopping cues that shorten completions without changing the model weights. Unlike prompt steering it consumes no context length and acts directly on the output distribution, and unlike weight-space adaptation it requires no gradients, hidden states, or provider-side training access [36, 29, 18, 19]. We formalize this via a KL-regularized RL objective [ 63 , 53 , 40 , 22 , 44 , 62 ]; the unconstrained optimum induces a prefix-dependent correction that we approximate with the fixed logit-bias vector 
+
+δ, yielding a reward-gap bound and a closed-form IPS estimator from rollouts, rewards, and token probabilities [17]. 
+
+Contributions. We make three contributions. 1 First, we introduce black-box logit-bias adaptation ,a setting for personalizing frozen language models with no weight updates and no gradient access. Second, we derive a closed-form estimator and a theoretical analysis connecting logit-bias steering to the KL-regularized optimum. Third, we show empirically that full-vocabulary logit bias improves base models on mathematical and reasoning benchmarks while using far fewer trainable parameters and far less compute than conventional fine-tuning. 
+
+# 2 Related work 
+
+Black-box or API-only adaptation. Existing black-box methods adapt through the input channel, using derivative-free continuous prompts or reward-learned discrete prompts [ 55 , 54 , 8]; such prompt-based control consumes context and can interfere with task content or learned prompting behavior [ 25 , 24 , 29 , 8]. We instead adapt through the output channel: a single context-independent logit-bias vector learned from rollouts and applied at decoding [ 16 ], which is less expressive but easy to store, audit, and deploy via standard decoding controls, with no gradients or provider-side fine-tuning [37, 33, 57]. 
+
+Decoding-time control and logit guidance. Decoding-time methods steer generation by perturbing hidden states, reweighting next-token probabilities with auxiliary models, enforcing hard  
+
+> 1Code available at https://github.com/Ofek-Israeli/logit_bias_lm_adaptation .
+
+2constraints, or applying generic logits processors [ 7, 61 , 23 , 27 , 32 , 13 , 59 ]; our method is a simpler member of this family, using no hidden-state gradients, auxiliary model, hard grammar, or per-prefix optimization—only one learned logit-bias vector reused at every step. 
+
+RLHF, KL-regularized objectives, and DPO. The alignment literature provides our theoretical backdrop. Ziegler et al. [63] , Stiennon et al. [53] , Ouyang et al. [40] established the standard pipeline of preference data, reward modeling, and policy optimization with a proximity penalty to the base model. Korbak et al. [22] cast KL-regularized RL for language models as variational/Bayesian inference, and DPO gives a closed-form preference-to-policy relation under a KL constraint [ 44 ]. Our theory is closest to this KL-tilted view: we start from a reward-tilted target close to the base model, but instead of training a new policy or reward model, ask what improvement survives after projecting that target onto the severely restricted family of a single context-independent logit-bias vector. 
+
+Parameter-efficient and prompt-based adaptation. Parameter-efficient adaptation reduces cost by updating a small subset of parameters or learned prompts. Representative methods include adapters [ 18 ], prefix-tuning [ 25 ], prompt tuning [ 24 ], LoRA [ 19 ], BitFit [ 1], and (IA )3 [28 ]. They show how far one can go with limited trainable state, but still need training-time access to weights, gradients, hidden states, or prompt embeddings. Our setting forbids this access: the base model stays frozen and adaptation is restricted to the fixed logit-bias vector δ applied at decoding. 
+
+# 3 Preliminaries 
+
+We consider autoregressive generation from a language model with a finite vocabulary V. Let 
+
+ρ denote a distribution over a prompt space X and let x ∼ ρ be a prompt drawn from it. For a given prompt x, generation proceeds for a fixed horizon T ∈ N tokens. 2 At each step t, the base language model receives the prompt and the tokens generated so far, y1: t−1 = ( y1, . . . , y t−1),and produces logits ℓ(x, y 1: t−1) ∈ R|V|. The base next-token distribution is π0(yt | x, y 1: t−1) := softmax (ℓ(x, y 1: t−1)) yt with softmax (v)y := exp( vy )P   
+
+> y′∈Vexp( vy′)
+
+, y ∈ V, and the trajectory law is p0(y1: T |
+
+x) := QTt=1 π0(yt | x, y 1: t−1). For a logit-bias vector δ ∈ R|V|, the fixed-bias policy is πδ(yt |
+
+x, y 1: t−1) := softmax (ℓ(x, y 1: t−1) + δ)yt , with trajectory law pδ(y1: T | x) := QTt=1 πδ(yt | x, y 1: t−1).We assume full support: π0(yt | x, y 1: t−1) > 0 for every reachable prefix y1: t−1 and every token yt ∈ V.This holds automatically for any softmax-based model, since softmax outputs are strictly positive. We use “trajectory” for the token sequence y1: T in the theoretical development and “completion” for the same object in experimental and evaluation contexts; both names refer to the same generated token sequence. Inside expectations and variances we write Y for the random trajectory drawn from the relevant law and y1: T for a realized token sequence. 
+
+Intervention notation. We write Y ∼ p0
+
+ · | x, do (yt = y) to denote sampling a trajectory under 
+
+p0(· | x) with the t-th token set to y by intervention rather than conditioning [ 41 ]: y1: t−1 ∼ p0(· | x),
+
+yt = y is fixed, and yt+1: T ∼ p0(· | x, y 1: t−1, y ). This differs from the conditional distribution 
+
+p0(· | x, y t = y), which Bayes-reweights the prefix by π0(y | x, y 1: t−1).  
+
+> 2In practice the horizon varies per sequence due to early stopping at an EOS token. We use a fixed Tto simplify the theoretical framework; all results extend to variable-length generation by treating EOS as an absorbing state.
+
+3Given a terminal reward function r : X × VT → R and a prompt-conditional trajectory law q(· | x)
+
+on VT , we define the reward functional 
+
+J(q) := Ex∼ρ
+
+EY ∼q(·| x)
+
+r(x, Y ) ,
+
+Throughout, bE denotes an empirical average over samples. 
+
+RLVR setting and accuracy reward. We primarily consider RL with verifiable rewards (RLVR): each prompt x has a canonical correct answer m⋆, and a generated completion y1: T can be automatically checked by extracting and canonicalizing its final answer. Concretely, let mx(y1: T )
+
+denote the answer extracted from the completion y1: T for prompt x, represented in a canonical form so that symbolically equivalent answers are identified; if no valid answer can be extracted, we set 
+
+mx(y1: T ) = ⊥. A standard reward may be the correctness indicator raccuracy : X × VT → { 0, 1},
+
+raccuracy (x, y 1: T ) := 1{mx(y1: T ) = m⋆} ,
+
+KL-regularized optimum. For regularization strength τ > 0, consider the problem 
+
+max  
+
+> q
+
+Ex∼ρ
+
+EY ∼q(·| x)[r(x, Y )] − τ KL  q(· | x) ∥ p0(· | x) , (1) where the maximum is over all families of prompt-conditional trajectory laws q(· | x) on VT . Because the integrand decomposes into independent per-prompt terms, the optimum is attained by solving each prompt separately. By the Gibbs variational principle [ 6], the unique per-prompt maximizer is (see Appendix G.3 for a self-contained proof; see also Ziegler et al. [63] , Korbak et al. [22] , Rafailov et al. [44], Zhou et al. [62] for related derivations in the RLHF setting) 
+
+p⋆τ (y1: T | x) = 1
+
+Z(x) p0(y1: T | x) er(x,y 1: T )/τ , Z(x) := EY ∼p0(·| x)
+
+h
+
+er(x,Y )/τ i
+
+. (2) 
+
+Per-step decomposition. The trajectory-level KL decomposes into a sum of per-step divergences: for any two autoregressive policies π, π ′,
+
+KL  pπ(· | x) ∥ pπ′ (· | x) = EY ∼pπ
+
+" TX
+
+> t=1
+
+KL  π(· | x, y 1: t−1) ∥ π′(· | x, y 1: t−1)#
+
+,
+
+by the chain rule for relative entropy [ 6]. Applying this to the per-prompt integrand in Equation (1) ,for each prompt x the objective decomposes as 
+
+EY ∼q(·| x)
+
+"
+
+r(x, Y ) − τ
+
+> T
+
+X
+
+> t=1
+
+KL  q(· | x, y 1: t−1) ∥ π0(· | x, y 1: t−1)#
+
+,
+
+so optimizing over prompt-conditional trajectory laws is equivalent to optimizing over autoregressive policies. Define the soft value 
+
+Z(x, y 1: t−1, y ) := Eyt+1: T ∼p0(·| x,y 1: t−1,y )
+
+h
+
+er(x,y (t,y )1: T )/τ i
+
+, (3) where y(t,y )1: T := ( y1: t−1, y, y t+1: T ).4This is the expected exponentiated reward when token y is chosen at step t given prompt x and prefix y1: t−1, and the remaining tokens are rolled out under p0. Marginalizing Equation (2) over future tokens yt+1: T and dividing by the prefix marginal yields the per-step conditionals of p⋆τ (see Appendix G.4): 
+
+π⋆τ (yt | x, y 1: t−1) = π0(yt | x, y 1: t−1) Z(x, y 1: t−1, y t)
+
+P 
+
+> y′∈V
+
+π0(y′ | x, y 1: t−1) Z(x, y 1: t−1, y ′) = softmax  ℓ(x, y 1: t−1)+log Z(x, y 1: t−1, ·) 
+
+> yt
+
+.
+
+(4) Thus the optimal logit correction at step t is log Z(x, y 1: t−1, ·), up to an additive constant absorbed by the softmax. 
+
+Proposition 1. Sampling a trajectory y1: T from p⋆τ in Equation (2) is equivalent to sampling autoregressively with yt ∼ π⋆τ (· | x, y 1: t−1) in Equation (4) for t = 1 , . . . , T . That is, p⋆τ (y1: T | x) = QTt=1 π⋆τ (yt | x, y 1: t−1).Proof. Appendix G.4 shows that marginalizing Equation (2) yields the conditionals in Equation (4) .The KL chain rule ensures that the trajectory-level objective decomposes into per-step terms, each uniquely maximized by Equation (4) . The product of these per-step conditionals recovers Equation (2). 
+
+Corollary 2 (Exact factorization implies fixed-bias optimality) . If log Z(x, y 1: t−1, ·) = δ+ct(x, y 1: t−1) 1
+
+for all t ∈ { 1, . . . , T }, prompts x in the support of ρ, and reachable prefixes y1: t−1 (with fixed δ ∈ R|V|), then pδ(· | x) = p⋆τ (· | x) for every such x.Proof. Immediate from Equation (4) , softmax shift invariance, and Proposition 1; see Appendix G.5. 
+
+# 4 Method 
+
+We keep the base language model entirely frozen and steer its outputs by adding a single, context-independent logit-bias vector δ ∈ R|V| to the logits at every decoding step. We seek a logit-bias vector δ that approximates the unconstrained KL-regularized optimum (1) .By Equation (4) , the optimal logit correction at step t is log Z(x, y 1: t−1, ·), up to an additive constant absorbed by the softmax. This correction depends on the prompt and prefix, whereas a fixed logit-bias vector applies the same vector everywhere. A single δ can recover the optimum exactly when log Z(x, y 1: t−1, y ) factorizes as δ(y) + ct(x, y 1: t−1) for all reachable prefixes—that is, when the token-to-token pattern of the ideal correction is the same everywhere, up to a prefix-dependent baseline. Section 5 formalizes this as ε-approximate factorization and bounds the resulting reward gap. 
+
+4.1 Population target and sampling procedure 
+
+Under the factorization assumption, the population-level bias is δ(y) = log Zavg (y) + c, where c is a centering constant and 
+
+Zavg (y) := Et∼Unif {1,...,T }, x ∼ρY ∼p0(·| x, do( yt=y)) 
+
+h
+
+er(x,Y )/τ i
+
+= Et∼Unif {1,...,T }, x ∼ρy1: t−1∼p0(·| x)
+
+[Z(x, y 1: t−1, y )] , (5) where do (yt = y) denotes Pearl-style intervention at position t: y1: t−1 ∼ p0(· | x), yt = y is fixed, and yt+1: T ∼ p0(· | x, y 1: t−1, y ); Z is the soft value from Equation (3) . Thus Zavg (y) is the expected 5Algorithm 1 On-policy rollout data generation 
+
+Require: prompts {x(n)}Nn=1 , base model π0, horizon T , reward oracle r(·, ·)
+
+Require: number of sampled positions per trajectory P ∈ { 1, . . . , T } 
+
+> 1:
+
+for n = 1 , . . . , N do  
+
+> 2:
+
+Generate trajectory y(n)1: T ∼ p0(· | x(n)) and query reward r(n) := r
+
+
+
+x(n), y (n)1: T
+
+ 
+
+> 3:
+
+Sample positions {t(n,p )}Pp=1 uniformly without replacement from {1, . . . , T } 
+
+> 4:
+
+For p = 1 , . . . , P , set x(n,p ) := x(n), y(n,p )1: T := y(n)1: T , and r(n,p ) := r(n) 
+
+> 5:
+
+end for  
+
+> 6:
+
+return D =   x(n,p ), y (n,p )1: T , t (n,p ), r (n,p ) N,P n,p =1 
+
+exponentiated reward of a trajectory in which token y is inserted at a uniformly random position and the prefix/suffix are drawn from the base model. The data we use to estimate Zavg (y) comes from on-policy rollouts: for each prompt, sample a full trajectory y1: T ∼ p0(· | x) and draw P ∈ { 1, . . . , T } time-steps uniformly without replacement from {1, . . . , T } (Algorithm 1). Concrete estimator for Zavg (y) is given in Section 4.2. 
+
+On the choice of P . Samples within a trajectory share the prefix, suffix, and reward, so P > 1
+
+makes them non-i.i.d. across positions. Empirically, this dependence is negligible, while the P -fold data reuse—at fixed rollout budget, the dominant compute cost—materially cuts per-token variance. 
+
+4.2 Logit-bias estimation 
+
+Given the on-policy dataset D generated by Algorithm 1, we estimate Zavg (y) using the inverse propensity scoring (IPS) estimator 
+
+bZ(y) := 1
+
+N P 
+
+X  
+
+> (x, y 1: T, t, r )∈ D
+
+1{yt = y} exp( r/τ )
+
+π0(y | x, y 1: t−1) . (6) This estimator is unbiased: E[ bZ(y)] = Zavg (y) (Proposition 6, proved in Appendix E). In practice, we convert bZ into a logit-bias vector using additive smoothing: bδ(y) = log  α +
+
+bZ(y) − c(α), c(α) := 1
+
+> |V|
+
+P 
+
+> y′∈V
+
+log  α + bZ(y′). The smoothing constant α > 0 acts as a pseudocount [ 26 , 4]: it shrinks weak evidence toward a common baseline, prevents log 0, and bounds the local sensitivity of the log transform by 1/α . We choose α by validation performance. 
+
+# 5 Theoretical Analysis 
+
+We establish that the closed-form estimator from Section 4 is near-optimal when the soft value 
+
+log Z(x, y 1: t−1, y ) approximately factorizes. Full proofs appear in Appendix G. 
+
+5.1 Approximate factorization 
+
+As in Section 4, the ideal logit correction at step t is log Z(x, y 1: t−1, ·) (up to a constant), which a fixed logit-bias vector δ represents exactly under the factorization assumption log Z(x, y 1: t−1, y ) = 
+
+δ(y) + ct(x, y 1: t−1) for all reachable prefixes; we now relax this to an approximate version. 6Definition 3 (ε-Approximate Factorization) . A logit-bias vector bδ ∈ R|V| satisfies ε-approximate factorization if, for every t ≤ T , every prompt x in the support of ρ, and every prefix y1: t−1 reachable under p⋆τ at time t, there exists ct(x, y 1: t−1) ∈ R with 
+
+log Z(x, y 1: t−1, ·) − (bδ + ct(x, y 1: t−1)1) 2 ≤ ε. 
+
+When ε = 0 this is exact factorization; the closed-form estimator in Section 4.1 targets exactly this regime. 
+
+5.2 Reward gap bound 
+
+Theorem 4 (Reward gap) . Assume r : X × VT → [0 , R ] with R > 0 and τ > 0. Let 
+
+V0 := Ex∼ρ
+
+Var Y ∼p0(·| x)
+
+ r(x, Y ) 
+
+denote the expected reward variance under the base model. If bδ ∈ R|V| satisfies ε-approximate factorization assumption (Definition 3) for every prompt in the support of ρ, then 
+
+J(pbδ) − J(p0) ≥ V0
+
+R
+
+
+
+1 − e−R/τ | {z }   
+
+> improvement of p⋆τover p0
+
+− R ε 
+
+r T
+
+8| {z }
+
+> cost of fixed-bias approximation
+
+. (7) 
+
+Proof. See Appendix G.6. The first term is a lower bound on J(p⋆τ ) − J(p0), the reward gain of the unconstrained KL-regularized optimum over the base model; it grows with the expected reward variance V0 and is strictly positive whenever V0 > 0, since R > 0 implies e−R/τ < 1. The second term is the price of restricting to a context-independent logit-bias vector; it grows with the approximation error ε and the horizon T . Logit-bias steering strictly improves over the base model whenever the expected reward variance is large enough to dominate the approximation error. The bound applies to any bδ
+
+satisfying Definition 3. 
+
+Reward normalization and the role of R. Both terms of the bound in Theorem 4 depend on the reward range R: the gain scales as V0/R while the error scales as R ε pT / 8. Keeping R small is therefore essential for a tight guarantee. Adding a constant to r shifts neither p⋆τ nor the reward gap, so the binding quantity is the range of r, not its location. For pure binary accuracy, R = 1 . Adding an unnormalized length penalty −L(y) would inflate the range to Lmax +1 = 2 ,049 , degrading the bound by a factor exceeding 10 3. Normalizing by Lmax yields r(x, y 1: T ) = 1{mx(y1: T ) = m⋆}− L(y1: T )/L max 
+
+with range 2, preserving a bound of the same order as the binary case. This motivates the length normalization used in the experiments. 
+
+# 6 Experiments 
+
+6.1 Experimental setup 
+
+Models. Accuracy uses Meta-Llama-3.1-8B-Instruct [ 14 ] as the base model; the compression objective adds Gemma-2-9B-IT [12] and Qwen3-4B [60]. 7Tasks and data. We evaluate on MATH, GSM8K, and GPQA-main [ 15 , 9, 5, 39 , 46 , 20 ] with the default lm-evaluation-harness prompts [ 3, 10 ]. MATH and GSM8K use the standard HuggingFace train/test splits with validation sampled from train; GPQA-main is split 80/10/10. For GPQA-main we additionally shuffle answer choices and require explanation-first, answer-last formatting, so sampled positions for bias estimation are not tied to a fixed choice index (Appendix D). 
+
+Rewards. For accuracy, the logit-bias method is learned from the log-indicator variant of the RLVR accuracy reward raccuracy (Section 3), 
+
+rlog-accuracy (x, y 1: T ) := log 1{mx(y1: T ) = m⋆} =
+
+(
+
+0, mx(y1: T ) = m⋆,
+
+−∞ , otherwise .
+
+With the convention that log 0 = −∞ , this encodes the same correctness check as raccuracy in the log-reward form expected by the KL-tilted objective (1) : since erlog-accuracy /τ = 1{mx(y1: T ) = m⋆} for every τ > 0, the estimator bZ reduces to an accuracy-weighted count and τ becomes inert, eliminating the need to tune it. Answers are extracted and canonicalized by the lm-evaluation-harness verifier; the reward is binary with no partial credit, and an unextractable answer ( mx(y1: T ) = ⊥) counts as incorrect. We also evaluate the compression objective as a second reward-driven adaptation target, useful both practically and diagnostically. Practically, shorter completions reduce serving cost and latency, and are often desirable when users need concise answers rather than full reasoning traces. Diagnosti-cally, it stress-tests whether the fixed logit-bias vector δ can learn reusable, context-independent answer-finalization and stopping patterns rather than new problem-specific reasoning. For the compression reward, the logit-bias method uses 
+
+rlength (y) = ln( T / length( y)) . (8) Rollout-generation and LoRA settings are reported in Appendix D. 
+
+Baselines. We compare against three baselines: (i) the base model, (ii) a 32-cluster tied logit-bias baseline that groups tokens with similar surface strings via k-means and shares one bias per cluster (Appendix D), and (iii) a LoRA-GRPO baseline [ 19 , 51 ] that fine-tunes the same base model with checkpoint selection on validation. LoRA-GRPO uses the binary accuracy reward 
+
+rGRPO accuracy (x, y 1: T ) = 1{mx(y1: T ) = m⋆} in the accuracy setting, and the accuracy-gated compres-sion reward rGRPO length (x, y 1: T ) = 1{mx(y1: T ) = m⋆} · T / length (y1: T ) in the compression experiment. Construction and training details are in Appendix D. 
+
+Hyperparameters and evaluation. For accuracy runs, τ is inert under rlog-accuracy , so we tune only α ∈ [0 .005 , 0.11] on validation. In the compression experiment, we tune both α ∈ [0 .005 , 0.11] 
+
+and τ ∈ [0 .5, 1.5] . Accuracy runs select the configuration maximizing validation exact-match accuracy; compression experiment runs treat the two as a Pareto tradeoff and pick the shortest completions that preserve validation accuracy relative to the base model. We apply learned logit-bias vectors via the vLLM logits-processor API under greedy decoding, reporting exact-match accuracy and completion length in tokens. Confidence intervals are computed using percentile bootstrap resampling; see Appendix D.8. 
+
+6.2 Main results 
+
+Logit-bias statistics. Table 3 summarizes the learned logit-bias vector bδ after centering to zero mean. As a sparsity descriptor we report the selected-coordinate fraction : the fraction of vocabulary coordinates whose absolute bias exceeds the effect-size gate |bδ(a)| ≥ 5 median |bδ|. The qualitative 8Table 1: Exact-match accuracy (%) on MATH ( n= 5000 ), GSM8K ( n= 1319 ), and GPQA ( n= 45 )under the accuracy-reward setup. Each cell is empirical accuracy with a percentile bootstrap 95% confidence interval (10,000 resamples), shown as ± percentage-point offsets. Higher is better. Method Trained Params MATH GSM8K GPQA Base – 30 .30 ± 1.26 33 .89 ± 2.50 22 .20 ± 13 .33 
+
+Logit bias (32 clusters) 32 30 .12 ± 1.26 33 .30 ± 2.58 24 .40 ± 13 .33 
+
+Logit bias (full-vocabulary) 128 k 33 .14 ± 1.30 34 .80 ± 2.50 28 .90 ± 13 .33 
+
+LoRA-GRPO ∼ 10 7 45 .24 ± 1.40 76 .72 ± 2.27 31 .11 ± 13 .33 
+
+Table 2: Mean completion length in tokens on MATH for Gemma-9B, Llama-8B, and Qwen3-4B under Base, full-vocabulary logit bias, and LoRA-GRPO. Each cell reports the empirical mean with a percentile bootstrap 95% confidence interval (10,000 resamples) from n = 5000 examples, shown as ± offsets from the mean. Lower is better. Method Trained Params gemma-9B Llama-8B Qwen3-4B Base – 315 .78 ± 4.72 941 .02 ± 6.98 1018 .12 ± 1.57 
+
+Logit bias 150 k– 256 k 299 .32 ± 6.11 864 .24 ± 9.02 1017 .61 ± 1.59 
+
+LoRA-GRPO ∼ 10 7 5.53 ± 0.15 466 .40 ± 6.63 275 .94 ± 6.23 
+
+analysis (Section 7, Appendices B and C) instead reads each vector’s realized decode-time effect through the per-token intervention score S (Appendix A.1), splitting the visited vocabulary by the sign of S rather than thresholding the raw magnitude of bδ.Table 3 shows that only a small selected-coordinate fraction passes the effect-size gate, suggest-ing sparse token-level nudges toward answer boundaries, mathematical formatting, and compact finalization rather than broad retuning. 
+
+Accuracy results. Table 1 evaluates logit-bias adaptation when the reward is instantiated as answer accuracy. Full-vocabulary logit bias gives small but consistent gains over the base model on all benchmarks, most clearly on MATH ( 30 .30 → 33 .14 ) and GPQA ( 22 .20 → 28 .90 ). In contrast, the 32-cluster baseline stays close to the base model, suggesting that the useful signal is token-specific rather than a coarse frequency shift. LoRA-GRPO remains stronger by adapting context-dependent representations across the network, whereas logit bias is limited to a fixed vocabulary-level shift. 
+
+Compression results. Table 2 evaluates logit-bias adaptation under the compression reward, constrained to preserve answer quality: we sweep τ on validation and keep short completions only among settings that preserve base-model accuracy. The effect is modest but useful—the fixed logit-bias vector δ shortens Gemma and Llama outputs, with little effect on Qwen3-4B—and Figure 2 shows the accuracy–completion-length frontier, where lowering τ first shortens completions without hurting accuracy and eventually causes early stopping and accuracy loss. LoRA-GRPO compresses substantially more by changing context-dependent reasoning and stopping behavior. 
+
+# 7 Discussion 
+
+Summary of findings. Across both adaptation targets, the fixed logit-bias vector δ provides lightweight black-box steering of the base model: under the accuracy reward it yields small but 9950 850 750 650         
+
+> 0.45
+> 0.5
+> 0.55
+> BL
+> τ= 1 .5
+> τ= 1 .2
+> τ= 1 .0
+> τ= 0 .9
+> τ= 0 .8
+> τ= 0 .7
+> τ= 0 .6
+> τ= 0 .5
+> Completion length in tokens
+> accuracy
+
+Figure 2: Validation accuracy–completion-length Pareto frontier across τ on MATH (Llama-3.1-8B-Instruct). Higher accuracy and shorter completions are preferred; horizontal and vertical lines mark the base model. Lower τ yields stronger compression under the compression reward, exposing the model-selection tradeoff. Table 3: Summary statistics of the learned logit-bias vector bδ after centering to zero mean. The selected-coordinate fraction counts coordinates satisfying the effect-size gate |bδ(a)| ≥ 5 median |bδ|.                      
+
+> Reward Sampled fraction σ(δ)min max Selected-coordinate fraction Accuracy 28 .5% 7.67 ×10 −3−2.50 ×10 −41.574 1.30%
+> Compression 4.56 ×10 −2−2.37 ×10 −34.713 1.36%
+
+consistent gains (Table 1), and under the compression reward it traces an accuracy–completion-length tradeoff rather than unconstrained reduction of completion length in tokens (Table 2, Figure 2). Because the same token-level correction applies at every prefix, the bias steers reusable formatting, finalization, and stopping patterns but cannot adapt context-dependent reasoning—the gap where LoRA-GRPO remains stronger (Section 8). 
+
+Structure of the learned biases. To read each vector’s structure we summarize its decode-time effect by the per-token intervention score S(y): the average log-probability shift the bias induces on token y at the positions where the fixed-bias policy generates it, so S(y) > 0 (< 0) marks tokens it makes more (less) likely (Appendix A.1). Splitting the visited vocabulary by the sign of 
+
+S and grouping each side into semantic families gives the analyses in Appendices B and C, with complete suppressed-side listings provided in the accompanying code repository. At a high level, the accuracy bias promotes the surface and discourse regularities of correct solutions (layout and math delimiters, solution openers, digits, and a decisive stop string), while its suppressed side acts as an anti-drift prior against question-restatement, lesson/tutorial mode, scraped page furniture, and invented problem-specific detail—favoring a clean, staged path to the answer rather than steering the mathematics itself. The compression bias is markedly two-sided : a small, sharp promoted set of stop, boundary, and compact-format tokens against a broad suppressed set of explanation, derivation, and continuation tokens, so its main risk is over-compression (Section 8). 10 Decode-time mechanism and fixed-bias projection. These patterns reflect a single decode-time mechanism: the method projects a reward-tilted target policy onto a highly restricted class—policies that add the same vector to the vocabulary logits at every prefix—which is effective when the ideal correction log Z(x, y <t , ·) is approximately token-specific and stable across contexts, as it is for formatting, termination, answer-surface regularities, and verbosity control. Applied at every step, these local nudges accumulate into trajectory-level changes that extract useful task signal from black-box rollouts, explaining why the bias improves over the base model (Table 1) and reduces completion length in tokens (Table 2); Figure 2 shows the same mechanism at the hyperparameter level, with stronger compression moving along the accuracy–completion-length frontier rather than minimizing length unconditionally. 
+
+# 8 Limitations 
+
+Expressivity and access–performance tradeoff. This restriction is also the central limitation. The fixed logit-bias vector δ cannot rewrite reasoning, encode conditional rules, or learn prompt-specific corrections (e.g., which theorem or calculation is needed, which value is correct, or which steps are safe to omit); it can promote formatting, digits, and finalization markers and push down drift and continuation tokens, but it cannot supply the correct reasoning content. Because the same correction applies at every prefix, this context-blindness also makes compression prone to over-compression ,suppressing useful verification or necessary derivation along with genuine verbosity. This is the gap LoRA-GRPO closes in Tables 1 and 2: weight-space adaptation changes internal, context-dependent behavior, whereas the fixed logit-bias vector δ applies the same token-level correction at every prefix. Learned logit bias is thus best viewed not as a replacement for fine-tuning, but as a lightweight black-box primitive when gradients, weights, and provider-side training are unavailable. 
+
+Estimation limits. Learned logit bias is also constrained by estimation. The IPS estimator can be high-variance for rare tokens, additive smoothing introduces shrinkage, and finite rollout budgets leave many vocabulary coordinates weakly supported. As a result, some promoted coordinates are spurious rare-token or dataset artifacts rather than meaningful steering directions—our intervention-score analysis flags several such tokens (Appendices B and C; full suppressed-side listings in the accompanying code repository)—though they are often inert in practice, since the base model assigns them negligible probability in mathematical contexts. This highlights the need for better smoothing and finite-sample analysis, especially for objectives where rollouts give weak evidence about which local token choices would have improved the final reward. 
+
+# 9 Conclusion 
+
+We adapted frozen language models under black-box constraints by learning a single, context-independent logit-bias vector δ from rollouts, rewards, and token probabilities, applied at decoding. From a KL-regularized objective, we derived the prefix-dependent optimal correction, characterized when a fixed logit-bias vector approximates it, and obtained a closed-form IPS estimator with a reward-gap bound. Empirically, full-vocabulary logit bias improves over the base model on accuracy benchmarks without gradient access or weight updates, and supports the compression objective by learning reusable answer-finalization and stop-boundary patterns, though LoRA-GRPO remains substantially stronger when weight-space training is available. Overall, learned logit bias is a lightweight adaptation primitive between prompt engineering and fine-tuning; future work should strengthen finite-sample theory, improve rare-token smoothing, extend to context-dependent biases, and broaden safety, 11 privacy, fairness, and user-facing evaluation. 
+
+# Acknowledgments 
+
+This work is partially supported by the Israeli Science Foundation (ISF) grant no 4032/25. 
+
+# References 
+
+[1] Elad Ben Zaken, Yoav Goldberg, and Shauli Ravfogel. Bitfit: Simple parameter-efficient fine-tuning for transformer-based masked language-models. In Proceedings of the 60th Annual Meeting of the Association for Computational Linguistics , 2022. [2] Luca Beurer-Kellner, Marc Fischer, and Martin Vechev. Guiding llms the right way: Fast, non-invasive constrained generation. arXiv preprint arXiv:2403.06988 , 2024. [3] Stella Biderman, Hailey Schoelkopf, Lintang Sutawika, Leo Gao, Jonathan Tow, Baber Abbasi, Alham Fikri Aji, Pawan Sasanka Ammanamanchi, Sidney Black, Jordan Clive, Anthony DiPofi, Julen Etxaniz, Benjamin Fattori, Jessica Zosa Forde, Charles Foster, Jeffrey Hsu, Mimansa Jaiswal, Wilson Y. Lee, Haonan Li, Charles Lovering, Niklas Muennighoff, Ellie Pavlick, Jason Phang, Aviya Skowron, Samson Tan, Xiangru Tang, Kevin A. Wang, Genta Indra Winata, Francois Yvon, and Andy Zou. Lessons from the trenches on reproducible evaluation of language models. arXiv preprint arXiv:2405.14782 , 2024. doi: 10.48550/arXiv.2405.14782. URL 
+
+https://arxiv.org/abs/2405.14782 .[4] Stanley F. Chen and Joshua Goodman. An empirical study of smoothing techniques for language modeling. Computer Speech & Language , 13(4):359–394, 1999. doi: 10.1006/csla.1999.0128. [5] Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, Christopher Hesse, and John Schulman. Training verifiers to solve math word problems. arXiv preprint arXiv:2110.14168 ,2021. doi: 10.48550/arXiv.2110.14168. URL https://arxiv.org/abs/2110.14168 .[6] Thomas M. Cover and Joy A. Thomas. Elements of Information Theory . Wiley, 2nd edition, 2006. [7] Sumanth Dathathri, Andrea Madotto, Janice Lan, Jane Hung, Eric Frank, Piero Molino, Jason Yosinski, and Rosanne Liu. Plug and play language models: A simple approach to controlled text generation. In International Conference on Learning Representations , 2020. [8] Mingkai Deng, Jianyu Wang, Cheng-Ping Hsieh, Yihan Wang, Han Guo, Tianmin Shu, Meng Song, Eric Xing, and Zhiting Hu. RLPrompt: Optimizing discrete text prompts with rein-forcement learning. In Proceedings of the 2022 Conference on Empirical Methods in Natural Language Processing , pages 3369–3391, Abu Dhabi, United Arab Emirates, December 2022. Association for Computational Linguistics. doi: 10.18653/v1/2022.emnlp-main.222. URL 
+
+https://aclanthology.org/2022.emnlp-main.222/ .[9] EleutherAI. Eleutherai/hendrycks_math. https://huggingface.co/datasets/EleutherAI/ hendrycks_math , 2026. Accessed: 2026-05-04. [10] EleutherAI. Eleutherai/lm-evaluation-harness. https://github.com/EleutherAI/ lm-evaluation-harness , 2026. Accessed: 2026-05-07. 12 [11] Fireworks AI. Fireworks ai chat completions api (logit_bias). https://docs.fireworks.ai/ api-reference/post-chatcompletions , 2026. Accessed: 2026-05-07. [12] Gemma Team, Morgane Riviere, Shreya Pathak, Pier Giuseppe Sessa, Cassidy Hardin, Surya Bhupatiraju, Leonard Hussenot, Thomas Mesnard, Bobak Shahriari, Alexandre Rame, Johan Ferret, Peter Liu, Pouya Tafti, Abe Friesen, Michelle Casbon, Sabela Ramos, Ravin Kumar, Charline Le Lan, Sammy Jerome, Anton Tsitsulin, et al. Gemma 2: Improving open language models at a practical size. arXiv preprint arXiv:2408.00118 , 2024. doi: 10.48550/arXiv.2408. 00118. URL https://arxiv.org/abs/2408.00118 .[13] Saibo Geng, Martin Josifoski, Maxime Peyrard, and Robert West. Grammar-constrained decoding for structured NLP tasks without finetuning. In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing , 2023. [14] Aaron Grattafiori, Abhimanyu Dubey, Abhinav Jauhri, et al. The Llama 3 herd of models. 
+
+arXiv preprint arXiv:2407.21783 , 2024. [15] Dan Hendrycks, Collin Burns, Saurav Kadavath, Akul Arora, Steven Basart, Eric Tang, Dawn Song, and Jacob Steinhardt. Measuring mathematical problem solving with the MATH dataset. 
+
+Proceedings of the Neural Information Processing Systems Track on Datasets and Benchmarks ,1, 2021. URL https://arxiv.org/abs/2103.03874 .[16] Gaurush Hiranandani, Haolun Wu, Subhojyoti Mukherjee, and Sanmi Koyejo. Logits are all we need to adapt closed models. In Proceedings of the 42nd International Conference on Machine Learning , volume 267 of Proceedings of Machine Learning Research , pages 23261–23289. PMLR, 13–19 Jul 2025. URL https://proceedings.mlr.press/v267/hiranandani25a.html .[17] Daniel G. Horvitz and Donovan J. Thompson. A generalization of sampling without replacement from a finite universe. Journal of the American Statistical Association , 47(260):663–685, 1952. doi: 10.2307/2280784. [18] Neil Houlsby, Andrei Giurgiu, Stanislaw Jastrzebski, Bruna Morrone, Quentin de Laroussilhe, Andrea Gesmundo, Maziar Attariyan, and Sylvain Gelly. Parameter-efficient transfer learning for NLP. In Proceedings of the 36th International Conference on Machine Learning , 2019. [19] Edward J. Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen. Lora: Low-rank adaptation of large language models. arXiv preprint arXiv:2106.09685 , 2021. [20] Hugging Face. Idavidrein/gpqa. https://huggingface.co/datasets/Idavidrein/gpqa , 2026. Accessed: 2026-05-04. [21] Terry Koo, Frederick Liu, and Luheng He. Automata-based constraints for language model decoding. COLM 2024, 2024. URL https://openreview.net/forum?id=BDBdblmyzY . Camera-ready version; arXiv:2407.08103. [22] Tomasz Korbak, Ethan Perez, and Christopher L. Buckley. RL with KL penalties is better viewed as Bayesian inference. Findings of EMNLP , 2022. [23] Ben Krause, Akhilesh Deepak Gotmare, Bryan McCann, Nitish Shirish Keskar, Shafiq Joty, Richard Socher, and Nazneen Fatema Rajani. GeDi: Generative discriminator guided sequence generation. In Findings of the Association for Computational Linguistics: EMNLP , 2021. 13 [24] Brian Lester, Rami Al-Rfou, and Noah Constant. The power of scale for parameter-efficient prompt tuning. In Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing , 2021. [25] Xiang Lisa Li and Percy Liang. Prefix-tuning: Optimizing continuous prompts for generation. In Proceedings of the 59th Annual Meeting of the Association for Computational Linguistics ,2021. [26] George James Lidstone. Note on the general case of the bayes-laplace formula for inductive or a posteriori probabilities. Transactions of the Faculty of Actuaries , 8(1):182–192, 1920. doi: 10.1017/S0071368600003490. [27] Alisa Liu, Maarten Sap, Ximing Lu, Swabha Swayamdipta, Chandra Bhagavatula, Noah A. Smith, and Yejin Choi. DExperts: Decoding-time controlled text generation with experts and anti-experts. In Proceedings of the 59th Annual Meeting of the Association for Computational Linguistics , 2021. [28] Haokun Liu, Derek Tam, Mohammed Muqeeth, Jay Mohta, Tenghao Huang, Mohit Bansal, and Colin Raffel. Few-shot parameter-efficient fine-tuning is better and cheaper than in-context learning. In Advances in Neural Information Processing Systems , volume 35, 2022. URL 
+
+https://openreview.net/forum?id=rBCvMG-JsPd .[29] Nelson F. Liu, Kevin Lin, John Hewitt, Ashwin Paranjape, Michele Bevilacqua, Fabio Petroni, and Percy Liang. Lost in the middle: How language models use long contexts. Transactions of the Association for Computational Linguistics , 12:157–173, 2024. [30] llama.cpp Contributors. llama.cpp server documentation (logit_bias). https://github.com/ ggml-org/llama.cpp/blob/master/tools/server/README.md , 2026. Accessed: 2026-05-07. [31] LM Studio Team. LM Studio openai-compatible chat completions documentation (logit_bias). 
+
+https://lmstudio.ai/docs/developer/openai-compat/chat-completions , 2026. Accessed: 2026-05-07. [32] Ximing Lu, Peter West, Rowan Zellers, Ronan Le Bras, Chandra Bhagavatula, and Yejin Choi. Neurologic decoding: (un)supervised neural text generation with predicate logic constraints. In 
+
+Proceedings of NAACL-HLT , 2021. [33] Microsoft Azure. Azure openai chat completions reference (logit_bias). https://learn. microsoft.com/azure/ai-services/openai/reference , 2025. Accessed: 2026-05-03. [34] Microsoft Azure. Prompt engineering techniques for azure openai. https://learn.microsoft. com/en-us/azure/foundry/openai/concepts/prompt-engineering , 2025. Accessed: 2026-05-03. [35] Yurii Nesterov. Introductory Lectures on Convex Optimization: A Basic Course . Kluwer Academic Publishers, 2004. [36] OpenAI. Openai api pricing. https://openai.com/api/pricing , 2025. Accessed: 2026-05-03. [37] OpenAI. Openai api reference (logit_bias). https://platform.openai.com/docs/ api-reference/chat/create , 2025. Accessed: 2026-05-03. 14 [38] OpenAI. Prompt engineering. https://platform.openai.com/docs/guides/ prompt-engineering , 2025. Accessed: 2026-05-03. [39] OpenAI and Hugging Face. openai/gsm8k. https://huggingface.co/datasets/openai/ gsm8k , 2026. Accessed: 2026-05-04. [40] Long Ouyang, Jeffrey Wu, Xu Jiang, Diogo Almeida, Carroll Wainwright, Pamela Mishkin, Chong Zhang, Sandhini Agarwal, Katarina Slama, Alex Ray, John Schulman, Jacob Hilton, Fraser Kelton, Luke Miller, Maddie Simens, Amanda Askell, Peter Welinder, Paul Christiano, Jan Leike, and Ryan Lowe. Training language models to follow instructions with human feedback. 
+
+Advances in Neural Information Processing Systems , 35, 2022. [41] Judea Pearl. Causality: Models, Reasoning, and Inference . Cambridge University Press, 2nd edition, 2009. [42] Guilherme Penedo, Hynek Kydlíček, Loubna Ben Allal, Anton Lozhkov, Margaret Mitchell, Colin Raffel, Leandro Von Werra, and Thomas Wolf. The FineWeb datasets: Decanting the web for the finest text data at scale. In Advances in Neural Information Processing Systems (NeurIPS) Datasets and Benchmarks Track , 2024. URL https://arxiv.org/abs/2406.17557 .[43] Mark S. Pinsker. Information and Information Stability of Random Variables and Processes .Holden-Day, 1964. [44] Rafael Rafailov, Archit Sharma, Eric Mitchell, Stefano Ermon, Christopher D. Manning, and Chelsea Finn. Direct preference optimization: Your language model is secretly a reward model. 
+
+Advances in Neural Information Processing Systems , 36, 2023. [45] Nils Reimers and Iryna Gurevych. Sentence-bert: Sentence embeddings using siamese bert-networks. In Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing , 2019. [46] David Rein, Betty Li Hou, Asa Cooper Stickland, Jackson Petty, Richard Yuanzhe Pang, Julien Dirani, Julian Michael, and Samuel R. Bowman. GPQA: A graduate-level google-proof q&a benchmark. arXiv preprint arXiv:2311.12022 , 2023. doi: 10.48550/arXiv.2311.12022. URL 
+
+https://arxiv.org/abs/2311.12022 .[47] Alireza Salemi and Hamed Zamani. Comparing retrieval-augmentation and parameter-efficient fine-tuning for privacy-preserving personalization of large language models. arXiv preprint arXiv:2409.09510 , 2024. doi: 10.48550/arXiv.2409.09510. URL https://arxiv.org/abs/2409. 09510 .[48] Alireza Salemi, Sheshera Mysore, Michael Bendersky, and Hamed Zamani. LaMP: When large language models meet personalization. In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 7370–7392, Bangkok, Thailand, August 2024. Association for Computational Linguistics. doi: 10.18653/v1/2024. acl-long.399. URL https://aclanthology.org/2024.acl-long.399/ .[49] Sentence Transformers. sentence-transformers/all-mpnet-base-v2. https://huggingface.co/ sentence-transformers/all-mpnet-base-v2 , 2026. Accessed: 2026-05-07. [50] SGLang Team. Sglang openai-compatible api documentation (logit_bias). https://docs. sglang.ai/backend/openai_api_completions.html , 2025. Accessed: 2026-05-03. 15 [51] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, Y. K. Li, Y. Wu, and Daya Guo. DeepSeekMath: Pushing the limits of mathematical reasoning in open language models. arXiv preprint arXiv:2402.03300 , 2024. doi: 10.48550/arXiv.2402.03300. URL https://arxiv.org/abs/2402.03300 .[52] Kaitao Song, Xu Tan, Tao Qin, Jianfeng Lu, and Tie-Yan Liu. MPNet: Masked and permuted pre-training for language understanding. In Advances in Neural Information Processing Systems ,2020. [53] Nisan Stiennon, Long Ouyang, Jeffrey Wu, Daniel M. Ziegler, Ryan Lowe, Chelsea Voss, Alec Radford, Dario Amodei, and Paul Christiano. Learning to summarize from human feedback. 
+
+Advances in Neural Information Processing Systems , 33, 2020. [54] Tianxiang Sun, Zhengfu He, Hong Qian, Yunhua Zhou, Xuanjing Huang, and Xipeng Qiu. BBTv2: Towards a gradient-free future with large language models. In Proceedings of the 2022 Conference on Empirical Methods in Natural Language Processing , pages 3916–3930, Abu Dhabi, United Arab Emirates, December 2022. Association for Computational Linguistics. doi: 10. 18653/v1/2022.emnlp-main.259. URL https://aclanthology.org/2022.emnlp-main.259/ .[55] Tianxiang Sun, Yunfan Shao, Hong Qian, Xuanjing Huang, and Xipeng Qiu. Black-box tuning for language-model-as-a-service. In Proceedings of the 39th International Conference on Machine Learning , volume 162 of Proceedings of Machine Learning Research , pages 20841–20855. PMLR, 17–23 Jul 2022. URL https://proceedings.mlr.press/v162/sun22e.html .[56] Alexandre B. Tsybakov. Introduction to Nonparametric Estimation . Springer, 2009. [57] vLLM Team. vLLM sampling parameters documentation (logit_bias). https://docs.vllm. ai/en/stable/api/vllm/sampling_params/ , 2026. Accessed: 2026-05-07. [58] Brandon T. Willard and Rémi Louf. Efficient guided generation for large language models. 
+
+arXiv preprint arXiv:2307.09702 , 2023. [59] Thomas Wolf, Lysandre Debut, Victor Sanh, Julien Chaumond, Clement Delangue, Anthony Moi, Pierric Cistac, Tim Rault, Remi Louf, Morgan Funtowicz, Joe Davison, Sam Shleifer, Patrick von Platen, Clara Ma, Yacine Jernite, Julien Plu, Canwen Xu, Teven Le Scao, Sylvain Gugger, Mariama Drame, Quentin Lhoest, and Alexander Rush. Transformers: State-of-the-art natural language processing. In Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing: System Demonstrations , pages 38–45, Online, October 2020. Association for Computational Linguistics. doi: 10.18653/v1/2020.emnlp-demos.6. URL 
+
+https://aclanthology.org/2020.emnlp-demos.6/ .[60] An Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao, Chengen Huang, Chenxu Lv, Chujie Zheng, Dayiheng Liu, Fan Zhou, Fei Huang, Feng Hu, Hao Ge, Haoran Wei, Huan Lin, Jialong Tang, Jian Yang, et al. Qwen3 technical report. arXiv preprint arXiv:2505.09388 , 2025. doi: 10.48550/arXiv.2505.09388. URL https: //arxiv.org/abs/2505.09388 .[61] Kevin Yang and Dan Klein. FUDGE: Controlled text generation with future discriminators. In 
+
+Proceedings of NAACL-HLT , 2021. [62] Jin Peng Zhou, Kaiwen Wang, Jonathan Chang, Zhaolin Gao, Nathan Kallus, Kilian Q. Weinberger, Kianté Brantley, and Wen Sun. Q♯: Provably Optimal Distributional RL for LLM 16 Post-Training. In Advances in Neural Information Processing Systems , 2025. doi: 10.48550/ arXiv.2502.20548. URL https://arxiv.org/abs/2502.20548 . NeurIPS 2025. [63] Daniel M. Ziegler, Nisan Stiennon, Jeffrey Wu, Tom B. Brown, Alec Radford, Dario Amodei, Paul Christiano, and Geoffrey Irving. Fine-tuning language models from human preferences. 
+
+arXiv preprint arXiv:1909.08593 , 2019. 
+
+# Appendix Contents 
+
+A Intervention score, token selection, and grouping 18 
+
+A.1 Intervention score as realized log-probability shift . . . . . . . . . . . . . . . . . . . . 18 A.2 Splitting tokens by sign . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 18 A.3 Grouping selected tokens into families . . . . . . . . . . . . . . . . . . . . . . . . . . 19 
+
+B Qualitative analysis of the accuracy logit-bias vector 19 
+
+B.1 Promoted token families . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 20 B.2 Suppressed token families . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 21 B.3 Interpretation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 23 
+
+C Qualitative analysis of the compression logit-bias vector 23 
+
+C.1 Promoted token families . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 24 C.2 Suppressed token families . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 25 C.3 Interpretation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 26 
+
+D Additional experimental details 27 
+
+D.1 Prompt templates and GPQA formatting . . . . . . . . . . . . . . . . . . . . . . . . 27 D.2 Rollout-generation settings . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 27 D.3 Tilting parameter τ and additive smoothing α . . . . . . . . . . . . . . . . . . . . . . 27 D.4 Cluster-tied baseline . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 28 D.5 LoRA-GRPO baseline . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 28 D.6 Compression experiment . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 28 D.7 Compute resources and minor evaluation variance from batch chunking . . . . . . . . 28 D.8 Bootstrap confidence intervals . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 29 
+
+E Unbiasedness of the IPS estimator 30 
+
+E.1 Matrix form of the IPS estimator . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 30 E.2 Unbiasedness . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 31 
+
+F Bias Parameterization Algorithms 31 
+
+F.1 Per-token bias . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 31 F.2 Cluster-tied bias . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 31 
+
+G Proofs 33 
+
+G.1 Softmax–KL bound . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 33 G.2 KL lower bound via exponential tilting . . . . . . . . . . . . . . . . . . . . . . . . . . 34 G.3 KL-regularized optimum (Equation (2)) . . . . . . . . . . . . . . . . . . . . . . . . . 34 G.4 Optimal per-step policy (Equation (4)) . . . . . . . . . . . . . . . . . . . . . . . . . . 35 G.5 Exact factorization implies fixed-bias optimality (Corollary 2) . . . . . . . . . . . . . 35 G.6 Reward gap (Theorem 4) . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 36 17 A Intervention score, token selection, and grouping 
+
+Appendices B and C interpret a learned logit-bias vector bδ ∈ R|V| by (i) summarizing its decode-time effect as a per-token intervention score S, (ii) splitting the visited tokens into promoted and suppressed sets by the sign of S, and (iii) grouping those into semantic families. Complete suppressed-side listings are provided in the code repository under results/ .
+
+A.1 Intervention score as realized log-probability shift 
+
+A raw bδ(y) lives in logit space, not directly in probability space: after softmax normalization, the actual change in a token’s probability depends on the prefix at which it is decoded. We therefore summarize the decode-time effect of the learned bias by measuring, at each generated position, the log-probability shift it induces on the realized next token. For a token y ∈ V, averaging this shift over the positions where the fixed-bias policy generates y gives the occurrence-weighted intervention score 
+
+S(y) := Ex∼ρ, t ∼Unif {1,...,T }  
+
+> y1: T∼pbδ(·| x)
+
+
+
+log πbδ(y | x, y 1: t−1)
+
+π0(y | x, y 1: t−1) yt = y
+
+
+
+. (9) The expectation is occurrence-weighted: it conditions on the positions where the fixed-bias policy realizes y, with the prefix y1: t−1 and the position t sampled uniformly. Since the log-ratio depends only on x and the prefix y1: t−1, the suffix yt+1: T is irrelevant. Because both probabilities are post-softmax, S(y) reflects the actual probability change induced by the bias at decode time, not the raw coordinate bδ(y): S(y) > 0 promotes the realized token and S(y) < 0 suppresses it. This log-ratio is the same local quantity that appears in the KL-regularized derivation, but here we use it only as an interpretability score. 
+
+Estimator. We estimate S on held-out on-policy rollouts generated by the fixed-bias policy pbδ.Given such a rollout set with recorded token ids, we use every position in each trajectory. At each position (n, t ) we run the base model on the prompt and the fixed-bias-policy rollout prefix to obtain its logits, form π0 and πbδ from them, and record the shift on the realized token, 
+
+∆(n) 
+
+> t
+
+:= log πbδ
+
+
+
+y(n) 
+
+> t
+
+| x(n), y (n)1: t−1
+
+
+
+− log π0
+
+
+
+y(n) 
+
+> t
+
+| x(n), y (n)1: t−1
+
+
+
+.
+
+The score of a token is the mean of these shifts over the positions at which it is realized, 
+
+bS(y) = 1
+
+|I y|
+
+X
+
+> (n,t )∈I y
+
+∆(n) 
+
+> t
+
+, Iy := (n, t ) : y(n) 
+
+> t
+
+= y ,
+
+with the convention bS(y) := 0 for tokens that never appear at any position in the rollouts ( Iy = ∅). 
+
+A.2 Splitting tokens by sign 
+
+We apply no magnitude threshold: every visited token is assigned to one side by the sign of its score, 
+
+R+ =  y ∈ V : S(y) > 0 , R− =  y ∈ V : S(y) < 0 .
+
+The promoted tokens R+ are those the bias makes more likely at decode time and the suppressed 
+
+tokens R− those it makes less likely; the remaining tokens, never visited under pbδ and hence carrying 
+
+S(y) = 0 , are left ungrouped. 18 −3 −2.5 −2 −1.5 −1 −0.5 0         
+
+> 10 0
+> 10 1
+> 10 2
+> 10 3
+> S(y)
+> Number of tokens in bin
+> 00.511.522.5
+> 10 0
+> 10 1
+> S(y)>0
+> promoted side ( S(y)>0)
+
+Figure B.1: Histogram of the intervention score bS(y) for the accuracy reward over the Llama vocabulary (visited tokens only; 122 ,517 unvisited tokens with bS(y) = 0 are omitted). The y-axis is logarithmic. The main panel shows the suppressed side ( bS(y) < 0, 5,602 tokens), which carries the bulk of the mass and a long tail reaching bS(y) ≈ − 3.36 ; the inset zooms into the promoted side ( bS(y) > 0, 137 tokens, up to bS(y) ≈ 2.84 ). 
+
+A.3 Grouping selected tokens into families 
+
+To summarize each side ( R+ and R−) we group its tokens into semantic families. This grouping is a purely interpretive aid, not part of the method, and the families carry no weight of their own; we refer to them by index in the reward-specific appendices below. The promoted set is small and dominated by a few recurring surface patterns—formatting, connectives, digits, and stop tokens—so we group the promoted tokens manually by inspection. The suppressed set is substantially larger and noisier, so we group it by AI-assisted manual curation, with every suppressed token listed in the code repository under results/ .
+
+# B Qualitative analysis of the accuracy logit-bias vector 
+
+This appendix examines what the accuracy intervention score S (Appendix A.1) encodes under the 
+
+accuracy reward . Of the Llama vocabulary ( 128 ,256 tokens), 5,739 are visited in the rollouts— 137 
+
+promoted (S > 0) and 5,602 suppressed (S < 0)—and we group each side into semantic families as in Appendix A; all 5,602 suppressed tokens with their scores are listed in the code repository under 
+
+results/accuracy_suppressed_all_families.tex .The accuracy score is a two-sided correctness prior : it promotes tokens that help format, scaffold, and terminate correct solutions, and it suppresses tokens that usually start explanations, page drift, or problem-specific detours. The positive side is small and sharp while the negative side is broad (Table B.1), so the bias acts mainly by discouraging failure-mode continuations while also boosting a few answer-surface and stop tokens. 19 Table B.1: Score bands of the accuracy intervention score S(y).                                           
+
+> Score band Count Interpretation
+> S≥17strongest promoted tokens
+> 0.1≤S < 117 strong positive accuracy signal
+> 0.01 ≤S < 0.139 moderate positive signal
+> 0< S < 0.01 74 weak positive / noisy
+> −0.001 ≤S < 0666 almost neutral negative
+> −0.01 ≤S < −0.001 690 weak suppression
+> −0.1≤S < −0.01 2,260 meaningful suppression
+> −1≤S < −0.11,927 strong suppression
+> S < −159 strongest negative shifts
+
+B.1 Promoted token families 
+
+The promoted side ( S(y) > 0) contains the 137 tokens with a positive log-probability shift; we list every one, grouped into families with a short gloss noting why each token plausibly co-occurs with correct solutions. Interpretation is collected in Appendix B.3. Families are ordered by their mean intervention score ¯S (the average of S(y) over the family’s tokens). 
+
+• Stop strings (2, ¯S = 1 .66 ). <|end_of_text|> and ␣Problem , which terminate the current completion. 
+
+• Instruction / educational metadata (6, ¯S = 1 .06 ). ␣Keywords (label such as “Prob-lem Keywords”), Basic (tags like “Basic Algebra”), User (AoPS/wiki /User: fragments), 
+
+␣Vocabulary (“Key Vocabulary”), Personal (page/persona drift), and Skill (“Reasoning Skill”). 
+
+• Text / document / page-drift concepts (2, ¯S = 0 .51 ). Ann (name prefix, page/person drift) and ␣topics (generic page language such as “other topics”). 
+
+• Actions / commands / ordering / problem-solving context (34, ¯S = 0 .078 ). Problem ,
+
+␣Solutions , ␣Since , ␣number , ␣logically , ␣Answer , ␣answer , ␣Compute , ␣find , ␣write ,
+
+␣use , use , align , edit , istinguish (suffix of distinguish ), prehensive (suffix of compre-hensive ), ifying (as in simplifying/identifying/verifying ), ifies (as in simplifies/verifies ), 
+
+Alternate , Other , task , Check , confirmation , ␣central , ␣Next , ␣best , ␣final , Final ,
+
+Last , ␣first , ␣ways , Long , big , and Com (start of Compute/Compare/Combine/Complex ). 
+
+• Function words / grammatical glue (14, ¯S = 0 .066 ). ␣We , The , ␣the , ␣The , ␣This , ␣is ,
+
+␣have , ␣can , ␣and , ␣to , not , one , new , and all —ordinary grammar tokens. 
+
+• Math / L ATEX / symbols / delimiters / formatting (27, ¯S = 0 .066 ). ␣$ (inline math after a space), $ (math delimiter), ␣$\ (space + $ + command start), ␣\ (space + backslash), 
+
+\ (command escape), =, cal (as in \mathcal or “calculate”), begin (as in \begin{align} ), 
+
+Math , frac (\frac ), cdot (\cdot ), .sqrt (square-root fragment), x, }, ), {, ]( (markdown link boundary), {| (table/wiki delimiter), {$ (brace + math delimiter), \n (newline), ␣## 
+
+(markdown heading), ., the space token, ,, ␣** (markdown bold), ‘\n (backtick then newline), and the middle-dot token ·.20 • Math structure / math context (16, ¯S = 0 .012 ). let (“let x = . . . ”), ␣given (problem-condition language), ␣quadr (quadratic/quadrilateral/quadrant ), ␣hex (hexagon/hexadecimal ), 
+
+ponents (suffix of exponents ), ultiply (suffix of multiply ), aring (as in squaring ), triangle ,
+
+positive , line , ␣foot (unit/geometry), ector (as in vector/bisector/sector ), ␣Extended 
+
+(Extended Euclidean Algorithm), AC (geometry notation, e.g. side AC ), Im (imaginary part, or start of “Important”), and AY (geometry label, or URL/name noise). 
+
+• Proper names / acronyms / geography / source artifacts (8, ¯S = 0 .005 ). L (from Ł), 
+
+␣America (“Mathematical Association of America”), J, Ace , AL , TH , external , and ␣external .
+
+• Numbers (13, ¯S = 0 .004 ). 2, 21 , 1, 3, 453 , 228 , 669 , 734 , 813 , 355 , 415 , 424 , and 406 —mostly literal numerals; the three-digit ones are likely dataset-specific artifacts, examples, ids, or intermediate values. 
+
+• Subword fragments (15, ¯S < 0.001 ). qu (quadratic/quantity/equation/sequence ), ens (ten-s/dimensions ), ast (last/least/past ), ics (mathematics/statistics ), ct (factor/function/prod-uct ), ze (zero/analyze/finalize ), ant (constant/discriminant/quadrant ), ub (subtract/cube/sub-set ), ja (as in adjacent ), istrib (distribute/distribution ), ner (inner/corner ), ee (three/de-gree/between ), and il (similar/probability ). Two further fragments are notable: oted (most math-relevant as denoted ) and ric (geometric/metric/symmetric/trigonometric ). 
+
+B.2 Suppressed token families 
+
+The suppressed side ( S(y) < 0) contains 5,602 tokens. These tokens are not “wrong” in isolation. Under the log-indicator accuracy reward, they receive little positive support from correct rollouts relative to the promoted answer-surface tokens and the smoothing/centering baseline. After softmax normalization this appears as a broad negative side of the realized intervention score. The lower tail is therefore best read as an anti-drift pattern learned by the accuracy-trained bias, rather than as token-level proof that every suppressed token causes incorrectness. The strongest negative tail includes ␣Question , ␣Examples , ␣Explanation , ␣Approach , ␣Lesson , markdown headings, and page/template fragments. A useful first cut is by strength (Table B.1); we therefore avoid over-interpreting tiny negatives near zero, as the meaningful story comes from the lower tail. Following the grouping procedure in Appendix A.3, we group the suppressed tokens into twelve interpretive families. The summaries below describe each family, ordered by mean intervention score ¯S (most strongly suppressed first); the complete per-token listings with intervention scores are provided in the code repository under results/accuracy_suppressed_all_families.tex .
+
+• Verbose reasoning wrappers / discourse markers (44, ¯S = −0.73 ). Tokens such as 
+
+␣Moreover , ␣Clearly , ␣Furthermore , ␣However , and ␣Therefore often introduce extended explanatory scaffolding or discourse transitions rather than the final answer itself. Their suppression suggests that the terminal reward favors reaching the answer directly over producing lecture-style reasoning. 
+
+• Question-restatement / prompt-template tokens (40, ¯S = −0.73 ). Strongly suppressed tokens such as ␣Question usually start a new prompt or open a Q/A template instead of solving the current problem, so the shift discourages worksheet, course-page, and new-problem mode. (Some metadata tokens— ␣Keywords , Basic , ␣Vocabulary —were instead promoted :those correlated with scraped correct-solution pages, whereas ␣Question /␣Examples /␣Lesson 
+
+correlate with drifting into extra page content.) 21 • Names, initials, usernames, source/person artifacts (294, ¯S = −0.30 ). First names and initials such as ␣Alice , ␣Brian , ␣Julie , and ␣Kevin are problem-specific rather than generally useful; suppressing them reduces hallucinated story details and invented diagrams. 
+
+• Educational-site / AoPS / forum / wiki artifacts (44, ¯S = −0.19 ). Unlike the literal web markup of the HTML / URL / markdown / code family, these are the natural-language 
+
+page furniture of the math sites in pretraining—contest wikis, Art-of-Problem-Solving threads, and Q&A forums—the kind of boilerplate and page scaffolding that pervades web-scraped pretraining corpora [ 42 ]. Since worked solutions there sit inside such pages, the base model tends to continue past the answer into the surrounding scaffolding (“Posted by. . . ”, “Reply”, “edited”, “References”, user/wiki links). Suppressing these tokens keeps the completion on the current problem instead of rolling over into copied page tails. 
+
+• Math-topic labels suppressed despite being mathematical (73, ¯S = −0.14 ). The most subtle group: tokens such as ␣Coordinate , ␣Distance , ␣Equation , and ␣calculus are meaningful, but often appear as topic labels or wrong-route triggers and, averaged over the dataset, were less predictive of success than direct answer-oriented tokens. General math vocabulary can be negatively correlated with correctness when it signals overcomplication or wrong method selection. 
+
+• Function words and ordinary prose (2,536, ¯S = −0.13 ). Tokens such as ␣while , ␣there ,
+
+␣because , and ␣their are not a blanket anti-English bias (some function words were promoted); these reflect the longer prose style of rambling completions. 
+
+• Subword shards / tokenizer fragments (1,525, ¯S = −0.12 ). Fragments such as ime 
+
+(as in time/prime ), reet (street ), ting , and ul inherit the statistics of the words containing them; they are suppressed because those words correlated with lower-quality continuations, not because the fragment itself is meaningful. 
+
+• Geometry labels and diagram-letter clutter (214, ¯S = −0.091 ). Arbitrary point/segment labels such as ␣AE , ␣OB , ␣II , and ␣III are easy to hallucinate, so this reads as a bias against invented diagrams. (Note AC was promoted : token scores are empirical correlations, not semantic rules.) 
+
+• HTML / URL / markdown / code artifacts (189, ¯S = −0.077 ). Tokens such as 
+
+<a , ␣https , and ~~ usually mean the model has left the solution and is emitting web/mark-down/HTML/source residue, which is almost always bad in a final-answer setting. 
+
+• Generic assistant / politeness / meta-answer style (28, ¯S = −0.068 ). Conversational filler such as Thanks , Please , ␣sorry , and ␣appreciate (“I hope this helps”) rather than answer extraction. 
+
+• Arbitrary numbers and numeric constants (516, ¯S = −0.052 ). Globally promoting arbitrary numerals such as 846 , 523 , and 123 would invite hallucinated answers, so suppression here is healthy: “do not prefer this particular number unless the context demands it.” 
+
+• Word-problem scenery / concrete objects (99, ¯S = −0.049 ). Surface nouns from problem statements such as ␣plane , ␣coins , ␣pigs , and ␣night , not solution moves; these should be driven by the actual prompt. 22 B.3 Interpretation 
+
+Read together, the two sides describe a steering vector that favors a clean, staged path to the answer. The promoted side raises the surface and discourse regularities of correct, well-formatted solutions: layout and delimiters; the headers, connectives, and solution verbs that scaffold explicit step-by-step working; digits and symbolic notation; and decisive termination. It thus gently favors solutions that lay out their reasoning rather than emit a bare value, without choosing the problem-specific reasoning path; the promoted digits only supply the surface for calculations and do not imply the bias knows which number is correct. The suppressed side acts as an anti-drift prior against the recurring failure modes in Appendix B.2: restating or generating a new question and slipping into lesson/tutorial mode; padding with verbose discourse markers; emitting scraped web/page residue; lapsing into generic assistant politeness; inventing problem-specific details; and overcomplicating with topic labels. The surprising suppression of genuine math vocabulary should not be read as “avoid math”: averaged over the dataset, those tokens more often started verbose, topic-heavy, website-like, or problem-specific continuations than the direct, answer-oriented tokens the shift prefers. The code repository lists all 5,602 suppressed tokens with their intervention scores under results/accuracy_suppressed_all_families.tex .
+
+# C Qualitative analysis of the compression logit-bias vector 
+
+This appendix examines what the compression intervention score S (Appendix A.1) encodes under the compression reward . Of the Llama vocabulary ( 128 ,256 tokens), 4,164 are visited— 141 promoted 
+
+(S > 0) and 4,023 suppressed (S < 0); leading spaces are preserved exactly ( ␣use and use are distinct tokens), and each side is grouped into semantic families as in Appendix A, with all 4,023 suppressed tokens listed in the code repository under results/compression_suppressed_all_families.tex .The compression score is a two-sided length-control prior : it promotes tokens that help stop, shift to a boundary, package a short answer, or express mathematics compactly, and it suppresses tokens that usually start explanations, checks, examples, long formatting, page tails, or multi-step derivations. The positive side is small and sharp while the negative side is broad (Table C.1), so the bias acts mainly by discouraging length-expanding continuations while also boosting a few stop, answer, and compact-format tokens. Table C.1: Score bands of the compression intervention score S(y).                                           
+
+> Score band Count Interpretation
+> S≥16strongest promoted tokens
+> 0.1≤S < 125 strong positive compression signal
+> 0.01 ≤S < 0.147 moderate positive signal
+> 0< S < 0.01 63 weak positive / noisy
+> −0.001 ≤S < 0657 almost neutral negative
+> −0.01 ≤S < −0.001 571 weak suppression
+> −0.1≤S < −0.01 1,727 meaningful suppression
+> −1≤S < −0.11,058 strong suppression
+> S < −110 strongest negative shifts
+
+23 −2.5 −2 −1.5 −1 −0.5 0         
+
+> 10 0
+> 10 1
+> 10 2
+> 10 3
+> S(y)
+> Number of tokens in bin
+> 00.511.522.5
+> 10 0
+> 10 1
+> S(y)>0
+> promoted side ( S(y)>0)
+
+Figure C.1: Histogram of the intervention score bS(y) for the compression reward over the Llama vocabulary (visited tokens only; 124 ,092 unvisited tokens with bS(y) = 0 are omitted). The y-axis is logarithmic. The main panel shows the suppressed side ( bS(y) < 0, 4,023 tokens), which carries the bulk of the mass and a long tail reaching bS(y) ≈ − 2.86 ; the inset zooms into the promoted side ( bS(y) > 0, 141 tokens, up to bS(y) ≈ 2.80 ). 
+
+C.1 Promoted token families 
+
+The promoted side ( S > 0) contains all 141 tokens with a positive log-probability shift; we list every one, grouped into families with a short gloss. Interpretation is collected in Appendix C.3. Families are ordered by their mean intervention score ¯S (the average of S(y) over the family’s tokens). 
+
+• Stop / boundary tokens (6, ¯S = 0 .61 ). <|end_of_text|> , ␣Problem , Problem , \n , :\n ,and ␣## . <|end_of_text|> and ␣Problem are configured stop strings: <|end_of_text|> is the direct end-of-text token, and ␣Problem terminates the completion at the next problem header (reaching a new problem effectively ends the current answer). The remaining Problem ,
+
+\n , :\n , and ␣## are not stop strings but compact structural boundaries that let the model finish or segment without opening a long paragraph. This is the clearest compression signal: end now, or move to a boundary that makes ending natural. 
+
+• Educational / page / UI / source artifacts (19, ¯S = 0 .46 ). Personal , Recommended ,
+
+␣video , Basic , Win , Ac , User , Skill , Special , J, ␣Ch , Credit , ␣Display , black , ␣America ,
+
+␣engineering , -person , ␣Day , and ␣Mathematics . These are scraped-page, UI, source, or metadata artifacts rather than compression mechanisms—e.g. Basic (“Basic Algebra”), User 
+
+(forum/wiki metadata), ␣Ch (“Chapter”), ␣America (“Mathematical Association of America”). They are most likely correlational shortcuts that appeared near short page snippets or early-stop regions; the strongest promoted token being Personal is a warning that the intervention also picked up dataset artifacts. 24 • Ordering / option / concise navigation (12, ¯S = 0 .22 ). Alt , Alternate , Alternative ,
+
+␣central , ␣Next , Next , ␣first , ␣Ways , ␣best , Long , ␣systematic , and ␣changing . A mixed group: ␣Next /Next /␣first are compact sequencing tokens and ␣best supports answer se-lection, while Alt /Alternate /Alternative may be option labels or page artifacts ( Long ,
+
+␣systematic , ␣changing are weak positives). 
+
+• Minimal action / solution hooks (9, ¯S = 0 .16 ). show , ␣Get , ␣find , ␣use , ␣Use , ␣given ,
+
+␣Since , ␣Define , and align . These are short solution hooks (e.g. ␣Get “Get x = 3 ”, ␣given 
+
+a compact reference to the conditions, ␣Since a short justification starter). The bias prefers skeletal action hooks over derivational prose (the imperative-vs-prose minimal pairs are collected in Appendix C.3). 
+
+• Minimal grammar / punctuation scaffold (22, ¯S = 0 .077 ). ␣We , The , ␣the , ␣The ,
+
+␣A , ␣This , ␣, ␣can , ␣have , ,, ␣is , ␣and , ␣to , ␣in , ␣of , ␣a , ␣my , ␣All , ., ␣" , !) , and ␣... .Compression does not strip all prose: it keeps just enough grammar and punctuation to emit a compact, well-formed response ( ␣ is a bare space token, ␣... an ellipsis/short-tail marker). 
+
+• Short final-answer markers (11, ¯S = 0 .055 ). ␣Final , Final , ␣final , ␣Answer , ␣answer ,
+
+Choice , ␣lowest , ␣number , Number , ␣useful , and ␣important . These let the model package a response as a final answer (“Final answer. . . ”, “The answer is. . . ”, compact multiple-choice output) instead of producing a full worked solution. (Leading-space forms occur inside compact sentences; see Appendix C.3 for the promoted/suppressed minimal pairs.) 
+
+• Compact math / L ATEX / symbolic / geometry (33, ¯S = 0 .038 ). {$ , ␣$ , ␣$\ , ␣quadr , {| ,
+
+$, begin , \, }, ␣hex , ␣\ , tan , ), ␣( , frac , triangle , AC , {, ␣Square , =, x, ␣-, ␣= , ␣Extended ,
+
+EF , cdot , _C , QR , cs , cal , ("$ , (" , and · (token 115, a raw-byte artifact). These support compact mathematical expression: inline math delimiters ( ␣$ , $), command escapes ( \), subword notation ( frac , cdot , tan ), geometry labels ( AC , EF , QR ), and compact algebra ( x,
+
+=, ␣-): the bias likes inline math, not display-math derivations (see the minimal pairs in Appendix C.3). 
+
+• Numbers (9, ¯S = 0 .011 ). 2, 21 , 1, 3, 996 , 163 , 926 , 222 , and 354 . Small digits ( 1, 2, 3) are useful in concise answers and enumeration; the larger numbers are weak positives and probably dataset-specific rather than generally meaningful. 
+
+• Subword fragments / morphemes (20, ¯S < 0.001 ). stit , cept , ector , oid , -negative ,
+
+ilateral , istinguish , ate , om , ifying , ifies , ues , ithmetic , ee , _r , ultiply , itions ,
+
+aring , oted , and anging . Tokenizer fragments that inherit meaning from the words they appear in (e.g. ector as vector/bisector , ilateral as quadrilateral/equilateral , ithmetic as 
+
+arithmetic ); treat them as low-confidence weak positives. 
+
+C.2 Suppressed token families 
+
+The suppressed side ( S < 0) contains 4,023 tokens and is best read as an anti-continuation prior: these tokens are not “wrong” in isolation, but they tend to predict that the answer is about to get longer. The summaries below describe each family, ordered by mean intervention score ¯S (most strongly suppressed first); the complete per-token listings with intervention scores are provided in the code repository under results/compression_suppressed_all_families.tex .
+
+• Multiline formatting / display math / markdown expansion (15, ¯S = −0.55 ). A very clean compression signal: multi-line formatting ( ␣\n\n ), display math ( ␣$$ ), deeper headings 25 (␣### ), and long spacing all predict a longer answer, whereas a single boundary or inline formula is compact. 
+
+• Course-page / website / practice-mode tokens (29, ¯S = −0.54 ). Among the strongest negatives ( ␣Latest , ␣Practice , ␣Community ): page navigation, educational-site residue, and scraped tails that predict the model has moved away from the answer into website content. 
+
+• Explanation / solution-section headings (18, ¯S = −0.47 ). Tokens such as ␣Explanation ,
+
+␣Solution , ␣Approach , and Definition are useful for tutoring but they tend to open a new section or paragraph, so compression penalizes entering explanation mode—a clear difference from the accuracy reward, which may keep such scaffolding. 
+
+• Step-by-step derivation starters (27, ¯S = −0.36 ). These begin visible reasoning ( Using ,
+
+Given , ␣Finding ), so the model is pushed away from “show the work” mode. 
+
+• Checking / verification / self-correction (26, ¯S = −0.32 ). Verification aids reliability but costs tokens (it usually follows the answer), so the bias suppresses it—at the risk of removing useful sanity checks. ␣Check is especially suppressed. 
+
+• Names, people, and story nouns (170, ¯S = −0.18 ). Narrative detail from problem statements such as ␣Lisa , ␣Natalie , and ␣Point ; a short answer should not invent people, holidays, objects, or scenery. 
+
+• Programming / code / system-ish artifacts (23, ¯S = −0.13 ). Code-like continuations such as ␣Java , ␣Python , ␣program , and ␣Test usually lengthen the output and drift from a compact final answer. 
+
+• Math-topic tokens that invite derivation (85, ¯S = −0.12 ). These are real math tokens; suppression does not mean “avoid math” but that they tend to open a topic-specific derivation or calculation, which is costly under a shorter-answer reward ( ␣integration is the clearest case). 
+
+• Discourse connectives and paragraph extenders (1,669, ¯S = −0.098 ). Tokens such as ␣But , ␣Also , ␣And , and ␣Specifically imply the answer is continuing—another sentence, case, or justification—an almost anti-chain-of-thought surface signature. 
+
+• Subword fragments (1,218, ¯S = −0.067 ). Fragments whose larger words tend to start longer explanations or theorem references ( ␣Squ Square , ␣Con Consider , ␣Ferm Fermat ). 
+
+• Geometry labels / arbitrary point names / initials (203, ¯S = −0.061 ). Some labels are promoted ( AC , EF , QR ) while others are suppressed ( ␣OA , ␣AB , ␣OB )—an empirical, not semantic, split; suppression helps avoid invented geometry scaffolding. 
+
+• Arbitrary numbers (540, ¯S = −0.023 ). A compression prior should not globally promote random constants such as 388 , 522 , and 540 ; suppressing them reduces hallucinated numeric detail (the robust positive numeric signal is only for small digits). 
+
+C.3 Interpretation 
+
+A handful of contrasts are more informative than individual tokens, because they isolate the length-control axis from token identity: 
+
+• <|end_of_text|> , ␣Problem , Problem promoted: stop / next-problem boundary behavior. 26 • \n promoted but ␣\n\n suppressed: one boundary is compact, paragraph expansion is not. 
+
+• ␣## promoted but ␣### suppressed: a shallow boundary can help stop, deeper sectioning extends. 
+
+• $/␣$ promoted but ␣$$ suppressed: inline math is compact, display math invites derivation. 
+
+• ␣Answer promoted but Answer suppressed: a compact answer phrase beats heading/template mode. 
+
+• ␣Use promoted but Using suppressed: an imperative hook beats a prose derivation starter. 
+
+• Alternate promoted but ␣Alternate suppressed: a compact label beats an “alternate solution” continuation. 
+
+• ␣Check suppressed: verification is useful but length-expanding. 
+
+• ␣integration suppressed: math-topic words can be anti-compression when they open long derivations. 
+
+• ␣Latest , ␣Practice , ␣Community strongly suppressed: page/navigation/practice tails are anti-answer. Overall, the compression intervention learns a terminal, compact-answer style : unlike the accuracy bias it is not merely promotional but actively pushes down tokens that predict continuation. Its main risk is therefore over-compression , since useful verification, necessary derivation, and explanatory clar-ity can be suppressed along with genuine verbosity (Section 8). The code repository lists all 4,023 sup-pressed tokens with their intervention scores under results/compression_suppressed_all_families.tex .
+
+# D Additional experimental details 
+
+D.1 Prompt templates and GPQA formatting 
+
+We use the default lm-evaluation-harness prompt templates for all tasks. In particular, the core format follows the standard task prompt pattern (e.g., “Problem: . . . Answer: . . . ”). For GPQA-main, we format prompts so the model first provides an explanation and then outputs a final answer choice. We also shuffle the answer choices per example to avoid systematic bias toward any fixed label. For bias estimation, sampled positions are taken from the explanation-first completion before the final answer token sequence. 
+
+D.2 Rollout-generation settings 
+
+For bias estimation, we use dataset-specific rollout budgets and context lengths: MATH uses 64 rollouts per problem with train/test caps of 1024/1024 tokens and 128 sampled positions per rollout; GSM8K uses 128 rollouts with 512/1024 caps and 256 positions; GPQA uses 128 rollouts with 512/4096 caps and 128 positions. 
+
+D.3 Tilting parameter τ and additive smoothing α
+
+We tune the additive-smoothing constant α (defined in Section 4.2) on validation. For accuracy experiments, the log-indicator reward rlog-accuracy ∈ {−∞ , 0} makes τ inert: er/τ ∈{0, 1} for any τ > 0, so the IPS estimator in Equation (6) reduces to an accuracy-weighted count 27 and the tilt parameter drops out. We therefore only report α: MATH uses α = 0 .052 , GSM8K uses 
+
+α = 0 .110 , and GPQA uses α = 0 .007 . For the compression experiment, Gemma uses α = 0 .738 
+
+with τ = 1 .1, Llama uses α = 0 .052 with τ = 0 .7, and Qwen uses α = 0 .465 with τ = 0 .8.Sweeping (τ, α ) during model selection is inexpensive because the estimator factorizes as bZ =
+
+v1/τ M (Proposition 5): the rollout statistics M are computed once, and each (τ, α ) configuration is then obtained by a single reward-weighted matrix–vector product followed by the additive-smoothing step, without rescanning the rollouts. 
+
+D.4 Cluster-tied baseline 
+
+The cluster-tied baseline builds K=32 clusters from whitespace-split answer tokens and ties one bias value per cluster. Concretely, we run k-means on token/word representations from the answer corpus, then assign each vocabulary token to its nearest centroid and share the same learned bias within each cluster. This yields a low-parameter tied-bias baseline used for fairness comparisons against full-vocabulary logit bias and LoRA-GRPO. 
+
+D.5 LoRA-GRPO baseline 
+
+LoRA-GRPO uses rank r = 16 , α = 32 , dropout 0.05 , target modules q_proj , k_proj , v_proj ,
+
+o_proj , gate_proj ,up_proj , down_proj , bf16, and gradient checkpointing, trained for one epoch. For accuracy experiments, the best checkpoint is selected among 3 validation evaluations. Dataset-specific settings are: 
+
+• GPQA: learning rate 5 × 10 −5, gradient accumulation 16, max completion 1024, eval max new tokens 4096. 
+
+• MATH/GSM8K: learning rate 2 × 10 −4, gradient accumulation 8, max completion 1024 for MATH and 512 for GSM8K, eval max new tokens 1024. 
+
+D.6 Compression experiment 
+
+The compression experiment evaluates three model identifiers: google/gemma-2-9b-it ,
+
+meta-llama/Meta-Llama-3.1-8B-Instruct , and Qwen/Qwen3-4B .For length-aware LoRA-GRPO, we train one epoch on MATH with objective mode corr*T/length ,
+
+T =1024 , learning rate 2 × 10 −4, batch size 2, gradient accumulation 8, and LoRA (r, α, dropout ) = (16 , 32 , 0.05) . We keep the best checkpoint among 32 evaluations. For both logit bias and LoRA-GRPO in the compression experiment, model selection chooses the checkpoint or τ -α pair that minimizes mean completion length in tokens among configurations whose accuracy is the closest to the base model. The compression reward for the logit-bias method is rlength , first defined in Equation (8) (Sec-tion 6.1): 
+
+rlength (y) = ln 
+
+ T
+
+length( y)
+
+
+
+.
+
+D.7 Compute resources and minor evaluation variance from batch chunking 
+
+Experiments were run on multiple GPU setups, including RTX 4090, RTX 5090, A100, H100, and H200. The code supports multi-GPU execution. During evaluation, prompts are batched with 
+
+padding=True and left padding, so tensor shapes depend on which examples are grouped together. 28 Table D.1: Evaluation sample sizes used for bootstrap confidence intervals. Each bootstrap replicate resamples n examples with replacement from the corresponding evaluation set. Experiment Benchmark Evaluation examples n Resampling unit Accuracy MATH 5000 example correctness Accuracy GSM8K 1319 example correctness Accuracy GPQA-main 45 example correctness Compression MATH 5000 problem index / paired example Changing CONFIG_EVAL_CF_WORKER_CHUNK_SIZE changes how validation problems are partitioned across workers, which in turn changes batch composition and padding shapes. Because evaluation uses fp16 on GPU, different batch shapes can induce small differences in floating-point execution order inside GPU kernels. These tiny numerical changes can slightly perturb logits. In borderline cases where two next-token logits are nearly tied, this can flip the greedy argmax , changing the generated completion and, for a small number of examples, accuracy. Subject to the caveat above, the reported results are reproducible on a 4 ×H200 machine with 
+
+CONFIG_EVAL_CF_BATCH_SIZE=128 and CONFIG_EVAL_CF_WORKER_CHUNK_SIZE=0 .
+
+D.8 Bootstrap confidence intervals 
+
+We report 95% percentile bootstrap confidence intervals for all evaluation metrics. The procedure is the same in every experiment; only the resampling unit and the per-replicate statistic differ between the accuracy (non-paired bootstrap) and compression (paired bootstrap) settings. In each case we draw B = 10 ,000 bootstrap replicates with fixed random seeds for reproducibility. Each replicate resamples n evaluation examples with replacement, where n is the number of evaluated examples in the corresponding evaluation set (Table D.1), computes a replicate statistic, and the reported interval is the pair of empirical 2.5th and 97 .5th percentiles of that statistic across the B replicates. Here B controls only the Monte Carlo precision of the percentile estimates; it is not treated as additional data and does not change the statistical sample size, which is the evaluation-set size n.Consequently, smaller evaluation sets, such as GPQA-main with n = 45 , yield correspondingly wider intervals. 
+
+D.8.1 Accuracy 
+
+For accuracy we resample over examples. Let 
+
+ci = 1{mxi (y(i)1: T ) = m⋆,i }, i = 1 , . . . , n, 
+
+denote the correctness indicator for example i. For replicate b ∈ { 1, . . . , B }, let c∗(b) 
+
+> i
+
+be the i-th indicator drawn with replacement from {ci}ni=1 , and form the replicate mean 
+
+¯c∗(b) 
+
+> n
+
+= 1
+
+n
+
+> n
+
+X
+
+> i=1
+
+c∗(b) 
+
+> i
+
+.
+
+The reported 95% confidence interval is 
+
+h
+
+Q0.025 
+
+
+
+{¯c∗(b) 
+
+> n
+
+}Bb=1 
+
+
+
+, Q 0.975 
+
+
+
+{¯c∗(b) 
+
+> n
+
+}Bb=1 
+
+i 
+
+,
+
+where Qp denotes the empirical p-quantile. 29 D.8.2 Compression 
+
+For comparisons in the compression experiment, the baseline and candidate methods are evaluated on the same examples. Let 
+
+di = ℓcandidate  
+
+> i
+
+− ℓbaseline 
+
+> i
+
+be the per-example paired difference in completion length in tokens, or in the relevant numeric metric. For replicate b ∈ { 1, . . . , B }, let d∗(b) 
+
+> i
+
+be the i-th paired difference drawn with replacement from {di}ni=1 , and form the replicate mean 
+
+¯d∗(b) 
+
+> n
+
+= 1
+
+n
+
+> n
+
+X
+
+> i=1
+
+d∗(b) 
+
+> i
+
+.
+
+We report the 2.5th and 97 .5th empirical percentiles of { ¯d∗(b) 
+
+> n
+
+}Bb=1 as the 95% confidence interval for the mean difference. 
+
+# E Unbiasedness of the IPS estimator 
+
+E.1 Matrix form of the IPS estimator 
+
+Proposition 5. Define 
+
+vn := exp 
+
+
+
+r(n)
+
+, Mn,y := 1
+
+N P 
+
+> P
+
+X
+
+> p=1
+
+1
+
+n
+
+y(n,p ) 
+
+> t(n,p )
+
+= y
+
+o
+
+π0
+
+
+
+y | x(n), y (n,p )1: t(n,p )−1
+
+ .
+
+Then the IPS estimator from Equation (6) satisfies 
+
+bZ(y) = 
+
+> N
+
+X
+
+> n=1
+
+v1/τ n Mn,y ,
+
+equivalently, bZ = v 1/τ M.
+
+Proof. Indexing each entry of D by its origin (n, p ) in Algorithm 1, Equation (6) can be written as 
+
+bZ(y) := 1
+
+N P 
+
+> N
+
+X
+
+> n=1
+> P
+
+X
+
+> p=1
+
+1
+
+n
+
+y(n,p ) 
+
+> t(n,p )
+
+= y
+
+o
+
+er(n,p )/τ 
+
+π0
+
+
+
+y x(n,p ), y (n,p )1: t(n,p )−1
+
+ .
+
+In Algorithm 1, each replicated sample satisfies x(n,p ) = x(n) and r(n,p ) = r(n), so er(n,p )/τ = v1/τ n is independent of p. Factoring this term outside the inner sum gives 
+
+bZ(y) = 
+
+> N
+
+X
+
+> n=1
+
+v1/τ n
+
+ 1
+
+N P 
+
+> P
+
+X
+
+> p=1
+
+1
+
+n
+
+y(n,p ) 
+
+> t(n,p )
+
+= y
+
+o
+
+π0
+
+
+
+y | x(n), y (n,p )1: t(n,p )−1
+
+ := 
+
+> N
+
+X
+
+> n=1
+
+v1/τ n Mn,y .
+
+Stacking over y ∈ V yields bZ = v 1/τ M.Factoring bZ = v1/τ M separates rollout statistics from reward weights. The matrix M depends only on sampled tokens and base-model probabilities, so it can be computed once; changing the reward transform or temperature only changes v1/τ , making recomputation a single matrix-vector product. 30 E.2 Unbiasedness 
+
+Proposition 6. Let bZ(y) be the IPS estimator in Equation (6) , computed on the dataset D produced by Algorithm 1. Assume π0(y | x, y 1: t−1) > 0 for every prompt x in the support of ρ, every 
+
+t ∈ { 1, . . . , T }, and every prefix y1: t−1 reachable under p0(· | x). Then 
+
+E[ bZ(y)] = Zavg (y),
+
+where the expectation is over the randomness of the estimator. 
+
+Remark 7 (Non-i.i.d. samples, still unbiased) . When P > 1, summands sharing a common n are not independent—they share the prompt, trajectory, and reward—but unbiasedness only requires correct termwise means, which the proof verifies. The dependence affects variance, not mean. 
+
+Proof. By linearity of expectation, it suffices to show that each summand has mean Zavg (y). Fix 
+
+(n, p ) and condition on x(n,p ) = x, t(n,p ) = t. The autoregressive factorization p0(y1: T | x) = 
+
+p0(y1: t−1 | x) π0(yt | x, y 1: t−1) p0(yt+1: T | x, y 1: t), together with the indicator 1{yt = y}, cancels the 
+
+π0(y | x, y 1: t−1) factor in the denominator, so 
+
+E
+
+"
+
+1{yt = y} er(x,Y )/τ 
+
+π0(y | x, y 1: t−1) x, t 
+
+#
+
+= E y1: t−1∼p0(·| x) 
+
+> yt+1: T∼p0(·| x,y 1: t−1,y )
+
+h
+
+er(x, y 1: t−1, y, y t+1: T )/τ i
+
+.
+
+The right-hand side is exactly the interventional do (yt = y) expectation that defines Zavg (y) in Equation (5) : the importance weighting realizes the distribution p0(· | x, do (yt = y)) , drawing the prefix and suffix from the base model with y fixed at position t. Taking the outer expectation over 
+
+x ∼ ρ and t ∼ Unif {1, . . . , T } via the tower rule matches Equation (5) , so each summand has mean 
+
+Zavg (y).
+
+# F Bias Parameterization Algorithms 
+
+This appendix provides the full algorithmic details for the two bias parameterizations introduced in Section 4. All take as input the dataset D produced by Algorithm 1. 
+
+F.1 Per-token bias 
+
+Algorithm 2 computes the per-token IPS estimator bZ(y) from Equation (6) by accumulating, for each sampled position, the weight er/τ /π 0(y | x, y 1: t−1) into the bin of the observed token identity. The per-token bias bδ(y) = log bZ(y) + c0 is then obtained by the step in Section 4.2. 
+
+F.2 Cluster-tied bias 
+
+The cluster-tied parameterization reduces the number of learned bias values by tying together vocab-ulary tokens with similar string embeddings. It first builds a vocabulary partition {C(1) , . . . , C (K)},then replaces the per-token IPS estimate by the average estimate within the token’s cluster. Let 
+
+detok : V∗ → Σ∗
+
+denote the tokenizer detokenization map, which takes a token sequence as input. For a single token y ∈ V, write (y) for the length-one sequence containing it and define its string form as the detokenization of that singleton sequence, 
+
+str( y) := detok  (y).
+
+31 Algorithm 2 PerTokenIPS : per-token IPS estimator bZ(y)
+
+Require: dataset D = {(x(n,p ), y (n,p )1: T , t (n,p ), r (n,p ))}N,P n,p =1 , base model π0, temperature τ 
+
+> 1:
+
+S(·) ← 0 
+
+> 2:
+
+for (x, y 1: T , t, r ) ∈ D do  
+
+> 3:
+
+π ← π0
+
+ yt x, y 1: t−1
+
+ ▷ base-model probability of the on-policy token at position t 
+
+> 4:
+
+S(yt) ← S(yt) + er/τ / π  
+
+> 5:
+
+end for  
+
+> 6:
+
+for all token y with S(y) > 0 do  
+
+> 7:
+
+bZ(y) ← S(y)/(N P ) 
+
+> 8:
+
+end for  
+
+> 9:
+
+return { bZ(y)}y∈V+
+
+Thus str (y) is the tokenizer’s surface string for the one-token sequence (y). We cluster the vocabulary token by token, so each token is embedded through its own surface string rather than through any surrounding sentence. 
+
+Cluster construction. Clusters are built from an auxiliary prompt set 
+
+Xc = {x(m) 
+
+> c
+
+}Nc
+
+> m=1
+
+,
+
+chosen independently of the rollout prompts used to form D. For each auxiliary prompt, we sample a completion 
+
+yc, (m)1: T ∼ p0(· | x(m) 
+
+> c
+
+)
+
+and detokenize it to a string 
+
+u(m) := detok 
+
+
+
+yc, (m)1: T
+
+
+
+.
+
+We then form a string corpus 
+
+S := 
+
+> Nc
+
+[
+
+> m=1
+
+words( u(m))
+
+!
+
+∪ S special ,
+
+where words (u) denotes the set of whitespace-delimited words in u, and Sspecial contains tokenizer-specific vocabulary strings that should be clustered explicitly, such as EOS, control, whitespace-only, newline, and byte-fallback tokens. We embed each s ∈ S with sentence-transformers/all-mpnet-base-v2 (Sentence-BERT on MPNet; 45 , 52 , 49 ), i.e., Encoder (s) ∈ Rd, run K-means, and obtain centroids {μk}Kk=1 . Each vocabulary token is assigned to its nearest centroid by 
+
+c(y) := arg min  
+
+> k∈{ 1,...,K }
+
+∥Encoder(str( y)) − μk∥22 , y ∈ V.
+
+This induces the partition 
+
+C(k) := {y ∈ V : c(y) = k}, k = 1 , . . . , K. 
+
+32 Algorithm 3 Cluster-tied ¯Z estimation 
+
+Require: rollout dataset D, base model π0, temperature τ
+
+Require: auxiliary prompts Xc, embedding map Encoder , number of clusters K 
+
+> 1:
+
+S ← ∅  
+
+> 2:
+
+for all xc ∈ X c do  
+
+> 3:
+
+Sample yc 
+
+> 1: T
+
+∼ p0(· | xc) 
+
+> 4:
+
+u ← detok( yc 
+
+> 1: T
+
+) ▷ decode the rollout to a text string  
+
+> 5:
+
+S ← S ∪ words( u) ▷ words( ·): split into whitespace-delimited words  
+
+> 6:
+
+end for  
+
+> 7:
+
+S ← S ∪ S special  
+
+> 8:
+
+Fit K-means to {Encoder( s) : s ∈ S} , obtaining centroids {μk}Kk=1  
+
+> 9:
+
+for all y ∈ V do  
+
+> 10:
+
+c(y) ← arg min k ∥Encoder(str( y)) − μk∥22 
+
+> 11:
+
+end for  
+
+> 12:
+
+{ bZ(y)}y∈V+ ← PerTokenIPS (D, π 0, τ ) ▷ Algorithm 2  
+
+> 13:
+
+for k = 1 , . . . , K do  
+
+> 14:
+
+C(k) ← { y ∈ V : c(y) = k} 
+
+> 15:
+
+¯Z(k) ← 1
+
+> |C(k)∩V+|
+
+P
+
+> y∈C(k)∩V+
+
+bZ(y) 
+
+> 16:
+
+end for  
+
+> 17:
+
+for all y ∈ V do  
+
+> 18:
+
+Ztied (y) ← ¯Z(c(y))  
+
+> 19:
+
+end for  
+
+> 20:
+
+return {Ztied (y)}y∈V
+
+Cluster-tied estimation. Given the partition, we first compute the per-token IPS estimates 
+
+{ bZ(y)}y∈V+ using Algorithm 2. Then each cluster receives the average of its observed token estimates: 
+
+¯Z(k) := 1
+
+|C(k) ∩ V+|
+
+X
+
+> y∈C(k)∩V+
+
+bZ(y).
+
+The tied estimate for a token is 
+
+Ztied (y) := ¯Z(c(y)) .
+
+# G Proofs 
+
+This appendix collects all deferred proofs. We first establish two technical lemmas (Appendices G.1– G.2) that are used throughout, then prove the results from the main text in the order they appear. 
+
+G.1 Softmax–KL bound 
+
+Lemma 8. For all u, z, z ′ ∈ R|V|,
+
+KL  softmax( u + z) ∥ softmax( u + z′) ≤ 14 ∥z − z′∥22.
+
+Proof. Define the log-partition function ψ(s) := log  P  
+
+> a∈V
+
+eua+sa . Its gradient is ∇ψ(s) = softmax (u + s) =: p(s), and its Hessian is ∇2ψ(s) = Diag (p(s)) − p(s) p(s)⊤. By Gershgorin’s 33 theorem, every eigenvalue of ∇2ψ(s) lies in [0 , 12 ]: the i-th diagonal entry is pi(1 − pi) and the 
+
+i-th absolute row sum off the diagonal is P  
+
+> j̸=i
+
+pipj = pi(1 − pi), so the i-th Gershgorin disc is 
+
+[0 , 2pi(1 − pi)] ⊆ [0 , 12 ]. Hence ψ has 12 -Lipschitz gradient. By Theorem 2.1.5 of Nesterov [35] , the Bregman divergence of a convex function with L-Lipschitz gradient satisfies Dψ(z′, z ) ≤ L 
+
+> 2
+
+∥z′ − z∥22. With L = 12 this gives Dψ(z′, z ) ≤ 14 ∥z′ − z∥22. It remains to identify Dψ with the KL divergence. Let p = softmax( u + z) = ∇ψ(z). Then 
+
+Dψ(z′, z ) = ψ(z′) − ψ(z) − ⟨∇ ψ(z), z ′ − z⟩
+
+= ψ(z′) − ψ(z) − X
+
+> a
+
+pa(z′ 
+
+> a
+
+− za)= X
+
+> a
+
+pa
+
+log pa − (ua + z′ 
+
+> a
+
+− ψ(z′)) 
+
+= X
+
+> a
+
+pa log pa
+
+softmax( u + z′)a
+
+= KL  softmax( u + z) ∥ softmax( u + z′).
+
+G.2 KL lower bound via exponential tilting 
+
+Lemma 9. Fix a prompt x. Let r : X × VT → [0 , R ], σ20 := Var Y ∼p0(·| x)(r(x, Y )) , and qs(y1: T |
+
+x) := p0(y1: T | x) es r (x,y 1: T )/Z s for s ≥ 0. Then 
+
+KL( qs∥p0) = 
+
+Z s
+
+> 0
+
+t Var qt (r) dt ≥ σ20
+
+R2
+
+ 1 − e−Rs (1 + Rs ).
+
+Proof. Let Λ( s) := log Ep0 [es r (x,Y )]. Then Λ′(s) = Eqs [r] and Λ′′ (s) = Var qs (r). Since log (qs/p 0) = 
+
+sr − Λ( s), we have KL (qs∥p0) = sΛ′(s) − Λ( s). Writing F (s) := sΛ′(s) − Λ( s), note F ′(s) = sΛ′′ (s) = 
+
+s Var qs (r) and F (0) = 0 , so KL( qs∥p0) = R s 
+
+> 0
+
+t Var qt (r) dt .For the lower bound, let V (t) := Var qt (r). Then V ′(t) = Eqt [( r −Eqt r)3]. Since r ∈ [0 , R ], we have 
+
+|r − Eqt r| ≤ R, so (r − Eqt r)3 ≥ − R (r − Eqt r)2, giving V ′(t) ≥ − R V (t) and hence V (t) ≥ σ20 e−Rt 
+
+by Grönwall’s inequality. Therefore KL( qs∥p0) ≥ σ20
+
+R s 
+
+> 0
+
+t e −Rt dt = σ20 
+
+> R2
+
+(1 − e−Rs (1 + Rs )) .
+
+G.3 KL-regularized optimum (Equation (2) )
+
+Proof. Write μ := p0(· | x) and Ω := VT . Introducing a Lagrange multiplier λ for the constraint P  
+
+> y1: T∈Ω
+
+q(y1: T ) = 1 :
+
+Lλ(q) = X 
+
+> y1: T∈Ω
+
+q(y1: T )
+
+ r(x, y 1: T )
+
+τ − log q(y1: T )
+
+μ(y1: T )
+
+
+
++ λ
+
+ X 
+
+> y1: T∈Ω
+
+q(y1: T ) − 1
+
+ .
+
+Setting ∂Lλ/∂q (y1: T ) = 0 for each y1: T ∈ Ω:
+
+r(x, y 1: T )
+
+τ − log q(y1: T )
+
+μ(y1: T ) − 1 + λ = 0 =⇒ q(y1: T ) = μ(y1: T ) er(x,y 1: T )/τ +λ−1.
+
+Normalizing: P  
+
+> y1: T∈Ω
+
+q(y1: T ) = eλ−1 P  
+
+> y1: T∈Ω
+
+μ(y1: T ) er(x,y 1: T )/τ = eλ−1 Z(x) = 1 , so eλ−1 = 1 /Z (x).Substituting back gives p⋆τ (y1: T | x) = p0(y1: T | x) er(x,y 1: T )/τ /Z (x). Uniqueness follows from strict concavity: − KL (q∥μ) is strictly concave in q (since q 7 → q log q is strictly convex) and Eq[r] is linear. 34 G.4 Optimal per-step policy (Equation (4) )
+
+Proof. Fix t ∈ { 1, . . . , T }, a prompt x, and a prefix y1: t−1. From Equation (2) , the joint probability of prefix y1: t−1 and next token yt under p⋆τ is 
+
+p⋆τ (y1: t−1, y t | x) = X
+
+> yt+1: T
+
+p⋆τ (y1: T | x) = 1
+
+Z(x)
+
+X
+
+> yt+1: T
+
+p0(y1: T | x) er(x,y 1: T )/τ .
+
+Factor p0 autoregressively as p0(y1: T | x) = p0(y1: t−1 | x) π0(yt | x, y 1: t−1) p0(yt+1: T | x, y 1: t). The prefix term and π0(yt | x, y 1: t−1) do not depend on yt+1: T , so 
+
+p⋆τ (y1: t−1, y t | x) = p0(y1: t−1 | x) π0(yt | x, y 1: t−1)
+
+Z(x)
+
+X
+
+> yt+1: T
+
+p0(yt+1: T | x, y 1: t) er(x,y 1: T )/τ 
+
+| {z } 
+
+> =Z(x, y 1: t−1, y t)
+
+,
+
+where Z(x, y 1: t−1, y t) is the soft value in Equation (3). Summing over yt gives the prefix marginal: 
+
+p⋆τ (y1: t−1 | x) = p0(y1: t−1 | x)
+
+Z(x)
+
+X
+
+> y′∈V
+
+π0(y′ | x, y 1: t−1) Z(x, y 1: t−1, y ′).
+
+Dividing the joint by the prefix marginal: 
+
+π⋆τ (yt | x, y 1: t−1) = π0(yt | x, y 1: t−1) Z(x, y 1: t−1, y t)
+
+P 
+
+> y′∈V
+
+π0(y′ | x, y 1: t−1) Z(x, y 1: t−1, y ′) .
+
+Since π0(y | x, y 1: t−1) = eℓy (x,y 1: t−1)/ P 
+
+> y′
+
+eℓy′ (x,y 1: t−1), the base-model normalizer cancels and 
+
+π⋆τ (yt | x, y 1: t−1) = eℓyt (x,y 1: t−1)+log Z(x, y 1: t−1, y t)
+
+P 
+
+> y′∈V
+
+eℓy′ (x,y 1: t−1)+log Z(x, y 1: t−1, y ′) = softmax  ℓ(x, y 1: t−1) + log Z(x, y 1: t−1, ·) 
+
+> yt
+
+.
+
+G.5 Exact factorization implies fixed-bias optimality (Corollary 2) 
+
+Proof. Fix x, t, and a reachable prefix y1: t−1. By Equation (4), 
+
+π⋆τ (· | x, y 1: t−1) = softmax  ℓ(x, y 1: t−1) + log Z(x, y 1: t−1, ·).
+
+Under the exact-factorization assumption, 
+
+log Z(x, y 1: t−1, ·) = δ + ct(x, y 1: t−1) 1,
+
+so 
+
+π⋆τ (· | x, y 1: t−1) = softmax  ℓ(x, y 1: t−1) + δ + ct(x, y 1: t−1) 1.
+
+Since softmax( u + c 1) = softmax( u) for any u and scalar c,
+
+π⋆τ (· | x, y 1: t−1) = softmax  ℓ(x, y 1: t−1) + δ = πδ(· | x, y 1: t−1).
+
+Thus the fixed-bias policy matches the optimal per-step policy at every reachable prefix. By Proposition 1, equality of all per-step conditionals implies equality of the induced trajectory laws: 
+
+pδ(· | x) = p⋆τ (· | x).
+
+35 G.6 Reward gap (Theorem 4) 
+
+Proof. We first establish the bound for a fixed prompt x, then average over ρ. Write Jx(q) := 
+
+EY ∼q(·| x)[r(x, Y )] for the per-prompt reward and σ20 (x) := Var Y ∼p0(·| x)(r(x, Y )) . The proof combines three ingredients: a KL bound between pbδ and p⋆τ , Pinsker’s inequality, and a lower bound on the improvement of p⋆τ over p0.
+
+Step 1: KL bound (per-prompt). By Equation (4) , π⋆τ (· | x, y 1: t−1) = softmax (ℓ(x, y 1: t−1) + log Z(x, y 1: t−1, ·)) and πbδ(· | x, y 1: t−1) = softmax (ℓ(x, y 1: t−1)+ bδ). Definition 3 gives inf c ∥ log Z(x, y 1: t−1, ·)−
+
+(bδ + c 1)∥2 ≤ ε for every reachable prefix. Since adding c 1 to a softmax argument does not change the distribution, Lemma 8 yields 
+
+KL  πbδ(· | x, y 1: t−1) ∥ π⋆τ (· | x, y 1: t−1) ≤ ε2
+
+4
+
+at every reachable prefix. The chain rule for autoregressive KL [6] gives 
+
+KL  pbδ(· | x) ∥ p⋆τ (· | x) = EY ∼pbδ (·| x)
+
+" TX
+
+> t=1
+
+KL  πbδ(· | x, y 1: t−1) ∥ π⋆τ (· | x, y 1: t−1)#
+
+≤ T ε 2
+
+4 .
+
+Step 2: Per-prompt reward gap via Pinsker. By Pinsker’s inequality [ 43 , 56 ], TV  pbδ(· | x), p ⋆τ (· | 
+
+x) ≤ εpT / 8. Since r ∈ [0 , R ]:
+
+Jx(p⋆τ ) − Jx(pbδ) ≤ R · TV  pbδ(· | x), p ⋆τ (· | x) ≤ R ε 
+
+r T
+
+8 .
+
+Step 3: Per-prompt improvement of p⋆τ over p0. Define the exponential tilting path qs(y1: T | x) := 
+
+p0(y1: T | x) es r (x,y 1: T )/Z s for s ≥ 0, and the log-partition function Λx(s) := log EY ∼p0(·| x)[es r (x,Y )].Then Λ′
+
+> x
+
+(s) = Eqs(·| x)[r] = Jx(qs) and Λ′′ 
+
+> x
+
+(s) = Var qs(·| x)(r), so 
+
+Jx(qs) − Jx(p0) = 
+
+Z s
+
+> 0
+
+Var qt(·| x)(r) dt. 
+
+Let Vx(t) := Var qt(·| x)(r). Since r ∈ [0 , R ], Grönwall’s inequality gives Vx(t) ≥ σ20 (x) e−Rt (cf. Lemma 9). Therefore, setting s = 1 /τ :
+
+Jx(p⋆τ ) − Jx(p0) ≥ σ20 (x)
+
+R
+
+ 1 − e−R/τ .
+
+Per-prompt bound. Combining Steps 2 and 3: 
+
+Jx(pbδ) − Jx(p0) ≥ σ20 (x)
+
+R
+
+ 1 − e−R/τ  − R ε pT / 8.
+
+Averaging over prompts. Taking Ex∼ρ of both sides and using linearity: 
+
+J(pbδ) − J(p0) ≥ V0
+
+R
+
+ 1 − e−R/τ  − R ε pT / 8, V0 := Ex∼ρ
+
+σ20 (x).
+
+36

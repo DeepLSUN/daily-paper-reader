@@ -1,0 +1,297 @@
+Title: DomainPilot: Domain-Level Loss-Guided Two-Stage Data Mixture Optimization for Efficient Language Model Fine-Tuning
+
+URL Source: https://arxiv.org/pdf/2607.22769v1
+
+Published Time: Tue, 28 Jul 2026 00:08:06 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+# DomainPilot: Domain-Level Loss-Guided Two-Stage Data Mixture Optimization for Efficient Language Model Fine-Tuning 
+
+He Zhang Tsinghua University 
+
+Abstract 
+
+The training efficacy of large language models (LLMs) is fundamentally constrained by the quality and composition of training data. Existing dynamic data scheduling methods face critical limitations in industrial-scale pretraining and supervised fine-tuning (SFT): data selection incurs prohibitive O(N ) costs on terabyte-scale corpora, mixture optimiza-tion schemes introduce severe I/O bottlenecks or require training auxiliary reference models, and sample-level reweighting strategies rely on loss signals that conflate noise, difficulty, and novelty. We present DomainPilot , a domain-level loss-guided two-stage data mixture optimiza-tion framework. DomainPilot introduces token-level domain loss monitoring to capture per-domain learning dynamics during training without halting the data pipeline. Build-ing on these signals, we propose a Scaling Law guided coarse optimization stage that fits domain-specific convergence curves and derives a principled prior for mixture adjustment. A subsequent Mixing Law guided fine optimization stage refines the mixture by modeling cross-domain interaction effects through controlled sweep experiments. The entire mecha-nism is realized via a patch-based architecture that injects domain-aware loss computation into existing training frameworks (e.g., MindSpeed/Megatron-LM) with only ∼30 lines of framework-specific adapter code. We validate DomainPilot on the Qwen3-1.7B model during SFT. Compared to the origi-nal data mixture, our optimized mixture achieves improvements of +2% on MMLU-Redux, 
+
++1 .8% on AIME24, +3 .8% on LiveCodeBench v5, and +3 .6% on BFCL v3, without increas-ing total data volume or training cost. These results demonstrate that domain-level training signals provide an effective, lightweight alternative to expensive data selection or auxiliary model training for mixture optimization. 
+
+# 1 Introduction 
+
+The performance of large language models (LLMs) is increasingly determined not by architec-tural innovations alone, but by the curation, composition, and weighting of training data [2, 3]. In the data-centric AI paradigm, even modest adjustments to data mixture ratios can yield improvements comparable to doubling model parameters [10]. Despite this, industrial-scale training pipelines still rely heavily on manual heuristics for multi-domain data blending, leaving substantial gains unrealized. 1arXiv:2607.22769v1 [cs.LG] 24 Jul 2026 Existing approaches to dynamic data scheduling fall into three broad categories, each with fundamental limitations in the pretraining or large-scale SFT regime: 
+
+Data selection methods such as LESS [8], DSIR [9], and Quad [7] identify high-value subsets by computing per-sample gradients or importance scores. While effective for fine-tuning, these techniques require an O(N ) forward pass over the entire corpus—a cost approaching one full training epoch—rendering them prohibitive for terabyte-scale pretraining. 
+
+Data mixture optimization methods such as DoReMi [10], CLIMB [1], and ScaleBiO [5] adjust domain proportions based on model feedback. DoReMi trains an auxiliary reference model (3 × compute overhead) and has only been validated at 30B tokens, two orders of magnitude below production pretraining. CLIMB relies on clustering to discover domains automatically, an unnecessary step when industrial data teams already maintain explicit domain taxonomies. ScaleBiO’s intra-batch dynamic rebalancing introduces severe I/O bottlenecks by converting se-quential reads into random accesses, invalidating prefetch caches and degrading GPU utilization. 
+
+Sample reweighting methods, exemplified by DataFlex [11] and RHO-1 [4], modify per-sample loss contributions during training. This paradigm avoids extra data traversal and is therefore the only lightweight option viable at scale. However, existing weighting strategies treat 
+
+sample-level loss as a proxy for data quality, overlooking the fact that high loss can indicate noise, difficult domain content, novel valuable information, or short-text statistical instability— phenomena that are indistinguishable from a single scalar. Compounding these algorithmic limitations is a framework portability barrier. DataFlex is tightly coupled to the HuggingFace Trainer ecosystem (modifying _inner_training_loop and 
+
+compute_loss ), whereas industrial pretraining predominantly runs on Megatron-LM-derived frameworks such as MindSpeed, which possess entirely independent training loops, data loaders, and loss computation paths. Select and Mix modes—which require rebuilding the DataLoader— are infeasible under Megatron’s memory-mapped binary data pipeline. Only Weight-like inter-ventions, which merely alter loss computation, are practically migrable. 
+
+1.1 Core Motivations 
+
+These observations motivate five core research questions that guide our work: 1. Absence of data-driven mixture optimization. Multi-domain training mixtures are typically set by manual tuning and remain static throughout training, ignoring the fact that different domains exhibit disparate learning dynamics. 2. Inadequacy of sample-level loss as a quality signal. A scalar loss cannot disentangle noise, difficulty, novelty, and instability; weighting decisions based solely on this signal risk amplifying corrupted data. 3. Incompatibility of existing schedulers with industrial-scale training. Online se-lection, reference-model training, and dynamic batch rebalancing all incur costs or infras-tructure changes that are unacceptable in production pretraining. 4. Unexplained epoch-boundary loss drops in SFT. The “staircase” loss reduction ob-served at epoch boundaries in repeated SFT training lacks systematic explanation, blurring 2the distinction between generalization and memorization. 5. Missing bridge between training feedback and data cleaning. Offline rule-based filtering lacks a mechanism to leverage live training signals for identifying and removing low-quality source data. 
+
+1.2 Contributions 
+
+We introduce DomainPilot , a domain-level loss-guided framework that addresses the above limitations through the following contributions: 1. Token-level domain loss monitoring. We implement a non-intrusive patch that tags each token with its domain identifier during preprocessing and aggregates per-domain losses during forward propagation, synchronized across data-parallel ranks with negligible over-head. 2. Two-stage mixture optimization pipeline. Stage 1 fits domain-specific Scaling Laws to extract learning-dynamic priors (convergence loss, convergence speed, initial amplitude) and computes a coarse reallocation. Stage 2 employs Mixing Law sweep experiments centered on the Stage 1 output to model cross-domain interactions and refine proportions within a 
+
+±20% local neighborhood. 3. Patch-based architecture. The framework adopts a two-layer design—a framework-agnostic algorithm layer (pure PyTorch) and a thin framework-specific adapter layer ( ∼30 lines per framework). This enables deployment on MindSpeed/Megatron-LM without mod-ifying the underlying training codebase. 4. Empirical validation on Qwen3-1.7B. Our optimized mixture improves over the original by up to +3 .8% on LiveCodeBench v5 and +3 .6% on BFCL v3, with consistent gains on MMLU-Redux ( +2% ) and AIME24 ( +1 .8% ), at no additional data or compute cost. 
+
+# 2 Related Work 
+
+We organize related work along the three axes introduced in Section 1: data selection, mixture optimization, and sample reweighting. Table 1 provides a high-level comparison. Table 1: Comparison of dynamic data scheduling paradigms. “Pretrain viable” indicates suit-ability for TB-scale pretraining or large-scale SFT.                        
+
+> Category Representative Signal Overhead Pretrain viab
+> Data Selection LESS, DSIR, Quad Gradient / Importance O(N)forward passes No Data Mixture DoReMi, CLIMB, ScaleBiO Excess loss / Clustering 3×train / I/O bottleneck No Sample Reweight DataFlex, RHO-1 Sample-level loss Negligible Partially
+> Ours DomainPilot Domain-level loss Negligible Yes
+
+32.1 Data Selection 
+
+Data selection aims to identify the most valuable training subset without altering the mixture ratios of the retained data. LESS [8] uses low-rank gradient similarity to select samples most influential for target tasks. DSIR [9] formulates selection as importance resampling toward a target distribution. Quad [7] jointly optimizes for quality and diversity. While theoretically appealing, all three require evaluating every candidate sample—a cost that scales linearly with corpus size and becomes impractical when N exceeds 10 9 tokens. 
+
+2.2 Data Mixture Optimization 
+
+Mixture optimization adjusts the proportions across domain-level data sources rather than se-lecting individual samples. DoReMi [10] trains a small proxy model alongside a reference model and up-weights domains where the proxy exhibits higher excess loss. The approach is princi-pled but requires training the reference model from scratch (3 × total compute) and has only been demonstrated at 30B tokens, far below production pretraining scales. CLIMB [1] discovers domains via clustering and iteratively searches for optimal proportions; however, when domain labels are already explicitly managed by data engineering teams, automatic clustering provides limited additional value. ScaleBiO [5] proposes intra-batch dynamic rebalancing, but changing per-batch sampling distributions breaks sequential-read assumptions in memory-mapped data pipelines, causing prefetch cache misses and GPU idle time that can negate model-quality gains. 
+
+2.3 Sample Reweighting 
+
+Sample reweighting modifies the contribution of each training example to the global loss with-out changing which samples are seen or in what proportion. Dynamic Loss Reweighting [11] systematically studies linear, quadratic, and extreme-value weighting strategies as a function of per-sample loss. RHO-1 [4] extends this to token-granular selective loss. Because reweight-ing only touches the loss computation, it incurs virtually no I/O or synchronization overhead, making it the sole paradigm feasible for trillion-token pretraining. The critical limitation of existing reweighting methods is their reliance on sample-level loss 
+
+as the sole signal. As noted in Section 1, sample loss conflates at least four distinct phenomena (novelty, noise, domain difficulty, and short-text instability). DataFlex partially addresses this through its Warmup strategy—disabling weighting until the model has partially adapted—but does not resolve the fundamental ambiguity of the signal. 
+
+2.4 Framework Portability 
+
+DataFlex is implemented within LLaMA-Factory [12], heavily overriding HuggingFace Trainer internals ( compute_loss , _inner_training_loop ). Industrial pretraining frameworks such as Megatron-LM [6] and MindSpeed build their own data loaders, training loops, and distributed communication patterns. Rebuilding the DataLoader for Select or Mix modes is infeasible under Megatron’s binary mmap pipeline. Consequently, only Weight-like interventions—which require merely intercepting per-sample loss and domain labels—are practically portable. DomainPilot’s patch-based architecture is designed explicitly around this constraint. 43 Methodology 
+
+DomainPilot comprises four interconnected components: (1) token-level domain loss monitoring that captures per-domain learning dynamics at training time; (2) Scaling Law guided coarse optimization that derives a principled prior for mixture reallocation; (3) Mixing Law guided fine optimization that refines proportions by modeling cross-domain interactions; and (4) a patch-based architecture that realizes these mechanisms without modifying the underlying training framework. We describe each in turn. 
+
+3.1 Domain Loss Monitoring 
+
+The foundation of DomainPilot is the ability to measure, at every training step, how much loss each domain contributes. Unlike sample-level loss—which conflates noise, difficulty, and novelty—domain-level loss aggregates signals across thousands of tokens within a domain, aver-aging out sample-specific outliers and revealing genuine learning trends. 
+
+Token-level domain identification. During preprocessing, the MultiDomainPackedHandler 
+
+performs knapsack packing over sub-samples from multiple domains. While packing, it tags each token with its source domain_id , producing paired binary files ( _packed_domain.bin/.idx )aligned with the standard token indices. Because packing can combine sub-samples from dif-ferent domains within a single sequence, domain labels are maintained at token granularity ,yielding a domain-id vector of length equal to the sequence length. 
+
+Data loading and forward propagation. The DecoderPackedMTFDataset loads token-level domain IDs alongside input IDs and injects them into the sample dictionary. The SFT trainer broadcasts domain IDs through the standard batch-communication path, passing them into the model’s forward method as keyword arguments. 
+
+Domain-wise loss aggregation. Inside the model forward pass, after the standard logits computation, a lightweight post-processing step groups tokens by domain_id and accumulates 
+
+(loss_sum , token_count ) pairs per domain. These statistics are stored in self._last_domain_losses .At each logging interval, a training-log patch performs DP All-Reduce across data-parallel ranks to obtain globally consistent domain losses, which are then written to TensorBoard and console logs. The entire pipeline adds <1% throughput overhead because it reuses existing loss tensors and only introduces lightweight indexing and reduction operations. 
+
+3.2 Scaling Law Guided Coarse Optimization 
+
+With domain loss trajectories in hand, Stage 1 fits a domain-specific Scaling Law to characterize how each domain’s loss evolves with training progress. The functional form is: 
+
+Li(D) = aiD−αi + bi (1) 5where D is the number of training steps (proxy for data volume), ai is the initial loss amplitude, bi is the irreducible (converged) loss, and αi is the convergence speed. Fitting this curve to the monitored trajectories yields three interpretable parameters per domain: 
+
+• ai: Reflects initial domain difficulty and pretraining familiarity. ai ≈ 0 indicates the model already possesses strong prior knowledge of the domain. 
+
+• bi: The asymptotic loss; higher values indicate inherently harder domains. 
+
+• αi: Learning efficiency; smaller values mean slower convergence and typically signal insuf-ficient data volume. 
+
+Four-factor reward score. We derive a coarse reallocation score by combining these param-eters: score i = bi
+
+min j bj
+
+× max j αj
+
+αi
+
+× Lcurr  
+
+> i
+
+− bi
+
+max j (Lcurr  
+
+> j
+
+− bj ) . (2) The three factors respectively capture: (i) convergence difficulty (higher bi needs more data), (ii) learning speed (lower αi needs more data), and (iii) remaining improvement headroom. The new mixture proportion is then: 
+
+pnew  
+
+> i
+
+= pold  
+
+> i
+
+· score i 
+
+> ∑
+> j
+
+pold  
+
+> j
+
+· score j
+
+. (3) Table 2 reports the fitted parameters for Qwen3-1.7B SFT. Table 2: Fitted Scaling Law parameters for Qwen3-1.7B SFT domains. 
+
+Domain ai bi αi R2 Action ∆ prop. 
+
+math 1.81 × 10 −11 2.117 0.112 0.635 Maintain 0% 
+
+termagent 1.78 × 10 −11 1.926 0.085 0.522 Increase +25% 
+
+swe 3.17 × 10 −17 1.990 0.098 0.429 Increase +15% 
+
+science 4.19 × 10 −17 2.000 0.102 0.386 Increase +12% 
+
+chat 1.282 1.156 0.548 0.183 Decrease −8% 
+
+Interpretation for Qwen3-1.7B. termagent exhibits the slowest convergence ( α = 0 .085 )and receives a +25% boost. swe (α = 0 .098 ) receives +15% . chat , conversely, converges fastest (α = 0 .548 ) and is reduced by −8% to free budget. math maintains its proportion because it is already learning efficiently despite high difficulty. 
+
+3.3 Mixing Law Guided Fine Optimization (Planned) 
+
+While Scaling Law characterizes intra-domain learning in isolation, real-world mixture opti-mization must account for cross-domain interactions —e.g., code data may indirectly improve mathematical reasoning through shared logical structure. We outline a second-stage Mixing Law 
+
+refinement procedure, which remains future work. 6Modeling cross-domain interactions. Let pnew denote the mixture produced by Stage 1. We model the validation loss of domain i under mixture p as a second-order expansion around 
+
+pnew :
+
+Li(p) ≈ Li(pnew ) + ∑
+
+> j
+
+Aij (pj − pnew  
+
+> j
+
+) + ∑
+
+> j,k
+
+Bijk (pj − pnew  
+
+> j
+
+)( pk − pnew  
+
+> k
+
+), (4) where A captures first-order sensitivity and B captures pairwise interaction effects. The interaction coefficients are estimated from a small grid of controlled sweep experiments in which each domain proportion is perturbed within a ±20% neighborhood of pnew while holding the total token budget fixed. 
+
+Stage 2 optimization. Given the fitted interaction model, the final mixture pfinal is obtained by solving a constrained optimization problem that minimizes the aggregate predicted validation loss subject to ∑ 
+
+> i
+
+pi = 1 and pi ≥ 0. Because Stage 2 requires additional sweep experiments, the empirical results reported in Section 5 reflect only Stage 1 (Scaling Law) optimization; Stage 2 validation is left as immediate future work. 
+
+3.4 Patch-Based Architecture 
+
+DomainPilot is implemented as a set of minimal, non-intrusive patches rather than a monolithic framework fork. This design respects the operational reality that production training stacks (MindSpeed, Megatron-LM, DeepSpeed) are under active development and cannot be frozen for algorithmic modifications. 
+
+Two-layer design. The architecture separates framework-agnostic algorithm logic (pure Py-Torch tensor operations) from framework-specific thin adapters (interceptors for batch construc-tion, forward arguments, and loss computation). Adding support for a new training framework requires only implementing the adapter interface ( ∼30 lines of Python), leaving the underlying framework untouched. 
+
+MindSpeed adapter overview. For MindSpeed, the patch set comprises: 
+
+• arguments_patch : Exposes –enable-domain-loss CLI flags. 
+
+• data_handler_patch : Persists token-level domain IDs during preprocessing. 
+
+• gpt_dataset_patch : Injects domain IDs into the sample dictionary. 
+
+• gpt_model_patch : Appends domain-wise loss aggregation to forward .
+
+• training_utils_patch : Broadcasts domain IDs and accumulates global statistics. This patch-based approach guarantees that upstream framework updates can be merged without conflict, and the algorithm layer can be validated independently via unit tests against synthetic tensors. 74 Experiment 
+
+4.1 Model and Training Setup 
+
+All experiments are conducted on the Qwen3-1.7B base model, a densely activated trans-former with 1.7 billion parameters. The supervised fine-tuning (SFT) stage is executed on the MindSpeed training framework, which is built atop Megatron-LM and represents the industrial standard for large-scale LLM pretraining and fine-tuning in our deployment environment. Training data comprises eight domains: chat , convagent , if (instruction following), math ,
+
+safety , science , swe (software engineering), and termagent . The original mixture ratios are determined by manual heuristic tuning. In the optimized mixture, ratios are adjusted according to the two-stage pipeline described in Section 3. 
+
+4.2 Domain Loss Monitoring 
+
+During training, we activate the Domain Loss monitoring patch to record per-domain loss tra-jectories. Domain identifiers are injected at the token level during data preprocessing: the 
+
+MultiDomainPackedHandler tags each token with its source domain while performing knapsack packing, producing paired _packed_domain.bin/.idx files. At each forward step, losses are aggregated by domain ID via DP All-Reduce synchronization across data-parallel ranks. Mon-itoring overhead is negligible ( <1% throughput degradation) because the patch only intercepts existing loss tensors without altering the data-loading pipeline. 
+
+4.3 Evaluation Benchmarks 
+
+We evaluate on four representative benchmarks covering diverse capabilities: 
+
+• MMLU-Redux : Comprehensive knowledge reasoning across 57 subjects. 
+
+• AIME24 : Mathematical competition-level reasoning, reported as Pass@1 / Cons@64. 
+
+• LiveCodeBench v5 : Code generation capability, reported as Pass@1 / Pass@5. 
+
+• BFCL v3 : Function calling and tool-use ability. 
+
+4.4 Baselines 
+
+We compare four model states: 1. Base : The pretrained Qwen3-1.7B checkpoint without any SFT. 2. SFT (report) : Scores reported in the official Qwen3 technical report for reference. 3. SFT (original) : Our reproduction using the original, manually tuned data mixture. 4. SFT (optimized) : Our reproduction using the mixture adjusted by DomainPilot’s two-stage pipeline. 85 Results 
+
+5.1 Main Results 
+
+Table 3 summarizes the benchmark scores across the four model states. Table 3: Benchmark comparison across model states. Optimization column shows relative im-provement of SFT (optimized) over SFT (original). 
+
+Benchmark Base SFT (report) SFT (original) SFT (optimized) Optimization 
+
+MMLU-Redux 61.66 73.9 69.8 71.8 +2% 
+
+AIME24 – 48.3 / 13.4 41.1 / 10.6 42.9 / 11.7 +1 .8% 
+
+LiveCodeBench v5 – 33.2 / 11.6 23.2 / 8.3 27.0 / 10.5 +3 .8% 
+
+BFCL v3 – 56.6 54.5 58.1 +3 .6% 
+
+The optimized mixture consistently outperforms the original mixture across all benchmarks. Notably, LiveCodeBench v5 and BFCL v3 —corresponding to the swe and termagent do-mains that Scaling Law analysis identified as under-represented—exhibit the largest relative gains ( +3 .8% and +3 .6% , respectively). MMLU-Redux improves by +2% , while AIME24 sees a 
+
++1 .8% gain. These improvements are achieved without increasing total training data or compute budget ; only the inter-domain proportions are reallocated. 
+
+5.2 Analysis by Capability Domain 
+
+Code Generation ( swe ). LiveCodeBench v5 Pass@1 rises from 23.2 to 27.0. The Scaling Law analysis had flagged swe as having low convergence speed ( α = 0 .098 ) and high convergence loss (b = 1 .990 ), signaling insufficient data. The optimized mixture increases the swe proportion by +15% , which directly translates into the largest benchmark improvement ( +3 .8% ). This validates that domain-level loss signals can accurately pinpoint bottleneck domains. 
+
+Agent / Tool Use ( termagent ). BFCL v3 improves from 54.5 to 58.1. termagent was identified as the slowest-learning domain ( α = 0 .085 ), and its mixture share is boosted by 
+
++25% . The resulting +3 .6% gain confirms that even domains with small initial representation can yield substantial downstream improvements when adequately resourced. 
+
+Mathematical Reasoning ( math ). AIME24 improves modestly from 41.1/10.6 to 42.9/11.7. The Scaling Law parameters for math (b = 2 .117 , α = 0 .112 ) indicated that the domain is inherently difficult but already learning efficiently under the original mixture. Consequently, DomainPilot recommends maintaining the math proportion, and the observed micro-gain is consistent with expectations. 
+
+General Knowledge ( chat + others). MMLU-Redux improves by +2% . The chat domain was flagged as potentially over-represented ( α = 0 .548 , fastest convergence), and its proportion is reduced by −8% , freeing budget for swe and termagent . The fact that general-knowledge performance still improves suggests that the original mixture had misallocated resources away from higher-impact domains. 95.3 Comparison with Stronger Baselines 
+
+To contextualize the gains, we compare against two stronger baselines in Table 4. Table 4: Comparison against stronger baselines: Qwen2.5-3B (larger model) and DeepSeek-R1-Distill-Qwen-1.5B (distilled model). 
+
+Benchmark Qwen2.5-3B DeepSeek-R1-Distill-1.5B Ours (Optimized) 
+
+LiveCodeBench v5 9.2 13.2 27.0 BFCL v3 50.4 52.2 58.1 MATH-500 67.2 83.9 94.0 AIME24 – 28.9 42.9 
+
+vs. Qwen2.5-3B. Despite having only 57% of the parameters, the optimized Qwen3-1.7B surpasses Qwen2.5-3B on BFCL v3 ( +15 .6% relative) and MATH-500 ( +10 .1% relative). This suggests that data mixture optimization can unlock effective capacity equivalent to a 2 × pa-rameter scaling at a fraction of the training cost. 
+
+vs. DeepSeek-R1-Distill-Qwen-1.5B. The optimized model widens its lead over this knowledge-distilled counterpart on all benchmarks, notably LiveCodeBench ( +27 absolute points). This underscores that native training with principled mixture optimization outperforms distillation-based approaches when data composition is carefully tuned. 
+
+5.4 Cost-Benefit Analysis 
+
+Table 5 compares the cost-effectiveness of different improvement strategies. Table 5: Cost-benefit comparison of improvement strategies. 
+
+Strategy Relative Cost Key Gain Efficienc 
+
+Full SFT (Base → Original) 1× Capability doubling High Mixture Optimization (Original → Optimized) ∼0.1 × +3.6–3.8% on key domains Extremely h 
+
+Scale to 3B parameters 3× Partial improvement Low Mixture optimization requires only lightweight sweep experiments ( ∼10% of a full SFT run) yet delivers gains comparable to 50% of the benefit from doubling model size, with zero inference-cost penalty. 
+
+# 6 Conclusion 
+
+We presented DomainPilot, a domain-level loss-guided framework for two-stage data mixture optimization. By monitoring per-domain loss trajectories at token granularity through a non-intrusive patch architecture, DomainPilot extracts scalable signals that characterize how each domain learns during training. These signals feed a Scaling Law coarse-optimization stage that identifies under- or over-represented domains, followed by a Mixing Law fine-optimization stage that models cross-domain interactions through controlled sweep experiments. 10 Empirical validation on Qwen3-1.7B SFT demonstrates consistent improvements across di-verse benchmarks: +3 .8% on LiveCodeBench v5, +3 .6% on BFCL v3, +2% on MMLU-Redux, and +1 .8% on AIME24. Crucially, these gains are achieved solely by reallocating existing data proportions, with no increase in total data volume, training compute, or inference cost. Com-parison against Qwen2.5-3B further suggests that principled mixture optimization can unlock effective capacity equivalent to a 2× parameter scaling. 
+
+Limitations. Our current validation is limited to the 1.7B parameter scale and the SFT stage; pretraining-scale validation remains future work. The Mixing Law sweep experiments (Stage 2) are not yet complete, so the reported results reflect only Scaling Law coarse optimization. Addi-tionally, the Weight mechanism migration (Section 3) remains at the architectural-design stage and has not been experimentally validated. 
+
+Future work. We identify four immediate directions: 1. Larger-scale validation. Apply DomainPilot to Qwen3-4B and 8B models, and to the pretraining stage, to verify that domain-level scaling laws hold across model sizes and training regimes. 2. Cross-architecture transfer. Implement the thin adapter layer for HuggingFace Trainer and native Megatron-LM to demonstrate framework portability. 3. Weight mechanism integration. Combine domain-level reweighting with sample-level quality scores (e.g., offline LLM-based ratings) to disentangle noise from genuine difficulty. 4. Data cleaning feedback loop. Use domain loss and ∆Loss signals to identify low-quality source documents and establish a closed-loop pipeline from training feedback to data curation. 
+
+# References 
+
+[1] Shizhe Diao et al. Nemotron-climb: Clustering-based iterative data mixture optimization. 
+
+Advances in Neural Information Processing Systems , 38, 2025. [2] Jordan Hoffmann, Sebastian Borgeaud, Arthur Mensch, Elena Buchatskaya, Trevor Cai, Eliza Rutherford, Diego de Las Casas, Lisa Anne Hendricks, Johannes Welbl, Aidan Clark, et al. Training compute-optimal large language models. arXiv preprint arXiv:2203.15556 ,2022. [3] Jared Kaplan, Sam McCandlish, Tom Henighan, Tom B Brown, Benjamin Chess, Rewon Child, Scott Gray, Alec Radford, Jeffrey Wu, and Dario Amodei. Scaling laws for neural language models. arXiv preprint arXiv:2001.08361 , 2020. [4] Zhenghao Lin, Zhibin Gou, Yeyun Gong, Xiao Liu, Yelong Shen, Ruochen Xu, Chen Lin, Yujiu Yang, Jian Jiao, Nan Duan, and Weizhu Chen. Rho-1: Not all tokens are what you need. arXiv preprint arXiv:2404.07965 , 2024. 11 [5] Renjie Pan, Dong Zhang, Haobo Zhang, Xiangming Pan, Mengdi Xu, Jiawei Zhang, Renjie Pi, Xiang Wang, and Tie Zhang. Scalebio: Scalable bilevel optimization for llm data reweighting. Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics , 2025. [6] Mohammad Shoeybi, Mostofa Patwary, Raul Puri, Patrick LeGresley, Jared Casper, and Bryan Catanzaro. Megatron-lm: Training multi-billion parameter language models using model parallelism. arXiv preprint arXiv:1909.08053 , 2019. [7] Alexander Wettig, Tianyu Li, Minjia Kim, Zexuan Yao, and Danqi Zhang. Qurating: Select-ing high-quality data for training language models. International Conference on Machine Learning , 2024. [8] Mengzhou Xia, Sadhika Malladi, Suchin Gururangan, Sanjeev Arora, and Danqi Chen. Less: Selecting influential data for targeted instruction tuning. arXiv preprint arXiv:2402.04333 ,2024. [9] Sang Michael Xie, Tengyu Liang, and Tengyu Ma. Data selection for language models via importance resampled mcmc. Advances in Neural Information Processing Systems , 36, 2023. [10] Sang Michael Xie, Hieu Pham, Xuanyi Dong, Nan Du, Hanxiao Liu, Yifeng Lu, Percy Liang, Tengyu Ma, and Adams Wei Yu. Doremi: Optimizing data mixtures speeds up language model pretraining. Advances in Neural Information Processing Systems , 36, 2023. [11] Zhengyang Zhao, Meiyi Qiang, Mingrui Chen, Lu Ma, Rongyi Yu, Hengyi Feng, Shixuan Sun, Zimo Meng, Xiaochen Ma, Xuanlin Yang, Qifeng Cai, Ruichuan An, Bohan Zeng, Zhen Hao Wong, Chengyu Shen, Runming He, Zhaoyang Han, Yaowei Zheng, Fangcheng Fu, Conghui He, Bin Cui, Zhiyu Li, Weinan E, and Wentao Zhang. Dataflex: A unified framework for data-centric dynamic training of large language models. arXiv preprint arXiv:2603.26164 , 2026. [12] Yaowei Zheng, Richong Zhang, Junhao Zhang, Yanhan Ye, Zheyan Luo, and Yongqiang Zhang. Llamafactory: Unified efficient fine-tuning of 100+ language models. arXiv preprint arXiv:2403.13372 , 2024. 12

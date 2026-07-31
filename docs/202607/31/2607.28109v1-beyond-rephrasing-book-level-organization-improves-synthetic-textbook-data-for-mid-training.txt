@@ -1,0 +1,884 @@
+Title: Beyond Rephrasing: Book-Level Organization Improves Synthetic Textbook Data for Mid-Training
+
+URL Source: https://arxiv.org/pdf/2607.28109v1
+
+Published Time: Fri, 31 Jul 2026 00:58:04 GMT
+
+Number of Pages: 31
+
+Markdown Content:
+> 2026-7-31
+
+# Beyond Rephrasing: Book-Level Organization Improves Synthetic Textbook Data for Mid-Training 
+
+Jiawen Tao 1,2 *, Miao Peng 1,3 *, Yaoming Li 2, Xiaokun Yuan 1,2 , Mengzhou Wu 1,2 
+
+Wenhan Yu 2, Guoan Wang 1,2 , Nuo Chen 1† , Tong Yang 2† , Maxm Pan 1† 1Hunyuan Team, Tencent 
+
+> 2
+
+Peking University 
+
+> 3
+
+The Hong Kong University of Science and Technology (Guangzhou) 
+
+taojiawen@stu.pku.edu.cn yangtong@pku.edu.cn {maxmpan,kkelvinchen}@tencent.com 
+
+Synthetic textbook data has improved language model pre-training, but prior work largely treats the benefit as a property of generated content or local rewriting style. We study a different factor: whether related content is organized into coherent book-level documents. We contribute both a scalable synthesis pipeline and controlled evidence that this organization matters. The pipeline retrieves source material from a pre-training corpus, clusters it into topical units, plans hierarchical tables of contents, and assembles source-grounded sections into complete books (our Full setting), yielding 686K textbooks (32B tokens) across 15,000+ disciplines. Replacing natural books in a mid-training mix with this corpus improves downstream performance by +1.09 on average. Controlled comparisons then disentangle the relevant design factors. A content-matched Split condition holds generated text and tokens fixed but treats each section as an independent document; Full’s +1.02 mean gain isolates document packaging . A length-matched RandomConcat control that joins sections from different books remains below Full, ruling out document length alone. A retrieval-pool-matched Rephrase condition independently rewrites individual retrieved documents under the same audience ×style scheme, without clustering, TOC planning, or book assembly; Full’s +1.17 gain demonstrates the value of structured synthesis . On Llama3-8B, Full likewise outperforms both RandomConcat and Natural Books, supporting book-level organization as a useful axis for synthetic pre-training data design. 
+
+## 1. Introduction 
+
+Large language models derive their capabilities primarily from the scale, quality, and structure of pre-training data. Prior work on synthetic textbooks has shown that pedagogically written training data can improve model capabilities Gunasekar et al. (2023); Li et al. (2023). This line of work has mainly emphasized content, namely the knowledge and explanations written into the text, or local rewriting style. By contrast, the question of how that content is organized , assembled into coherent books rather than left as a flat collection of passages, remains underexplored. We argue that organization is not incidental. On the generation side, a book-level plan provides the scaffold needed to turn scattered retrieved materials into long, structured, and coherent textbook data rather than a collection of locally plausible passages. On the training side, preserving that structure determines whether planned adjacent sections remain in a shared document with continuous positions and shared intra-document attention, or are split into independent examples with resets between sections. Our central question is therefore 
+
+> *Equal contribution.
+> †Corresponding authors. arXiv:2607.28109v1 [cs.AI] 30 Jul 2026 Beyond Rephrasing: Book-Level Organization Improves Synthetic Textbook Data for Mid-Training
+
+whether book-level organization adds value both when constructing synthetic data and when preserving that data as training documents, beyond the content itself or the local cleanup obtained by rephrasing individual documents. To study this question at scale and produce structured, high-quality, long-form textbook data for mid-training, we introduce a retrieval-grounded pipeline over a pre-training corpus. Guided by a discipline taxonomy covering 15,000+ domains, it retrieves and clusters source documents, plans hierarchical tables of contents (TOCs) with quality filtering, and assembles source-grounded sections into complete books. The resulting corpus contains 686K textbooks and 32B tokens; it serves both as a scalable mid-training resource and as the empirical basis for controlled experiments that isolate the value of book-level organization. Replacing the natural-book portion of a mid-training mix with this corpus improves the 28-benchmark mean by +1.09 . To understand where this gain comes from, we perform controlled comparisons that separately isolate training-time document organization, document length, and structured synthesis. Our Full setting retains each TOC-planned textbook as a complete training document. We compare it against three controls: 
+
+Split holds Full’s generated sections and token budget fixed but treats each section independently, resetting positions and intra-document attention; RandomConcat joins these Split sections across books to match Full’s length distribution, separating document length from planned adjacency; and Rephrase independently rewrites individual documents from the same retrieval pool under the same audience ×style scheme, without clustering, TOC planning, or book assembly. Across these comparisons, organizing related content into coherent books consistently outperforms the alternatives, showing that book-level organization—not merely rewritten content or longer documents—is central to the effectiveness of synthetic textbooks for mid-training. Our contributions are threefold: • Scalable retrieval-grounded textbook synthesis. We introduce a pipeline that organizes retrieved material into TOC-planned, source-grounded books, producing 686K textbooks (32B tokens) across 15,000+ disciplines. • Preserving book structure benefits model training. Content- and length-matched controls separate planned document continuity from generated text and document length, showing that preserving coherent book boundaries benefits training across two model architectures. • Structured synthesis outperforms local rewriting. A matched rewriting control shows gains from global book construction beyond independent document rewriting, while component ablations identify retrieval, cluster-informed planning, and hierarchical generation as complementary design factors. 
+
+## 2. Related Work 
+
+Synthetic Textbooks and Rewriting. Synthetic corpora such as TinyStories Eldan and Li (2023) and the “Textbooks Are All You Need” line of work Abdin et al. (2024); Gunasekar et al. (2023); Javaheripi and Bubeck (2023); Li et al. (2023) showed the value of high-quality pedagogical data. Cosmopedia Ben Allal et al. (2024b) scaled this direction with synthetic textbooks and blog posts generated from curated web seeds, while WRAP Maini et al. (2024) rephrases existing documents into cleaner styles. More structured variants move beyond flat topic prompting: Cosmopedia v2 uses a BISAC-style topic taxonomy and web retrieval to broaden educational coverage Ben Allal et al. (2024a); LiteLong uses BISAC-guided topics and BM25 retrieval to construct long-context training sequences Jia et al. (2026); and ACER generates TOC-based textbooks plus Bloom-taxonomy QA curricula for targeted domain knowledge infusion Neema et al. (2025). These works improve coverage, grounding, and pedagogy but typically produce seed-level documents, long-context concatenations, or domain-specific curricula. We instead construct clustered, TOC-planned books from retrieved corpus material and test whether preserving this organization matters. Our Rephrase baseline (§4) distinguishes this from per-document rewriting by matching Full’s retrieval pool and audience ×style variation while omitting clustering, TOC planning, and book assembly. 
+
+> 2
+
+Beyond Rephrasing: Book-Level Organization Improves Synthetic Textbook Data for Mid-Training 1 2 3 4        
+
+> 4 × 4 = 16 TOCs
+> Chapter 1 Chapter 2 Chapter M
+> Sec 1.1 Sec 1.k Sec 2.1 Sec 2.k Sec M.1
+> Sec 1.1 · 1.2
+> · 1.k
+> Sec 2.1 · 2.2
+> · 2.k
+> Sec M.1
+> · M.k
+> Chapter 1 Chapter 2 Chapter M
+
+Phase I: Knowledge Extraction  Phase II: Structured Generation 
+
+Discipline Taxonomy 
+
+> 4-level • 15,387 targets
+
+Pre-Training Corpus 
+
+> web • books • papers
+
+Step 0: Query Generation 
+
+> 10–15 statement queries per discipline
+
+Step 1: Document Retrieval 
+
+> Top-100 docs per query • keyword retrieval
+
+Step 2: Chunking + Clustering + Summarization 
+
+> Document
+> Chunking
+> ~4K chars/chunk
+> Embedding +
+> KMeans
+> (K=40)
+> LLM Theme
+> Summary
+> Relevance
+> Filter
+> ~10% off-topic
+> clusters removed
+> discard
+> off-topic
+
+… Retained themed clusters 
+
+> ~90% retained after relevance filtering
+
+Step 3: Hierarchical TOC Planning       
+
+> Generate structured TOCs from retained cluster summaries
+> TOC Structure Cluster ↔ Section Mapping
+> …
+> TOC Quality Gate
+> 6 dimensions • LLM judge ✓Pass (91.8%) ✕Fail (8.2%) discard
+
+Step 4: Grounded Section Generation + Assembly     
+
+> Source-grounded writing for each TOC leaf
+> Doc-to-Section Grounding Assembly: sections → chapters → textbook
+> TOC leaf 10 source chunks
+> sampled from
+> mapped clusters
+> Generated
+> section ……
+> Assembled textbook
+
+Mid-Training Data     
+
+> 686K textbooks • 32B tokens • diverse and grounded
+> Input LLM-powered step Processing step Filter / Quality gate Output
+> Sec 1.1
+> Sec 1.2
+> Sec 1.3
+> Sec M.1
+
+⋮
+
+> Cluster 01
+> Cluster 02
+> Cluster 40
+> …
+> 0…N clusters
+> 0…N clusters
+> 0…N clusters
+> (a leaf can attach
+> multiple clusters)
+
+Figure 1 | Overview of the five-stage retrieval-grounded textbook synthesis pipeline. Phase I (Steps 0–2) extracts and organizes knowledge from the pre-training corpus. Phase II (Steps 3–4) plans structured TOCs and generates source-grounded content. 
+
+Data Curation, Grounding, and Mid-Training. Data curation methods improve existing corpora through filtering, deduplication, selection, or mixture weighting Lee et al. (2022); Li et al. (2024); Penedo et al. (2024); Soldaini et al. (2024); Wettig et al. (2024); Xie et al. (2023); Zhang et al. (2025). Retrieval-augmented and retrieval-grounded methods use retrieved documents to improve factuality, domain adaptation, or supervi-sion Borgeaud et al. (2022); Guu et al. (2020); Lewis et al. (2020); Lupidi et al. (2024); Zhang et al. (2024). Mid-training and continued pre-training inject domain knowledge without full retraining Cheng et al. (2024); Gururangan et al. (2020); Mo et al. (2025); Taylor et al. (2022). Our work is complementary: it uses retrieval not only to select or ground examples, but to transform corpus material into long-form, book-organized training documents for mid-training. 
+
+Document Boundaries, Packing, and Sequence Composition. A separate line of work studies how training examples are assembled into sequences, independent of their content. In-Context Pretraining Shi et al. (2024) packs related documents into the same context, SPLiCe uses retrieval to pack mutually relevant documents for long-context training Staniszewski et al. (2025), best-fit packing reduces cross-document truncation Ding et al. (2024), and Zhao et al. (2024) analyze how intra-document masking and sequence composition affect pre-training. Our Full vs. Split comparison asks the analogous question for synthetic textbooks: holding content and tokens fixed, does preserving a book’s planned sections as one document help beyond treating each section as an independent training example? 
+
+Positioning. Together, these lines motivate organization as a first-class data-design axis. We construct retrieved, TOC-planned books and test planned book boundaries rather than post-hoc sequence assembly. 
+
+3Beyond Rephrasing: Book-Level Organization Improves Synthetic Textbook Data for Mid-Training 
+
+## 3. Method 
+
+3.1. Overview 
+
+We propose a five-stage pipeline that transforms raw pre-training corpora into structured, textbook-form training data. As illustrated in Figure 1, the pipeline takes two inputs: (1) a discipline taxonomy covering 15,000+ knowledge domains, and (2) a pre-training corpus indexed for retrieval. The pipeline is organized into two phases. Phase I (Knowledge Extraction, Steps 0–2) generates diverse queries from the taxonomy, retrieves relevant documents, and organizes them into thematic clusters. Phase II 
+
+(Structured Generation, Steps 3–4) plans hierarchical table-of-contents structures, applies quality filtering, and generates source-grounded textbook content. The key design principles are: (i) retrieval grounding at every generation stage to mitigate hallucination (§6.2); (ii) hierarchical TOC planning for pedagogical structure; and (iii) multi-variant generation across audiences and styles for distributional diversity. 
+
+3.2. Discipline Taxonomy & Query Generation                                      
+
+> Table 1 |Taxonomy coverage by domain.
+> Domain L1 L2 L3 L4 L3+L4
+> Natural Sciences 10 148 838 3,737 4,575 Engineering & Technology 23 236 722 3,272 3,994 Humanities & Social Sci. 19 251 857 4,090 4,947 Medicine 682 162 887 1,049 Agriculture & Life Sci. 437 151 671 822
+> Total 62 754 2,730 12,657 15,387
+
+Taxonomy. We construct a four-level disci-pline taxonomy for systematic knowledge cov-erage. The first three levels (62 L1 / 754 L2 / 2,730 L3 nodes) are adopted from the Chinese National Standard of Discipline Classification (GB/T 13745). An LLM then expands the L3 nodes into 12,657 finer-grained Level-4 subfields. To avoid inflated coverage from near-duplicate LLM expansions, we perform LLM-assisted dedu-plication under every L2 discipline before finaliz-ing the L4 nodes. We use both the 2,730 L3 nodes and the 12,657 L4 nodes as generation targets, for a total of 15,387 disciplines (i.e., L3 + L4 ; Table 1) spanning five broad domains. 
+
+Query Generation. For each leaf discipline, an LLM generates 10–15 diverse queries in statement form ,covering different knowledge angles (core concepts, methods, applications, limitations). We choose statement-form queries because they better match the declarative register of pre-training text and produced higher cluster-retention rates in pilot relevance checks (Appendix D). 
+
+Running Example. Feedforward Neural Networks (CS → AI → Neural Networks) → 14 statement queries, e.g., “The backpropagation algorithm efficiently computes gradients of a loss function with respect to all network parameters.” 
+
+3.3. Retrieval and Clustering 
+
+Each query retrieves the top-100 passages from the pre-training corpus via keyword matching. Passages across all queries for a discipline are aggregated and deduplicated. The methodology is retrieval- and corpus-agnostic: dense retrievers or other indexed corpora can be substituted. Retrieved documents are split into chunks, embedded with a text embedding model, and clustered via KMeans. Clustering turns a flat retrieval ranking into a structured knowledge map : each cluster is a coherent subtopic that can map to chapters or sections, rather than an undifferentiated list ranked only by retrieval score. 
+
+> 4Beyond Rephrasing: Book-Level Organization Improves Synthetic Textbook Data for Mid-Training
+
+For each cluster, representative documents (by centroid proximity) are sampled and an LLM generates a one-sentence theme summary. Simultaneously, the LLM judges whether the cluster falls within the discipline’s scope; off-topic clusters are excluded from subsequent TOC planning. 
+
+Running Example. 1,346 unique documents retrieved → 40 clusters. Themes include “Universal Approxi-mation Theory”, “SGD and Learning Rate Scheduling”, “Physics-Informed Neural Network Training”. 
+
+3.4. TOC Planning with Quality Gate TOC Generation. Given the filtered cluster map, the planner converts a set of retrieved subtopics into an explicit book blueprint rather than a flat topic list. Its input contains the discipline path, the target audience and writing style, the global length budget, and for each retained cluster: a theme summary, representative evidence snippets, and its in-scope judgment. The LLM must output a machine-readable hierarchical TOC (chapters → sections → leaf sections). Each leaf specifies (i) a title and short learning objective, (ii) the source cluster IDs it draws from, and (iii) a token-budget estimate used later by the section generator. This makes the TOC a routing structure: downstream generation can retrieve the exact source chunks associated with each leaf, and the assembly step can preserve the planned chapter/section order. We generate TOCs for 4 audiences × 4 styles = 16 variants per discipline. The variants are not simple paraphrases: audiences select different levels of abstraction from the retrieved reference pool (e.g., intuitive motivation for high-school readers versus formal definitions and frontier issues for researchers), while styles induce different organizational skills such as exposition, procedural tutoring, encyclopedic coverage, and practitioner-oriented case analysis. This produces distributional diversity while keeping all variants anchored to the same retrieved knowledge map. 
+
+Quality Gate. Before generating any section text, we apply an LLM-based quality gate to each candidate TOC. The judge evaluates whether the plan is coherent, appropriate for the requested audience/style, sufficiently grounded in the retained source clusters, and ready for section-level generation. TOCs that fail this gate are discarded, since structural defects would otherwise propagate to every descendant section and are cheaper to catch at the planning stage than after full-book generation. Corpus-level pass rates and their audience/style variation are reported in §4 (Table 2). 
+
+Running Example. 15 of 16 TOC variants pass quality gate. College/textbook variant: 4 chapters, 16 sections, referencing 26/35 clusters. 
+
+3.5. Source-Grounded Generation & Assembly 
+
+For each TOC leaf node, several source chunks are sampled from its mapped clusters and provided as context to the LLM. The model writes section content conditioned on retrieved evidence , ensuring each section is grounded in corpus material rather than relying solely on parametric knowledge. This section-by-section approach maintains retrieval anchoring throughout long-form generation. Sections are assembled into complete books following the TOC hierarchy. For each passed TOC variant, we generate multiple independent books by resampling source chunks, yielding many textbook variants per discipline under the same global plan and audience/style specification. 
+
+Running Example. 45 books generated from 15 passed TOCs ( ×3 copies), comprising 630 sections and 10.5M characters. Sample edition: 4 chapters, 16 sections, 257K characters. 
+
+> 5Beyond Rephrasing: Book-Level Organization Improves Synthetic Textbook Data for Mid-Training
+
+## 4. Experimental Setup 
+
+Model and Training. We train five matched variants of the same in-house mixture-of-experts (MoE) language model with 3B active parameters (30B total). Each uses the same 200B-token mid-training mix (one epoch) spanning web, math, papers, books, and other sources. Optimizer, schedule, batch size, tokenizer, and data order are held fixed; the only manipulated component is the book portion of the mix (16B tokens, 8%). This fixed allocation matches the original book slice, providing a practical replacement setting while keeping the overall mixture and token budget unchanged; we do not optimize the synthetic-data proportion. As a transfer check, we also mid-train Llama3-8B under three book conditions (Full, RandomConcat, Natural Books). Each uses the same 100B-token mixture with an 8B-token book slice (8%); data order, training steps, optimizer, and learning-rate schedule are held fixed, and only the book condition changes. Detailed hyperparameters are in Appendix F. The five primary MoE runs and three Llama runs require approximately 89.6K and 39.9K H800 GPU-hours, respectively. 
+
+Pipeline components. Retrieval uses keyword matching over an in-house pre-training corpus (top-100 passages per query). Retrieved passages are chunked ( ∼4K characters), embedded with OpenAI’s text-embedding-3-small, and clustered with KMeans ( K=40 ). Query generation, TOC planning, and the quality gate use DeepSeek-V3.2; Qwen3.5-35B-A3B generates sections from k=10 source chunks (§6.1). Intrinsic-quality ablations use Gemini-3.1-Pro as an independent judge; it does not generate or filter training data. Key parameters were fixed in pilots over 50 disciplines; full prompts are in the appendix. 
+
+Corpus Statistics. The pipeline generates 249K TOCs, of which 91.8% pass the quality gate (Table 2); high-school variants have the lowest pass rate, reflecting the difficulty of simplifying university-level source material. From passed plans we produce 686K books totaling 32B tokens, with up to 48 variants per discipline (16 audience ×style TOCs × 3 resampled books). Final text generation costs 20K H20 GPU-hours for Full versus 19.7K for Rephrase; Full adds about 1K for cluster summarization, with other upstream costs being small relative to final generation.                                   
+
+> Table 2 |TOC quality gate pass rate (%) by audience ×style.
+> Audience Blog Textbook Tutorial Wiki Avg
+> High School 90.0 72.9 80.2 60.2 75.8 College 98.6 97.8 96.2 96.8 97.3 Researcher 98.1 97.8 93.9 97.4 96.8 Practitioner 98.2 96.5 97.5 95.9 97.0
+> Avg 96.2 91.3 92.0 87.6 91.8
+
+Full (ours) replaces the book slice with text-books from our 32B-token corpus and keeps each book as one document. Split uses identical text and tokens but makes each section independent. 
+
+RandomConcat groups sections from different books to match Full’s document-length distri-bution. Rephrase independently rewrites docu-ments from the same retrieval pool under the same audience ×style scheme, without clustering, TOC planning, or book assembly, under the same 16B-token budget. Natural Books retains the original book slice as a practical, unmatched baseline. Together, these controls test packaging, planned adjacency, structured synthesis, and practical replacement (Figure 2). 
+
+Sequence packing. All conditions use sequence packing with intra-document attention masking : tokens attend only to tokens from the same document, and both attention and position indices are reset at document boundaries. 
+
+Book lengths. TOC planning targets a book-scale budget of about 50K training tokens ( ≈37K English words under the prompt conversion of 0.75 words per token). Figure 3 shows that realized books concentrate near this scale (median 44.2K; 90% fall between 32K and 64K). 
+
+> 6Beyond Rephrasing: Book-Level Organization Improves Synthetic Textbook Data for Mid-Training
+
+Figure 2 | Training conditions. Split holds generated text and tokens fixed; RandomConcat matches Full’s document lengths using sections from different books; Rephrase independently rewrites documents from the same retrieval pool; Natural Books is the original-mix reference.   
+
+> Figure 3 |Book-length histogram and CDF from a 20% per-shard sample.
+
+Decontamination. We remove generated books flagged by mixed Chinese/English 13-gram over-lap with benchmark tests (Appendix I). Only 
+
+∼0.07% of tokens are flagged in either retrieved sources or generated books, making verbatim leak-age unlikely to explain the gains. 
+
+Evaluation. We evaluate on 28 benchmarks span-ning STEM (Hendrycks et al., 2021b; Ma et al., 2025; Rein et al., 2024; Shi et al., 2023), knowl-edge and multilingual understanding (Bandarkar et al., 2024; Goyal et al., 2022; Hendrycks et al., 2021a; Huang et al., 2023; Kwiatkowski et al., 2019; M-A-P et al., 2025; Wang et al., 2024; Wei et al., 2024; Zhong et al., 2024), reasoning and mathematical word-problem solving (Cobbe et al., 2021; Dua et al., 2019; Sap et al., 2019; Suzgun et al., 2023; Zellers et al., 2019), and code (Austin et al., 2021; Chen et al., 2021; Jain et al., 2025; Liu et al., 2023; Zhuo et al., 2025) (Table 3). All conditions use identical evaluation settings in a unified harness: multiple-choice tasks use few-shot likelihood scoring, while generative tasks use greedy decoding (tempera-ture 0), except where the benchmark’s standard protocol requires sampling. Protocol details are provided in Appendix A. 
+
+## 5. Results 
+
+We report two matched mid-training studies: five book conditions on a 3B-active MoE (Table 3) and three on Llama3-8B (Table 4). The latter tests transfer across architectures. 
+
+Book boundaries help beyond identical content. Split resets positions and intra-document attention at each section; RandomConcat restores Full-matched lengths by random grouping but destroys planned coherence. Full exceeds content-identical Split on 22/28 benchmarks ( +1.02 ), leading every category mean (code +2.23 ,reasoning +1.35 , knowledge +0.61 , STEM +0.56 ). Length-matched RandomConcat ties Split (54.89 vs. 54.88) but trails Full by 1.01 (21/28 wins; Appendix E), supporting planned adjacency beyond length matching and fewer resets. 
+
+> 7Beyond Rephrasing: Book-Level Organization Improves Synthetic Textbook Data for Mid-Training
+
+Table 3 | Downstream benchmark results at a fixed mid-training checkpoint. ∆S, ∆R, and ∆N denote Full minus Split, Rephrase, and Natural Books, respectively. Bold marks the best among Full, Split, and Rephrase per benchmark (Natural Books is compared separately via ∆N and is never bolded); italic rows report unweighted category means. 
+
+Category Benchmark Scores Deltas Full (ours) Split Rephrase Natural Books ∆S ∆R ∆N
+
+STEM CMATH 85.17 85.00 83.50 82.83 +0.17 +1.67 +2.34 MATH 50.10 49.72 50.20 50.65 +0.38 −0.10 −0.55 U-MATH 37.43 35.79 36.54 37.32 +1.64 +0.89 +0.11 MGSM 69.24 68.91 68.65 69.45 +0.33 +0.59 −0.21 GPQA-Diamond 33.20 30.05 32.79 26.29 +3.15 +0.41 +6.91 UGPhysics 19.62 19.76 18.80 19.49 −0.14 +0.82 +0.13 KORBench 40.24 41.84 35.36 35.92 −1.60 +4.88 +4.32 
+
+STEM mean 47.86 47.30 46.55 45.99 +0.56 +1.31 +1.86 Knowledge MMLU 76.18 76.24 76.09 76.76 −0.06 +0.09 −0.58 MMLU-Redux 77.28 76.91 76.96 77.81 +0.37 +0.32 −0.53 MMLU-Pro 49.65 49.07 49.13 49.07 +0.58 +0.52 +0.58 C-Eval 81.20 81.13 80.24 80.68 +0.07 +0.96 +0.52 SuperGPQA 32.51 32.37 33.22 33.11 +0.14 −0.71 −0.60 NaturalQuestions 35.40 34.88 32.47 35.18 +0.52 +2.93 +0.22 AGIEval-EN 55.13 54.26 54.51 53.89 +0.87 +0.62 +1.24 INCLUDE-Base-44 71.34 70.66 70.13 71.05 +0.68 +1.21 +0.29 SimpleQA 9.00 8.54 8.45 8.59 +0.46 +0.55 +0.41 FLORES 26.88 24.24 26.33 24.05 +2.64 +0.55 +2.83 Belebele 90.82 90.41 90.21 90.48 +0.41 +0.61 +0.34 
+
+Knowledge mean 55.04 54.43 54.34 54.61 +0.61 +0.70 +0.43 Reasoning HellaSwag 81.23 81.30 80.67 81.37 −0.07 +0.56 −0.14 SIQA 75.90 74.67 74.62 73.85 +1.23 +1.28 +2.05 DROP 72.20 72.50 73.37 72.40 −0.30 −1.17 −0.20 BBH 76.53 77.03 76.18 76.33 −0.50 +0.35 +0.20 GSM8K 88.02 81.64 83.70 82.49 +6.38 +4.32 +5.53 
+
+Reasoning mean 78.78 77.43 77.71 77.29 +1.35 +1.07 +1.49 Code HumanEval+ 69.75 64.60 67.08 65.84 +5.15 +2.67 +3.91 MBPP+ 69.07 68.00 67.11 66.31 +1.07 +1.96 +2.76 LiveCodeBench 25.65 25.50 24.27 25.88 +0.15 +1.38 −0.23 BigCodeBench 46.84 45.44 45.61 46.58 +1.40 +1.23 +0.26 BigCodeBench-Hard 19.59 16.22 16.22 20.95 +3.37 +3.37 −1.36 
+
+Code mean 46.18 43.95 44.06 45.11 +2.23 +2.12 +1.07 
+
+Overall (28) 55.90 54.88 54.73 54.81 +1.02 +1.17 +1.09 
+
+The structured pipeline outperforms simple rephrasing. At comparable generation and identical training compute, Full beats Rephrase on 25/28 benchmarks ( +1.17 ), while Rephrase ties Natural Books ( −0.08 ). Unlike Split and RandomConcat, this comparison changes local text while matching the source pool and style distribution, thereby isolating generation-side organization from training-time packaging. Rephrase’s 
+
+> 8Beyond Rephrasing: Book-Level Organization Improves Synthetic Textbook Data for Mid-Training
+
+Table 5 | Effect of source chunk count ( k) on section quality (1–5 scale). Input length in characters. Shaded row: selected operating point ( k=10). 
+
+k Input Overall Factual Theme Structure Edu. Aud.Fit Breadth Depth 
+
+1 12.8K 4.548 4.753 4.793 4.688 4.740 4.860 4.855 4.880 3 20.1K 4.550 4.683 4.707 4.647 4.665 4.835 4.867 4.870 5 27.7K 4.643 4.760 4.782 4.700 4.772 4.903 4.955 4.952 10 46.5K 4.768 4.790 4.893 4.850 4.872 4.935 4.975 4.963 20 84.0K 4.777 4.808 4.920 4.853 4.885 4.940 4.980 4.978 30 121.5K 4.822 4.838 4.942 4.893 4.918 4.955 4.987 4.982 
+
+near-equality to Natural Books indicates that local rewriting alone is insufficient; Full’s additional gain instead supports clustering, TOC planning, and book assembly. 
+
+Gains span all four categories. Full improves all four category means over Natural Books—STEM ( +1.86 ), reasoning ( +1.49 ), code ( +1.07 ), and knowledge ( +0.43 )—and 19/28 benchmarks ( +1.09 overall). The larger STEM, reasoning, and code gains are consistent with textbook-form data emphasizing structured procedural and disciplinary exposition over factoid recall. Benchmark-level bootstrap intervals remain positive for all three aggregate comparisons. One-sided sign tests give p=0.044 , 0.0019 , and 0.000014 for Full against Natural Books, Split, and Rephrase, respectively. Together, these checks show that the aggregate gains are not driven by a few outlier benchmarks, while not estimating training-run variance (Appendix G).                               
+
+> Table 4 |Llama3-8B means. ∆F−R=Full −RandomConcat;
+> ∆F−N=Full −Natural Books.
+> Category Full Random-Concat Natural Books ∆F−R∆F−N
+> STEM 27.35 25.86 23.70 +1.49 +3.65 Knowledge 42.42 42.17 41.90 +0.24 +0.52 Reasoning 68.83 67.67 67.63 +1.17 +1.20 Code 28.94 27.92 27.89 +1.02 +1.05 Overall (28) 40.96 40.10 39.45 +0.86 +1.51
+
+Multi-model validation. On Llama3-8B, Full scores 40.96, versus 40.10 for RandomConcat and 39.45 for Natural Books ( +0.86 ; 20/28 wins; 95% CI 
+
+[+ 0.44 , +1.30 ]; p=0.018 ; Table 4). The consistent ordering supports planned section order beyond length matching in a second architecture. The gain over Ran-domConcat is positive in every category, from +0.24 in knowledge to +1.49 in STEM; Appendix F provides the complete training recipe and benchmark-level ro-bustness results. 
+
+## 6. Ablation and Analysis 
+
+6.1. Effect of Source Chunk Count 
+
+In Step 4, each section is generated conditioned on k source chunks sampled from its mapped clusters. We vary k ∈ { 1, 3, 5, 10 , 20 , 30 } and evaluate generation quality on 400 individual sections using Gemini-3.1-Pro as the LLM judge, scoring seven dimensions plus overall on a fixed 1–5 rubric. Since chunk count directly affects per-section generation, we evaluate at the section level rather than full-book level. Definitions and score anchors are provided in Appendix B. From k=1 to k=10 , overall, structure, and educational scores improve by +0.22 , +0.16 , and +0.13 .From 10 to 30 chunks, overall improves only +0.05 while breadth and depth change by < 0.02 ; k=20 nearly doubles input for a +0.009 overall gain. We therefore select k=10 , which captures most of the benefit at 
+
+∼47K input characters per section. 
+
+> 9Beyond Rephrasing: Book-Level Organization Improves Synthetic Textbook Data for Mid-Training
+
+6.2. Retrieval Grounding and Pipeline Components 
+
+We compare the full system with three progressively reduced baselines: A keeps the identical cluster-informed TOC but removes source chunks; B also removes cluster-informed planning by generating a TOC from the discipline name alone; and C directly generates an entire book without TOC planning, clustering, or source chunks. On 100 matched book instances with aligned audience and style, Gemini-3.1-Pro scores each complete book on factuality, specificity, breadth, depth, structure, pedagogy, originality, example quality, and audi-ence/style fit, plus an overall score, on a fixed 1–10 rubric. The same judge and rubric are used across conditions; Baseline A retains Full’s TOC. These intrinsic scores diagnose component-level effects rather than replace the downstream evaluations in Table 3. Definitions and score anchors are in Appendix B, and full results are in Appendix H (Table 9). 
+
+Structured generation has the largest observed effect. Baseline C scores 6.12 overall versus 9.38 for Full (−3.26 ). Despite a ∼30–40K-word length target, it still yields only ∼56K characters (roughly 4 × shorter than Full), with lower depth (5.86) and specificity (6.41). This supports hierarchical TOC planning plus section-by-section generation for long-form data with sustained coverage and depth. 
+
+Source chunks primarily improve specificity and examples. Full versus Baseline A isolates retrieval grounding: source chunks improve specificity ( +0.23 ), examples ( +0.35 ), and factual accuracy ( +0.32 ), with smaller differences elsewhere. Grounding therefore mainly contributes domain-specific details rather than structure or pedagogy. 
+
+Cluster-informed TOC improves structure and audience fit. A uses Full’s cluster-informed TOC; B generates one from the discipline name. Neither uses source chunks, isolating cluster-informed planning. A improves audience/style fit (9.21 vs. 8.62, +0.59 ), structure (9.35 vs. 8.91, +0.44 ), pedagogy (9.23 vs. 9.00, 
+
++0.23 ), and overall quality (9.21 vs. 9.07, +0.14 ), showing that source coverage supports more targeted TOCs before any section text is generated. 
+
+TOC filtering acts as a safety net. As described in §3.4, the judge scores 6 structural dimensions and rejects 8.2% of TOCs. We generate books from 200 failed TOCs (Baseline D) and evaluate them with the same judge. Relative to Full, they score lower on overall ( −0.25 ), structure ( −0.20 ), and pedagogy ( −0.19 ). This smaller degradation than removing source chunks or cluster summaries makes the gate a safety net rather than the primary quality driver. 
+
+The components play complementary roles. Across these ablations, retrieval grounding chiefly adds domain-specific details, cluster-informed planning improves structure and audience fit, and hierarchical section-wise generation supplies book-scale depth and coverage. Global organization and local grounding are therefore complementary rather than interchangeable across stages of synthesis. 
+
+## 7. Conclusion 
+
+In this work, we propose a retrieval-grounded synthesis pipeline that scales to 686K books (32B tokens) across 15,000+ disciplines, and use the resulting corpus to systematically study book-level organization in both textbook construction and mid-training. Under matched training conditions within each study, Full ranks first on both the 3B-active MoE and Llama3-8B. The controlled comparisons explain this result through two complementary effects. On the generation side, clustering and hierarchical TOC planning determine which knowledge is combined and how it progresses, while book assembly realizes this plan as a coherent document. 
+
+> 10 Beyond Rephrasing: Book-Level Organization Improves Synthetic Textbook Data for Mid-Training
+
+The Rephrase comparison shows that this global synthesis adds value beyond local rewriting. On the training side, preserving the resulting book structure is separately important: Split removes document continuity, while RandomConcat matches Full’s document-length distribution but destroys semantic order. Their consistent gaps from Full suggest that effective textbook data requires both constructing coherent books and exposing their planned adjacency during training. Component ablations further identify structured generation as the primary driver, with retrieval, cluster-informed TOCs, and quality filtering providing complementary gains. We provide synthesis and control-construction code as supplementary material and will release a research-licensed subset of the synthetic corpus upon publication. 
+
+## 8. Limitations 
+
+Although the effect transfers across two model settings, each condition is trained once, so training-run variance remains unmeasured. The pipeline also requires a searchable corpus index, which adds preprocessing and retrieval-infrastructure overhead. Finally, component ablations rely on a fixed LLM judge and should be interpreted as diagnostic rather than downstream evidence. 
+
+## References 
+
+Marah Abdin et al. Phi-3 technical report: A highly capable language model locally on your phone. arXiv preprint arXiv:2404.14219 , 2024. Jacob Austin, Augustus Odena, Maxwell Nye, Maarten Bosma, Henryk Michalewski, David Dohan, Ellen Jiang, Carrie Cai, Michael Terry, Quoc Le, and Charles Sutton. Program synthesis with large language models. arXiv preprint arXiv:2108.07732 , 2021. Lucas Bandarkar, Davis Liang, Benjamin Muller, Mikel Artetxe, Satya Narayan Shukla, Donald Husa, Naman Goyal, Abhinandan Krishnan, Luke Zettlemoyer, and Madian Khabsa. The Belebele bench-mark: a parallel reading comprehension dataset in 122 language variants. In Annual Meeting of the Association for Computational Linguistics (ACL) , 2024. doi: 10.18653/v1/2024.acl-long.44. URL 
+
+https://aclanthology.org/2024.acl-long.44/ .Loubna Ben Allal, Anton Lozhkov, and Elie Bakouch. SmolLM - blazingly fast and remarkably power-ful. Hugging Face Blog, 2024a. URL https://huggingface.co/blog/smollm . Describes Cosmopedia v2 and the SmolLM training corpus. Loubna Ben Allal, Anton Lozhkov, and Daniel van Strien. Cosmopedia: How to create large-scale synthetic data for pre-training large language models. Hugging Face Blog, 2024b. URL https://huggingface. co/blog/cosmopedia .Sebastian Borgeaud, Arthur Mensch, Jordan Hoffmann, Trevor Cai, Eliza Rutherford, Katie Millican, George van den Driessche, Jean-Baptiste Lespiau, Bogdan Damoc, Aidan Clark, Diego de Las Casas, Aurelia Guy, Jacob Menick, Roman Ring, Tom Hennigan, Saffron Huang, Loren Maggiore, Chris Jones, Albin Cassirer, Andy Brock, Michela Paganini, Geoffrey Irving, Oriol Vinyals, Simon Osindero, Karen Simonyan, Jack Rae, Erich Elsen, and Laurent Sifre. Improving language models by retrieving from trillions of tokens. In 
+
+International Conference on Machine Learning (ICML) , 2022. Mark Chen, Jerry Tworek, Heewoo Jun, Qiming Yuan, Henrique Ponde de Oliveira Pinto, Jared Kaplan, Harri Edwards, Yuri Burda, Nicholas Joseph, Greg Brockman, et al. Evaluating large language models trained on code. arXiv preprint arXiv:2107.03374 , 2021. Daixuan Cheng, Shaohan Huang, and Furu Wei. Adapting large language models via reading comprehension. In International Conference on Learning Representations (ICLR) , 2024. 
+
+> 11 Beyond Rephrasing: Book-Level Organization Improves Synthetic Textbook Data for Mid-Training
+
+Konstantin Chernyshev, Vitaliy Polshkov, Vlad Stepanov, Alex Myasnikov, Ekaterina Artemova, Alexei Miasnikov, and Sergei Tilga. U-MATH: A university-level benchmark for evaluating mathematical skills in large language models. In GEM Workshop , pages 974–1001, 2025. URL https://aclanthology. org/2025.gem-1.77/ .Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, Christopher Hesse, and John Schulman. Training verifiers to solve math word problems. arXiv preprint arXiv:2110.14168 , 2021. Hantian Ding, Zijian Wang, Giovanni Paolini, Varun Kumar, Anoop Deoras, Dan Roth, and Stefano Soatto. Fewer truncations improve language modeling. In International Conference on Machine Learning (ICML) ,2024. Dheeru Dua, Yizhong Wang, Pradeep Dasigi, Gabriel Stanovsky, Sameer Singh, and Matt Gardner. DROP: A reading comprehension benchmark requiring discrete reasoning over paragraphs. In North American Chapter of the Association for Computational Linguistics (NAACL) , 2019. Ronen Eldan and Yuanzhi Li. TinyStories: How small can language models be and still speak coherent english? arXiv preprint arXiv:2305.07759 , 2023. Aryo Pradipta Gema, Joshua Ong Jun Leang, Giwon Hong, Alessio Devoto, Alberto Carlo Maria Mancino, Rohit Saxena, Xuanli He, Yu Zhao, Xiaotang Du, Mohammad Reza Ghasemi Madani, et al. Are we done with MMLU? In Conference of the Nations of the Americas Chapter of the Association for Computational Linguistics (NAACL) , 2025. Naman Goyal, Cynthia Gao, Vishrav Chaudhary, Peng-Jen Chen, Guillaume Wenzek, Da Ju, Sanjana Krishnan, Marc’Aurelio Ranzato, Francisco Guzmán, and Angela Fan. The FLORES-101 evaluation benchmark for low-resource and multilingual machine translation. Transactions of the Association for Computational Linguistics , 10:522–538, 2022. Suriya Gunasekar, Yi Zhang, Jyoti Aneja, et al. Textbooks are all you need. arXiv preprint arXiv:2306.11644 ,2023. Suchin Gururangan, Ana Marasovi´ c, Swabha Swayamdipta, Kyle Lo, Iz Beltagy, Doug Downey, and Noah A. Smith. Don’t stop pretraining: Adapt language models to domains and tasks. In ACL , 2020. Kelvin Guu, Kenton Lee, Zora Tung, Panupong Pasupat, and Ming-Wei Chang. Retrieval augmented language model pre-training. In International Conference on Machine Learning (ICML) , 2020. Dan Hendrycks, Collin Burns, Steven Basart, Andy Zou, Mantas Mazeika, Dawn Song, and Jacob Steinhardt. Measuring massive multitask language understanding. In ICLR , 2021a. Dan Hendrycks, Collin Burns, Saurav Kadavath, Akul Arora, Steven Basart, Eric Tang, Dawn Song, and Jacob Steinhardt. Measuring mathematical problem solving with the MATH dataset. In NeurIPS Datasets and Benchmarks , 2021b. URL https://datasets-benchmarks-proceedings.neurips.cc/ paper/2021/hash/be83ab3ecd0db773eb2dc1b0a17836a1-Abstract-round2.html .Yuzhen Huang, Yuzhuo Bai, Zhihao Zhu, Junlei Zhang, Jinghan Zhang, Tangjun Su, Junteng Liu, Chuancheng Lv, Yikai Zhang, Jiayi Lei, et al. C-Eval: A multi-level multi-discipline chinese evaluation suite for foun-dation models. In NeurIPS , 2023. URL https://proceedings.neurips.cc/paper_files/ paper/2023/hash/c6ec1844bec96d6d32ae95ae694e23d8-Abstract-Datasets_ and_Benchmarks.html .
+
+> 12 Beyond Rephrasing: Book-Level Organization Improves Synthetic Textbook Data for Mid-Training
+
+Naman Jain, King Han, Alex Gu, Wen-Ding Li, Fanjia Yan, Tianjun Zhang, Sida Wang, Armando Solar-Lezama, Koushik Sen, and Ion Stoica. LiveCodeBench: Holistic and contamination free evaluation of large language models for code. In ICLR , 2025. URL https://openreview.net/forum?id= chfJJYC3iL .Mojan Javaheripi and Sébastien Bubeck. Phi-2: The surprising power of small language models. Mi-crosoft Research Blog, 2023. URL https://www.microsoft.com/en-us/research/blog/ phi-2-the-surprising-power-of-small-language-models/ .Junlong Jia, Xing Wu, Chaochen Gao, Ziyang Chen, Zijia Lin, Zhongzhi Li, Weinong Wang, Haotian Xu, Donghui Jin, Debing Zhang, and Binghui Guo. LiteLong: Resource-efficient long-context data synthesis for LLMs. In AAAI Conference on Artificial Intelligence , 2026. Also available as arXiv:2509.15568. Tom Kwiatkowski, Jennimaria Palomaki, Olivia Redfield, Michael Collins, Ankur Parikh, Chris Alberti, Danielle Epstein, Illia Polosukhin, Jacob Devlin, Kenton Lee, et al. Natural questions: A benchmark for question answering research. Transactions of the Association for Computational Linguistics , 7:452–466, 2019. Katherine Lee, Daphne Ippolito, Andrew Nystrom, Chiyuan Zhang, Douglas Eck, Chris Callison-Burch, and Nicholas Carlini. Deduplicating training data makes language models better. In Annual Meeting of the Association for Computational Linguistics (ACL) , 2022. Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir Karpukhin, Naman Goyal, Heinrich Küttler, Mike Lewis, Wen-tau Yih, Tim Rocktäschel, Sebastian Riedel, and Douwe Kiela. Retrieval-augmented generation for knowledge-intensive NLP tasks. In Advances in Neural Information Processing Systems (NeurIPS) , 2020. Jeffrey Li, Alex Fang, Georgios Smyrnis, Maor Ivgi, Matt Jordan, Samir Yitzhak Gadre, et al. DataComp-LM: In search of the next generation of training sets for language models. In NeurIPS ,2024. URL https://proceedings.neurips.cc/paper_files/paper/2024/hash/ 19e4ea30dded58259665db375885e412-Abstract-Datasets_and_Benchmarks_ Track.html .Yuanzhi Li, Sébastien Bubeck, Ronen Eldan, et al. Textbooks are all you need II: phi-1.5 technical report. 
+
+arXiv preprint arXiv:2309.05463 , 2023. Jiawei Liu, Chunqiu Steven Xia, Yuyao Wang, and Lingming Zhang. Is your code generated by ChatGPT really correct? rigorous evaluation of large language models for code generation. In Advances in Neural Information Processing Systems (NeurIPS) , 2023. Alisia Lupidi, Carlos Gemmell, Nicola Cancedda, Jane Dwivedi-Yu, Jason Weston, Jakob Foerster, Roberta Raileanu, and Maria Lomeli. Source2Synth: Synthetic data generation and curation grounded in real data sources. arXiv preprint arXiv:2409.08239 , 2024. M-A-P, ByteDance Seed, and 2077AI. SuperGPQA: Scaling LLM evaluation across 285 graduate disciplines. In NeurIPS , 2025. URL https://proceedings.neurips.cc/paper_files/ paper/2025/hash/a3c5af1f56fc73eef1ba0f442739f5ca-Abstract-Datasets_ and_Benchmarks_Track.html .Kaijing Ma, Xeron Du, Yunran Wang, Haoran Zhang, Zhoufutu Wen, Xingwei Qu, Jian Yang, Jiaheng Liu, Minghao Liu, Xiang Yue, Wenhao Huang, and Ge Zhang. KOR-Bench: Benchmarking language models on knowledge-orthogonal reasoning tasks. In ICLR , 2025. URL https://openreview.net/forum? id=SVRRQ8goQo .
+
+> 13 Beyond Rephrasing: Book-Level Organization Improves Synthetic Textbook Data for Mid-Training
+
+Pratyush Maini, Skyler Seto, Richard He Bai, David Grangier, Yizhe Zhang, and Navdeep Jaitly. Rephrasing the web: A recipe for compute and data-efficient language modeling. In ACL , 2024. doi: 10.18653/v1/ 2024.acl-long.757. URL https://aclanthology.org/2024.acl-long.757/ .Kaixiang Mo, Yuxin Shi, Weiwei Weng, Zhiqiang Zhou, Shuman Liu, Haibo Zhang, and Anxiang Zeng. Mid-training of large language models: A survey. arXiv preprint arXiv:2510.06826 , 2025. Nishit Neema, Srinjoy Mukherjee, Sapan Shah, Gokul Ramakrishnan, and Ganesh Venkatesh. From am-ateur to master: Infusing knowledge into LLMs via automated curriculum learning. arXiv preprint arXiv:2510.26336 , 2025. Guilherme Penedo, Hynek Kydlíˇ cek, Loubna Ben Allal, Anton Lozhkov, Margaret Mitchell, Colin Raffel, Leandro von Werra, and Thomas Wolf. The FineWeb datasets: Decanting the web for the finest text data at scale. In NeurIPS , 2024. URL https://proceedings.neurips.cc/paper_files/ paper/2024/hash/370df50ccfdf8bde18f8f9c2d9151bda-Abstract-Datasets_ and_Benchmarks_Track.html .David Rein, Betty Li Hou, Asa Cooper Stickland, Jackson Petty, Richard Yuanzhe Pang, Julien Dirani, Julian Michael, and Samuel R. Bowman. GPQA: A graduate-level google-proof q&a benchmark. In Conference on Language Modeling (COLM) , 2024. URL https://openreview.net/forum?id=Ti67584b98 .Angelika Romanou, Negar Foroutan, Anna Sotnikova, Zeming Chen, Sree Harsha Nelaturu, Shivalika Singh, Rishabh Maheshwary, Micol Altomare, Mohamed A. Haggag, Imanol Schlag, Marzieh Fadaee, Sara Hooker, Antoine Bosselut, et al. INCLUDE: Evaluating multilingual language understanding with regional knowledge. In ICLR , 2025. URL https://openreview.net/forum?id=k3gCieTXeY .Maarten Sap, Hannah Rashkin, Derek Chen, Ronan Le Bras, and Yejin Choi. Social IQa: Commonsense reasoning about social interactions. In Conference on Empirical Methods in Natural Language Processing (EMNLP) , 2019. Freda Shi, Mirac Suzgun, Markus Freitag, Xuezhi Wang, Suraj Srivats, Soroush Vosoughi, Hyung Won Chung, Yi Tay, Sebastian Ruder, Denny Zhou, Dipanjan Das, and Jason Wei. Language models are multilingual chain-of-thought reasoners. In ICLR , 2023. URL https://openreview.net/forum? id=fR3wGCk-IXp .Weijia Shi, Sewon Min, Maria Lomeli, Chunting Zhou, Margaret Li, Gergely Szilvasy, Rich James, Xi Victoria Lin, Noah A. Smith, Luke Zettlemoyer, Scott Yih, and Mike Lewis. In-context pretraining: Language modeling beyond document boundaries. In International Conference on Learning Representations (ICLR) ,2024. Luca Soldaini et al. Dolma: an open corpus of three trillion tokens for language model pretraining research. In Annual Meeting of the Association for Computational Linguistics (ACL) , 2024. doi: 10.18653/v1/2024. acl-long.840. URL https://aclanthology.org/2024.acl-long.840/ .Konrad Staniszewski, Szymon Tworkowski, Sebastian Jaszczur, Yu Zhao, Henryk Michalewski, Łukasz Kuci´ nski, and Piotr Miło´ s. Structured packing in LLM training improves long context utilization. 
+
+Proceedings of the AAAI Conference on Artificial Intelligence , 39(24):25201–25209, 2025. doi: 10.1609/aaai.v39i24.34706. Mirac Suzgun, Nathan Scales, Nathanael Schärli, Sebastian Gehrmann, Yi Tay, Hyung Won Chung, Aakanksha Chowdhery, Quoc V. Le, Ed H. Chi, Denny Zhou, and Jason Wei. Challenging BIG-Bench tasks and whether chain-of-thought can solve them. In Findings of ACL , pages 13003–13051, 2023. doi: 10.18653/ v1/2023.findings-acl.824. URL https://aclanthology.org/2023.findings-acl.824/ .
+
+> 14 Beyond Rephrasing: Book-Level Organization Improves Synthetic Textbook Data for Mid-Training
+
+Ross Taylor et al. Galactica: A large language model for science. arXiv preprint arXiv:2211.09085 , 2022. Yubo Wang, Xueguang Ma, Ge Zhang, Yuansheng Ni, Abhranil Chandra, Shiguang Guo, Weiming Ren, Aaran Arulraj, Xuan He, Ziyan Jiang, et al. MMLU-Pro: A more ro-bust and challenging multi-task language understanding benchmark. In NeurIPS , 2024. URL https://proceedings.neurips.cc/paper_files/paper/2024/hash/ ad236edc564f3e3156e1b2feafb99a24-Abstract-Datasets_and_Benchmarks_ Track.html .Jason Wei, Nguyen Karina, Hyung Won Chung, Yunxin Joy Jiao, Spencer Papay, Amelia Glaese, John Schulman, and William Fedus. Measuring short-form factuality in large language models. arXiv preprint arXiv:2411.04368 , 2024. Tianwen Wei, Jian Luan, Wei Liu, Shuang Dong, and Bin Wang. CMATH: Can your language model pass chinese elementary school math test? arXiv preprint arXiv:2306.16636 , 2023. Alexander Wettig, Aatmik Gupta, Saumya Malik, and Danqi Chen. QuRating: Selecting high-quality data for training language models. In ICML , 2024. URL https://proceedings.mlr.press/v235/ wettig24a.html .Sang Michael Xie, Hieu Pham, Xuanyi Dong, Nan Du, Hanxiao Liu, Yifeng Lu, Percy Liang, Quoc V. Le, Tengyu Ma, and Adams Wei Yu. DoReMi: Optimizing data mixtures speeds up language model pretraining. In NeurIPS , 2023. URL https://proceedings.neurips.cc/paper_files/paper/2023/ hash/dcba6be91359358c2355cd920da3fcbd-Abstract-Conference.html .Xin Xu, Qiyun Xu, Tong Xiao, Tianhao Chen, Yuchen Yan, Jiaxin Zhang, Shizhe Diao, Can Yang, and Yang Wang. UGPhysics: A comprehensive benchmark for undergraduate physics reasoning with large language models. In International Conference on Machine Learning (ICML) , 2025. Rowan Zellers, Ari Holtzman, Yonatan Bisk, Ali Farhadi, and Yejin Choi. HellaSwag: Can a machine really finish your sentence? In Annual Meeting of the Association for Computational Linguistics (ACL) , 2019. Tianjun Zhang, Shishir G. Patil, et al. RAFT: Adapting language model to domain specific RAG. arXiv preprint arXiv:2403.10131 , 2024. Yifan Zhang, Yifan Luo, Yang Yuan, and Andrew Chi-Chih Yao. Autonomous data selection with zero-shot generative classifiers for mathematical texts. In Findings of ACL , pages 4168–4189, 2025. doi: 10.18653/ v1/2025.findings-acl.216. URL https://aclanthology.org/2025.findings-acl.216/ .Yu Zhao, Yuanbin Qu, Konrad Staniszewski, Szymon Tworkowski, Wei Liu, Piotr Miło´ s, Yuxiang Wu, and Pasquale Minervini. Analysing the impact of sequence composition on language model pre-training. In 
+
+ACL , 2024. Wanjun Zhong, Ruixiang Cui, Yiduo Guo, Yaobo Liang, Shuai Lu, Yanlin Wang, Amin Saied, Weizhu Chen, and Nan Duan. AGIEval: A human-centric benchmark for evaluating foundation models. In 
+
+Findings of NAACL , pages 2299–2314, 2024. doi: 10.18653/v1/2024.findings-naacl.149. URL https: //aclanthology.org/2024.findings-naacl.149/ .Terry Yue Zhuo, Minh Chien Vu, Jenny Chim, Han Hu, Wenhao Yu, Ratnadira Widyasari, Imam Nur Bani Yusuf, Haolan Zhan, Junda He, Indraneil Paul, et al. BigCodeBench: Benchmarking code generation with diverse function calls and complex instructions. In ICLR , 2025. URL https://openreview.net/ forum?id=YrycTjllL0 .
+
+> 15 Beyond Rephrasing: Book-Level Organization Improves Synthetic Textbook Data for Mid-Training
+
+## A. Benchmark Details 
+
+Table 3 reports results on 28 benchmarks grouped into four categories: STEM (CMATH, MATH, U-MATH, MGSM, GPQA-Diamond, UGPhysics, KORBench), knowledge (MMLU, MMLU-Redux, MMLU-Pro, C-Eval, SuperGPQA, NaturalQuestions, AGIEval-EN, INCLUDE-Base-44, SimpleQA, FLORES, Belebele), 
+
+reasoning and mathematical word-problem solving (HellaSwag, SIQA, DROP, BBH, GSM8K), and code 
+
+(HumanEval+, MBPP+, LiveCodeBench, BigCodeBench, BigCodeBench-Hard). Benchmark sources are: STEM (Chernyshev et al., 2025; Hendrycks et al., 2021b; Ma et al., 2025; Rein et al., 2024; Shi et al., 2023; Wei et al., 2023; Xu et al., 2025); knowledge and multilingual suites (Bandarkar et al., 2024; Gema et al., 2025; Goyal et al., 2022; Hendrycks et al., 2021a; Huang et al., 2023; Kwiatkowski et al., 2019; M-A-P et al., 2025; Romanou et al., 2025; Wang et al., 2024; Wei et al., 2024; Zhong et al., 2024); reasoning (Cobbe et al., 2021; Dua et al., 2019; Sap et al., 2019; Suzgun et al., 2023; Zellers et al., 2019); and code (Austin et al., 2021; Chen et al., 2021; Jain et al., 2025; Liu et al., 2023; Zhuo et al., 2025). We follow each benchmark’s standard protocol in a unified evaluation harness: multiple-choice knowledge benchmarks use few-shot in-context likelihood (PPL) scoring, while generative benchmarks (math, code, open-ended QA, GPQA) use greedy decoding (temperature 0) unless a benchmark’s standard recipe specifies sampling, in which case we report the mean over samples (e.g., GPQA-Diamond avg@5 ). 
+
+## B. Prompts 
+
+For reproducibility, we reproduce the core prompts used by the pipeline. They are lightly edited for length and formatting; the operative instructions are verbatim. Query generation and TOC planning use DeepSeek-V3.2; the TOC quality gate is judged by DeepSeek-V3.2; section content is generated by Qwen3.5-35B-A3B. 
+
+B.1. Query Generation (Statement Form) 
+
+[System] You are a distinguished academic expert and curriculum architect. Your task is to design high-quality declarative retrieval statements for educational corpus search. 
+
+[User] # Context We are preparing retrieval inputs for the sub-discipline below: “{current}” (Classification: {discipline_path}). # Task Generate 10 to 15 retrieval queries in declarative sentence style .# Requirements 1. Declarative style only : every query must be a complete declarative sentence, not a question and not a pure keyword list. 2. MECE coverage : cover the full scope with minimal overlap (concepts, mechanisms, methods, applications, limitations, frontier). 3. Retrieval-friendly : concise but information-dense, using accurate domain terminology. 4. Multi-granularity : include both foundational and advanced statements to support broad and deep recall. 5. Language : write all queries in English. # Output Format Respond strictly with a JSON object: {“sub_discipline”: ..., “queries”: [{“angle”: ..., “search_query”: ..., “rationale”: ...}, ...]}. 
+
+> 16 Beyond Rephrasing: Book-Level Organization Improves Synthetic Textbook Data for Mid-Training
+
+B.2. TOC Planning 
+
+[System] You are an expert content architect. Your task is to study the discipline information and topic summaries provided by the user, think carefully, and then produce a structured, hierarchical table of contents. Adapt the structure naturally to the requested audience and writing style. Your final answer must contain only one json ... code block. 
+
+[User] provides the sub-discipline, its taxonomy path and scope description, and the candidate topic summaries in the form [cluster_id=id] theme. Each request also includes: [Variant] This is variant {i}/{k} for the same cluster set. It should be structurally different from the other variants. [Audience and Style] This variant is for {target_audience} and should follow a {writing_style} style. Adjust depth, terminology density, and organization accordingly. [Audience Requirements] {audience-specific planning brief} [Style Requirements] {style-specific planning brief} [A. Structure and Fields] 1. Use at most three hierarchy levels; every node has a title and description. 2. Non-leaf nodes contain only title, description, and children. Leaf nodes contain only title, description, clusters, and token_count. 3. Every leaf must cite at least one supporting cluster and an integer word budget. A leaf without suitable evidence must be merged or removed. 4. Cite at most three clusters per leaf, selected for both topical fit and the target audience. Prefer not to reuse one cluster more than three times. [B. Coverage and Budget] 5. The sum of leaf budgets should generally not exceed {max_total_words}; narrower or weakly supported topics should be shorter. 6. Do not force every cluster into the TOC. Omit weak, incoherent, overly advanced, or overly basic themes when this improves the book structure. [C. Readability and Naming] 7. Make the hierarchy clear and navigable, with consistent local numbering or labels that expose parent-child relationships. 8. Do not assume images or figures. [Output] Return one JSON tree. Top-level and intermediate nodes use {title, description, children}; leaves use {title, description, clusters, token_count}. 
+
+The audience/style briefs at this stage control the organization of the book, not merely its eventual prose: for example, the college/textbook profile requests a layered instructional path with room for derivations and worked cases, whereas practitioner/tutorial profiles emphasize workflows, decisions, constraints, and executable steps. 
+
+B.3. TOC Quality Gate 
+
+The judge receives the discipline, target_audience , writing_style , the total token budget, and the TOC tree (each leaf annotated with its referenced cluster_themes and token_count ). It is instructed to evaluate against the target style rather than a single textbook standard and to return a JSON object: 
+
+> 17 Beyond Rephrasing: Book-Level Organization Improves Synthetic Textbook Data for Mid-Training
+
+{“score”: 1-5 (5 = excellent, 4 = continue, 3 = borderline, 2 = do not continue, 1 = severely unfit), “recommend_continue”: bool (typically true only when score ≥ 4 and no mid/high-severity issue), “audience_fit_score”: 1-5, “style_fit_score”: 1-5, “structure_score”: 1-5, “support_score”: 1-5, “token_allocation_score”: 1-5, “generation_readiness_score”: 1-5 }
+
+A TOC proceeds to content generation only if recommend_continue is true. The six per-dimension scores (audience fit, style fit, structure, support, token allocation, and generation readiness) are the criteria underlying that decision; Table 2 reports the resulting pass rates by audience ×style rather than these raw dimension scores. 
+
+B.4. Source-Grounded Section Generation 
+
+[System] You are an expert textbook writer. You turn scattered reference materials into coherent, well-structured, high-density textbook section prose. Writing requirements (abridged): 1. Use only the strongly relevant parts of the reference materials; discard noise and do not force in irrelevant material. 2. Do not merely paraphrase; synthesize and reorganize into a logically rigorous, step-by-step narrative fitting the requested audience and style. 3. Preserve/normalize formulas in LaTeX ($...$, $$...$$) and use Markdown tables/lists where helpful; avoid walls of plain text. 4. Be faithful to the materials; do not invent specific numbers, years, names, papers, DOIs, theorem names, or experimental conclusions; correct obvious OCR/transcription errors or omit them. 5. Produce clean reader-facing prose: never mention “reference material”, “retrieved text”, snippet/source labels, or image-dependent phrasing; no HTML/XML tags. 6. Do not repeat the section title (added at assembly) and do not invent global chapter numbering that conflicts with the book. 7. Treat the requested length as a target for detail, not a hard lower bound; prioritize density and accuracy over padding. 8. Use the supplied TOC context to differentiate this section from adjacent sections, avoid repetition, and add natural transitions where helpful. 9. Write the final content in English. 
+
+[User] provides the following section identity and structural context, followed by the filled audience/style profile and the k=10 sampled source chunks: Discipline path: {taxonomy path} Section position: {full title path from book root to current leaf} Section title: {leaf title} Section overview: {leaf description} [Structural Context (TOC Tree)] - Current section position: {chapter/section index path} - Marker: “>> ” indicates the current node. [Current Level (Sibling Sections)] {preceding sibling titles and descriptions} 
+
+>> {current leaf title and description} {following sibling titles and descriptions}                        
+
+> 18 Beyond Rephrasing: Book-Level Organization Improves Synthetic Textbook Data for Mid-Training
+> [Parent Level and Its Siblings] {parent title/description together with the preceding and following parent-level nodes} Use this context to keep the section clearly differentiated from siblings, avoid repetition, and add natural transitions where helpful. Target audience: {target_audience} Writing style: {writing_style} [Audience requirements] {audience-specific brief} [Style requirements] {style-specific brief} Adjust depth, terminology density, and expression to the audience and style while preserving factual accuracy.
+
+Injected structural context. The generator therefore sees both the full title path and a local TOC neighbor-hood: the current leaf’s preceding and following siblings, the parent node, and the parent’s neighboring nodes, each with its description. This context is used to preserve section boundaries, reduce cross-section duplication, and support coherent transitions. 
+
+Injected audience/style briefs. The production prompt expands the two placeholders above rather than pass-ing only their labels. The audience briefs require: high_school_students , little assumed knowledge, intuitive explanations, thought experiments, and real-life scenarios; college_students , systematic and in-depth development with supported examples, formulas, or derivations; practitioners , application contexts, workflows, decision criteria, implementation constraints, and risk boundaries; and researchers ,academic high-density prose covering advanced theory, methodological comparisons, evidence, controversies, and boundary conditions. The style briefs separately require: textbook , systematic, rigorous, professional, and applied exposition; blog , verifiable information in an approachable voice with supported examples or anecdotes; tutorial , reusable step-by-step explanation with motivations, caveats, and practical rules; and 
+
+wiki , neutral, standardized, retrieval-friendly organization that can also function as a standalone reference entry. 
+
+B.5. Intrinsic-Quality Judge Rubrics 
+
+The production judge prompts were written in Chinese; below we provide condensed English versions of the reported evaluation criteria. Gemini-3.1-Pro receives the complete generated text together with its title, target audience, and writing style, and returns only a JSON score object. The same model and rubric are used for every condition within each ablation. 
+
+Section-level chunk-count rubric (1–5). The judge assesses whether a generated section is useful as a training sample. The overall anchors are: 5, excellent—factually robust, coherent, educational, and nearly ready for training; 4, good—minor issues but suitable for training; 3, useful but with clear weaknesses; 2, poor—issues likely to harm training; and 1, unsuitable. It independently scores: • Factual accuracy : reliability of facts, definitions, formulas, and derivations, and absence of evident hallucinations. • Theme alignment : focus on the section title and intended topic. • Structure/coherence : progression, transitions, and repetition control. • Educational value : clarity, conceptual progression, examples, and summaries. 
+
+> 19 Beyond Rephrasing: Book-Level Organization Improves Synthetic Textbook Data for Mid-Training
+
+• Audience/style fit : appropriate difficulty, terminology density, and register. • Breadth : distinct relevant subtopics or perspectives rather than repetition of one point. • Depth : mechanisms, principles, derivations, causal explanations, boundary conditions, or counterexam-ples rather than definition-level coverage. Breadth and depth are judged independently, with 3 as the ordinary acceptable level; scores above 3 require identifiable evidence in the complete section. The judge is instructed not to reward length, fluency, or formatting by themselves, and not to infer factual errors without evidence. The prompt returns the seven reported dimensions plus an overall score. 
+
+Book-level component rubric (1–10). The judge assesses the value of a complete book as mid-training annealing data, using the full scale with anchors 5 (marginally acceptable), 7 (good), and 9–10 (excellent). It scores nine dimensions plus an overall score: • Factuality : factual and terminological correctness. • Specificity : verifiable domain details, explicit conditions and boundaries, and avoidance of generic expansion. • Breadth : systematic coverage and absence of major omissions. • Depth : mechanisms, principles, and derivations beyond definitions. • Structure : book hierarchy, cross-section progression, and control of jumps, duplication, and outline-like fragmentation. • Pedagogy : clarity of definitions, explanations, and derivations. • Originality : useful organization or explanatory perspective without sacrificing factuality. • Example quality : concrete, verifiable, topic-relevant examples. • Audience/style fit : matching difficulty, terminology, depth, and register to the requested profile. The judge is instructed to evaluate training value rather than surface fluency or Markdown quality. Short, outline-like, generic, repetitive, or off-topic text lowers the relevant dimensions and overall score; weak specificity or depth prevents a high overall score. 
+
+## C. End-to-End Running Example 
+
+This appendix traces one real pipeline instance for the discipline Feedforward Neural Networks and Back-propagation (ID 520206001), the running example in §3. We show the output of each stage separately, followed by representative generated-section excerpts. Apart from the explicitly marked omissions and Markdown-to-L ATEX typesetting, the displayed content is taken directly from the production artifacts. 
+
+C.1. Step 0: Discipline and Query Generation Taxonomy input. Computer Science and Technology → Artificial Intelligence → Computer Neural Networks 
+
+→ Feedforward Neural Networks and Backpropagation . The taxonomy description specifies the architecture and training of multilayer perceptrons, including the mathematical derivation of error backpropagation. 
+
+Generated retrieval statements. The complete set contains 14 statements: 1. The multilayer perceptron is a foundational type of feedforward neural network architecture. 2. Universal approximation theorems provide the theoretical justification for the representational power of feedforward neural networks. 
+
+> 20 Beyond Rephrasing: Book-Level Organization Improves Synthetic Textbook Data for Mid-Training
+
+3. The forward pass in a feedforward network computes activations layer by layer from input to output. 4. The backpropagation algorithm efficiently computes gradients of a loss function with respect to all network parameters. 5. The chain rule of calculus forms the mathematical foundation for deriving the backpropagation algo-rithm. 6. Stochastic gradient descent is commonly used to update weights during the training of multilayer perceptrons. 7. Vanishing and exploding gradients are significant challenges in training deep feedforward networks. 8. Activation functions introduce non-linearity into neural networks, enabling them to learn complex mappings. 9. Feedforward neural networks serve as the backbone for many deep learning models in computer vision and natural language processing. 10. Standard feedforward networks are stateless and cannot inherently model sequential dependencies. 11. Weight initialization strategies, such as He or Xavier initialization, are critical for effective training of deep feedforward networks. 12. Research on feedforward architectures explores alternatives to backpropagation, such as synthetic gradients or layer-wise training. 13. The computational graph is a useful abstraction for visualizing and implementing the forward and backward passes in neural networks. 14. The loss function quantifies the discrepancy between the network’s predictions and the true target values. 
+
+C.2. Step 1: Retrieval 
+
+The 14 statements produced 1,400 retrieval results and 1,346 unique documents after deduplication. For example, the universal-approximation query retrieved the following source: 
+
+Query. Universal approximation theorems provide the theoretical justification for the representa-tional power of feedforward neural networks. 
+
+Retrieved passage (excerpt). “In this work we take a look at the universal approximation question for stochastic feedforward neural networks. In contrast to deterministic neural networks, which represent mappings from a set of inputs to a set of outputs, stochastic neural networks represent mappings from a set of inputs to a set of probability distributions over the set of outputs. . . . We study the representational power of deep sigmoid belief networks in terms of compositions of linear transformations of probability distributions.” This is one of many retrieved documents; no single passage is used as the book outline. The next stage reorganizes the full retrieval pool into semantic units. 
+
+C.3. Step 2: Semantic Clustering 
+
+The 1,346 documents yield 6,713 chunks, which are grouped into 40 clusters. The relevance filter retains 35 clusters and rejects five off-scope or incoherent clusters. Representative retained clusters include: • C35 (176 documents, 217 chunks): feedforward network structure, including input, hidden, and output layers and unidirectional information flow. • C5 (93 documents, 170 chunks): universal approximation theory and the capacity to approximate continuous functions in normed spaces. 
+
+> 21 Beyond Rephrasing: Book-Level Organization Improves Synthetic Textbook Data for Mid-Training
+
+• C9 (71 documents, 112 chunks): efficient gradient computation using the chain rule, computational graphs, and automatic differentiation. • C32 (120 documents, 211 chunks): Xavier, He, and related initialization methods for stable backpropa-gation and convergence. • C3 (89 documents, 129 chunks): physics-informed feedforward networks for physical-system modeling. 
+
+Examples of rejected noise. C0 primarily concerns recurrent networks, sequence modeling, and translation; C12 mixes symbolic logic, multi-agent systems, linguistic semantics, and neural networks without a coherent feedforward-network focus. Both are excluded before TOC planning. 
+
+C.4. Step 3: TOC Planning and Quality Gate 
+
+The pipeline generates 16 audience ×style plans for this discipline; 15 pass the quality gate. Below is the 
+
+complete college/textbook hierarchy, including every chapter and section. Parentheses report the requested section budget and supporting cluster IDs; the 16 sections allocate 56,600 tokens and use 26 of the 35 retained clusters. 1. Part I: Architectural Foundations and Representational Power 
+
+• 1.1 The Feedforward Architecture (3,800; C35, C31, C21) • 1.2 Activation Functions: Properties and Impacts (3,500; C21, C28) • 1.3 Universal Approximation Theorems (4,200; C5, C6, C14) • 1.4 Depth, Width, and Expressivity Trade-offs (3,000; C14, C23) 2. Part II: The Backpropagation Algorithm and Its Mechanics 
+
+• 2.1 Loss Functions and the Optimization Objective (3,200; C30, C4) • 2.2 Gradient Descent: The Foundational Optimizer (3,400; C2, C4) • 2.3 Derivation of the Backpropagation Algorithm (4,500; C10, C9, C8) • 2.4 Computational Graphs and Automatic Differentiation (3,600; C8, C9) 3. Part III: Practical Training and Advanced Dynamics 
+
+• 3.1 Weight Initialization Strategies (3,300; C32, C7) • 3.2 Advanced Optimization Algorithms (3,800; C4, C2) • 3.3 Vanishing and Exploding Gradients (3,200; C7, C28) • 3.4 Hyperparameter Tuning and Experimental Methodology (3,500; C1, C36) 4. Part IV: Advanced Architectures and Extensions 
+
+• 4.1 Convolutional Neural Networks (CNNs) (4,000; C16, C26) • 4.2 Backpropagation in Sequential Models (3,800; C18, C20, C29) • 4.3 Physics-Informed and Scientific Machine Learning (3,000; C3) • 4.4 Frontiers and Alternatives to Backpropagation (2,800; C22, C33) 
+
+Quality-gate decision. The judge assigns an overall score of 4/5 and recommends continuation. Audience fit, style fit, token allocation, and generation readiness receive 5/5; structure and source support receive 4/5. It identifies two low-severity limitations: Section 4.2 slightly broadens the scope from feedforward to recurrent models, and Section 4.3 relies on only one source cluster. Retaining these diagnostics here shows that the example is an actual accepted output, not a retrospectively polished plan. 
+
+> 22 Beyond Rephrasing: Book-Level Organization Improves Synthetic Textbook Data for Mid-Training
+
+C.5. Step 4: Source-Grounded Generation and Assembly 
+
+The 15 accepted plans each produce three independently sampled books, yielding 45 books, 630 sections, and 10.5M characters for this discipline. For the college/textbook plan above, the three sampled editions contain 257,466, 243,241, and 254,144 characters, respectively; each follows the same four-part, 16-section plan. We show four representative section excerpts covering different roles in the book: architectural foun-dations, the learning objective, backpropagation, and experimental methodology. The excerpts come from independently sampled editions of the same TOC. For space, we reproduce selected portions rather than the complete sections. The text is verbatim apart from Markdown-to-L ATEX typesetting, and every omission is marked explicitly. 
+
+Section 1.2: Activation Functions: Properties and Impacts (Edition A) 
+
+Activation functions constitute a fundamental component of the feedforward neural network architecture, serving as the mechanism that introduces non-linearity into the model. Without an activation function, a neural network would simply be a stack of linear transformations, equivalent to a single linear model regardless of its depth. This would severely limit the network’s capacity to approximate complex, non-linear relationships present in real-world data. The selection of an appropriate activation function influences not only the representational power of the network but also the stability and efficiency of the training process, particularly regarding gradient flow during backpropagation. 
+
+Mathematical Role in Backpropagation In the context of a feedforward network, the computation proceeds layer by layer. For a neuron j in layer l, the pre-activation value z(l) 
+
+> j
+
+is computed as a weighted sum of the outputs from the previous layer plus a bias term: 
+
+z(l) 
+
+> j
+
+= ∑
+
+> i
+
+w(l) 
+
+> ji
+
+a(l−1) 
+
+> i
+
++ b(l)
+
+> j
+
+where a(l−1) 
+
+> i
+
+is the activation from the preceding layer, w(l) 
+
+> ji
+
+represents the weights, and b(l) 
+
+> j
+
+is the bias. The activation a(l) 
+
+> j
+
+is then obtained by applying the activation function f (·) to this sum: 
+
+a(l) 
+
+> j
+
+= f (z(l) 
+
+> j
+
+)
+
+During the training phase, the network minimizes an error function E by updating weights using gradient descent. The Backpropagation algorithm computes the gradient of the error with respect to each weight w(l)
+
+> ji
+
+using the chain rule. A critical term in this derivation is the partial derivative of the error with respect to the pre-activation value, often denoted as the error signal δ (l) 
+
+> j
+
+. This signal is defined as: 
+
+δ (l) 
+
+> j
+
+= ∂ E
+
+∂ z(l)
+
+> j
+
+= ∂ E
+
+∂ a(l)
+
+> j
+
+f ′(z(l) 
+
+> j
+
+)
+
+Here, f ′(z(l) 
+
+> j
+
+) is the derivative of the activation function. The update rule for the weights then becomes proportional to this error signal multiplied by the input from the previous layer: 
+
+∂ E
+
+∂ w(l)
+
+> ji
+
+= δ (l) 
+
+> j
+
+a(l−1)
+
+> i
+
+Consequently, the properties of f ′(z) directly dictate how gradient information propagates backward through the network. If the derivative is small or vanishes as the network depth increases, the weights in the earlier layers receive negligible updates, leading to slow or stalled learning. Conversely, a derivative that preserves signal magnitude facilitates more efficient convergence. 
+
+> 23 Beyond Rephrasing: Book-Level Organization Improves Synthetic Textbook Data for Mid-Training
+
+Section 2.1: Loss Functions and the Optimization Objective (Edition B) 
+
+The fundamental objective of training a neural network is framed as an optimization problem. In this context, the learning process is defined by the task of finding a set of parameters—weights and biases, collectively denoted as θ —that best map input data to target outputs. Mathematically, given a dataset containing input-output pairs (x, y), the goal is to minimize a specific metric that quantifies the discrepancy between the network’s prediction ˆy = f (x; θ ) and the true label y. This discrepancy is formalized through a loss function, often referred to as a cost function or error function. Consequently, the problem of learning can be expressed as finding the parameter vector θ ∗ that minimizes the expected loss over the data distribution: 
+
+θ ∗ = arg min  
+
+> θ
+
+Ex,y [L ( f (x; θ ), y)] 
+
+In practice, since the true distribution is unknown, this objective is approximated using the empirical risk over the available training set. For a dataset of size n, the optimization target becomes a sum of individual errors, often structured as: min  
+
+> θ
+
+Ltotal (θ ) = 
+
+> n
+
+# ∑
+
+> i=1
+
+ℓ ( f (xi; θ ), yi) + R(θ )
+
+Here, ℓ(·, ·) denotes the loss incurred on a single sample, while R(θ ) represents a regularization term designed to penalize overly complex models and prevent overfitting. The choice of ℓ(·, ·) is not arbitrary; it is dictated by the nature of the task (regression vs. classification) and the statistical assumptions made about the noise in the data. 
+
+Statistical Foundations and Loss Selection The selection of a specific loss function is rooted in statistical theory. If the relationship between inputs and outputs is governed by additive Gaussian noise, the most natural choice is the Mean Squared Error (MSE). Conversely, if the output represents a categorical distribution, the goal is typically to maximize the likelihood of the observed data, which leads directly to the Cross-Entropy loss. Understanding these derivations provides insight into why certain loss functions are preferred for specific architectures and why others lead to poor convergence behavior. 
+
+Regression and Mean Squared Error In regression problems, the target y is a continuous scalar or vector. The standard objective is to minimize the squared Euclidean distance between the predicted value and the observed value. For a single training example, the Mean Squared Error is defined as: 
+
+ℓMSE ( ˆy, y) = 12 (y − ˆy)2
+
+The factor of 12 is often included for convenience, as it cancels out when taking the derivative. For a batch of N samples, the aggregate loss becomes: 
+
+LMSE (θ ) = 12N
+
+> N
+
+# ∑
+
+> i=1
+
+(yi − f (xi; θ )) 2
+
+This formulation has clear statistical justification. If we assume the target values are generated by the true function plus noise distributed according to a Gaussian (Normal) distribution with zero mean, maximizing the likelihood of the data is mathematically equivalent to minimizing the squared error. Specifically, under 
+
+> 24 Beyond Rephrasing: Book-Level Organization Improves Synthetic Textbook Data for Mid-Training
+
+the assumption that y = f (x) + ε where ε ∼ N (0, σ 2), the Maximum Likelihood Estimate (MLE) for the parameters θ corresponds to the minimization of the sum of squared residuals. 
+
+[Intermediate paragraphs omitted for length.] 
+
+Classification and Cross-Entropy [Intermediate paragraphs omitted for length.] 
+
+The Cross-Entropy loss is derived from the principle of Maximum Likelihood for categorical variables. For a single sample where the true class is represented by a one-hot vector y and the network predicts probabilities ˆ y, the cross-entropy loss is defined as: 
+
+ℓCE ( ˆy, y) = − ∑
+
+> c
+
+yc ln ( ˆyc)
+
+Since y is a one-hot vector (one element is 1, others are 0), this simplifies to the negative logarithm of the predicted probability assigned to the true class: 
+
+ℓCE ( ˆy, y) = − ln ( ˆytrue )
+
+For a batch of data, the empirical cross-entropy loss is the average over all samples: 
+
+LCE (θ ) = − 1
+
+N
+
+> N
+
+# ∑
+
+> i=1
+
+ln ( f (xi; θ )yi )
+
+Section 2.3: Derivation of the Backpropagation Algorithm (Edition B) 
+
+The Gradient Problem in Neural Network Training Training a neural network fundamentally involves minimizing a loss function that measures the discrepancy between the network’s predictions and the ground truth labels. As established in the preceding sections, stochastic gradient descent (SGD) and its variants rely on computing the gradient of the loss function with respect to every learnable parameter in the network. Let 
+
+θ denote the collection of all parameters, including layer weights, bias terms, and potentially embedding matrices. The objective is to solve the optimization problem: min  
+
+> θ
+
+L (θ )
+
+where L (θ ) is the loss. To perform a parameter update using gradient descent, one requires the gradient vector ∇θ L .In a neural network with L layers, the number of parameters can be substantial, often reaching into the millions. Calculating the gradient numerically, for instance by perturbing each parameter slightly, would require a separate forward pass for every single parameter. This approach is computationally prohibitive. The backpropagation algorithm provides the solution to this problem. It is a specific instance of reverse-mode automatic differentiation that computes the exact gradients in a number of steps proportional to the number of operations in the forward pass, typically requiring only two passes through the network data flow (one forward, one backward). Technically, backpropagation is an efficient application of the chain rule of calculus. It decomposes the complex derivative of a high-dimensional function into a sequence of simpler derivatives, caching intermediary results (activations) computed during the forward pass to avoid redundant calculation. This section details the algebraic derivation of the algorithm for a standard feedforward network and then reinterprets this process through the lens of computational graphs. 
+
+> 25 Beyond Rephrasing: Book-Level Organization Improves Synthetic Textbook Data for Mid-Training
+
+Mathematical Preliminaries and Notation To derive the gradient updates systematically, we first establish a consistent notation for the network architecture. Consider a multilayer perceptron (MLP) with L layers. The network processes an input vector x, which is treated as the activation of layer 0 , denoted as a(0) = x. The network computes a sequence of values through the layers, indexed by l = 1, . . . , L.For any given layer l, the computation proceeds in two stages. First, a linear transformation is applied using a weight matrix W(l) and a bias vector b(l). This produces the linear pre-activation signal, denoted as 
+
+z(l). Second, a non-linear activation function φ (·) is applied element-wise to produce the output of the layer, 
+
+a(l).
+
+z(l) = W(l)a(l−1) + b(l)
+
+a(l) = φ (z(l))
+
+The parameters of the network are collected in the set Θ = {W(1), b(1), . . . , W(L), b(L)}. The input a(0) and the true labels are fixed constants during the forward pass. The final output of the network, a(L), is fed into a loss function L . Common examples include the Mean Squared Error for regression or Cross-Entropy for classification. In matrix calculus, we assume standard conventions where column vectors are used, and M⊤ denotes the transpose. The derivative of a scalar loss with respect to a vector v results in a vector of the same dimension. Similarly, the derivative of a scalar with respect to a matrix results in a matrix of the same shape as the derivative variable. 
+
+The Chain Rule and Error Propagation The core mechanism of backpropagation is the chain rule. If a variable u depends on v, and v depends on w, the chain rule states that ∂ u  
+
+> ∂w
+
+= ∂ u    
+
+> ∂v
+> ∂v
+> ∂w
+
+. In a neural network, the loss L depends on the parameters W(l) through a complex chain of dependencies across all layers. We must compute: 
+
+∂ L
+
+∂ W(l) and ∂ L
+
+∂ b(l)
+
+for all l.Directly applying the chain rule to the full expression is difficult. Instead, we introduce an auxiliary variable known as the error term or local gradient , denoted by δ (l). This term represents the gradient of the loss with respect to the pre-activation values z(l):
+
+δ (l) = ∂ L
+
+∂ z(l)
+
+Computing δ (l) allows us to express the gradients of the weights and biases in a much simpler form, which we will derive below. 
+
+[Intermediate paragraphs omitted for length.] 
+
+The Hidden Layer Gradient For hidden layers l < L, the loss does not depend on z(l) directly, but rather through the pre-activations of the next layer, z(l+1). We can expand the derivative using the chain rule again: 
+
+δ (l) = ∂ L
+
+∂ z(l) = ∂ L
+
+∂ z(l+1)
+
+∂ z(l+1)
+
+∂ z(l)
+
+Substituting the definition of the error term for layer l + 1, this becomes: 
+
+δ (l) =
+
+ ∂ L
+
+∂ z(l+1)
+
+ ∂ z(l+1)
+
+∂ z(l)
+
+> 26 Beyond Rephrasing: Book-Level Organization Improves Synthetic Textbook Data for Mid-Training
+
+To compute the term ∂ z(l+1)  
+
+> ∂z(l)
+
+, we recall the forward pass equations: 
+
+z(l+1) = W(l+1)a(l) + b(l+1)
+
+a(l) = φ (z(l))
+
+Combining these, we see that z(l+1) depends on a(l) through the linear transformation W(l+1). Thus, the gradient propagates back from layer l + 1 through the weights of that layer and the derivative of the activation function at layer l. The explicit recursive formula is: 
+
+δ (l) =
+
+
+
+(W(l+1))⊤δ (l+1)
+
+⊙ φ ′(z(l))
+
+This recursive relationship is the heart of backpropagation. It allows the error term of the previous layer δ (l)
+
+to be computed using the error term of the next layer δ (l+1), the weight matrix of the next layer W(l+1), and the derivative of the activation at the current layer. By starting with δ (L) calculated from the loss and moving backward layer by layer to l = 1, we can compute all error terms efficiently. 
+
+Weight and Bias Gradients Once the error terms δ (l) are computed for all layers, the gradients with respect to the parameters are straightforward. For the weights W(l), the chain rule yields: 
+
+∂ L
+
+∂ W(l) = ∂ L
+
+∂ z(l)
+
+∂ z(l)
+
+∂ W(l)
+
+Substituting δ (l) = ∂ L  
+
+> ∂z(l)
+
+and the definition of z(l), we obtain the outer product of the error signal and the input activations: ∂ L
+
+∂ W(l) = δ (l)(a(l−1))⊤
+
+[Intermediate paragraphs omitted for length.] 
+
+Similarly, for the bias term b(l), since z(l) = W(l)a(l−1) + b(l), the derivative with respect to b(l) is simply the error term itself: ∂ L
+
+∂ b(l) = δ (l)
+
+The bias update does not depend on the previous layer’s activations, as bias shifts the activation threshold directly. 
+
+Section 3.4: Hyperparameter Tuning and Experimental Methodology (Edition A) 
+
+Data Partitioning and Generalization A rigorous experimental methodology requires a clear separation between data used for training, validating, and testing. This separation is fundamental to diagnosing the learning behavior of a neural network. The dataset is typically partitioned into three distinct subsets: the training set, the validation set, and the test set. The training set is used to update the model parameters via backpropagation. The validation set serves as an intermediary evaluation set that is not used for parameter updates. It is primarily used for hyperparameter tuning and model selection. For example, if a student wishes to decide whether to use a learning rate of 10 −3 or 10 −4, they would compare the loss on the validation set after a fixed number of epochs for each choice. The test set is reserved strictly for the final evaluation of the model and should not influence any training or tuning decisions. The distinction between training loss and validation loss is the primary indicator of overfitting. Overfitting occurs when the model achieves a very low training loss but fails to generalize to unseen data, resulting in a significantly higher validation loss. This phenomenon indicates that the model has "learned by memory," 
+
+> 27 Beyond Rephrasing: Book-Level Organization Improves Synthetic Textbook Data for Mid-Training
+
+capturing noise and fluctuations in the training data rather than the underlying patterns. Mathematically, we are interested in the generalization error, which measures the expected loss on the true data distribution, rather than the empirical error calculated on the finite training set. A low training loss is a necessary condition for a good model, but it is not sufficient. If the gap between training and validation loss widens significantly as training proceeds, it suggests that the model’s capacity is exceeding the information content of the dataset, or that the regularization parameters need adjustment. Monitoring these metrics allows for the implementation of early stopping strategies. Early stopping involves monitoring the validation loss during training and halting the process when the loss fails to improve for a specified number of epochs. This prevents the model from overfitting the training data and often yields a model that performs better on the test set than one trained for the maximum number of epochs. This strategy relies entirely on the existence of a hold-out validation set, emphasizing the necessity of proper data partitioning in any experimental design. 
+
+Systematic Tuning Strategies Given the sensitivity of neural networks to hyperparameters, systematic search strategies are required to identify effective configurations. A naive approach might involve changing one hyperparameter at a time, but this ignores the interactions between parameters, such as the relationship between learning rate and batch size. More robust approaches include grid search and random search. Grid search involves defining a set of possible values for each hyperparameter and evaluating every possible combination. While exhaustive, this method is computationally expensive and inefficient when the search space is high-dimensional. Random search, by contrast, samples hyperparameter combinations randomly from a predefined distribution. Empirical evidence suggests that random search is often more efficient than grid search, as it allows for a broader exploration of the search space and can discover good configurations with fewer trials. 
+
+[Intermediate paragraphs omitted for length.] 
+
+Furthermore, the reproducibility of experiments is a critical component of methodology. Because optimization algorithms like stochastic gradient descent involve random initialization and stochastic sampling, different runs with the same hyperparameters can yield different results. Therefore, it is standard practice to report the mean and variance of performance metrics over multiple random seeds. This ensures that the reported performance is not an artifact of a fortunate initialization. In this regard, the use of fixed random seeds for initialization can make debugging easier, while the use of multiple seeds provides a more robust assessment of the model’s expected performance. 
+
+## D. Query-Form Pilot 
+
+Before fixing the retrieval-query format, we compared statement-, question-, and keyword-style queries using the same type of downstream cluster relevance filter used in the production pipeline. For each condition, retrieved passages were clustered and an LLM judged whether each cluster should be included in the textbook for the target discipline. The production filter follows the same principle but uses a slightly more permissive prompt, so that the final corpus preserves broader source coverage when a cluster is still plausibly useful. We use the pilot retention rate as a proxy for whether the query form retrieves material that forms coherent, in-scope textbook subtopics. Statement-form queries had the highest cluster retention rate: 78.8% of clusters were retained, compared with 61.9% for question-style queries and 56.9% for keyword-style queries. Qualitatively, the lower retention rates for question and keyword queries match the failure modes we observed during inspection. Keyword queries are compact but often underspecified: a query such as a short list of terms can retrieve passages that share vocabulary while mixing several unrelated subtopics, yielding clusters that the relevance filter rejects as diffuse. Question-style queries are more specific, but their interrogative form often favors short answer-oriented or FAQ-like passages and can overemphasize a single requested 
+
+> 28 Beyond Rephrasing: Book-Level Organization Improves Synthetic Textbook Data for Mid-Training
+
+formulation. Statement-form queries instead resemble the declarative exposition common in books, papers, and web documents; they tend to retrieve passages that state, elaborate, or contextualize the same proposition, making the resulting clusters more coherent and easier to map into textbook subtopics. This pilot motivated the use of declarative statement-form queries throughout the final pipeline. 
+
+## E. Random Concatenation Control 
+
+To test whether the Full–Split gap is explained by longer documents or fewer boundary resets alone, we evaluate a length-matched RandomConcat con-trol that randomly concatenates Split sections to match the Full document-length distribution while destroying planned book coherence. Table 6 reports category means. RandomConcat is nearly identi-cal to Split on the 28-benchmark mean (54.89 vs. 54.88) and remains below Full (55.90; +1.01 Full– RandomConcat), suggesting that length matching alone does not recover the benefit of coherent book-level organization. 
+
+Table 6 | Length-matched random concatenation control. 
+
+∆F = Full −RandomConcat and ∆S =
+
+RandomConcat −Split.                  
+
+> Category RandomConcat Full Split ∆F∆S
+> STEM 47.19 47.86 47.30 +0.67 −0.11 Knowledge 54.89 55.04 54.43 +0.15 +0.46 Reasoning 77.86 78.78 77.43 +0.92 +0.43 Code 42.69 46.18 43.95 +3.49 −1.26 Overall 54.89 55.90 54.88 +1.01 +0.01
+
+## F. Llama3-8B Transfer Experiment 
+
+We additionally test whether the training-data effect transfers to a different architecture and scale using Llama3-8B. We compare Natural Books with Full and RandomConcat. Each condition is trained on the same 100B-token mixture with an 8B-token book slice (8%). Data order, training steps, optimizer, and learning-rate schedule are held fixed; only the book condition changes. The three runs require 39.9K H800 GPU-hours in total. Training uses 256 H800 GPUs, a global batch size of 512 (2 examples per GPU), and AdamW with learning rate 5×10 −5, weight decay 0.1, β1=0.9 , β2=0.95 , and gradient clipping at 1.0. We train for 6,373 steps using cosine decay with a 10% warmup and a minimum learning-rate ratio of 0.1, bfloat16 precision, gradient checkpointing, FSDP auto-wrapping, seed 42, and Transformers 4.44.2. The 28-benchmark transfer suite spans four categories: STEM, knowledge and multilingual understanding, reasoning and mathematical word-problem solving, and code. Category means are reported in Table 4 of the main paper. 
+
+Table 7 | Benchmark-level robustness for the Llama3-8B transfer experiment. Intervals are 95% CIs. Full −Natural has one tied benchmark, excluded from its sign test.                        
+
+> Comparison Mean ∆95% CI W/L Sign p
+> Full −Random +0.86 [+0.44, +1.30] 20/8 0.018 Full −Natural +1.52 [+0.55, +2.76] 22/5 0.00076 Random −Natural +0.66 [−0.23, +1.75] 17/11 0.172
+
+Full improves the 28-benchmark mean by +1.52 over Natural Books and by +0.86 over RandomCon-cat, with 20 wins and 8 losses. The advantage is positive in all four categories (STEM +1.49 , reason-ing +1.17, code +1.02, knowledge +0.24). We assess benchmark-level robustness using the same paired procedure as in Appendix G: 100,000 bootstrap resamples of benchmark identities and a one-sided sign test over benchmark wins. These checks support Full over RandomConcat and Natural Books at the benchmark level. By contrast, the RandomConcat–Natural interval crosses zero and its sign test is not significant, so the paired evidence specifically favors Full rather than arbitrary length-matched concatenation. These benchmark-level checks do not estimate training-run variance. The same paired bootstrap and sign-test protocol is reused for the main MoE suite in Appendix G. 
+
+> 29 Beyond Rephrasing: Book-Level Organization Improves Synthetic Textbook Data for Mid-Training
+
+## G. Benchmark-Suite Robustness 
+
+Table 8 | Benchmark-level 95% CIs and sign tests for the aggregate deltas in Table 3. Sign-test p values are one-sided.                     
+
+> Comparison Mean ∆95% CI W/L Sign p
+> Full −Natural Books +1.09 [+0.41, +1.87] 19/9 0.044 Full −Split +1.02 [+0.45, +1.69] 22/6 0.0019 Full −Rephrase +1.17 [+0.70, +1.69] 25/3 0.000014
+
+The main table reports unweighted averages over a 28-benchmark suite. As benchmark-level robust-ness checks for this aggregate reporting, we run a paired bootstrap over benchmarks and a sign test over benchmark wins. Each bootstrap replicate resamples the 28 benchmark identities with replacement, using the same sampled benchmark set for Natural Books, Split, Rephrase, and Full; it then recomputes the un-weighted mean delta across benchmarks. We repeat this procedure 100,000 times and report percentile 95% intervals. The sign test counts how many benchmarks Full exceeds each comparator and applies a one-sided binomial test under a 50/50 null. All three intervals exclude zero; the Rephrase comparison is strongest by both win count (25/3) and interval lower bound (+0.70). 
+
+## H. Component Ablation Details 
+
+Table 9 reports all dimensions from the component ablation summarized in §6.2. The rubric follows the book-level judge in Appendix B.5: factuality checks correctness, while specificity rewards verifiable domain details and explicit conditions. Breadth measures systematic coverage, whereas depth requires mechanisms, principles, or derivations beyond definitions. Structure evaluates hierarchy, cross-section progression, and repetition control; pedagogy evaluates the clarity of definitions, explanations, and derivations. Originality captures useful organization or explanatory perspective, examples must be concrete and topic-relevant, and audience/style fit checks difficulty, terminology, depth, and register. Full leads on overall quality, factuality, specificity, depth, originality, and examples. Baseline A remains strongest on breadth, structure, pedagogy, and audience/style fit because it retains Full’s cluster-informed TOC. Baseline C’s large drops in depth, examples, and originality diagnose the cost of direct whole-book generation, while Baseline D shows the smaller but broad degradation from using a rejected TOC. 
+
+Table 9 | Component ablation results (1–10 scale). Full is the complete pipeline; Baseline A removes source chunks, Baseline B also removes cluster-informed TOC planning, Baseline C directly generates a full book, and Baseline D uses a failed TOC.                                                             
+
+> Condition Overall Factual Spec. Breadth Depth Struct. Ped. Orig. Ex. Aud. fit
+> Full Pipeline 9.38 9.52 9.52 9.45 9.43 9.28 9.14 8.76 9.24 9.12 Baseline A 9.21 9.20 9.29 9.47 9.34 9.35 9.23 8.67 8.89 9.21
+> Baseline B 9.07 9.24 9.33 9.44 9.27 8.91 9.00 8.59 8.86 8.62 Baseline C 6.12 7.73 6.41 8.15 5.86 6.42 6.92 5.58 5.46 6.25 Baseline D 9.13 9.34 9.36 9.42 9.28 9.08 8.95 8.57 9.02 8.75
+
+## I. Decontamination Details 
+
+Procedure. We decontaminate against benchmark test sets using 13-gram overlap over a mixed Chi-nese/English tokenization: English is split into words (1-gram per token) and each Chinese character counts as 0.5-gram. The same 13-gram representation is computed for every benchmark item in the evaluation resources. For final generated books, we concatenate the title and text fields (for QA-style records, 
+
+input +output ) and match them against the union of test-set n-grams. The filter is deliberately conserva-
+
+> 30 Beyond Rephrasing: Book-Level Organization Improves Synthetic Textbook Data for Mid-Training
+
+tive: a document is labeled contaminated if it shares any 13-gram with a benchmark test item (match-fraction threshold of 0 ), so even a single overlapping 13-gram triggers a flag. Only the valid/ split is used for training. We also run the same filter on the retrieved source-document pool used by the generator as a source-level audit. Each flagged record stores an extra_info field (matched n-grams, match/no-match ratios, source benchmark, and contamination level) for inspection. 
+
+Result. Tables 10 and 11 report the portion of the decontamination results that overlaps the benchmarks in Table 3. The source share uses the full pool (85B valid + 0.95B flagged across all evaluation sources); the 60.2M tokens shown are the Table 3-overlapping portion. In the retrieved source-document pool, the filter flags 12,825 source records, corresponding to 60.2M tokens ( ∼0.07% of the source-document token pool). In the final generated corpus, it removes 579 generated books, corresponding to 22.9M tokens ( ∼0.07% of the generated corpus). The check captures verbatim 13-gram overlap only and does not rule out paraphrased leakage; because the matcher flags even partial overlaps, the counts are upper bounds on true test-item leakage. 
+
+Table 10 | Retrieved source documents flagged by overlap with the reported benchmarks; share is relative to the full source-document token pool.                               
+
+> Benchmark Records Tokens Share
+> SuperGPQA 5,320 25.2M 0.029% MMLU-Pro 2,867 13.7M 0.016% UGPhysics 2,538 12.5M 0.015% MMLU-Redux 1,770 7.1M 0.008% MATH 208 1.1M 0.001% U-MATH 80 0.5M 0.001% BBH 41 0.2M <0.001% GPQA-Diamond 1<0.1M <0.001% Total 12,825 60.2M 0.070%
+
+Table 11 | Generated books removed due to overlap with the reported benchmarks; share is relative to the 32B-token generated corpus.                         
+
+> Benchmark Books Tokens Share
+> UGPhysics 184 7.7M 0.025% SuperGPQA 179 6.4M 0.021% MMLU-Pro 147 6.2M 0.020% MATH 31 1.4M 0.004% MMLU-Redux 36 1.1M 0.004% BBH 20.1M <0.001% Total 579 22.9M 0.074%
+
+Code availability. We submit, as supplementary material, a reference implementation of the retrieval-grounded textbook synthesis pipeline and of the procedures used to construct the Split, RandomConcat, and Rephrase control sets, together with paper-aligned configuration templates. The package is provider-agnostic: chat, embedding, and retrieval backends are configured externally, and a bundled smoke-test configuration runs without network access. It does not include the proprietary retrieval corpus or index, the Natural Books mixture slice, model checkpoints, mid-training code, or the downstream evaluation harness; reproducing the reported scores therefore requires equivalent user-provided data and compute. Stochastic provider outputs can also differ from the production run even under the same logical configuration. 
+
+Data availability. The in-house retrieval corpus and original natural-book slice cannot be redistributed in full because of source licensing constraints. Public substitutes would alter both the source pool used for the retrieval-pool-matched comparison and the original mid-training mixture used by Natural Books, undermining the retrieval-pool, content, and recipe controls central to this study. We will release a research-licensed subset of the synthetic textbook corpus upon publication.

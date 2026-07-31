@@ -1,0 +1,725 @@
+Title: Beyond Scale and Generation: Understanding Language Model-based Entity Matching
+
+URL Source: https://arxiv.org/pdf/2607.24688v1
+
+Published Time: Tue, 28 Jul 2026 02:19:28 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+# Beyond Scale and Generation: Understanding Language Model-based Entity Matching 
+
+# Zeyu Zhang 
+
+University of Amsterdam & AUMC Amsterdam, NL z.zhang2@uva.nl 
+
+# Xue Li 
+
+CWI Amsterdam, NL effy.li@cwi.nl 
+
+# Iacer Calixto 
+
+University of Amsterdam & AUMC Amsterdam, NL i.coimbra@amsterdamumc.nl 
+
+# Paul Groth 
+
+University of Amsterdam Amsterdam, NL p.t.groth@uva.nl 
+
+# Sebastian Schelter 
+
+BIFOLD & TU Berlin Berlin, DE schelter@tu-berlin.de 
+
+## ABSTRACT 
+
+Entity matching identifies records that refer to the same real-world entity. Language models can be adapted to this task through bi-encoder, cross-encoder, and generative matcher architectures. How-ever, prior studies often conflate matcher architecture with differ-ences in model backbone, model variant (originating from varying pretraining objectives), and model size, making it difficult to isolate the sources of observed performance gains. To address this issue, we conduct a controlled factorial study spanning three matcher architectures, based on three model variants and three model sizes from the Qwen3 model family, and nine datasets, for a total of 1,215 fine-tuning runs. We complement our study with an additional evaluation of cross-dataset transferability and computational cost. Our experimental results show that the choice of model variant is critical for bi-encoders: embedding-oriented variants provide stronger initialization and more favorable representation geometry that is predictive of downstream matching performance. Cross-encoders retain a consistent advantage over bi-encoders because they jointly encode record pairs rather than representing each record independently, although increasing model size partially nar-rows this gap. Generative matchers do not universally outperform cross-encoders. Instead, their advantages are concentrated in set-tings involving distribution shift, such as subtle unseen differences in the record schemas and cross-dataset transfer. We further find that larger models tend to rely more heavily on shortcut learn-ing and therefore do not necessarily yield better results. These findings clarify the factors underlying performance differences across matcher architectures and motivate future research and benchmark designs that more carefully disentangle architectural choices from other model-level factors while explicitly evaluating distribution shift and cross-dataset transferability. We release our experimental results, code, training scripts, and evaluation data at https://github.com/Jantory/llm-trained-matcher. 
+
+## 1 INTRODUCTION 
+
+Entity matching (EM) identifies data records that refer to the same real-world entity, making it a central component of data integra-tion [ 10 , 13 , 57 ] and knowledge base construction [ 80 , 81 ]. Pairwise EM is commonly formulated as a binary classification task [ 35 , 57 ], yet the underlying decision often requires complex reasoning. For instance, a matcher must recognize semantically equivalent values expressed in different formats and align evidence across hetero-geneous schemas [ 59 ]. These requirements have made pretrained language models, and more recently large language models (LLMs), effective foundations for modern EM systems [ 28 , 29 , 43 , 65 , 76 , 79 ]. 
+
+Language model-based entity matching . However, the adoption of language models for entity matching has not produced a sin-gle standard solution. Such models can be adapted to EM through several matcher architectures that differ in how records are repre-sented, compared, and mapped to a matching decision. Language models can be used to instantiate three main matcher architectures, as demonstrated in Figure 1. A bi-encoder independently encodes two records into embeddings that serve as their representations and compares them in a shared embedding space. Because each rep-resentation can be computed without reference to any other record, record embeddings can be cached and reused. This property has made bi-encoders widely used for retrieval and blocking [ 68 , 76 ]. Re-cent work, however, shows that with appropriate fine-tuning, they can also serve as efficient pairwise matchers [ 22 ]. A cross-encoder instead jointly encodes a record pair and directly produces a match score [ 28 , 57 ]. Joint encoding allows the underlying Transformer layers to capture fine-grained interactions between the two records. In recent years, generative matchers based on LLMs have received increasing attention. Similar to cross-encoders, they jointly encode the record pair, but retain the language-modeling head and produce the final matching decision through conditional generation [ 43 , 65 ]. 
+
+Overlooked design factors . The progression of prior work may appear to suggest an evolution from bi-encoders to cross-encoders and ultimately to generative matchers [ 22 , 43 , 79 ]. However, this apparent consensus often overlooks several design factors that are coupled with the choice of matcher architecture and therefore re-quire systematic investigation. The first source of coupling concerns the underlying model backbone. Bi-encoders and cross-encoders have traditionally been built on models pretrained with masked language modeling and bidirectional attention [ 12 , 30 ], whereas generative matchers rely on models pretrained with causal lan-guage modeling, in which each token attends only to preceding tokens [ 9]. Consequently, comparisons across matcher architec-tures frequently also compare different transformer architectures and attention mechanisms. A second source of coupling concerns model variant selection. Different model variants correspond to arXiv:2607.24688v1 [cs.DB] 27 Jul 2026 Zeyu Zhang, Xue Li, Iacer Calixto, Paul Groth, and Sebastian Schelter Prediction                       
+
+> Head
+> Representation
+> Backbone
+> Transformers
+> Input
+> Embedding-based Similarity
+> Shared LLM Shared LLM
+> Entity A
+> Apple Inc ... [EOS]
+> Entity B
+> Apple Comp ... [EOS]
+> Bi-Encoder
+> [EOS] Embedding
+> ᵈᵈ
+> [EOS] Embedding
+> Score to Label
+> Cosine Similarity
+> Classification
+> [EOS] Embedding
+> Shared LLM
+> Apple Inc ... Apple Comp ... [EOS]
+> Classification Head
+> Cross-Encoder
+> Sigmoid
+> Generative
+> Token Prediction
+> Vocabulary Distribution
+> …
+> Yes No 10
+> p(y | x) Generate
+> "Yes" or "No"
+> Shared LLM
+> Determine whether the following two entities refer to the same
+> real-world entity. Answer yes or no. Entity A: Apple Inc... Entity
+> B: Apple Comp... Answer:
+> Causal LM Head
+> Backbone
+> Transformers
+> Input
+> Prediction
+> Head
+
+Figure 1: Three LLM-based architectures for entity matching. Bi-encoders encode the two records independently and compare on representations. Cross-encoders jointly encode the record pair and predict with a classification head. Generative matchers also jointly encode the pair but retain the language-modeling head to generate a token-based decision, such as yes or no .
+
+different training objectives (e.g., instruction following) before task-specific fine-tuning [ 71 ], which we refer to as pretraining objectives throughout this paper. Bi-encoders are commonly initialized from embedding-oriented models [ 76 ], cross-encoders from base mod-els [ 28 , 57 ], and generative matchers from instruction-tuned mod-els [ 41 , 51 ]. A third source of coupling is model size. Comparisons between existing baselines often involve substantially different pa-rameter scales. This issue is particularly pronounced in LLM-based EM, where a large generative matcher [ 79 ] is frequently compared against a much smaller cross-encoder such as Ditto [28]. 
+
+Open research questions . These coupled design choices make it difficult to attribute observed performance differences fairly to matcher architecture itself. They can also make practical recommen-dations unstable: a conclusion may change when the underlying model family, variant, or size changes [ 22 , 43 , 76 , 79 ]. Several re-search gaps therefore remain. First, can task-specific fine-tuning overcome differences in initialization through a model variant, and does its effect vary across matcher architectures? Second, how large is the benefit of joint pair encoding, and can a model with stronger pretrained representations compensate for the absence of direct interaction? Third, when cross-encoder and generative matchers jointly encode the same entity pair using the same underlying backbone model, does the generative formulation still provide an advantage, and if so, under what conditions? Fourth, how do the matching architectures differ when evaluation moves from con-ventional within-dataset settings to cross-dataset transfer? Finally, how do training and inference costs affect architecture selection in practical deployments? 
+
+Overview and main findings . To address these questions, we conduct a controlled study that disentangles matcher architecture, model variant, and model size (detailed in §3). This design is enabled by the Qwen3 model family [ 71 ], which provides models at multiple parameter sizes and offers three model variants at each scale: base, embedding-oriented, and instruction-tuned. Our core evaluation follows a full factorial design over three matcher architectures, three model variants corresponding to different pretraining objec-tives, three model sizes, nine datasets, and five repetitions with different random seeds. In total, the main experiment comprises 
+
+3 × 3 × 3 × 9 × 5 = 1, 215 fine-tuning runs. We further conduct cross-dataset evaluations and systematically measure training cost, memory consumption, inference throughput, latency, and the ben-efits of representation reuse. Our results provide several insights into the behavior of language model-based matchers. First, model variant selection is decisive for architectures that depend directly on representation quality, as detailed in §5.1. Embedding-oriented variants provide substantially stronger initialization for bi-encoder fine-tuning, and the geometry of the pretrained representation space is predictive of downstream matching performance. In contrast, the choice of model variant is not a primary determinant of cross-encoder or generative perfor-mance. Even an embedding-oriented checkpoint can be fine-tuned into an effective generative matcher. Second, joint pair encoding provides a persistent advantage over independent encoding, as detailed in §5.2. Increasing model size substantially improves bi-encoder performance, but does not elimi-nate the gap with cross-encoders. This result indicates that stronger independently computed representations can partly compensate for the absence of interaction, but cannot fully replace direct token-level comparison between records. Third, generative matchers do not exhibit a universal advan-tage over cross-encoders, as detailed in §5.3. The two architectures perform similarly on most within-dataset evaluations when using the same underlying model. Further analysis in §5.3 and §6 shows that the generative advantage is concentrated in settings involv-ing distribution shift, including unseen subtle schema differences and cross-dataset transfer. In cross-dataset evaluation, bi-encoder behavior is strongly tied to the fine-tuning dataset and transfers poorly to heterogeneous targets. Jointly encoded matchers transfer substantially better, with generative matchers achieving the high-est overall retention of target-specific performance. These results further suggest that the principal advantage of the generative for-mulation lies in its robustness under distribution shift rather than in conventional within-distribution pairwise matching. Fourth, larger models do not consistently produce better match-ing performance, as detailed in §5.3. Under shifts of the class-conditional feature distribution between the training and evaluation Beyond Scale and Generation: Understanding Language Model-based Entity Matching 
+
+data, scaling can amplify reliance on shortcut learning, thereby re-ducing precision and F1 score. Representative and high-coverage fine-tuning data can therefore be as important as or more important than increasing model size. Finally, the preferred matcher design depends on both the data distribution and the deployment regime, as detailed in §7. Cross-encoders provide a strong effectiveness–throughput balance for supervised pairwise matching when their labeled training data adequately represents deployment conditions. Generative match-ers are more attractive when robustness to distribution shift is a primary concern, although they incur higher memory costs. Bi-encoders become competitive when efficieny is a prime concern, as record representations can be cached and reused during blocking or retrieval. 
+
+Contributions . In summary, our contributions are as follows: 
+
+• We argue that comparisons across matcher architectures should disentangle the effect of model backbone, model variant repre-senting different pretraining objectives, and model size, rather than attributing differences produced by these coupled design choices solely to matcher architecture (§ 1). 
+
+• We conduct a controlled full-factorial evaluation across three matcher architectures, three model variants, three model sizes, nine datasets, comprising 1,215 fine-tuning runs (§ 3). 
+
+• We identify the sources of performance differences among bi-encoder, cross-encoder, and generative matchers, including the role of pretrained representation geometry, joint pair encoding, prediction formulation, model scaling, and distribution shift (§ 5). 
+
+• We extend the comparison beyond within-dataset effectiveness through cross-dataset transfer experiments and a systematic anal-ysis of training time, memory consumption, inference through-put, latency, and representation reuse (§ 6). 
+
+• Based on these findings, we provide practical guidance for EM practitioners, research directions for the EM community, and design principles for future EM benchmarks (§ 8). 
+
+• We release our code, training scripts, and evaluation data at https://github.com/Jantory/llm-trained-matcher. 
+
+## 2 BACKGROUND AND PROBLEM SETUP 
+
+Entity matching aims to identify records that refer to the same real-world entity across one or more data sources. A typical EM pipeline consists of two stages. Candidate generation first retrieves record pairs that are potentially matching (typically via a cheap blocking function [ 8 , 11 , 54 , 63 ]), after which a matcher determines whether each candidate pair refers to the same entity. This work focuses on language model-based pairwise matchers [ 28 , 29 , 43 ]and studies how their behavior varies across matcher architectures, pretraining objectives, and model sizes. 
+
+Pairwise entity matching . Let D denote an EM dataset. Each example in D is a labeled candidate pair (𝑟 𝑖 , 𝑟 𝑗 , 𝑦 𝑖 𝑗 ), where 𝑟 𝑖 and 
+
+𝑟 𝑗 are records and 𝑦 𝑖 𝑗 ∈ 0, 1 indicates whether the two records refer to the same real-world entity. A record may consist of struc-tured attribute-value pairs, free-form text, or a mixture of both. For structured records, a record is noted as 𝑟 = {( 𝑎 1, 𝑣 1), . . . , (𝑎 𝑚 , 𝑣 𝑚 )} ,where 𝑎 𝑘 is an attribute name and 𝑣 𝑘 is the corresponding value. The matching problem is to learn a scoring function 
+
+𝑠 𝜃 (𝑟 𝑖 , 𝑟 𝑗 ) ∈ [ 0, 1],
+
+where 𝑠 𝜃 (𝑟 𝑖 , 𝑟 𝑗 ) estimates the probability that 𝑟 𝑖 and 𝑟 𝑗 match. A binary prediction is obtained by thresholding the score: 
+
+ˆ𝑦 𝑖 𝑗 = I[𝑠 𝜃 (𝑟 𝑖 , 𝑟 𝑗 ) ≥ 𝜏 ],
+
+where 𝜏 is a decision threshold selected on validation data. 
+
+From records to language model inputs . Structured entity records must be converted into textual inputs before being processed by a large language model. Let 𝜙 denote an input transformation that maps a record 𝑟 to a sequence 𝜙 (𝑟 ). Prior work [ 17 , 70 ] shows that this transformation can use different textual templates to linearize the record, with attribute: value being a commonly used choice. A candidate pair can be represented in two ways. The records can be serialized independently as 𝜙 (𝑟 𝑖 ) and 𝜙 (𝑟 𝑗 ), or they can be seri-alized jointly as 
+
+𝜙 (𝑟 𝑖 , 𝑟 𝑗 ) = [Record A : 𝜙 (𝑟 𝑖 ); Record B : 𝜙 (𝑟 𝑗 )] .
+
+The choice between independent and joint serialization determines where record interaction occurs. This leads to the three matcher architectures studied in this paper. 
+
+## 2.1 Three LLM-based Matcher Architectures 
+
+As illustrated in Figure 1, an LLM can be adapted for EM through three architectures: bi-encoder, cross-encoder, and generative match-ing. Each architecture can use the same model but differs in how records are encoded and how the matching decision is produced. 
+
+Bi-encoder matcher . A bi-encoder encodes each record indepen-dently. Given records 𝑟 𝑖 and 𝑟 𝑗 , their representations are computed as 
+
+ℎ𝑖 = B𝜃 (𝜙 (𝑟 𝑖 )) , ℎ𝑗 = B𝜃 (𝜙 (𝑟 𝑗 )) ,
+
+where B𝜃 denotes an LLM-based encoder equipped with a pooling function over the transformer’s hidden states. Unlike encoders based on bidirectional PLMs using the CLS token [46], LLM-based encoders commonly use the hidden state of the final input token 
+
+EOS as the record representation [ 61 ]. Under causal attention [ 9], this token can attend to all preceding tokens and thus aggregate information from the entire serialized input. The match score is then computed from these two representations: 
+
+Mbi (𝑟 𝑖 , 𝑟 𝑗 ) = 𝑓 (ℎ𝑖 , ℎ 𝑗 ),
+
+where 𝑓 (.) may be a similarity function or a learned classifier over the two embeddings. Because ℎ𝑖 and ℎ𝑗 are computed independently, record embeddings can be precomputed and reused across candi-date pairs. This makes bi-encoders attractive for efficient retrieval, blocking (candidate generation) [8, 76], and matching [22]. 
+
+Cross-encoder matcher . A cross-encoder matcher encodes the two records jointly [ 28 , 57 ]. The model receives the serialized pair 
+
+𝜙 (𝑟 𝑖 , 𝑟 𝑗 ) and directly predicts a match score: 
+
+Mcross (𝑟 𝑖 , 𝑟 𝑗 ) = C𝜃 (𝜙 (𝑟 𝑖 , 𝑟 𝑗 )) ,
+
+where C𝜃 denotes an LLM-based classifier consisting of a trans-former encoder followed by a classification head. Because both records are present throughout encoding, cross-encoders are there-fore expressive pairwise classifiers. However, they are computa-tionally expensive because every entity pair must be processed Zeyu Zhang, Xue Li, Iacer Calixto, Paul Groth, and Sebastian Schelter 
+
+separately, and record representations cannot be reused across pairs. 
+
+Generative matcher . A generative matcher retains the language-modeling head of the LLM and formulates matching as conditional generation. Given the serialized pair 𝜙 (𝑟 𝑖 , 𝑟 𝑗 ), the model generates a short textual response 
+
+𝑧 = (𝑧 1, . . . , 𝑧 𝑇 ) ∼ 𝑝 𝜃 (· | 𝜙 (𝑟 𝑖 , 𝑟 𝑗 )) .
+
+The generated response is then mapped to a binary match decision by an output parser: 
+
+ˆ𝑦 gen  
+
+> 𝑖 𝑗
+
+= 𝜋 (𝑧 ),
+
+where 𝜋 (𝑧 ) ∈ { 0, 1}. Generative matchers typically produce a tex-tual decision rather than an explicit real-valued match score. Al-though a pseudo-score can be derived from the model probabilities or logits associated with predefined output tokens, such as yes and 
+
+no , our evaluation uses the generated textual decision directly. The generative approach aligns naturally with instruction following language models. However, this architecture also has various disad-vantages: auto-regressive generation introduces decoding overhead, and prediction reliability may depend on whether the generated response conforms to the expected output format. 
+
+## 3 EXPERIMENTAL DESIGN 
+
+Our experimental design is structured to separate the effects of matching architecture, model variant (representing different pre-training objectives), and model size. The core evaluation follows a full factorial design over: three architectures, three model variants, three model sizes, nine datasets, and five repetitions with different random seeds, for a total of 3 × 3 × 3 × 9 × 5 = 1, 215 fine-tuning runs. Each trained model is evaluated under two settings. In within-dataset evaluation, the training and test partitions are drawn from the same dataset. In cross-dataset evaluation, a model trained on one dataset is evaluated on a different dataset. All experiments were conducted on a Linux-based high-perfo rmance computing cluster . Each run had a single NVIDIA H100 SXM5 GPU with 94 GiB of memory, 16 AMD EPYC 9334 CPU cores, and 192 GiB of system memory available. Collectively, the training runs consumed more than 850 GPU-hours. 
+
+## 3.1 Datasets 
+
+We evaluate the matchers on nine ER datasets selected from three widely used benchmarks: Magellan [ 35 ], MaChAmp [ 60 ], and WDC Products [ 42 ]. The datasets cover product, software, publication, book, and movie matching, and span both schema-aligned struc-tured data and more heterogeneous settings with semi-structured data. Table 1 summarizes their main characteristics. These datasets are deliberately selected to avoid overly sim-ple matching scenarios and to cover a diverse range of matching settings. From Magellan, we exclude datasets that are nearly lin-early separable [ 38 ] or contain very small candidate sets that have less than 2,000 entity pairs. Because MaChAmp datasets were con-structed by reusing Magellan-style sources, we retain only datasets whose underlying records are disjoint from those selected from Magellan and on which existing methods have not achieved near-saturated performance [ 51 , 60 ]. From WDC Products, we use two challenging variants containing different proportions of corner 
+
+Table 1: Nine evaluation datasets. CC denotes corner cases. Split reports the sizes of the training, validation, and test par-titions. Pos. denotes the overall positive-pair rate. #Attr. and Length report the rounded average numbers of attributes and tokenized record lengths for the two sources, respectively.                                                             
+
+> ID Dataset Type #Attr. Split Size Pos. Length
+> ab Abt-Buy [35] struct. 3/3 5,743/1,916/1,916 10.7% 90/43
+> ag Amazon-Google [35] struct. 3/3 6,874/2,293/2,293 10.2% 27/33
+> ds DBLP-Scholar [35] struct. 4/4 17,223/5,742/5,742 18.6% 41/42
+> wa Walmart-Amazon [35] struct. 5/5 6,144/2,049/2,049 9.4% 49/54
+> rt Rel-Text [60] heter. 1/4 7,417/2,473/2,473 18.0% 163/51
+> sh Semi-Heter [60] heter. 12/12 1,240/414/414 38.2% 137/110
+> sr Semi-Rel [60] heter. 8/14 1,309/437/437 41.6% 120/146
+> w20 WDC (20% CC) [42] struct. 5/5 6,000/3,500/4,500 17.9% 147/146
+> w80 WDC (80% CC) [42] struct. 5/5 6,000/3,500/4,500 17.9% 149/149
+
+Table 2: Model variants with their model sizes and corre-sponding hidden dimensions. HuggingFace model ID Training objective Hidden dim.           
+
+> Qwen/Qwen3-{0.6,4,8}B-Base Next-token prediction {1024,2560,4096}
+> Qwen/Qwen3-{0.6,4,8}B Instruction following {1024,2560,4096}
+> Qwen/Qwen3-Embedding-{0.6,4,8}B Text embedding {1024,2560,4096}
+> FacebookAI/roberta-base Masked language modeling 768
+> sentence-transformers/stsb-roberta-base-v2 Text embedding 768
+
+cases, defined as hard negatives with high syntactic similarity. We choose the most challenging entity-disjoint splits, such that entities in the test partition do not appear in the training or validation parti-tions. Overall, the selected datasets vary substantially in labeled-set size, class balance, schema alignment, attribute structure, and se-rialized record length, providing a diverse testbed for comparing matcher behavior. A common concern in LLM-based research is that public benchmark data may have appeared in the LLM pre-training corpora, which potentially inflates absolute performance through memorization [ 48 ]. However, our design choice of focusing on relative comparisons between the same model family and data splits across matcher architectures reduces the impact of potential data contamination on our results. 
+
+## 3.2 Models and Implementation Details 
+
+In this study, we restrict our main experiments to decoder-only lan-guage models [ 9], commonly referred to as large language models (LLMs), because generative matchers require a decoder-based back-bone. All the training and evaluation experiments are implemented with the Hugging Face transformers library [ 19 ], a widely adopted framework for developing and deploying large language models. 
+
+Models . Our experiments use the Qwen3 model family [ 71 ] at three sizes, 0.6B, 4B, and 8B parameters, and model variants correspond-ing to three pretraining objectives: base, instruction-tuned, and embedding-oriented (as summarized in Table 2). The base variant is pretrained on a large-scale corpus using a next-token prediction ob-jective. The instruction-tuned and embedding variants are obtained through additional post-training of the base models for instruction following and text representation, respectively. 
+
+Input serialization . We serialize every record for each dataset as 
+
+𝜙 (𝑟 ) = [field_1] value_1 ; . . . ; [field_k] value_k .Beyond Scale and Generation: Understanding Language Model-based Entity Matching 
+
+For structured datasets with aligned schemas, missing values are retained and replaced with the placeholder unknown ; for semi-structured datasets with sparse and heterogeneous fields, missing fields are omitted, following the preprocessing convention of the MaChAmp benchmark [ 60 ]. Afterwards, the bi-encoder serializes record independently by combining with a task instruction as sug-gested by [ 71 ]. For the cross-encoder and generative matcher, the two serialized records are concatenated into a single input, with the task instruction and the prefixes Entity A: and Entity B: dis-tinguishing the two records. This design follows the same principle as prior work [43, 51, 78]. 
+
+Task instructions–    
+
+> Bi-encoder: Represent the entity for entity matching.
+> Cross-encoder: Determine whether the following two entities refer to the same real-world entity.
+> Generative matcher: Determine whether the following two entities refer to the same real-world entity. Answer yes or no.
+
+A common max_len = 512 configuration is applied across all ex-periments. For bi-encoders, each record is tokenized and truncated independently to at most max_len tokens. For cross-encoders and generative matchers, each record is truncated to at most max_len /2 tokens before the paired input is constructed with task instructions and record delimiters. This allocation prevents either record from consuming the full pairwise input budget in rare cases. 
+
+Bi-encoders . The bi-encoder instantiates the shared encoder B𝜃 
+
+using Hugging Face’s AutoModel , which loads the Transformer backbone without the language-modeling head. Following the pool-ing strategy defined in §2, the hidden state of the final input to-ken EOS is used as the record representation. Let ℎ𝑖 and ℎ𝑗 be resulted representations and let 𝑑 𝑖 𝑗 = 1 − cos (ℎ𝑖 , ℎ 𝑗 ). For label 
+
+𝑦 𝑖 𝑗 ∈ { 0, 1}, we optimize the following contrastive loss during train-ing Lbi (𝑖, 𝑗 ) = 𝑦 𝑖 𝑗 𝑑 2 
+
+> 𝑖 𝑗
+
++( 1−𝑦 𝑖 𝑗 ) max (0, 𝑚 −𝑑 𝑖 𝑗 )2, with margin 𝑚 = 0.3.This objective follows the margin-based contrastive learning para-digm commonly used for bi-encoder representation learning [ 4, 47 ]. We also experimented with an InfoNCE objective [ 8] commonly used for representation-based blocking. However, because the ob-jective relies on in-batch negatives, its performance was sensitive to batch composition and exhibited unstable training behavior and worse performance. 
+
+Cross-encoders . The cross-encoder instantiates the classifier C𝜃 us-ing Hugging Face’s AutoModelForSequenceClassification , which loads the Transformer backbone together with a task-specific sequence-classification head. The model is trained as a binary classifier over candidate pairs using cross-entropy loss over the two class logits. At inference time, we use the softmax probability of the positive class as the match score for threshold-based metrics. 
+
+Generative matchers . The generative matcher instantiates 𝑝 𝜃 using Hugging Face’s AutoModelForCausalLM , which loads the trans-former backbone together with the causal language-modeling head used to generate the match decision auto-regressively. The target output is yes for a matching pair and no for a non-matching pair. We optimize the standard causal language modeling loss only on the response tokens, masking the prompt tokens from the loss. At inference time, the model generates up to five tokens. We strip leading and trailing whitespace from the generated text and extract its first whitespace-delimited word, which is mapped to a positive prediction if it is yes and a negative prediction if it is no using case-insensitive matching. Any other output is considered invalid. 
+
+## 3.3 Training Protocol and Evaluation Metrics 
+
+All model configurations are fine-tuned using the Hugging Face 
+
+Trainer API under a standardized training budget and five random seeds. Each run uses a batch size of 64, a maximum of 400 optimiza-tion steps, validation runs every 20 steps, early stopping with a patience of 5 validation rounds, a warm up ratio of 0.05, and gradi-ent checkpointing is enabled to optimize memory consumption. To standardize the training budget across datasets, the training and validation splits are randomly capped at 8,000 and 2,000 labeled pairs, respectively, whereas each test set is evaluated in full. LoRA adapters are used across all configurations to reduce mem-ory usage. This choice is supported by prior work showing that LoRA achieves performance comparable to full fine-tuning for en-tity matching while updating only a small fraction of the model parameters [ 58 , 78 ]. We set the rank to 8, the scaling factor to 16, and the dropout rate to 0.05, and apply adapters to all linear layers following the default recommendation of the PEFT library [ 32 ]. F1 (in %) serves as the primary metric, while precision, recall, and AUROC are also used for diagnostic analyses where appropriate. Before conducting the full experiments, the learning rate was tuned separately for each combination of matching architecture, model variant, and model size over five candidate values using an auxiliary tuning dataset. The dataset was constructed by sampling a total of 800 labeled pairs exclusively from the training partitions of all used datasets. These pairs were divided into 500 training, 200 validation, and 100 held-out tuning pairs. For each configuration, the learning rate achieving the highest F1 score on the held-out tuning split over five random seed runs was used for all dataset-specific runs. No examples from the original validation or test partitions were used for hyperparameter tuning. 
+
+## 3.4 Baselines 
+
+We include three representative language model-based baselines aligned with the matching architectures studied in this work: Sentence -BERT [46 , 76 ] for bi-encoder matching, Ditto [28 ] for cross-encoder matching, and GPT-4.1-mini 1 for generative matching. Together, these baselines provide complementary reference points for assess-ing the effects of model size, architecture-specific training, and task-specific fine-tuning. 
+
+Sentence-BERT . We adapt our bi-encoder implementation to fine-tune sentence-transformers/stsb-roberta-base-v2 . The two records are encoded independently with a shared RoBERTa en-coder [ 30 ], and their representations are obtained by mean pooling over the final hidden states. All other settings follow the main bi-encoder implementation, except for the learning rate. Differing from the Qwen3-based encoders, it may not share the same suitable learning-rate range. Thus, the recommended Sentence-BERT learn-ing rate [ 46 ] is used to avoid disadvantaging the baseline through an inappropriate optimization setting. 
+
+> 1https://developers.openai.com/api/docs/models/gpt-4.1-mini Zeyu Zhang, Xue Li, Iacer Calixto, Paul Groth, and Sebastian Schelter
+
+Ditto . We use the official Ditto implementation [ 28 ] with its pro-posed optimization techniques enabled, including domain knowl-edge injection, summarization, and data augmentation. Ditto is built on RoBERTa [ 30 ] and is a widely adopted supervised transformer baseline for entity matching. We train and evaluate Ditto on the same dataset splits as used in our main experiments. 
+
+GPT-4.1-mini . GPT-4.1-mini serves as the generative baseline. It was selected as a cost-efficient successor to GPT-4o-mini, which has been examined in prior entity-matching studies [ 43 , 79 ], while offering stronger performance on general model benchmarks. It therefore provides a more capable contemporary reference point for API-based generative matching. The model is evaluated in a zero-shot setting. Each entity pair is serialized using the same pairwise input format as the fine-tuned generative matchers and accompanied by an instruction to return a binary match decision. 
+
+## 4 ANALYSIS OVERVIEW AND MAIN FINDINGS 
+
+This section provides a roadmap for the empirical analyses that follow. It introduces the main dimensions along which matching architectures, model variants, and model sizes are compared, sum-marizes the key findings, and directs the reader to the subsequent sections for detailed results and supporting evidence. 
+
+## 4.1 Analysis Roadmap 
+
+The analysis begins with controlled within-dataset comparisons in §5. We first examine how performance depends on initialization with a given model variant. Based on these results, we select the best variant for each matcher architecture and use it in the subse-quent analyses. We then evaluate the benefits of jointly encoding entity pairs and identify the conditions under which cross-encoder and generative matcher decisions diverge. The observed divergence is driven by two particular datasets, motivating further analysis. By studying the original data partitions and constructing rebalanced variants, we trace the performance differences to unseen subtle schema differences and class-conditional feature distribution shift between the training and evaluation sets. §6 extends the evalu-ation to transfer across datasets and returns to the comparison among the three matcher architectures. Specifically, it measures how much target-specific performance is retained when the train-ing supervision is obtained from a difference source dataset, thereby revealing the extent to which fine-tuned behavior remains tied to the source distribution. Finally, §7 relates predictive performance to training time, memory consumption, and inference throughput. This breakdown identifies the deployment conditions under which the computational properties of each architecture outweigh and justify their effectiveness differences. 
+
+## 4.2 Main Findings 
+
+We summarize the following six key findings, which are detailed in the coming sections. (1) Model variants that correspond to different pretraining ob-jectives matter primarily for bi-encoders. Embedding-oriented variants provide substantially better initialization for bi-encoders fine-tuning than other variants. Their pretrained representation space already separates matching from non-matching pairs and can predict downstream performance (§5.1). 
+
+Table 3: Effect of pretraining objective for matching archi-tectures. F1 is macro-averaged over datasets and model sizes. Wins counts datasets where the variant obtains the best F1.                                     
+
+> Instruct Base Embedding Best vs. 2nd Architecture F1 wins F1 wins F1 wins Δ𝑝
+> Bi-encoder 53.7 057.4 077.9 9+20 .30.004 Cross-encoder 82.5 483.7 581.7 0+1.20.652 Generative 85.9 086.3 786.4 2<0.10.570
+
+(2) Joint pair encoding provides a persistent advantage over in-dependent encoding. Although increasing the model size im-proves bi-encoder performance, it does not eliminate the gap relative to cross-encoders, even at the 8B scale (§5.2). (3) Generative matching offers a conditional but not consistent advantage. Cross-encoder and generative matchers perform similarly on most datasets. The generative advantage is concen-trated on cases with pronounced differences between training and evaluation distributions (§5.3). (4) Different distribution shifts produce distinct failure mode. Un-seen schema combinations primarily reduce cross-encoder re-call, whereas an increased prevalence of same-title negative pairs causes larger model to over-predict matches and lose precision (§5.3). (5) Matching architectures differ remarkably in cross-dataset trans-ferability. Bi-encoders retain the least target-specific perfor-mance under cross-dataset evaluation, while generative match-ers achieve the strongest overall retention. Besides, the trans-ferability also varies by source and target dataset (§6). (6) Architecture choice depends on the deployment conditions. Cross-encoders provide the strongest effectiveness-throughput balance for pairwise matching. Generative matchers are prefer-able in settings with distribution shift, but incur a high memory usage. Bi-encoders become competitive when the representa-tions can be cached and reused along with blocking (§7). 
+
+## 5 DISENTANGLING THE EFFECTS OF MATCHER DESIGN 
+
+This section first examines how bi-encoder performance depends on the pretrained representation space (induced by the choice of model variant), then assesses what direct interaction adds by comparing bi-encoders with cross-encoders. Finally, it compares cross-encoder and generative matchers to identify the datasets and conditions where their decisions diverge. 
+
+## 5.1 Effect of Pre-training Objective 
+
+The bi-encoder architecture encodes two records independently before computing the matching score. Its performance therefore depends strongly on how pretraining shapes the resulting repre-sentation space. We compare model variants corresponding to different pretrain-ing objectives. Table 3 reports macro-averaged test F1 across datasets and model sizes. For the wins count, we first select the best F1 over model sizes for each dataset and checkpoint variant, and then count the datasets on which each variant performs best. We also report Δ,Beyond Scale and Generation: Understanding Language Model-based Entity Matching 
+
+defined as the difference between the best and second-best variants in macro-averaged F1, together with a two-sided Wilcoxon 𝑝 -value computed over the nine per-dataset means. For the bi-encoder, the embedding variant achieves an F1 score of 77.9, ranks first on all nine datasets, and exceeds the second-best variant by 20.3 points; the difference is statistically significant (𝑝 = 0.004 ). By contrast, the choice of model variant has a much smaller effect on cross-encoder and generative matchers. Surpris-ingly, even an embedding variant can be fine-tuned into an effective generative matcher. This suggests that fine-tuning can largely atten-uate the effect of the pretraining objective for cross- and generative matchers. The dominance of the embedding variant suggests that the per-formance gap originates from the pretrained representation space. The contrastive pretraining of embedding variants provides a more favorably shaped space than base or instruction-tuned variants, whose hidden states are not explicitly optimized for representation-level comparison. We validate this hypothesis by encoding test records with each 0.6B variant before EM fine-tuning and comput-ing the AUROC of pairwise cosine similarity. AUROC is a suitable indicator here because it measures whether matching pairs are ranked above non-matching pairs independently of any threshold calibration. Figure 2 shows that the embedding variant provides a strong initial matching signal on all nine datasets, whereas the base and instruction-tuned variant are close to random on most datasets. On Semi-Heter , their AUROC falls below 0.5, indicating that non-matches are ranked above matches, while the embedding variant reaches 0.858. Across the 27 dataset–variant pairs, zero-shot AUROC correlates with fine-tuned bi-encoder F1 ( 𝜌 = 0.59 ). This correlation indicates that the pretrained representation space is already highly informative of downstream performance. To exclude that LoRA causes this dependence on variant se-lection, we fully fine-tune the 0.6B base and instruction-tuned bi-encoders on three datasets where these variants perform poorly: 
+
+ABT-Buy , Semi-Heter , and Semi-Rel . Full fine-tuning closes the gap on ABT-Buy , reaching F1 scores of 75.4 and 75.0 compared with 75.7 for the embedding variant with LoRA. It remains substantially worse on Semi-Heter (32.9 and 41.1 versus 84.0) and Semi-Rel 
+
+(66.8 and 73.7 versus 80.5). This indicates that the observed de-pendence on variant selection cannot be attributed to low-rank adaptation. 
+
+## 5.2 Effect of Joint Pair Encoding 
+
+We next investigate the effect of joint pair encoding by primarily comparing the bi-encoder and the cross-encoder. Unless other-wise stated, the remaining analyses use the best-performing model variant for each matching architecture: the embedding variant for bi-encoders and the base variant for cross-encoders and generative matchers, as indicated by Table 3. Table 4 shows that bi-encoder performance improves consis-tently with model size, from 72.5 at 0.6B to 79.0 at 4B and 81.5 at 8B. Nevertheless, the bi-encoders remain below cross-encoders at every model size, which achieve average F1 scores of 83.0, 84.1, and 84.1. Model size scaling improves independently encoded represen-tations but does not eliminate the gap introduced by the absence of direct pairwise interaction. 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0                                   
+
+> AUROC (pre-fine-tuning)
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> Fine-tuned bi-encoder F1  ds
+> sh
+> sr
+> ds
+> sh
+> sr
+> ds
+> sh sr
+> random geometry
+> Spearman = 0.59
+> (a)
+> instruct
+> base
+> emb
+> ab ag ds rt sh sr wa w20 w80
+> instruct
+> base
+> emb
+> 0.49 0.53 0.50 0.46 0.18 0.79 0.55 0.54 0.53
+> 0.48 0.55 0.57 0.49 0.16 0.57 0.55 0.55 0.53
+> 0.76 0.82 0.95 0.67 0.86 0.97 0.73 0.80 0.76
+> (b)
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> AUROC
+
+Figure 2: Pretrained representation geometry predicts bi-encoder performance at 0.6B. (a) Zero-shot cosine-similarity AUROC correlates with fine-tuned F1 across dataset– checkpoint pairs ( 𝜌 = 0.59 ). (b) The embedding variant achieves the highest zero-shot AUROC on all nine datasets. ab         
+
+> ag
+> ds
+> rt
+> wa
+> w20
+> w80
+> 5.0
+> 2.5
+> 0.0
+> 2.5
+> 5.0
+> F1 (Gen.  Cross.)
+> (a)
+> Scale
+> 0.6B 4B 8B
+> 0.6B 4B 8B
+> Model Size
+> 50
+> 75
+> 100
+> F1 on sh
+> (b)
+> 0.6B 4B 8B
+> Model Size
+> 50
+> 75
+> 100
+> F1 on sr
+> (c) Cross. Gen.
+
+Figure 3: Cross-encoders vs generative matchers. (a) Mean 
+
+ΔF1 on seven datasets where they perform similarly. (b)–(c) Model size-dependent F1 on sh and sr , respectively. 
+
+The baseline comparison shows a similar pattern. SBERT and Ditto exhibit the same distinction with a shared RoBERTa back-bone: SBERT encodes the two records independently, whereas Ditto jointly encodes the pair. Ditto outperforms SBERT on average. This parallel finding suggests that the cross-encoder advantage is not specific to Qwen3 or a particular variant, but reflects a general benefit of joint pair encoding for EM. The EM decision often requires fine-grained field level compar-isons across records to align abbreviations, interpret conflicting values, etc. A bi-encoder must compress each record into a single representation before observing the other, which limits its ability to capture such local correspondences. A cross-encoder instead allows the records to interact during encoding. Thus, even stronger repre-sentations from larger models improve bi-encoder performance, but explicit pairwise interaction remains a distinct source of predictive gain. Zeyu Zhang, Xue Li, Iacer Calixto, Paul Groth, and Sebastian Schelter 
+
+Table 4: Per-dataset test F1 scores and scaling gains across matching architectures. The left (a) reports test F1 (mean ± standard deviation over five seeds) at each model size, using the best model variant for each architecture together with its corresponding baseline. The best score in each row is underlined. The right (b) illustrates dataset-level F1 gains between adjacent model sizes for each matching architecture.                                                                                                                                                                     
+
+> Bi-encoder Cross-encoder Generative
+> Dataset SBERT 0.6B 4B 8B Ditto 0.6B 4B 8B GPT 0.6B 4B 8B
+> ab 87 .5±0.275 .7±0.488 .0±0.391 .1±0.984 .7±3.593 .0±1.394 .0±0.594 .9±0.487 .293 .4±0.693 .5±0.894 .4±0.5
+> ag 73 .7±0.660 .0±0.572 .0±0.676 .3±0.572 .2±1.279 .1±1.378 .7±3.678 .6±2.864 .677 .9±2.778 .1±1.980 .6±1.6
+> ds 93 .3±0.192 .4±0.493 .9±0.995 .3±0.494 .9±0.395 .0±0.295 .1±0.395 .2±0.687 .495 .5±0.695 .3±0.495 .0±0.7
+> rt 61 .7±0.860 .9±0.667 .5±0.672 .0±0.738 .5±17 .673 .2±1.175 .7±1.175 .8±1.269 .573 .4±0.575 .3±0.874 .8±0.8
+> sh 55 .3±0.584 .0±1.086 .7±0.786 .0±1.756 .3±3.858 .7±0.662 .8±16 .965 .1±14 .494 .073 .2±14 .088 .8±3.991 .5±2.9
+> sr 82 .2±0.780 .5±0.679 .9±0.485 .6±1.792 .6±3.697 .6±0.289 .5±4.785 .0±11 .487 .294 .0±5.288 .3±3.190 .0±5.8
+> wa 77 .6±0.673 .9±0.682 .0±1.281 .9±0.585 .5±1.688 .5±0.891 .6±0.490 .7±0.478 .289 .8±0.790 .8±0.590 .6±0.6
+> w20 67 .9±0.567 .9±0.675 .0±0.976 .2±0.376 .4±1.084 .8±1.087 .8±0.888 .7±1.087 .383 .8±0.488 .4±0.288 .9±0.3
+> w80 56 .6±1.057 .3±0.266 .3±1.169 .4±0.957 .9±21 .477 .0±0.581 .7±0.883 .2±0.582 .278 .9±0.482 .6±0.483 .9±1.3
+> Average 72 .9±0.672 .5±0.579 .0±0.881 .5±0.873 .2±6.083 .0±0.884 .1±3.284 .1±3.682 .084 .4±2.886 .8±1.387 .7±1.60.6B  4B
+> 4B  8B
+> ab
+> ag
+> ds
+> rt
+> sh
+> sr
+> wa
+> w20
+> w80
+> AVG
+> +12.3 +3.1
+> +12.0 +4.3
+> +1.5 +1.5
+> +6.6 +4.6
+> +2.6 -0.7
+> -0.6 +5.7
+> +8.1 -0.2
+> +7.1 +1.2
+> +9.0 +3.1
+> +6.5 +2.5
+> Bi-encoder
+> 0.6B  4B
+> 4B  8B
+> +1.0 +0.9
+> -0.4 -0.1
+> +0.1 +0.1
+> +2.6 +0.1
+> +4.1 +2.4
+> -8.1 -4.5
+> +3.1 -1.0
+> +3.0 +0.9
+> +4.7 +1.4
+> +1.1 +0.0
+> Cross-encoder
+> 0.6B  4B
+> 4B  8B
+> +0.1 +0.8
+> +0.2 +2.5
+> -0.2 -0.4
+> +1.9 -0.5
+> +15.6 +2.7
+> -5.7 +1.7
+> +1.0 -0.2
+> +4.6 +0.5
+> +3.7 +1.3
+> +2.4 +0.9
+> Generative
+> -15
+> -10
+> -5
+> 0
+> 5
+> 10
+> 15
+> F1 points
+
+## 5.3 Effect of Matching Prediction Formulation 
+
+We next examine the differences between cross-encoder and genera-tive matchers. We observe that every fine-tuned generative matcher emits a valid yes or no token at the first decoding step. This behav-ior allows us to interpret the comparison between the two matching architectures primarily as a comparison between their prediction formulations: a task-specific sequence-classification head for the cross-encoder versus a causal language-modeling head for the gen-erative matcher. The classification head is initialized and trained from scratch, while the language-modeling head is adapted to the matching task during fine-tuning. Overall, generative matchers achieve higher performance, as shown in Table 4. Cross-encoder F1 increases from 83.0 to 84.1 and then remains at 84.1 across the three model sizes, whereas generative matcher performance rises from 84.4 to 86.8 and 87.7. The same pattern is observed for the two baselines: zero-shot GPT achieves an F1 of 82.0, exceeding Ditto’s 73.2 by 8.8 points. How-ever, this aggregate advantage is not uniform and concentrated on the Semi-Heter and Semi-Rel datasets. After excluding these two datasets, the macro-averaged F1 scores of cross-encoders are 84.4, 86.4, and 86.7 across the three model sizes, compared with 84.7, 86.3, and 86.9 for generative matchers. Figure 3(a) illustrates that the two architectures perform nearly identically on the remaining seven datasets. By contrast, Table 4(b) and Figure 3(b)–(c) shows pronounced divergences between two architectures on Semi-Heter 
+
+and Semi-Rel . This motivates a detailed analysis of the observed divergences on Semi-Heter and Semi-Rel to identify when gener-ative matching provides benefits beyond joint pair encoding. We show that these gaps arise under specific train–test distribution shifts. 
+
+Impact of attribute inconsistencies . We begin with Semi-Heter ,a dataset of book records collected from two heterogeneous sources. Records from both sources are semi-structured, with each instance stored as a JSON object whose set of attributes vary across records. The original split exhibits a severe train–test mismatch: 82% of positive test pairs have attribute combinations that are absent from both the training and validation sets. For example, the attribute-set pair (title, pub year, pub month, pub day, publisher, authors, edition, isbn13, language, pages) and (Title, publisher, pages, isbn13) occurs in exactly one positive pair, and that pair appears exclusively in the test set. The model therefore has to identify matching evidence across attribute combinations that were not observed during training. As shown in Figure 3(b), both architectures benefit from scaling, but the gap between them remains substantial and widens with model size. At 0.6B, the gener-ative matcher achieves an F1 score of 73.2, compared with 58.7 for the cross-encoder. At 8B, their F1 scores increase to 91.5 and 65.1, respectively. A large gap also appears on the two baselines shown in Table 4(a), where zero-shot GPT substantially outperforms Ditto, with F1 scores of 94.0 and 56.3, respectively. Table 5 further reveals that the difference is driven primarily by recall. On the original split, the cross-encoder maintains high precision at every model size, but its recall remains low at 42.6, 48.9, and 51.1. The generative matcher also has relatively low recall at 0.6B, but benefits much more from scaling, reaching a recall of 84.8 at 8B while maintaining high precision. To assess whether the shift in attribute combinations accounts for this divergence between the two architectures, we construct a rebalanced version of Semi-Heter in which the proportion of positive test pairs with unseen attribute combinations is reduced from 82% to 17%. After fine-tuning on the rebalanced dataset, cross-encoder recall rises to approximately 96–97 across all model sizes, and its F1 becomes comparable to that of the generative matcher. These results indicate that the generative matcher is more robust to the attribute-combination shift, suggesting that it generalizes matching evidence more effectively across unseen schema incon-sistencies. 
+
+Impact of class-conditional feature distribution shift . We next consider Semi-Rel , a dataset of movie records collected from two heterogeneous sources, one semi-structured and the other struc-tured. We detect a form of class-conditional feature distribution shift between the training and evaluation data: there is a change in how reliably the agreement on one or more attributes indicates a match. We refer to this as attribute agreement shift in the following. Beyond Scale and Generation: Understanding Language Model-based Entity Matching 
+
+Table 5: Performance on original and balanced sh across model sizes. Parentheses indicate the portion of unseen at-tribute combinations of positive pairs in test set. Original (82% unseen) Balanced (17% unseen)                                            
+
+> Architecture Model Size F1 PRF1 PR
+> Cross-encoder
+> 0.6B 58 .7±0.694 .2±1.142 .6±0.797 .1±0.597 .1±1.097 .1±1.2
+> 4B 62 .8±16 .994 .0±2.448 .9±19 .997 .3±0.497 .6±0.897 .1±1.2
+> 8B 65 .1±14 .494 .7±1.951 .1±18 .096 .1±2.596 .0±3.996 .3±1.8
+> Generative
+> 0.6B 73 .2±14 .097 .2±1.060 .3±18 .196 .6±0.698 .0±0.995 .2±1.5
+> 4B 88 .8±3.997 .7±0.581 .5±6.697 .8±0.598 .1±0.897 .5±0.8
+> 8B 91 .5±2.999 .4±0.684 .8±4.896 .9±1.298 .8±0.895 .0±2.8
+
+This shift concerns on the movie title: a title match easily predicts a record match in the training and validation sets, but becomes substantially less reliable in the test set. For example, the records 
+
+(title: From Time To Time; director: Julian Fellowes; price: $12.98; year: 2012; duration: 95 minutes) and 
+
+(title: From Time to Time; audience_rating: 59; director: Julian Fellowes; year: 2009; time: 1 hr. 35 min.) share both title and director but form a negative pair because their release years and durations differ. This example illustrates that although title agreement is a strong matching cue during training, it is not a reliable decision rule in the test distribution. More broadly, neg-ative pairs with identical titles account for only 0.5% and 0.4% of the training and validation negatives, respectively, but this rate increases more than 70 × in the test set. Such a shift creates a condition for shortcut learning, in which a model relies on an easily identifiable cue whose predictive value does not remain stable across data partitions [ 16 ]. As shown in Table 4(b) and Figure 3(c), both architectures degrade as model size increases, but the decline is more severe for cross-encoders. Cross-encoder F1 drops from 97.6 at 0.6B to 85.0 at 8B, whereas generative matcher F1 decreases from 94.0 to 90.0 over the same range, with a non-monotonic pattern at 4B. Such a degradation is driven primarily by precision, as shown in Table 6. For cross-encoders, precision falls from 96.9 at 0.6B to 76.4 at 8B, while recall remains close to 99 across model sizes. Generative matchers exhibit a similar but weaker decline, with precision decreasing from 90.9 at 0.6B to 83.7 at 8B. This pattern is consistent with prior observations that larger LLMs can exhibit stronger reliance on spurious correlations [74]. To validate our hypothesis, we construct a rebalanced version of the dataset, in which the proportions of negative pairs with identical titles remain similar in different partitions. After fine-tuning on the rebalanced dataset, the degradation disappears: both architectures achieve F1 scores of approximately 98 across all model sizes, with precision restored to approximately 97–98. These results indicate that the original degradation is driven by shortcut learning under the attribute-agreement shift, with scaling the model size amplify-ing reliance on the misleading agreement cue. Both architectures are affected, but the cross-encoder becomes increasingly brittle as model size grows. 
+
+## 6 CROSS-DATASET TRANSFERABILITY OF FINE-TUNED MATCHERS 
+
+While the within-dataset experiments characterize how architec-tural and model-level choices affect matcher behavior, they provide 
+
+Table 6: Performance on original and rebalanced sr across model sizes. Parentheses report the title-collision rate among negative pairs in train/valid/test partitions. Original (0.5/0.4/28.7%) Rebalanced (6.2/6.2/5.9%)                                            
+
+> Architecture Model Size F1 PRF1 PR
+> Cross-encoder
+> 0.6B 97 .6±0.296 .9±0.998 .3±0.998 .2±0.497 .7±0.798 .7±1.1
+> 4B 89 .5±4.781 .7±9.099 .6±1.098 .3±0.397 .4±0.499 .2±0.3
+> 8B 85 .0±11 .476 .4±19 .098 .7±1.498 .1±0.797 .4±0.598 .9±1.0
+> Generative
+> 0.6B 94 .0±5.290 .9±10 .198 .0±1.498 .4±0.397 .6±0.399 .1±0.7
+> 4B 88 .3±3.180 .7±5.497 .7±0.598 .3±0.297 .4±0.499 .2±0.5
+> 8B 90 .0±5.883 .7±10 .598 .0±1.898 .6±0.398 .4±0.898 .9±0.5
+
+limited evidence about whether the resulting decision rules general-ize beyond the source distribution. This section therefore examines whether fine-tuning learns transferable EM behavior or source-specific decision rules. Inspired by prior work [ 51 , 79 ], we fine-tune each model on one dataset and evaluate it on the others. 
+
+## 6.1 Measuring Cross-Dataset Retention 
+
+We evaluate cross-dataset transfer with the most performative 8B model size. For every source dataset 𝑠 , we fine-tune a model on 𝑠 
+
+and evaluate it on every target dataset 𝑡 , averaging results over five random seeds. For each source–target pair, we define F1 retention as 
+
+Retention (𝑠, 𝑡 ) = F1 (train = 𝑠, test = 𝑡 )
+
+F1 (train = 𝑡, test = 𝑡 ) × 100 .
+
+Retention measures how much target-specific performance is pre-served when the model is trained on another dataset. A value of 100 indicates that source training matches in-domain fine-tuning on the target, while values above 100 indicate that external training performs better. 
+
+## 6.2 Architectures Differ in Transferability 
+
+Figure 4(a) summarizes cross-dataset transfer performance in terms of both absolute F1 and retention relative to in-domain perfor-mance. The three architectures exhibit markedly different levels of transferability. Bi-encoders generalize poorly, achieving a mean off-diagonal F1 of only 30.3, together with mean and median retention scores of 36.9 and 28.8, respectively. Cross-encoders substantially improve cross-dataset performance, increasing the mean F1 to 64.9 and the mean and median retention rates to 79.1 and 83.0. Gener-ative matchers perform best overall, attaining the highest mean off-diagonal F1 of 73.8, as well as mean and median retention rates of 83.6 and 88.4, respectively. This cross-dataset analysis reveals that the advantages associ-ated with matcher design persist and become more pronounced under distribution shift. Bi-encoder retention is concentrated at low values, suggesting that representations learned on one dataset are rarely reusable across heterogeneous targets. Cross-encoders trans-fer considerably better, indicating that direct pairwise interaction yields more generalizable matching behavior. Generative match-ers retain the largest proportion of target-specific performance, demonstrating the strongest robustness. We attribute the stronger transfer of generative matchers may to their prediction formulation. Fine-tuning can adapt an existing language-based decision process, while cross-encoders have to learn Zeyu Zhang, Xue Li, Iacer Calixto, Paul Groth, and Sebastian Schelter Bi. Cross. Gen.                                                                                                                                                                                                                                                                               
+
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> F1 (%)
+> Bi. Cross. Gen.
+> 20
+> 40
+> 60
+> 80
+> 100
+> 120
+> 140
+> 160
+> Retention (%)
+> ab
+> ag
+> ds
+> rt
+> sh
+> sr
+> wa
+> w20
+> w80
+> OUT
+> ab
+> ag
+> ds
+> rt
+> sh
+> sr
+> wa
+> w20
+> w80
+> IN
+> 100 26 33 42 61 70 25 26 29 39
+> 22 100 34 42 61 69 24 26 29 38
+> 22 27 100 42 61 70 21 26 29 37
+> 21 24 33 100 63 69 21 26 29 36
+> 22 25 34 42 100 70 20 26 29 33
+> 21 24 33 42 62 100 21 26 28 32
+> 23 28 34 42 60 69 100 26 29 39
+> 27 30 32 42 62 69 27 100 29 40
+> 23 26 33 41 60 69 26 26 100 38
+> 22 26 33 42 61 69 23 26 29 37
+> ab
+> ag
+> ds
+> rt
+> sh
+> sr
+> wa
+> w20
+> w80
+> OUT
+> 100 78 82 85 145 103 92 81 75 93
+> 38 100 92 81 136 90 89 37 37 75
+> 30 75 100 78 141 85 74 32 33 68
+> 24 46 69 100 126 79 50 26 27 56
+> 32 55 82 85 100 89 74 31 31 60
+> 62 66 88 83 143 100 65 70 64 80
+> 35 87 93 83 140 91 100 35 35 75
+> 92 84 94 91 148 113 94 100 99 102
+> 96 84 93 91 150 114 94 101 100 103
+> 51 72 87 85 141 96 79 52 50 79
+> ab
+> ag
+> ds
+> rt
+> sh
+> sr
+> wa
+> w20
+> w80
+> OUT
+> 100 67 90 91 104 107 83 99 96 92
+> 91 100 93 92 102 100 90 77 77 90
+> 74 75 100 28 104 100 86 51 43 70
+> 84 72 89 100 104 100 70 85 81 86
+> 73 43 88 41 100 92 75 43 39 62
+> 82 69 92 90 106 100 61 87 82 84
+> 94 85 92 72 102 96 100 76 70 86
+> 92 69 90 85 107 108 79 100 98 91
+> 94 70 89 88 106 108 81 101 100 92
+> 85 69 90 73 104 101 78 77 73 84
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Retention (%)
+
+(a) Off-diagonal performance   
+
+> Bi-encoder Cross-encoder Generative
+
+(b) Source-target retention matrices 
+
+Figure 4: Cross-dataset F1 and retention at 8B. Higher retention indicates that fine-tuning on the source preserves more of the target’s in-domain performance. In the matrices, rows are fine-tuning sources and columns are evaluation targets. 
+
+an entirely dataset-specific classifier. The resulting decision rule in generative matchers preserves broader priors about entity identity, making it more reusable across datasets. 
+
+## 6.3 Transfer Depends on Both Target and Source Data 
+
+Figure 4(b) reports the complete result matrices, where rows de-note training source dataset and columns denote evaluation target datasets. The OUT column gives the mean off-diagonal retention of each source dataset, while the IN row gives the mean reten-tion received by each target dataset. The transfer matrices show that transferability depends on both the evaluation target and the fine-tuning source. On the receiving side, some targets benefit substantially from external supervision. This pattern is most pro-nounced for Semi-Heter , whose mean incoming retention reaches 141.2 for cross-encoders and 104.3 for generative matchers. On aver-age, models trained on other datasets therefore outperform models fine-tuned specifically on Semi-Heter . A similar but weaker effect appears for Semi-Rel , where incoming retention reaches 101.4 for generative matchers and 95.6 for cross-encoders. These results indi-cate that target-specific fine-tuning does not always provide enough supervision, particularly when the target evaluation distribution is weakly represented in its own training split. Transferability also varies across training sources. For both cross-encoders and generative matchers, WDC20 and WDC80 emerge as par-ticularly strong sources. These datasets are derived from the WDC product-matching benchmark and contain many challenging corner cases. Their strong outgoing retention suggests that exposure to such difficult and diverse matching patterns yields supervision that transfers effectively across datasets. Source- and target-side trans-fer therefore reveal complementary aspects of what fine-tuning learns: the former measures how reusable the learned behavior is, while the latter shows where externally learned behavior remains effective. 
+
+## 7 COST ANALYSIS 
+
+Matcher architectures differ not only in predictive quality but also in their computational requirements, making effectiveness alone insufficient for practical model selection. We therefore complement the performance analysis with a systematic comparison of training and inference costs. We derive training costs from the logs recorded during the main experimental runs. For inference-cost evaluation, we restrict the generative matcher to producing a single output token for a fair comparison. This choice is motivated by our ob-servation that the fine-tuned model consistently produces a valid response as its first generated token, making additional decoding unnecessary. 
+
+Training cost . We compare runtime and peak GPU memory across architectures, averaged over datasets and seeds. Bi-encoders require the longest training time at every model size: their mean runtime is 1.9, 1.7, and 1.5 times that of the corresponding cross-encoder at 0.6B, 4B, and 8B, respectively. This overhead arises because each training pair requires two independent record encodings. Cross-encoder and generative runtimes are much closer, differing by less than 4.0% at 4B and 8B. Generative training is instead distinguished by memory consumption. At 8B, mean peak memory is 67.4 GiB, compared with 48.7 GiB for the cross-encoder and 41.1 GiB for the bi-encoder; the largest generative run reaches 88.1 GiB. Thus, relative to cross-encoders, the main additional cost of generative training is memory rather than runtime, largely due to the language-modeling head. 
+
+Inference effectiveness and throughput . For each architecture-model size configuration, we measure throughput using the largest feasible batch size found by starting from a large value and repeatedly halving it after an out-of-memory failure. Each configuration is run five times, and we report the mean throughput. Figure 5 plots test F1 against candidate pairs processed per second. Across all datasets, larger models generally trade throughput for effectiveness. The 0.6B cross-encoder already achieves an F1 score of 83.0 at approximately 473 pairs/s, whereas the 8B bi-encoder reaches 81.5 at only 181 pairs/s. On the seven datasets excluding Semi-Heter 
+
+and Semi-Rel , the 4B cross-encoder occupies a favorable region of the frontier, achieving 86.4 F1 at approximately 165 pairs/s, while scaling to 8B yields little additional accuracy. On Semi-Heter and 
+
+Semi-Rel , generative matchers provide the strongest effectiveness that is followed by bi-encoders. 
+
+When bi-encoder caching pays off . The pairwise throughput com-parison understates the principal systems advantage of bi-encoders: record representations can be computed once and reused during blocking. We consider a setting in which each record from Source A Beyond Scale and Generation: Understanding Language Model-based Entity Matching 10 2 10 3 10 4           
+
+> 60
+> 70
+> 80
+> 90
+> 100
+> Test F1
+> (a)
+> 10 210 310 4
+> (b)
+> 10 210 310 4
+> (c)
+> Inference throughput (pairs/s, log scale)
+> Bi. Cross. Gen. 8B 4B 0.6B SBERT Ditto
+
+Figure 5: Effectiveness–efficiency frontiers. The panels report results on all nine datasets, the seven datasets excluding sh 
+
+and sr , and sh and sr , respectively. Throughput is averaged over five runs using the largest device-feasible batch size. Table 7: Estimated inference time for 1M candidate-pair de-cisions in seconds. For the bi-encoder, 𝑘 is the number of Source B candidates retrieved for each Source A record dur-ing blocking.                                 
+
+> Model Bi-encoder Cross-encoder Generative
+> 𝑘 =1𝑘 =5𝑘 =10 𝑘 =100
+> 0.6B 3129.4 625.9 312.9 31.3 3130.7 3134.4 4B 11118.5 2223.7 1111.9 111.2 11113.6 11107.4 8B 16931.9 3386.4 1693.2 169.3 16920.5 16949.2
+
+retrieves 𝑘 candidate records from Source B. The Source A represen-tation is then reused across its 𝑘 candidate pairs. Table 7 estimates the time required for one million candidate decisions under dif-ferent blocking choices. As 𝑘 increases, the bi-encoder encoding cost is amortized across more candidates, whereas cross-encoder and generative costs remain pair-dependent. At 8B, the estimated bi-encoder time decreases from 16,931.9 seconds at 𝑘 = 1 to 1,693.2 seconds at 𝑘 = 10 and 169.3 seconds at 𝑘 = 100 . Bi-encoders are therefore most attractive when blocking retrieves multiple candi-dates per source record, rather than used as pairwise classifiers without caching. 
+
+Latency comparison between cross-encoders and generative matchers .We further compare the per-query inference latency of cross-encoder and generative matchers using entity-pair inputs of equal length. For each model size and input length, we measure single-query la-tency over 100 independent runs. Because the two architectures use the same joint input and decoder backbone, their latency difference is primarily attributable to the output head and decoding procedure. Figure 6 shows that the cross-encoder is consistently faster across all model sizes. The absolute gap remains approximately 2 ms per query and becomes less consequential as input length increases, because backbone computation accounts for an increasingly large fraction of total latency. 
+
+## 8 RECOMMENDATIONS 
+
+We distill our findings into concrete suggestions for EM practition-ers, researchers, and benchmark designers. 
+
+Guidelines for EM practitioners . The choice between commer-cial API inference and fine-tuning should depend on workload 64 128 256 512 1024   
+
+> Input sequence length (tokens)
+> 0.0
+> 0.8
+> 1.6
+> 2.4
+> Gen.  Cross. latency (ms)
+> 0.6B 4B 8B
+
+Figure 6: Single-request latency overhead of the generative matcher relative to the cross-encoder as input length in-creases. 
+
+volume. API-based inference is attractive for low-volume or rapidly changing workloads because it avoids training and deployment overhead. For sustained workloads, the one-time fine-tuning cost can be amortized after a few thousand API calls under the pricing and hardware assumptions used in our analysis. For supervised pairwise EM with labeled data reasonably representing deployment conditions, a medium-scale cross-encoder is a strong default. In our experiments, a 4B model achieves comparable performance as the 8B model while providing higher throughput and lower memory cost (§ 5.2, §7). Generative matchers are preferable when robustness to distribution shift is a primary concern. Their advantage appears in deployment scenarios involving distribution shifts, such as un-seen schema combinations or cross-dataset transfer (§6). Model scaling is less important than building representative and high-coverage fine-tuning datasets. Larger models do not consistently improve EM performance and may amplify reliance on misleading matching cues (§ 5.3). Bi-encoders are suitable for settings in which record representations can be cached and reused after retrieval and blocking, providing competitive performance with higher through-put (§ 7). 
+
+Suggestions for EM researchers . Rather than pursuing incre-mental gains on saturated within-dataset benchmarks, future work should place greater emphasis on settings that directly evaluate model generalization, such as cross-dataset transfer (§6.2). Researchers should investigate which matching signals models actually learn and whether these signals remain reliable across distributions. Such analyses can reveal when models rely on transferable evidence and when they exploit dataset-specific shortcuts (§ 6.3). 
+
+Design principles for EM benchmarks . Benchmark splits should explicitly characterize changes in attribute combinations, source distributions, and attribute-label relationships across training and evaluation data. Benchmark evaluation should move beyond re-porting aggregate F1 and provide finer-grained analyses of model behavior, including precision, recall, and performance on relevant subgroups and difficult cases. 
+
+## 9 RELATED WORK 
+
+We review prior work along two dimensions: advances in neural and language model-based entity matching, and benchmarks and experimental studies that examine how evaluation design shapes empirical conclusions. Zeyu Zhang, Xue Li, Iacer Calixto, Paul Groth, and Sebastian Schelter 
+
+Neural and language model-based entity matching . Conven-tional supervised entity matching relies on manually designed sim-ilarities and classifiers [ 26 , 52 , 67 ]. Neural methods replace these features with learned representations and comparison functions. DeepMatcher [ 35 ] organizes this design space around attribute rep-resentation, comparison, and evidence aggregation, while DeepER and subsequent systems extend neural representations to blocking and matching [7, 21, 27, 39, 56]. Pre-trained language models shifted the dominant formulation toward textual serialization and joint pair classification. Ditto fine-tunes a Transformer over the concatenated record pair and incor-porates domain knowledge and augmentation [ 28 , 29 ]. Later work explores hierarchical attention, contrastive and self-supervised ob-jectives, prompt tuning, augmentation, and interpretation [ 33 , 37 ,40 , 62 , 64 , 72 ]. A complementary line independently encodes records for reusable retrieval and blocking [ 8 , 54 ]. Experimental studies show that the selected pretrained representation and fine-tuning strategy can substantially affect ER performance [22, 76]. Recent work evaluates generative LLMs through zero-shot, few-shot prompting, generated rules task-specific fine-tuning, etc [ 18 ,43 , 51 , 53 , 65 , 73 , 75 ]. Multi-dataset training and LLM-generated supervision have also been used to build transferable smaller match-ers [ 50 , 77 , 79 ]. Given the high computational cost of language model-based matchers, a complementary line of work studies cost-aware system design [ 6 , 14 , 44 , 45 ], toward scalable and automatable EM pipelines [23, 31, 36]. Another broad line of work reduces dependence on target-specific labels through active learning, weak supervision, pseudo-labeling, transfer learning, and domain adaptation [ 15 , 20 , 24 , 25 , 55 , 69 ]. Generalized and multi-dataset matchers similarly seek supervision that transfers across domains and schemas. Recent LLM studies evaluate transfer to unseen entities, datasets, and topical domains, showing that prompting and fine-tuning can behave differently under distribution shift [45, 51, 79]. 
+
+Entity matching benchmarks and experimental analyses . ER benchmarks have enabled comparisons across domains and matcher families, but their conclusions depend on schema structure, candi-date generation, label composition, entity overlap, and evaluation protocol. MaChAmp broadens evaluation beyond aligned relational tables to structured, semi-structured, and unstructured sources [ 60 ]. WDC Products varies training-set size, corner-case prevalence, and generalization to unseen entities [ 42 ]. Other benchmark efforts examine schema and representation heterogeneity, open-world en-tities, imbalance, and more realistic integration settings [34, 66]. Several E&A studies analyze these evaluation conditions directly. Critical benchmark re-evaluations find that simple lexical or linear models remain competitive on many established datasets, limiting their ability to distinguish advanced systems [ 38 ]. Experimental analyses of pretrained embeddings compare representations across blocking, supervised matching, and unsupervised matching [ 8, 76 ], while fine-tuning studies examine when adaptation produces con-sistent gains [ 22 ]. Fairness analyses reveal subgroup differences hidden by aggregate scores [49], providing evidence for the devel-opment of fairer EM systems [ 2, 3]. Robustness studies expose sensi-tivity to perturbations and training-data composition [ 1]. SMBench jointly benchmarks filtering and verification methods across real-world datasets, highlighting their interdependence in end-to-end entity-resolution performance [ 5]. Karapiperis et al. [ 22 ] present the work most closely related to ours by examining the impact of fine-tuning on language model-based entity matching. However, their study exclude generative matchers and offers limited analysis of why matcher architectures differ in performance. Our work extends this line of research through a controlled comparison of matcher architecture, checkpoint objective, model scale, transferability, and computational cost within a single model family. More broadly, these studies show that benchmark composition should be treated as an experimental factor rather than as neutral infrastructure. 
+
+## 10 CONCLUSION 
+
+This work presents a controlled study of language model-based entity matching that disentangles matcher architecture from ini-tialization with a model variant and model size. By comparing bi-encoders, cross-encoders, and generative matchers within a unified model family, we clarify which performance differences arise from representation quality, pairwise interaction, prediction formula-tion, and distribution shift rather than from architecture alone. Our results challenge the assumption that increasingly generative or larger models are universally superior and instead show that each matcher architecture is best suited to different data and deployment conditions. Beyond within-dataset accuracy, our study emphasizes transferability, robustness, and computational cost as essential com-plementary dimensions of evaluation. Overall, our findings provide a reliable basis for selecting matcher architectures, interpreting benchmark results, and designing future entity matching systems and evaluations. 
+
+Limitations. This study has several limitations that motivate future work. First, we keep the prompt, record serialization, and output label words (i.e., yes and no ) fixed and therefore do not isolate their individual effects. Second, although we attribute the divergence between cross-encoder and generative matchers primar-ily to their prediction formulations, we do not directly isolate the contribution of the language-model head. Third, our analysis of the bi-encoder scaling is limited by the availability of larger embedding-oriented checkpoints, leaving open whether further scaling can close the gap with cross-encoders. Fourth, our throughput mea-surements use a heuristic search for the largest feasible batch size and may not identify the optimal serving configuration; special-ized frameworks such as vLLM could provide stronger throughput but would introduce additional systems-level confounders. Finally, we focus on pairwise matching and leave the use of LLM-based bi-encoders for blocking and candidate generation to future work. 
+
+## REFERENCES         
+
+> [1] Mehdi Akbarian Rastaghi, Ehsan Kamalloo, and Davood Rafiei. 2022. Probing the robustness of pre-trained language models for entity matching. In Proceedings of the 31st ACM International Conference on Information & Knowledge Management .3786–3790. [2] Tiago Brasileiro Araújo, Vasilis Efthymiou, Vassilis Christophides, Evaggelia Pitoura, and Kostas Stefanidis. 2025. TREATS: Fairness-aware entity resolution over streaming data. Information Systems 129 (2025), 102506. [3] Tiago Brasileiro Araújo, Vasilis Efthymiou, and Kostas Stefanidis. 2026. X-TREATS: Integrating explainability and fairness into streaming entity resolution.
+> Information Sciences (2026), 123801.
+
+Beyond Scale and Generation: Understanding Language Model-based Entity Matching 
+
+[4] Abhishek Arora, Emily Silcock, Melissa Dell, and Leander Heldring. 2024. Con-trastive entity coreference and disambiguation for historical texts. In Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing .6174–6186. [5] Oleh Astappiev, Franziska Neuhof, Marco Fisichella, and George Papadakis. 2026. SMBench: No-code benchmarking of learning-based entity matching. Information Systems (2026), 102711. [6] Lorenzo Balzotti, Donatella Firmani, Luca Gagliardelli, and Giovanni Si-monini. 2026. Entity Resolution via Batched Oracle Queries. arXiv preprint arXiv:2606.24407 (2026). [7] Nils Barlaug and Jon Atle Gulla. 2021. Neural networks for entity matching: A survey. ACM Transactions on Knowledge Discovery from Data (TKDD) 15, 3 (2021), 1–37. [8] Alexander Brinkmann, Roee Shraga, and Christina Bizer. 2024. Sc-block: Su-pervised contrastive blocking within entity resolution pipelines. In European Semantic Web Conference . Springer, 121–142. [9] Tom Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared D Kaplan, Prafulla Dhariwal, Arvind Neelakantan, Pranav Shyam, Girish Sastry, Amanda Askell, et al . 2020. Language models are few-shot learners. Advances in neural information processing systems 33 (2020), 1877–1901. [10] Ursin Brunner and Kurt Stockinger. 2020. Entity Matching with Transformer Architectures-A Step Forward in Data Integration.. In EDBT . 463–473. [11] Kittayaporn Chantaranimi and Juggapong Natwichai. 2023. Evaluation of Can-didate Pair Generation Strategies in Entity Matching. In International Conference on P2P, Parallel, Grid, Cloud and Internet Computing . Springer, 116–128. [12] Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. 2019. Bert: Pre-training of deep bidirectional transformers for language understanding. In 
+
+Proceedings of the 2019 conference of the North American chapter of the association for computational linguistics: human language technologies, volume 1 (long and short papers) . 4171–4186. [13] Xin Luna Dong and Theodoros Rekatsinas. 2018. Data integration and machine learning: A natural synergy. In Proceedings of the 2018 international conference on management of data . 1645–1650. [14] Meihao Fan, Xiaoyue Han, Ju Fan, Chengliang Chai, Nan Tang, Guoliang Li, and Xiaoyong Du. 2024. Cost-effective in-context learning for entity resolution: A design space exploration. In 2024 IEEE 40th International Conference on Data Engineering (ICDE) . IEEE, 3696–3709. [15] Luca Gagliardelli, George Papadakis, Giovanni Simonini, Sonia Bergamaschi, and Themis Palpanas. 2024. GSM: A generalized approach to Supervised Meta-blocking for scalable entity resolution. Information Systems 120 (2024), 102307. [16] Robert Geirhos, Jörn-Henrik Jacobsen, Claudio Michaelis, Richard Zemel, Wieland Brendel, Matthias Bethge, and Felix A Wichmann. 2020. Shortcut learning in deep neural networks. Nature Machine Intelligence 2, 11 (2020), 665–673. [17] Stefan Hegselmann, Alejandro Buendia, Hunter Lang, Monica Agrawal, Xiaoyi Jiang, and David Sontag. 2023. Tabllm: Few-shot classification of tabular data with large language models. In International conference on artificial intelligence and statistics . PMLR, 5549–5581. [18] Mahmoud Mohamed Ashour Hussein. 2025. LLM-Enhanced Entity Matching: Comparative Analysis of traditional and modern techniques. (2025). [19] Shashank Mohan Jain. 2022. Hugging face. In Introduction to transformers for NLP: With the hugging face library and models to solve problems . Springer, 51–67. [20] Di Jin, Bunyamin Sisman, Hao Wei, Xin Luna Dong, and Danai Koutra. 2021. Deep transfer learning for multi-source entity linkage via domain adaptation. 
+
+Proceedings of the VLDB Endowment 15, 3 (2021), 465–477. [21] Muhammad Ebraheem Saravanan Thirumuruganathan Shafiq Joty and Mourad Ouzzani Nan Tang. 2018. Distributed Representations of Tuples for Entity Resolution. Proceedings of the VLDB Endowment 11, 11 (2018). [22] Dimitrios Karapiperis, Leonidas Akritidis, and Panayiotis Bozanis. 2026. The Impact of Fine-Tuning on Entity Resolution: An Experimental Evaluation. 
+
+Knowledge-Based Systems (2026), 115427. [23] Dimitrios Karapiperis, George Papadakis, and Vassilios Verykios. 2025. SPER: Accelerating Progressive Entity Resolution via Stochastic Bipartite Maximization. 
+
+arXiv preprint arXiv:2512.23491 (2025). [24] Jungo Kasai, Kun Qian, Sairam Gurajada, Yunyao Li, and Lucian Popa. 2019. Low-resource deep entity resolution with transfer and active learning. In Proceedings of the 57th annual meeting of the association for computational linguistics . 5851– 5861. [25] Nishadi Kirielle, Peter Christen, and Thilina Ranbaduge. 2022. TransER: Homo-geneous Transfer Learning for Entity Resolution.. In EDBT . 2–118. [26] Pradap Venkatramanan Konda. 2018. Magellan: Toward building entity matching management systems . The University of Wisconsin-Madison. [27] Evgeny Krivosheev, Katsiaryna Mirylenka, Mattia Atzeni, and Paolo Scotton. 2023. Graph neural networks for entity matching. In 2023 IEEE International Conference on Big Data (BigData) . IEEE, 6212–6214. [28] Yuliang Li, Jinfeng Li, Yoshihiko Suhara, AnHai Doan, and Wang-Chiew Tan. 2020. Deep entity matching with pre-trained language models. Proceedings of the VLDB Endowment 14, 1 (2020), 50–60. [29] Yuliang Li, Jinfeng Li, Yoshi Suhara, AnHai Doan, and Wang-Chiew Tan. 2023. Effective entity matching with transformers. VLDB Journal International Journal on Very Large Data Bases 32, 6 (2023), 1215. [30] Yinhan Liu, Myle Ott, Naman Goyal, Jingfei Du, Mandar Joshi, Danqi Chen, Omer Levy, Mike Lewis, Luke Zettlemoyer, and Veselin Stoyanov. 2019. Roberta: A robustly optimized bert pretraining approach. arXiv preprint arXiv:1907.11692 
+
+(2019). [31] Jakub Maciejewski, Konstantinos Nikoletos, George Papadakis, and Yannis Vele-grakis. 2025. Progressive entity matching: A design space exploration. Proceedings of the ACM on Management of Data 3, 1 (2025), 1–25. [32] Sourab Mangrulkar, Sylvain Gugger, Lysandre Debut, Younes Belkada, Sayak Paul, and Benjamin Bossan. 2022. Peft: State-of-the-art parameter-efficient fine-tuning methods. (2022). [33] Zhengjie Miao, Yuliang Li, and Xiaolan Wang. 2021. Rotom: A meta-learned data augmentation framework for entity matching, data cleaning, text classification, and beyond. In Proceedings of the 2021 International Conference on Management of Data . 1303–1316. [34] Mohammad Hossein Moslemi, Amir Mousavi, Behshid Behkamal, and Mostafa Milani. 2026. Heterogeneity in entity matching: A survey and experimental analysis. Data & Knowledge Engineering (2026), 102575. [35] Sidharth Mudgal, Han Li, Theodoros Rekatsinas, AnHai Doan, Youngchoon Park, Ganesh Krishnan, Rohit Deep, Esteban Arcaute, and Vijay Raghavendra. 2018. Deep learning for entity matching: A design space exploration. In Proceedings of the 2018 international conference on management of data . 19–34. [36] Konstantinos Nikoletos, Vasilis Efthymiou, George Papadakis, and Kostas Ste-fanidis. 2025. Auto-Configuring Entity Resolution Pipelines. IEEE Access (2025). [37] Matteo Paganelli, Francesco Del Buono, Andrea Baraldi, Francesco Guerra, et al .2022. Analyzing how BERT performs entity matching. Proceedings of the VLDB Endowment 15, 8 (2022), 1726–1738. [38] George Papadakis, Nishadi Kirielle, Peter Christen, and Themis Palpanas. 2024. A critical re-evaluation of record linkage benchmarks for learning-based matching algorithms. In 2024 IEEE 40th International Conference on Data Engineering (ICDE) .IEEE, 3435–3448. [39] George Papadakis, Dimitrios Skoutas, Emmanouil Thanos, and Themis Palpanas. 2020. Blocking and filtering techniques for entity resolution: A survey. ACM Computing Surveys (CSUR) 53, 2 (2020), 1–42. [40] Ralph Peeters and Christian Bizer. 2022. Supervised contrastive learning for product matching. In Companion Proceedings of the Web Conference 2022 . 248– 251. [41] Ralph Peeters and Christian Bizer. 2023. Using chatgpt for entity matching. In 
+
+European Conference on Advances in Databases and Information Systems . Springer, 221–230. [42] Ralph Peeters, Reng Chiz Der, and Christian Bizer. 2023. WDC products: A multi-dimensional entity matching benchmark. arXiv preprint arXiv:2301.09521 
+
+(2023). [43] Ralph Peeters, Aaron Steiner, and Christian Bizer. 2025. Entity matching using large language models. OpenProceedings 2 (2025), 529–541. [44] Nicholas Pulsone, Gregory Goren, and Roee Shraga. 2026. Understanding Domain-Aware Distribution Alignment in Budgeted Entity Matching. arXiv preprint arXiv:2606.27342 (2026). [45] Nicholas Pulsone, Roee Shraga, and Gregory Goren. 2026. BEACON: Budget-Aware Entity Matching Across Domains. Proceedings of the ACM on Management of Data 4, 3 (SIGMOD (2026), 1–26. [46] Nils Reimers and Iryna Gurevych. 2019. Sentence-bert: Sentence embeddings using siamese bert-networks. In Proceedings of the 2019 conference on empirical methods in natural language processing and the 9th international joint conference on natural language processing (EMNLP-IJCNLP) . 3982–3992. [47] Qian Ruan, Dachuan Shi, and Thomas Bauernhansl. 2025. Fine-tuning large lan-guage models with contrastive margin ranking loss for selective entity matching in product data integration. Advanced Engineering Informatics 67 (2025), 103538. [48] Avi Schwarzschild, Zhili Feng, Pratyush Maini, Zachary C Lipton, and J Zico Kolter. 2024. Rethinking llm memorization through the lens of adversarial compression. Advances in Neural Information Processing Systems 37 (2024), 56244–56267. [49] Nima Shahbazi, Nikola Danevski, Fatemeh Nargesian, Abolfazl Asudeh, and Divesh Srivastava. 2023. Through the Fairness Lens: Experimental Analysis and Evaluation of Entity Matching. Proceedings of the VLDB Endowment 16, 11 (2023), 3279–3292. [50] Aaron Steiner and Christian Bizer. 2026. Labeling Training Data for Entity Matching Using Large Language Models. arXiv preprint arXiv:2606.28823 (2026). [51] Aaron Steiner, Ralph Peeters, and Christian Bizer. 2025. Fine-tuning large lan-guage models for entity matching. In 2025 IEEE 41st International Conference on Data Engineering Workshops (ICDEW) . IEEE, 9–17. [52] Yafeng Tang, Zheng Liang, Hongzhi Wang, Xiaoou Ding, Tianyu Mu, and Huan Hu. 2025. Description-Similarity Rules: Towards Flexible Feature Engineering for Entity Matching. In 2025 IEEE 41st International Conference on Data Engineering (ICDE) . IEEE, 1–15. Zeyu Zhang, Xue Li, Iacer Calixto, Paul Groth, and Sebastian Schelter 
+
+[53] Tommaso Teofili, Donatella Firmani, Nick Koudas, Paolo Merialdo, and Divesh Srivastava. 2026. Can we trust LLM Self-Explanations for Entity Resolution? 
+
+arXiv preprint arXiv:2606.01210 (2026). [54] Saravanan Thirumuruganathan, Han Li, Nan Tang, Mourad Ouzzani, Yash Govind, Derek Paulsen, Glenn Fung, and AnHai Doan. 2021. Deep learning for blocking in entity matching: a design space exploration. Proceedings of the VLDB Endowment 14, 11 (2021), 2459–2472. [55] Mohamed Trabelsi, Jeff Heflin, and Jin Cao. 2022. Dame: Domain adaptation for matching entities. In Proceedings of the Fifteenth ACM International Conference on Web Search and Data Mining . 1016–1024. [56] Jianhong Tu, Ju Fan, Nan Tang, Peng Wang, Chengliang Chai, Guoliang Li, Ruixue Fan, and Xiaoyong Du. 2022. Domain adaptation for deep entity resolution. In 
+
+Proceedings of the 2022 international conference on management of data . 443–457. [57] Jianhong Tu, Ju Fan, Nan Tang, Peng Wang, Guoliang Li, Xiaoyong Du, Xiaofeng Jia, and Song Gao. 2023. Unicorn: A unified multi-tasking model for supporting matching tasks in data integration. Proceedings of the ACM on Management of Data 1, 1 (2023), 1–26. [58] David Vos, Till Döhmen, and Sebastian Schelter. 2022. Towards parameter-efficient automation of data wrangling tasks with prefix-tuning. In NeurIPS 2022 First Table Representation Workshop .[59] Jiannan Wang, Guoliang Li, Jeffrey Xu Yu, and Jianhua Feng. 2011. Entity matching: How similar is similar. Proceedings of the VLDB Endowment 4, 10 (2011), 622–633. [60] Jin Wang, Yuliang Li, and Wataru Hirota. 2021. Machamp: A Generalized Entity Matching Benchmark. In CIKM .[61] Liang Wang, Nan Yang, Xiaolong Huang, Linjun Yang, Rangan Majumder, and Furu Wei. 2024. Improving text embeddings with large language models. In 
+
+Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) . 11897–11916. [62] Pengfei Wang, Xiaocan Zeng, Lu Chen, Fan Ye, Yuren Mao, Junhao Zhu, and Yunjun Gao. 2022. PromptEM: prompt-tuning for low-resource generalized entity matching. Proceedings of the VLDB Endowment 16, 2 (2022), 369–378. [63] Runhui Wang, Luyang Kong, Yefan Tao, Andrew Borthwick, Davor Golac, Henrik Johnson, Shadie Hijazi, Dong Deng, and Yongfeng Zhang. 2024. Neural locality sensitive hashing for entity blocking. In Proceedings of the 2024 SIAM International Conference on Data Mining (SDM) . SIAM, 887–895. [64] Runhui Wang, Yuliang Li, and Jin Wang. 2023. Sudowoodo: Contrastive self-supervised learning for multi-purpose data integration and preparation. In 2023 IEEE 39th International Conference on Data Engineering (ICDE) . IEEE, 1502–1515. [65] Tianshu Wang, Xiaoyang Chen, Hongyu Lin, Xuanang Chen, Xianpei Han, Le Sun, Hao Wang, and Zhenyu Zeng. 2025. Match, compare, or select? an investigation of large language models for entity matching. In Proceedings of the 31st International Conference on Computational Linguistics . 96–109. [66] Tianshu Wang, Hongyu Lin, Cheng Fu, Xianpei Han, Le Sun, Feiyu Xiong, Hui Chen, Minlong Lu, and Xiuwen Zhu. [n.d.]. Bridging the Gap between Reality and Ideality of Entity Matching: A Revisiting and Benchmark Re-Construction. ([n. d.]). [67] Steven Euijong Whang and Hector Garcia-Molina. 2014. Incremental entity resolution on rules and data. The VLDB journal 23, 1 (2014), 77–102. [68] Ledell Wu, Fabio Petroni, Martin Josifoski, Sebastian Riedel, and Luke Zettle-moyer. 2020. Scalable zero-shot entity linking with dense entity retrieval. In 
+
+Proceedings of the 2020 conference on empirical methods in natural language pro-cessing (EMNLP) . 6397–6407. [69] Renzhi Wu, Alexander Bendeck, Xu Chu, and Yeye He. 2023. Ground truth inference for weakly supervised entity matching. Proceedings of the ACM on Management of Data 1, 1 (2023), 1–28. [70] Junjie Xing, Yeye He, Mengyu Zhou, Haoyu Dong, Shi Han, Dongmei Zhang, and Surajit Chaudhuri. 2025. Table-LLM-Specialist: Language Model Specialists for Tables using Iterative Fine-tuning. In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing . 35431–35448. [71] An Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao, Chengen Huang, Chenxu Lv, et al . 2025. Qwen3 technical report. arXiv preprint arXiv:2505.09388 (2025). [72] Dezhong Yao, Yuhong Gu, Gao Cong, Hai Jin, and Xinqiao Lv. 2022. Entity resolution with hierarchical graph attention networks. In Proceedings of the 2022 International Conference on Management of Data . 429–442. [73] Haoteng Yin, Jinha Kim, Prashant Mathur, Krishanu Sarker, and Vidit Bansal. 2025. How to Talk to Language Models: Serialization Strategies for Structured Entity Matching. In Findings of the Association for Computational Linguistics: NAACL 2025 . 7836–7850. [74] Yu Yuan, Lili Zhao, Kai Zhang, Guangting Zheng, and Qi Liu. 2024. Do llms over-come shortcut learning? an evaluation of shortcut challenges in large language models. In Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing . 12188–12200. [75] Alexandros Zeakis, George Papadakis, Dimitrios Skoutas, and Manolis Koubarakis. 2025. AvengER: Ensembling and Fine-Tuning LLMs for SELECT Prompts in Entity Resolution. In European Semantic Web Conference . Springer, 301–320. [76] Alexandros Zeakis, George Papadakis, Dimitrios Skoutas, and Manolis Koubarakis. 2025. An in-depth analysis of pre-trained embeddings for entity resolution: A. Zeakis et al. The VLDB Journal 34, 1 (2025), 5. [77] Alexandros Zeakis, George Papadakis, Dimitrios Skoutas, and Manolis Koubarakis. 2026. DistillER: Knowledge Distillation in Entity Resolution with Large Language Models. arXiv preprint arXiv:2602.05452 (2026). [78] Zeyu Zhang, Paul Groth, Iacer Calixto, and Sebastian Schelter. 2024. Directions towards efficient and automated data wrangling with large language models. In 
+
+2024 IEEE 40th International Conference on Data Engineering Workshops (ICDEW) .IEEE, 301–304. [79] Zeyu Zhang, Paul Groth, Iacer Calixto, and Sebastian Schelter. 2025. A Deep Dive Into Cross-Dataset Entity Matching with Large and Small Language Models.. In 
+
+EDBT . 922–934. [80] Zhanfang Zhao, Sung-Kook Han, and In-Mi So. 2018. Architecture of knowl-edge graph construction techniques. International Journal of Pure and Applied Mathematics 118, 19 (2018), 1869–1883. [81] Lingfeng Zhong, Jia Wu, Qian Li, Hao Peng, and Xindong Wu. 2023. A compre-hensive survey on automatic knowledge graph construction. Comput. Surveys 
+
+56, 4 (2023), 1–62.
