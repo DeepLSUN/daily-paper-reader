@@ -6,113 +6,109 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-31
-- 运行时间：2026-07-31 22:40:28 UTC
+- 最新运行日期：2026-08-01
+- 运行时间：2026-08-01 22:16:24 UTC
 - 运行状态：成功
-- 本次总论文数：31
-- 精读区：16
+- 本次总论文数：29
+- 精读区：14
 - 速读区：15
 
 ### 今日简报（AI）
-今日31篇AI论文速览，聚焦RAG与Agentic模型两大热点，精读推荐《VecTree-RAG》与《AgentOmnia》。最值得关注的是向量+树检索结合的RAG框架（9.0分）及全场景Agentic模型缩放方案（9.0分）。建议优先精读这两篇高分论文，其余速读可关注AI安全验证与模型微调优化方向。
-- 详情：[/202607/31/README](/202607/31/README)
+今日共读29篇论文，其中14篇精读、15篇速读，重点关注数据库调优与前沿模型进展。
+最值得看的是《IDSTune》提出的多智能体数据库调优框架，以及《Nanbeige4.2-3B》在紧凑模型中解锁智能体能力，均获9.0高分推荐。
+若时间有限，建议优先浏览这两篇，其余速读论文可快速扫读标题和摘要，后续再按需深入。
+- 详情：[/202608/01/README](/202608/01/README)
 
 ### 精读区论文标签
-1. [VecTree-RAG: An Agentic Retrieval-Augmented Generation Framework Combining Vector and Tree Retrieval for Efficiency and Accuracy](/202607/31/2607.23006v1-vectree-rag-an-agentic-retrieval-augmented-generation-framework-combining-vector-and-tree-retrieval-for-efficiency-and-accuracy)  
+1. [IDSTune: A Multi-Agent Collaborative Framework for Integrated Database System Tuning](/202608/01/2607.22031v1-idstune-a-multi-agent-collaborative-framework-for-integrated-database-system-tuning)  
    标签：评分：9.0/10、query:agent
-   evidence：面向科学问答的智能检索增强生成框架，结合向量与树检索定位证据
-2. [AgentOmnia: Scaling Agentic Models for Full-Scenario Applications](/202607/31/2607.23124v1-agentomnia-scaling-agentic-models-for-full-scenario-applications)  
-   标签：评分：9.0/10、query:agent
-   evidence：协调任务分类、数据合成、后训练与评测的智能体扩展框架
-3. [Stable FP4 Training via Transposition-Invariant Block Quantization](/202607/31/2607.24953v1-stable-fp4-training-via-transposition-invariant-block-quantization)  
+   evidence：面向数据库调优的多智能体协作框架
+2. [Nanbeige4.2-3B: Unlocking Agentic Capabilities in a Compact Mode](/202608/01/2607.22083v1-nanbeige42-3b-unlocking-agentic-capabilities-in-a-compact-mode)  
+   标签：评分：9.0/10、query:llm-reports
+   evidence：紧凑智能体LLM的技术报告，包含架构与训练细节
+3. [Libra: Taming Attention Workload Skew in Long-Context LLM Training with Bounded Sequence Pool](/202608/01/2607.23250v1-libra-taming-attention-workload-skew-in-long-context-llm-training-with-bounded-sequence-pool)  
    标签：评分：9.0/10、query:llm
-   evidence：基于转置不变分块量化的低精度FP4 LLM训练方法
-4. [Beyond Prefill-Decode Disaggregation: Dissecting LLM Inference for Heterogeneous Platforms via Dynamic Operator Scheduling](/202607/31/2607.25498v1-beyond-prefill-decode-disaggregation-dissecting-llm-inference-for-heterogeneous-platforms-via-dynamic-operator-scheduling)  
+   evidence：长上下文LLM训练负载均衡技术
+4. [Omni-Prune: Query-Aware Unified Token Pruning for Efficient Omnimodal Large Language Models](/202608/01/2607.23445v1-omni-prune-query-aware-unified-token-pruning-for-efficient-omnimodal-large-language-models)  
    标签：评分：9.0/10、query:llm
-   evidence：面向LLM推理的动态算子调度优化
-5. [BridgeAlign: Bridging Preference Alignment for Humanities and Social Sciences](/202607/31/2607.27366v1-bridgealign-bridging-preference-alignment-for-humanities-and-social-sciences)  
+   evidence：面向多模态大模型的高效推理查询感知token剪枝
+5. [ACRL: Adaptive Control of Training-Inference Discrepancy for Stable Reinforcement Learning](/202608/01/2607.24062v1-acrl-adaptive-control-of-training-inference-discrepancy-for-stable-reinforcement-learning)  
    标签：评分：9.0/10、query:post-train
-   evidence：面向LLM的偏好对齐流水线，结合合成偏好数据
-6. [HSS-Synth: Humanities and Social Sciences Data Synthesis for LLMs](/202607/31/2607.27379v1-hss-synth-humanities-and-social-sciences-data-synthesis-for-llms)  
-   标签：评分：9.0/10、query:llm-synth
-   evidence：数据合成流程、合成训练数据、大模型数据生成
-7. [SkillSmith: Learning to Compose Parametric Skills and Textual Knowledge](/202607/31/2607.27497v1-skillsmith-learning-to-compose-parametric-skills-and-textual-knowledge)  
+   evidence：自适应控制训练-推理差异，提升LLM强化学习训练的稳定性
+6. [Agent Retrieval Bench: Evaluating Repository Context Retrieval for Coding Agents](/202608/01/2607.24882v1-agent-retrieval-bench-evaluating-repository-context-retrieval-for-coding-agents)  
    标签：评分：9.0/10、query:agent
-   evidence：智能体系统、参数化技能库、文本与权重的组合
-8. [DeepResearch Agent System](/202607/31/2607.27562v1-deepresearch-agent-system)  
+   evidence：面向编码智能体仓库检索的基准
+7. [Every Time I Hire a Linguist, Inference Costs Go Down: On Linguistic Rules as Effective Prompt Compressors](/202608/01/2607.25335v2-every-time-i-hire-a-linguist-inference-costs-go-down-on-linguistic-rules-as-effective-prompt-compressors)  
+   标签：评分：9.0/10、query:llm
+   evidence：基于语言规则的提示压缩器以降低推理成本
+8. [Tools Are Not Islands: Set-Level Tool Retrieval for LLM Agents via Query-Conditioned Hyperedge Prediction](/202608/01/2607.25718v2-tools-are-not-islands-set-level-tool-retrieval-for-llm-agents-via-query-conditioned-hyperedge-prediction)  
    标签：评分：9.0/10、query:agent
-   evidence：面向深度信息检索与自主研究任务的大模型智能体系统
-9. [A Sparse Glimpse of the Whole: Train-Free Self-Speculative Decoding](/202607/31/2607.27735v1-a-sparse-glimpse-of-the-whole-train-free-self-speculative-decoding)  
+   evidence：LLM代理工具检索
+9. [SepPrune:A Separator-based Pruning Framework for Efficient Multimodal Large Language Models](/202608/01/2607.25818v1-sepprunea-separator-based-pruning-framework-for-efficient-multimodal-large-language-models)  
    标签：评分：9.0/10、query:llm
-   evidence：无训练自推测解码以加速长上下文LLM推理，直接属于大模型推理优化。
-10. [ChronoMem: Version Control and Semantic Rollback for Large Language Model Agent Memory](/202607/31/2607.27773v1-chronomem-version-control-and-semantic-rollback-for-large-language-model-agent-memory)  
+   evidence：多模态大模型的高效无训练视觉token剪枝
+10. [ForgetBench: Benchmarking Forgetting Dynamics of Long-Term Parametric Memory in Language Models](/202608/01/2607.26455v1-forgetbench-benchmarking-forgetting-dynamics-of-long-term-parametric-memory-in-language-models)  
+   标签：评分：9.0/10、query:llm
+   evidence：面向大语言模型持续知识编辑下遗忘动态的评测基准
+11. [Do Context Files Help Coding Agents? A Two-Agent Ablation Study on Real Repositories](/202608/01/2607.27250v1-do-context-files-help-coding-agents-a-two-agent-ablation-study-on-real-repositories)  
    标签：评分：9.0/10、query:agent
-   evidence：智能体记忆、版本控制、语义回滚、大模型智能体框架
-11. [IFHierBench: Hierarchical Instruction Following for Large Language Models](/202607/31/2607.27912v1-ifhierbench-hierarchical-instruction-following-for-large-language-models)  
+   evidence：编码智能体上下文文件的消融研究
+12. [LightRot: A Light-Weighted Rotation Scheme and Architecture for Accurate Low-Bit Large Language Model Inference](/202608/01/2607.27704v1-lightrot-a-light-weighted-rotation-scheme-and-architecture-for-accurate-low-bit-large-language-model-inference)  
    标签：评分：9.0/10、query:llm
-   evidence：新的大模型分层指令遵循评测基准
-12. [Harnessing the Potential of Optimizing Data Mixtures via Bayesian Domain Reweighting](/202607/31/2607.27928v1-harnessing-the-potential-of-optimizing-data-mixtures-via-bayesian-domain-reweighting)  
+   evidence：通过旋转方案与硬件加速器优化低比特大模型推理
+13. [Memory Decoder at Scale: A Pretrained, Parametric Long-Term Memory](/202608/01/2607.27919v1-memory-decoder-at-scale-a-pretrained-parametric-long-term-memory)  
    标签：评分：9.0/10、query:llm
-   evidence：贝叶斯优化多领域预训练数据配比，与LLM训练技术直接相关
-13. [TAPO: Transition-Aware Policy Optimization for LLM Agents](/202607/31/2607.27973v1-tapo-transition-aware-policy-optimization-for-llm-agents)  
-   标签：评分：9.0/10、query:post-train
-   evidence：利用环境转移监督对LLM智能体进行强化学习后训练
-14. [Beyond Rephrasing: Book-Level Organization Improves Synthetic Textbook Data for Mid-Training](/202607/31/2607.28109v1-beyond-rephrasing-book-level-organization-improves-synthetic-textbook-data-for-mid-training)  
-   标签：评分：9.0/10、query:llm-synth
-   evidence：合成教科书数据生成
-15. [HARGO: Heterogeneity-Aware Reward-Guided Optimization for RL Post-Training of LLMs on HPC Tasks](/202607/31/2607.28301v1-hargo-heterogeneity-aware-reward-guided-optimization-for-rl-post-training-of-llms-on-hpc-tasks)  
-   标签：评分：9.0/10、query:post-train
-   evidence：面向HPC任务的LLM强化学习后训练，异质性感知奖励优化
-16. [WIDE: Boosting Adaptive LLM Inference via Token-level Dynamic Width Pruning](/202607/31/2607.28418v1-wide-boosting-adaptive-llm-inference-via-token-level-dynamic-width-pruning)  
-   标签：评分：9.0/10、query:llm
-   evidence：token级动态宽度剪枝提升LLM推理
+   evidence：将参数化长期记忆模块扩展到解码器语言模型
+14. [MANTA: Multi-Agent Network Topology Adaptation for Self-Evolving Multi-Agent Systems](/202608/01/2607.28527v1-manta-multi-agent-network-topology-adaptation-for-self-evolving-multi-agent-systems)  
+   标签：评分：9.0/10、query:agent
+   evidence：自适应拓扑自进化多智能体系统框架
 
 ### 速读区论文标签
-1. [Toward cryptographically verifiable authorization for autonomous AI agents: A security hypothesis, preliminary formal model, and proof-of-concept implementation](/202607/31/2607.21325v1-toward-cryptographically-verifiable-authorization-for-autonomous-ai-agents-a-security-hypothesis-preliminary-formal-model-and-proof-of-concept-implementation)  
-   标签：评分：8.0/10、query:agent
-   evidence：为自主智能体授权建立密码学可验证的形式化模型
-2. [DomainPilot: Domain-Level Loss-Guided Two-Stage Data Mixture Optimization for Efficient Language Model Fine-Tuning](/202607/31/2607.22769v1-domainpilot-domain-level-loss-guided-two-stage-data-mixture-optimization-for-efficient-language-model-fine-tuning)  
-   标签：评分：8.0/10、query:llm
-   evidence：面向高效LLM微调的领域级损失引导数据混合优化，属于微调方法。
-3. [Frustratingly Simple Black-Box Adaptation of Language Models via Logit Bias](/202607/31/2607.22837v1-frustratingly-simple-black-box-adaptation-of-language-models-via-logit-bias)  
+1. [Beyond Direct Answering: Aligning Educational LLMs as Socratic Guides via Heuristic Reinforcement Learning](/202608/01/2607.22996v1-beyond-direct-answering-aligning-educational-llms-as-socratic-guides-via-heuristic-reinforcement-learning)  
    标签：评分：8.0/10、query:post-train
-   evidence：基于强化学习的语言模型黑盒适应，通过logit偏置
-4. [AssumptionMiner: Extracting, Tracing, and Revising Implicit Assumptions in LLM Code Generation](/202607/31/2607.22898v1-assumptionminer-extracting-tracing-and-revising-implicit-assumptions-in-llm-code-generation)  
+   evidence：通过监督预热和GRPO强化学习进行大模型对齐
+2. [SPRKD: Effective Knowledge Distillation for Deep Neural Networks via Saddle Region Approximation](/202608/01/2607.23346v1-sprkd-effective-knowledge-distillation-for-deep-neural-networks-via-saddle-region-approximation)  
+   标签：评分：8.0/10、query:post-train
+   evidence：通过鞍点近似的知识蒸馏方法，实现模型压缩
+3. [LA-RL: Label-Aware Self-Reflection for Reinforcement Learning in Information Extraction](/202608/01/2607.23420v1-la-rl-label-aware-self-reflection-for-reinforcement-learning-in-information-extraction)  
+   标签：评分：8.0/10、query:post-train
+   evidence：面向信息抽取的LLM强化学习微调
+4. [Separating Capability from Permission: A Governance Framework for Agentic AI Autonomy Levels](/202608/01/2607.23438v1-separating-capability-from-permission-a-governance-framework-for-agentic-ai-autonomy-levels)  
    标签：评分：8.0/10、query:agent
-   evidence：LLM代码生成智能体的隐式假设
-5. [Through the Bottleneck: How Multi-head Latent Attention Separates Content from Position in Language Models](/202607/31/2607.23054v1-through-the-bottleneck-how-multi-head-latent-attention-separates-content-from-position-in-language-models)  
+   evidence：面向自主智能体系统的治理框架与智能体AI自主水平
+5. [Do Small Models Use the Law You Give Them? Context-Injected Fine-Tuning for Legal QA in Bangladesh](/202608/01/2607.23446v1-do-small-models-use-the-law-you-give-them-context-injected-fine-tuning-for-legal-qa-in-bangladesh)  
    标签：评分：8.0/10、query:llm
-   evidence：对多头潜在注意力架构的机理解释研究
-6. [Automated Synthesis and Adversarial Validation of Executable Causal Research Pipelines](/202607/31/2607.21173v1-automated-synthesis-and-adversarial-validation-of-executable-causal-research-pipelines)  
-   标签：评分：7.0/10、query:llm-synth
-   evidence：集成合成数据生成的自动化研究流水线
-7. [Building AI That Works: ESnet's Pragmatic Approach to AI-Driven Operational Excellence](/202607/31/2607.22948v1-building-ai-that-works-esnets-pragmatic-approach-to-ai-driven-operational-excellence)  
+   evidence：基于上下文注入法律问答的小模型微调
+6. [False Prophets: On the Security of World Models in Agentic Systems](/202608/01/2607.23147v1-false-prophets-on-the-security-of-world-models-in-agentic-systems)  
    标签：评分：7.0/10、query:agent
-   evidence：用于网络运维中心工作流自动化的代理式AI系统
-8. [Structured Redundancy Modeling for Efficient Visual Token Pruning in High-Resolution MLLMs](/202607/31/2607.23046v1-structured-redundancy-modeling-for-efficient-visual-token-pruning-in-high-resolution-mllms)  
-   标签：评分：7.0/10、query:llm
-   evidence：面向高分辨率MLLM的视觉令牌剪枝降低推理时延，属于LLM推理效率优化方法。
-9. [OmniScope: Modality-Decoupled Token Compression for Omnimodal Large Language Models](/202607/31/2607.23193v1-omniscope-modality-decoupled-token-compression-for-omnimodal-large-language-models)  
-   标签：评分：7.0/10、query:llm
-   evidence：面向全模态大模型高效推理的无训练令牌压缩
-10. [OmniScope: Modality-Decoupled Token Compression for Omnimodal Large Language Models](/202607/31/2607.23193v2-omniscope-modality-decoupled-token-compression-for-omnimodal-large-language-models)  
-   标签：评分：7.0/10、query:llm
-   evidence：面向多模态大语言模型的Token压缩以提升推理效率
-11. [When Does Few-Shot Prompting Help? A Systematic Empirical Study of Shot-Count Effects Across Model Scale, Architecture, and Output Parsing Robustness](/202607/31/2607.22969v1-when-does-few-shot-prompting-help-a-systematic-empirical-study-of-shot-count-effects-across-model-scale-architecture-and-output-parsing-robustness)  
+   evidence：智能体中世界模型的安全漏洞
+7. [IndicTalk: A Large-Scale Persona-Based Multilingual Conversational Corpus for Indic Languages](/202608/01/2607.23242v1-indictalk-a-large-scale-persona-based-multilingual-conversational-corpus-for-indic-languages)  
+   标签：评分：7.0/10、query:llm-synth
+   evidence：基于LLM的全自动对话生成与质量验证流水线
+8. [Zing: Social Mind for LLMs](/202608/01/2607.23740v1-zing-social-mind-for-llms)  
+   标签：评分：7.0/10、query:agent
+   evidence：面向人类环境中LLM智能体的社会智力评测与内化框架
+9. [RESTOR: Automated Test Oracle Generation for RESTful APIs via Reinforcement Learning](/202608/01/2607.23963v1-restor-automated-test-oracle-generation-for-restful-apis-via-reinforcement-learning)  
+   标签：评分：7.0/10、query:post-train
+   evidence：使用GRPO对LLM进行强化学习微调以生成API测试谓词
+10. [SyRuP: Enhancing System-Prompt Following via Reward-Guided Prediction in LLM Decoding](/202608/01/2607.23991v1-syrup-enhancing-system-prompt-following-via-reward-guided-prediction-in-llm-decoding)  
+   标签：评分：7.0/10、query:post-train
+   evidence：基于偏好对训练奖励头以增强系统提示遵循
+11. [LAMAR: An Open Language-Aware Multilingual Alignment Reranker](/202608/01/2607.22042v1-lamar-an-open-language-aware-multilingual-alignment-reranker)  
    标签：评分：6.0/10、query:llm
-   evidence：针对LLM规模与架构的少样本提示实证研究，聚焦推理时行为
-12. [In-Context Learning as Implicit Policy Gradient](/202607/31/2607.23153v1-in-context-learning-as-implicit-policy-gradient)  
-   标签：评分：6.0/10、query:post-train
-   evidence：ICL作为隐式策略梯度的理论
-13. [Constitutional governance for societies of AI agents in the built environment: a research agenda](/202607/31/2607.23336v1-constitutional-governance-for-societies-of-ai-agents-in-the-built-environment-a-research-agenda)  
-   标签：评分：6.0/10、query:agent
-   evidence：建成环境中的自主AI智能体，协商智能体社会
-14. [SCTA: An Agentic Framework for Stable and Interpretable Target Gene Discovery from Single-Cell RNA Sequencing](/202607/31/2607.23821v1-scta-an-agentic-framework-for-stable-and-interpretable-target-gene-discovery-from-single-cell-rna-sequencing)  
-   标签：评分：6.0/10、query:agent
-   evidence：面向科学数据分析的智能体框架设计
-15. [Beyond Scale and Generation: Understanding Language Model-based Entity Matching](/202607/31/2607.24688v1-beyond-scale-and-generation-understanding-language-model-based-entity-matching)  
+   evidence：面向检索增强生成的多语言重排序
+12. [Not All LLM Reasoning is Visible in the Chain-of-Thought](/202608/01/2607.22925v1-not-all-llm-reasoning-is-visible-in-the-chain-of-thought)  
    标签：评分：6.0/10、query:llm
-   evidence：基于语言模型的实体匹配微调控制实验研究
+   evidence：使用合成推理任务评估大语言模型推理行为
+13. [When Does Few-Shot Prompting Help? A Systematic Empirical Study of Shot-Count Effects Across Model Scale, Architecture, and Output Parsing Robustness](/202608/01/2607.22969v1-when-does-few-shot-prompting-help-a-systematic-empirical-study-of-shot-count-effects-across-model-scale-architecture-and-output-parsing-robustness)  
+   标签：评分：6.0/10、query:llm
+   evidence：系统研究少样本提示数量与模型规模、架构及输出解析鲁棒性对LLM的影响
+14. [Co-Evolving Graph and Text Memory for Training-Free Multi-Hop Question Answering](/202608/01/2607.23278v1-co-evolving-graph-and-text-memory-for-training-free-multi-hop-question-answering)  
+   标签：评分：6.0/10、query:agent
+   evidence：同步图-文本工作记忆增强多跳推理，可迁移至自主智能体记忆
+15. [Training with (Swap) Regret Loss in a Single-Layer Self-Attention Model: A Case Study on the Probability Simplex](/202608/01/2607.23333v1-training-with-swap-regret-loss-in-a-single-layer-self-attention-model-a-case-study-on-the-probability-simplex)  
+   标签：评分：6.0/10、query:llm
+   evidence：使用遗憾损失作为模型直接训练损失的方法研究
 
 
 <div class="dpr-home-promo-card">
