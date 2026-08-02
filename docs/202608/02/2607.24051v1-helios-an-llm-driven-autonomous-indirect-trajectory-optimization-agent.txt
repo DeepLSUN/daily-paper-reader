@@ -1,0 +1,406 @@
+Title: HELIOS: An LLM-Driven Autonomous Indirect Trajectory Optimization Agent
+
+URL Source: https://arxiv.org/pdf/2607.24051v1
+
+Published Time: Tue, 28 Jul 2026 01:35:17 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+# HELIOS: An LLM-Driven Autonomous Indirect Trajectory Optimization Agent ∗
+
+Huang An-yi 
+
+State Key Laboratory of Astronautic Dynamics 
+
+July 28, 2026 
+
+Abstract 
+
+Low-thrust trajectory optimization is a core technology in deep-space mission design. Indirect methods based on Pontryagin’s Minimum Principle (PMP) offer rigorous optimality guarantees, yet their practical application has long been hindered by three bottlenecks: (1) transversality conditions must be derived case by case for each constraint type (rendezvous, flyby, stay, gravity assist, inequality), a tedious and error-prone process; (2) different dynam-ics models (chemical propulsion, solar sail, J2 perturbation) exhibit substantially different Hamiltonian structures, forcing repeated code rewrites; and (3) the numerical solution of shooting equations is highly sensitive to initial guesses. This paper presents HELIOS (Heuris-tic Engine for Low-thrust Interplanetary Optimization System), a trajectory optimization agent built around a large language model (LLM). Given a physical problem described in natural language (constraints, dynamics, optimization objective), the system autonomously performs PMP symbolic derivation, SymPy verification, C++ shooting-code generation, and numerical solution, without any human intervention. The key innovations are: (1) a constraint-adaptive general derivation framework 
+
+that unifies arbitrary constraints into the form ψ(x, p) = 0, automatically identifies free parameters embedded in constraints (e.g., the turning angle δ and azimuth angle ϕ of a gravity assist), and generates the corresponding stationarity conditions, breaking the traditional limitation of deriving transversality conditions separately for each constraint type; (2) dynamics-adaptive four-module code generation , in which a DYNAMIC-S/SWITCH/RESIDUAL/SOLVE separation architecture supports complete code generation for non-standard dynamics models (solar sail, J2 perturbation, etc.) without modifying the underlying template; and (3) a general derivation rule set (Rules G1–G4) distilled from extensive practice, covering critical error-prone points such as λ0 handling, control-direction verification, geometric-derivative completeness, and state-dimension consistency. Experiments on 11 progressive test scenarios show that HELIOS correctly derives and solves problems ranging from a simple two-point rendezvous (8 variables) to multi-leg stay transfers (48 variables), gravity-assist trajectories (17 variables), and solar-sail minimum-time transfers (8 variables). The best compilation success rate reaches 100% (11/11), and multiple scenarios converge to optimal solutions consistent with reference solutions. A multi-model comparison (8 LLM backends of different scales, total scores spanning 250–905) verifies the model-agnostic nature of the system architecture and reveals a positive correlation be-tween model scale and derivation capability. 
+
+Keywords: low-thrust trajectory optimization; Pontryagin’s minimum principle; large language model; indirect method; shooting method; gravity assist; solar sail 
+
+> ∗
+
+This work is supported by the National Natural Science Foundation of China (NSFC) under Grant No. 12572407. 
+
+1arXiv:2607.24051v1 [astro-ph.IM] 27 Jul 2026 1 Introduction and Related Work 
+
+1.1 Motivation 
+
+Low-thrust trajectory optimization is one of the core technologies of deep-space mission design. Compared with impulsive chemical propulsion, continuous low-thrust propulsion such as electric propulsion can substantially reduce propellant consumption, at the cost of a considerably more complex trajectory optimization problem. Indirect methods, grounded in Pontryagin’s Minimum Principle (PMP) [1, 2, 3], reformulate the optimal control problem as a two-point boundary value problem (TPBVP) that is solved by shooting methods. Compared with direct methods [4], indirect methods guarantee the optimality of the solution, require no discretization, and yield a transparent solution structure (the number of bang-bang switches can be read off directly). Their practical application, however, faces the following challenges: 
+
+Challenge 1: derivation burden caused by constraint diversity. Different missions involve different constraint types—terminal rendezvous (position and velocity fixed), interior-point flyby (position only), stay arcs (coast arcs), gravity assists (GA), and inequality path constraints (e.g., an upper bound on the terminal velocity increment or a lower bound on the periapsis radius). The transversality conditions of each constraint type take a different form and must be derived one by one. A gravity-assist constraint, for example, involves costate jump conditions at the flyby epoch together with a Hamiltonian continuity condition, and the derivation requires partial derivatives of the constraint functions with respect to both the state variables and free parameters (turning angle, periapsis radius), making it highly error-prone. 
+
+Challenge 2: code rewriting caused by dynamics diversity. Different spacecraft correspond to different dynamics models—chemical/electric propulsion (with a mass state and bang-bang control), solar sail (no mass state, continuous cone-angle control), J2 perturbation (non-spherical gravity field), and so on. The Hamiltonian, costate equations, and optimal control law differ substantially across models, and the numerical code must be written and validated separately for each of them. 
+
+Challenge 3: numerical convergence of the shooting equations. The shooting system arising from an indirect formulation is highly nonlinear, and the probability that a random initial guess falls inside the basin of convergence decays exponentially with the number of variables. Once the variable count exceeds 20, simple random-restart strategies often fail. In recent years, large language models (LLMs) have demonstrated strong capabilities in symbolic reasoning and code generation. This paper presents HELIOS (Heuristic Engine for Low-thrust Interplanetary Optimization System), a trajectory optimization agent with an LLM at its core. The central design principle is: the problem description states only physical facts and contains no PMP derivation results; starting from the primitive form of the minimum principle, the LLM autonomously completes the entire derivation and code generation. This design endows the system with general adaptability across constraint types, dynamics models, and optimization objectives. 
+
+1.2 Related Work 
+
+Low-thrust indirect methods. Indirect low-thrust trajectory optimization has been exten-sively studied. The Sims–Flanagan method [5] handles the discontinuity of bang-bang control through shooting formulations with switching functions. Russell [6] applied primer vector theory to global low-thrust trade studies. Homotopy-based smoothing strategies ( ε-homotopy) [7, 8] significantly improve convergence by continuously deforming an easily solved smooth problem into the original bang-bang problem; practical homotopic techniques for low-thrust problems are summarized by Jiang et al. [9]. These methods form the numerical foundation of the HE-LIOS solving framework. On the global-optimization side, shape-based approximations [10, 20], solar-electric-propulsion mission design [11], complex interplanetary trajectory design in the 2GTOC context [12], and inflationary differential evolution [13] provide complementary global search capabilities. Solar-sail dynamics and mission applications are treated comprehensively by McInnes [19]. 
+
+LLMs for scientific computing. Large language models have shown remarkable few-shot learning [14] and chain-of-thought reasoning [15] abilities, and models trained on code [16] can synthesize nontrivial programs. Frontier general-purpose models [17, 18] further extend these capabilities to multi-step symbolic reasoning. In aerospace dynamics, prior work has explored LLM-assisted orbit design, mission planning, and fault diagnosis. To the best of our knowledge, however, using an LLM for the end-to-end generation of PMP symbolic derivations and shooting code has not been reported. 
+
+Prompt engineering. The derivation capability of HELIOS originates largely from a set of general rules embedded in the prompt. These rules are not problem-specific “cheat” hints but general knowledge distilled from PMP theory, consistent in spirit with chain-of-thought prompting [15]: they decompose a complex symbolic derivation into verifiable intermediate steps. 
+
+1.3 Contributions 
+
+1. Constraint-adaptive derivation framework. Arbitrary constraints are unified into the form ψ(x, p) = 0; free parameters embedded in constraints (Category C) are auto-matically identified, and the corresponding stationarity conditions ∂(P 
+
+> k
+
+νkψk)/∂p = 0 are generated. This removes the traditional limitation of deriving transversality conditions separately for each constraint type. 2. Dynamics-adaptive code generation. A four-module DYNAMICS/SWITCH/RESID-UAL/SOLVE separation architecture supports complete code generation for non-standard dynamics models. For standard low-thrust problems only two modules (RESIDUAL + SOLVE) need to be generated; for solar-sail-type models all four modules are generated. 3. General derivation rule set. Rules G1–G4 cover λ0 handling, control-direction verifica-tion, geometric-derivative completeness, and state-dimension consistency; Rule B2 handles free parameters inside constraints. These rules are general knowledge distilled from exten-sive practice and are not tied to any specific problem. 4. Multi-model backend validation. The model-agnostic nature of the system architec-ture is verified on 8 LLMs of different scales, with total scores spanning 250–905, pro-viding experimental evidence for backend selection. Token consumption of each model (465k–836k) is also reported as a reference for deployment-cost estimation. 
+
+# 2 System Architecture 
+
+2.1 Overall Design 
+
+HELIOS adopts a five-stage pipeline architecture (Figure 1). The user describes the physical problem in natural language (target body, constraint types, dynamics model, spacecraft param-eters, optimization objective), and the system sequentially performs constraint parsing, PMP derivation, symbolic verification, code generation, and numerical solving. Listing 1: Five-stage pipeline of HELIOS.  
+
+> User input (natural-language problem description) |vStage 1: Constraint parsing (ConstraintParser) |natural language -> structured JSON (problem_spec)
+
+3Figure 1: HELIOS five-stage pipeline architecture. The natural-language problem description is parsed into a structured specification, from which the PMP derivation, symbolic verification, code generation, and numerical solution are produced autonomously. Failed verification or compilation triggers bounded refinement loops. 4vStage 2: PMP derivation (PMPDeriver) | problem_spec -> costate equations + transversality conditions | + shooting variables/equations | (refinement loop on verification failure, up to 3 rounds) vStage 3: SymPy symbolic verification (SymPyVerifier) | correctness of costate ODEs -> executed as a Python symbolic script vStage 4: Code generation (CodeGenerator) | PMP results + problem_spec -> C++ shooting code (2 or 4 modules) vStage 5: Compilation and solving (SolverRunner) | g++ compilation + cminpack hybrd1_ solving + result parsing vOutput: trajectory, dv, mass history, convergence report 
+
+2.2 Constraint Parser (Stage 1) 
+
+The ConstraintParser converts the natural-language problem into a structured JSON object (problem spec ) containing: the central body and its gravitational constant; departure/arrival states (Cartesian coordinates or orbital elements); spacecraft parameters (thrust, specific im-pulse, mass, or solar-sail characteristic acceleration); a description of the dynamics model; the constraint list (terminal, interior-point, path); and the optimization objective (minimum fuel / minimum time). A key design choice is that the parser does not distinguish among constraint types—all constraints are uniformly represented as constraint objects carrying position, time, type, and target information. The LLM decides how each constraint is treated during the PMP derivation stage. 
+
+2.3 PMP Derivation (Stage 2) 
+
+The PMPDeriver is the core intelligent module of the system. Given the problem spec and the PMP derivation prompt ( pmp derive.txt ), the LLM outputs the complete indirect shooting formulation: 
+
+• the Hamiltonian H (with an explicit sign convention: min/max principle); 
+
+• the costate differential equations ˙λ = − ∂H ∂x ; (1) 
+
+• the optimal control law (a bang-bang switching function or a continuous control formula); 
+
+• all transversality conditions (terminal + interior-point + free-time); 
+
+• the list of shooting variables (with the physical meaning and initialization strategy of each); 
+
+• the list of shooting equations (in one-to-one correspondence with the variables). The general Hamiltonian under the minimum-principle convention is 
+
+H = λ0 · L + λT · f (x, u, t ), (2) where λ0 is the abnormal multiplier, L is the running cost, λ is the costate vector, and f (x, u, t )is the dynamics right-hand side. The core rules embedded in the prompt include: 5Rule 0 (constraints are equations). Every constraint appearing in the problem state-ment must appear as one of the shooting equations. Terminal constraints, interior-point con-straints, and boundary conditions alike must be present in the shooting system. 
+
+Rule B (interior-point constraints). Each interior-point constraint ψ(x(tk)) = 0 intro-duces a multiplier ν, and the costate jumps at tk according to 
+
+λ+(tk) = λ−(tk) + νT ∂ψ ∂x . (3) The multiplier ν is added as a shooting variable, and the constraint ψ = 0 is added as a shooting equation. 
+
+Rule B2 (constraint parameters). Scan the expression of every constraint ψ and identify free parameters p that are neither state variables nor multipliers (e.g., the GA turning angle δ,azimuth angle ϕ, and periapsis radius rp). Each such parameter adds one shooting variable and one stationarity equation X
+
+> k
+
+νk
+
+∂ψ k
+
+∂p = 0 . (4) This rule enables the system to automatically handle problems with parameterized constraints such as gravity assists. 
+
+Rule G1 ( λ0 handling). For problems with a cost functional, λ0 must be a shooting variable and must be included in the spherical normalization. 
+
+Rule G2 (control-direction verification). The optimal control direction must be verified to maximize (or minimize) H. The sign convention (+ s or −s) depends on whether the max or min principle is adopted. 
+
+Rule G3 (geometric derivatives). When the optimal control direction n depends on the state x (e.g., the sail normal depends on ˆ r), the costate equations must include the geometric-derivative terms ∂n/∂ x. The envelope theorem eliminates only ∂H/∂α (the control variable itself), not ∂n/∂ x.
+
+Rule G4 (state dimension). Variables that do not appear in the dynamics equations (e.g., the mass of a solar sail) are not state variables and must be excluded. 
+
+2.4 Symbolic Verification (Stage 3) 
+
+The SymPyVerifier executes the derived costate ODEs as a Python symbolic script, computes 
+
+−∂H/∂ x symbolically, and compares it against the LLM’s derivation (Figure 2). On verification failure, the error message is fed back to the PMPDeriver for refinement (up to 3 rounds). 
+
+Figure 2: PMP derivation and SymPy verification loop. The derived costate equations are checked by symbolic differentiation; failures are fed back to the deriver for up to three refinement rounds. For complex dynamics models (e.g., solar sail), the symbolic derivation involves deeply nested chain-rule expansions, and SymPy’s simplify may time out. In that case the system skips verification and proceeds directly to code generation, relying on the correctness of the LLM’s derivation. 62.5 Code Generation (Stage 4) 
+
+The CodeGenerator translates the PMP derivation results into C++ shooting code based on a fixed framework template. The template is divided into a fixed part and an LLM-generated part: 
+
+Fixed part: normalization-constant initialization, orbital mechanics (Kepler propagation / fixed Cartesian states), an RK4 integrator, an adaptive ε-homotopy solver, and the MINPACK 
+
+hybrd1 interface. 
+
+LLM-generated part (2 or 4 modules, see the table below): Module generation strategy of the CodeGenerator. Module Standard low-thrust Non-standard dynamics DYNAMICS Template default ( fmax /fmid /fnull ) LLM-generated custom RHS SWITCH Template default (bang-bang switching) LLM-generated control law RESIDUAL LLM-generated ( objective RK ) LLM-generated SOLVE LLM-generated ( main + initial guess) LLM-generated For standard low-thrust problems (chemical/electric propulsion, bang-bang control), only the RESIDUAL and SOLVE modules are generated, while DYNAMICS and SWITCH use the template defaults. For non-standard dynamics such as solar sails, all four modules must be generated—the LLM writes the right-hand-side function itself (e.g., the solar-sail acceleration), the control law (the optimal cone-angle formula), and the propagation logic. 
+
+Ephemeris support. The compute target rv function supports two modes—Keplerian propagation from orbital elements ( eph[0] >= 0 ) and direct assignment of fixed Cartesian states (eph[0] == -1 ). The latter is used in scenarios where the problem provides exact positions and velocities that require no propagation. 
+
+2.6 Numerical Solving (Stage 5) 
+
+The generated C++ code is compiled with g++ and linked against the cminpack library. The solution procedure adopts an adaptive ε-homotopy strategy: 1. Hot start ( ε = 1 .0). Under the fully smoothed continuous-thrust problem, multiple random restarts are performed (each invoking hybrd1 ), and the initial guess with the smallest residual is retained. 2. ε descent. If the current ε converges, the step size dete is decreased geometrically (0 .05 → 0.01 → 0.001); if it fails to converge, a half-step retreat is attempted. 3. Termination. ε ≤ minepsl (typically 0.0). 
+
+# 3 Key Methods 
+
+3.1 Unified Constraint Framework 
+
+The core innovation of HELIOS is the unification of all constraints into the form 
+
+ψ(x, p 1, p 2, . . . ) = 0 , (5) where x denotes the state variables and p the free parameters embedded in the constraint. The processing pipeline is: 1. Scan. List all constraints of the problem (terminal, interior-point, path, boundary). 72. Classify. Classify the variables in each constraint into state variables (Category A), multipliers (Category B), and free parameters (Category C). 3. Shooting variables. State variables require no additional variables; the multiplier ν of each interior-point constraint becomes a shooting variable (Rule B); each free parameter 
+
+p becomes a shooting variable (Rule B2). 4. Shooting equations. Each constraint ψ = 0 is itself a shooting equation; each free pa-rameter p generates the stationarity equation (4); each free time tk generates the transver-sality condition 
+
+H(t− 
+
+> k
+
+) − H(t+ 
+
+> k
+
+) − X ν ∂ψ ∂t k
+
+= 0 . (6) This unified treatment allows the system to adapt automatically to arbitrary constraint combinations. Taking the gravity assist as an example: Listing 2: Gravity-assist constraint structure handled automatically by the unified framework.       
+
+> Constraint 1: r(tm-) - r_mars(tm) = 0 (3 eqs, multipliers nu_r(3)) Constraint 2: v(tm+) - v_mars(tm) - R(delta,phi)*v_inf- = 0 (3 eqs, multipliers nu_v(3)) Free parameters: delta, phi (Category C) (2 vars, 2 stationarity eqs) Free time: tm (1 var, 1 transversality eq) Inequality: rp - rmin >= 0 (two-pass method)
+
+The system automatically identifies δ and ϕ as Category C parameters and generates the shooting variables together with the stationarity equations νv · ∂R/∂δ · v−∞ = 0 and νv · ∂R/∂ϕ ·
+
+v−∞ = 0. No manual derivation of GA-specific transversality conditions is required. 
+
+3.2 Dynamics Model Adaptation 
+
+The essential differences among dynamics models lie in the state dimension, the control pa-rameterization, and the Hamiltonian structure. HELIOS handles them through the following mechanisms: 
+
+Standard low-thrust (chemical/electric propulsion): a 14-dimensional state (7 states + 7 costates), bang-bang control, using the template defaults fmax /fmid /fnull and the md14 
+
+switch-detection integrator. 
+
+Solar sail: a 12-dimensional state (6 states + 6 costates, no mass), continuous cone-angle control, with an LLM-generated custom RHS and optimal cone-angle formula. The control law is 
+
+n = cos α ˆr + sin α ˆs, (7) with the optimal cone angle 
+
+α∗ = arctan −3a + √9a2 + 8 b2
+
+4b
+
+!
+
+, a = λv · ˆr, b = ∥λv⊥∥, (8) where ˆ s = λv⊥/∥λv⊥∥ and λv⊥ is the component of the velocity costate perpendicular to ˆ r.
+
+J2 perturbation: a J2 acceleration term is added on top of the standard low-thrust model, and the costate equations include the partial derivatives of the J2 acceleration with respect to position. The four-module code-generation architecture allows the LLM to produce complete custom code for each dynamics model while retaining the template’s numerical infrastructure (normal-ization, integrator, solver). 83.3 Numerical Stability Strategies 
+
+Normalization. All physical quantities are transformed into normalized units (AU, year, AU/year). For heliocentric problems, μ ≈ 39 .48, positions are ∼2 AU, velocities ∼5 AU/yr, and all variables lie in the O(1)– O(10) range. 
+
+Time-fraction parameterization. Free time variables are stored as fractions τ ∈ [0 , 1], avoiding the magnitude mismatch between absolute MJD values ( ∼60000) and costate variables (∼O(1)). 
+
+Target-epoch evaluation. The target body’s state is evaluated at the actual arrival epoch 
+
+T initial + tau*tf day , rather than at a fixed epoch. 
+
+Dimensionless residuals. fvec uses only raw normalized differences without any sec-ondary scaling (avoiding false convergence caused by, e.g., dividing by R unit ). 
+
+Sign convention of H. The min principle ( H = λ0L + λT f ) and the max principle (H = −λ0L + λT f ) are declared explicitly in the derivation to avoid sign confusion. 
+
+# 4 Experimental Design 
+
+4.1 Test Scenarios 
+
+Eleven progressive test scenarios were designed, covering different constraint types, dynamics models, and optimization objectives (see the table below). Eleven progressive test scenarios. The Source column lists the reference from which each scenario is drawn: S01–S04 and S07 from [21]; S05 and S06 from [23]; S08 and S09 from [22]; S10 from [9]; S11 from [24].                                                                                           
+
+> #Scenario Constraint type Dynamics Objective Vars Difficulty Source 01 Fixed-time rendezvous Terminal rendezvous Two-body Min fuel 8L1 [21] 02 Min-time rendezvous Free final time Two-body Min time 9L2 [21] 03 Multi interior rendezvous 3 interior rendezvous Two-body Min fuel 29 L3 [21] 04 Interior flyby Interior flyby Two-body Min fuel 12 L2 [21] 05 J2-perturbed transfer Terminal rendezvous Two-body + J2Min fuel 8L2 [23] 06 J2LEO rendezvous Terminal rendezvous Two-body + J2Min fuel 8L2 [23] 07 Stay + t0sliding 3×STAY + free t0Two-body Min fuel 48 L4 [21] 08 Stay + mass drop + flyby 2×STAY + mass drop + flyby Two-body Min initial mass 22 L3 [22] 09 Stay + velocity inequality 2×STAY + inequality Two-body Min initial mass 23 L4 [22] 10 Mars gravity assist Gravity assist Two-body Min fuel 17 L3 [9] 11 Solar-sail min-time Terminal rendezvous Two-body (sail) Min time 8L2 [24]
+
+The scenarios span a complete difficulty gradient from a simple 8-variable problem to a complex 48-variable one. Constraint types include terminal rendezvous, interior flyby, interior rendezvous, STAY (stay arcs), mass drop, gravity assist, and inequality constraints. Dynam-ics models include two-body point-mass gravity (with bang-bang thrust), two-body with J2
+
+perturbation, and two-body solar sail (continuous control, no mass state). 
+
+4.2 Evaluation Metrics 
+
+A five-dimension scoring system is adopted (100 points per scenario, 1100 points in total), as shown in the table below. 
+
+4.3 Multi-Model Baselines 
+
+The same test scenarios were run on 8 LLMs of different scales (see the table below) to evaluate the model-agnostic nature of the system architecture. 9Five-dimension scoring system. Dimension Full score Evaluation content d1 Parsing 30 Whether constraints, dynamics, and parameters are correctly extracted d2 Derivation 20 Hamiltonian, costate ODEs, optimal control law, variable/equation counts d3 Compilation 20 Complete C++ structure, successful compilation d4 Convergence 20 Shooting residual max |fvec | < 10 −5
+
+d5 Accuracy 10 Deviation of mf /∆ v from the reference solution LLM backends used in the evaluation. Scale Models Large DeepSeek-V4-Pro, Qwen3.7-Max, GLM-5.2 Medium Qwen3.6-27B, DeepSeek-V3.2-Instruct, MiniMax-M3, DeepSeek-V4-Flash Small GLM-4-9B All models use identical prompts, temperature (0.1), and pipeline configuration, with think-ing mode disabled. The per-scenario timeout is 1200 seconds, and the compilation-repair loop runs at most 3 rounds. 
+
+Model selection rationale. The 8 LLM backends are selected from open-source (open-weight) model families—DeepSeek (DeepSeek-AI), Qwen (Alibaba), GLM (Zhipu AI), and MiniMax—covering large, medium, and small parameter scales. Open-source models are chosen primarily for reproducibility : their weights and version identifiers are publicly available, allow-ing other researchers to replicate the evaluation under identical configurations. In addition, the selected models span a wide capability range (total scores 250–905), enabling the evaluation to reveal the relationship between model scale and derivation capability—the primary interest of this study—rather than identifying the single best LLM. Extending the benchmark to propri-etary models such as GPT-5 and Claude is straightforward given the model-agnostic pipeline design and is left as future work. 
+
+# 5 Experimental Results 
+
+5.1 Multi-Model Comparison 
+
+Table 1 presents the composite scores of the 8 LLM backends across the 11 scenarios, and Figure 3 visualizes the total scores. Table 1: Multi-model evaluation results (full score 1100). “Conv.” and “Comp.” count the scenarios that converged and compiled, respectively. Rank Model Scale S01 S02 S03 S04 S05 S06 S07 S08 S09 S10 S11 Total Conv. Comp. 1 DeepSeek-V4-Pro Large 100 85 75 80 70 70 100 100 100 70 55 905 4 11 2 Qwen3.7-Max Large 100 97 70 80 70 70 20 100 100 97 82 886 6 10 3 DeepSeek-V4-Flash Medium 100 70 70 80 70 70 100 100 70 70 82 882 4 11 4 GLM-5.2 Large 100 75 70 80 70 70 70 100 20 97 60 812 3 10 5 MiniMax-M3 Medium 100 97 80 80 70 50 20 97 20 70 20 704 3 76 Qwen3.6-27B Medium 100 97 20 80 70 70 20 70 20 70 82 699 3 87 DeepSeek-V3.2-Instruct Medium 80 97 20 20 70 20 20 20 20 20 20 407 1 38 GLM-4-9B Small 20 20 20 20 20 50 20 20 20 20 20 250 0 0
+
+Key findings: 
+
+10 Figure 3: Total scores of the 8 LLM backends across the 11 scenarios (full score 1100). 1. DeepSeek-V4-Pro achieves the highest total score (905/1100) , converging on com-plex scenarios such as S07 (48-variable STAY) and S09 (inequality constraints), demon-strating strong derivation capability. 2. Qwen3.7-Max converges on the most scenarios (6/11) , with outstanding perfor-mance on S10 (Mars gravity assist) and S11 (solar sail). 3. DeepSeek-V4-Flash achieves the highest compilation rate (11/11) , generating compilable code for every scenario. 4. Total score correlates positively with model scale : large models average 868 points, medium models 698, and the small model 250. 5. GLM-4-9B (9B) fails to complete the task , indicating a minimum capability thresh-old for trajectory-optimization derivation. 
+
+5.2 Token Consumption 
+
+Table 2 reports the token consumption of each model (estimated from the character counts of the LLM logs). Table 2: Token consumption statistics (estimated values). Model Scale Total input Total output Total Per-scenario avg. Qwen3.6-27B Medium 571k 264k 836k 76k MiniMax-M3 Medium 532k 301k 834k 76k DeepSeek-V4-Pro Large 526k 268k 794k 72k Qwen3.7-Max Large 550k 224k 774k 70k DeepSeek-V4-Flash Medium 539k 223k 761k 69k GLM-5.2 Large 514k 179k 693k 63k GLM-4-9B Small 523k 131k 653k 59k DeepSeek-V3.2-Instruct Medium 329k 136k 465k 42k Input-token consumption is essentially identical across models ( ∼530k), since the prompt templates are the same. The differences come mainly from output tokens—models that undergo more refinement rounds produce longer outputs. DeepSeek-V3.2-Instruct consumes the least overall (465k), because most of its scenarios never reach the code-generation stage. 11 5.3 Derivation Quality Analysis 
+
+The agent performs correctly on the following critical derivation points: 1. Sign of transversality conditions: all scenarios output H(t− 
+
+> k
+
+) − H(t+ 
+
+> k
+
+) − ν · vtarget −
+
+νv · atarget = 0 without sign errors. 2. λ0 handling: both min-time and min-fuel scenarios correctly include λ0 in the spherical normalization. 3. State dimension: the solar-sail scenario correctly excludes the mass state (Rule G4), using a 12-dimensional state. 4. Constraint-parameter identification: the GA scenario correctly identifies δ and ϕ as shooting variables (Rule B2). 5. Geometric derivatives: the solar-sail scenario includes the sin( α − φ) ˆ s term (Rule G3). 6. STAY multiple shooting: S07 (48 variables) correctly implements arrival/departure costate separation, and the H-jump contains both endpoint terms. 7. J2 costate gradient: S05/S06 correctly derive the full 3 ×3 Jacobian of the J2 acceleration (Rule G6). 8. Solar-sail control law: S11 correctly uses the cubic equation corresponding to cos 2 α,rather than an atan2 form. 
+
+5.4 Compilation Repair Loop Effectiveness 
+
+The compilation repair loop (at most 3 rounds) substantially improves the compilation success rate (see the table below). Effect of the compilation repair loop on compilation success (number of scenarios compiled, out of 11). Model Before repair After repair Improvement DeepSeek-V4-Flash 4 11 +7 GLM-5.2 4 10 +6 MiniMax-M3 1 7 +6 Qwen3.6-27B 3 8 +5 Common repair types include duplicated variable definitions (removing the second decla-ration), function-signature mismatches (wrong number of dot3 arguments), and undeclared identifiers (adding forward declarations). The repair loop only fixes compilation errors and never alters the mathematical logic. 
+
+5.5 Case Study: S07 Stay Constraints + t0 Sliding (48 Variables) 
+
+To demonstrate the end-to-end autonomous derivation capability of HELIOS, this section walks through the inputs and outputs of the five-stage pipeline on scenario S07. S07 has the largest variable count (48) and the most complex constraint structure among the 11 scenarios, compris-ing 3 interior rendezvous constraints, 3 stay-arc (coast) constraints, and 1 free departure-epoch constraint. 
+
+Problem statement. The spacecraft departs from asteroid Azusa and rendezvous se-quentially with the four asteroids Nikko, Magri, Tengstrom, and SIMBAD. After each interior 12 rendezvous it stays for 30 days. The departure epoch t0 is allowed to slide (prior value 61880.6 MJD), and the total time of flight is fixed at 981.1 days. The thrust is 0.3 N, the specific im-pulse 3000 s, and the initial mass 2000 kg; the objective is minimum fuel consumption. Backend model: DeepSeek-V4-Flash. 
+
+Stage 1—constraint parsing. The ConstraintParser correctly extracts 6 interior constraints 
+
+(3 rendezvous + 3 coast) and identifies t0 prior and total dt . The parser splits each STAY constraint into two independent entries—a rendezvous (position/velocity match at the arrival epoch) and a coast (position/velocity match at the end of the stay)—and the LLM must merge them into a single STAY structure during the subsequent derivation. 
+
+Stage 2—PMP derivation. The PMPDeriver outputs the complete indirect formulation: 
+
+• Hamiltonian: 
+
+H = λr · v − λv · μr
+
+r3 + T u 
+
+ λ0
+
+Isp g0
+
+− ∥λv∥
+
+m − λm
+
+Isp g0
+
+
+
+; (9) 
+
+• Switching function: 
+
+S = λ0
+
+Isp g0
+
+− ∥λv∥
+
+m − λm
+
+Isp g0
+
+, u =
+
+(
+
+1, S > ε, 
+
+0, S < −ε; (10) 
+
+• Variable structure (48 dimensions): λ0 (1) + initial costates λr0, λv0, λ m0 (7) + 3 ×
+
+STAY multiplier groups (each of size 13 = 6 arrival + 6 departure + 1 time) + t0 offset (1) = 48; 
+
+• Shooting equations (48 dimensions): terminal rendezvous r(tf ) − rtarget (3) + v(tf ) −
+
+vtarget (3) + λm(tf ) = 0 (1) + 3 × STAY (each of size 13 = 6 arrival position/velocity matches + 6 costate continuities + 1 H-jump) + H(t0) = 0 (1) + spherical normalization 
+
+∥sphere (13) ∥2 − 1 = 0 (11) (1) = 48. A noteworthy derivation result: the LLM correctly recognizes that each STAY constraint produces 6 arrival multipliers and 6 departure multipliers (12 in total), with the departure multipliers entering Y0 with a negative sign ( Y0[7] = -dep var ), reflecting the costate jump across the stay arc. The H-jump equation contains the target-body velocity terms of both the arrival and departure endpoints: 
+
+H(t− 
+
+> k
+
+) − H(t+ 
+
+> k
+
+) − νarr · vtarget − νdep · vtarget = 0 . (12) 
+
+Stage 3—SymPy verification. The symbolic verification script completes in 13 seconds and returns PASSED. The symbolic partial derivatives of the costate ODEs agree with the LLM’s derivation. 
+
+Stage 4—code generation. The CodeGenerator produces 21,511 characters of C++ code in 72 seconds. The generated objective RK function correctly implements: (1) conversion of time variables to actual MJD via prior ± range; (2) resetting the state components of Y0 with the asteroids’ exact positions and velocities at each rendezvous epoch after each integration leg (the multiple-shooting idea); (3) propagating the stay arcs with fnull (zero thrust) for 30 days; and (4) evaluating H(t0) before propagation. 
+
+Stage 5—compilation and solving. g++ compiles without errors. The solver reports: 
+
+• 48 variables, up to 1000 random restarts; 13 • convergence on the very first restart (best res = 9 .1 × 10 −10 ); 
+
+• ε-homotopy descending from 1.0 to 0.0 in 46 steps, final residual 6 .18 × 10 −14 ;
+
+• final mass mf = 1522 .46 kg, equivalent ∆ v = 8026 .4 m/s; 
+
+• terminal position error 73.3 m, velocity error 1 .07 × 10 −5 m/s. The structure of the 48-component solution vector is summarized in the table below. S07 solution vector structure (48 components). Component Physical meaning Value x[0] λ0 0.836 x[1–3] λr(t0) (−0.194 , −0.317 , 0.112) x[4–6] λv(t0) (−0.069 , −0.058 , −0.036) x[7] λm(t0) 0.375 x[8–13] STAY1 arrival multipliers (−0.155 , −0.320 , −0.033 , 0.003 , 0.080 , −0.058) x[14–19] STAY1 departure multipliers (0 .242 , −0.128 , −0.238 , 0.092 , −0.031 , −0.020) x[20] STAY1 epoch offset −0.298 x[21–33] STAY2 multiplier group + epoch · · · 
+
+x[34–46] STAY3 multiplier group + epoch · · · 
+
+x[47] t0 offset −1.867 All 48 residual components are below 10 −13 , verifying the completeness and correctness of the shooting system. 
+
+Trajectory visualization. Figure 4 shows the three-dimensional trajectory of the con-verged solution, color-coded by the throttle magnitude u. The spacecraft departs from Azusa, passes through the three stay points Nikko, Magri, and Tengstrom (green squares), and finally arrives at SIMBAD. The trajectory clearly exhibits the bang-bang control structure—thrust arcs (red) alternate with coast arcs (blue). Figure 5 shows the thrust profile and mass history. The upper panel is the throttle u(t), exhibiting the typical bang-bang structure ( u = 0 or u = 1) with smoothed transition regions from the homotopy; the three green dashed lines mark the stay arcs. The lower panel shows the spacecraft mass decreasing monotonically from 2000 kg to 1522.46 kg, i.e., a propellant consumption of 477.54 kg (equivalent ∆ v = 8026 .4 m/s). The thrust-on fraction is about 60.4%, indicating that the optimal solution coasts for roughly 40% of the time. This case study shows that HELIOS can autonomously handle complex optimal control problems involving stay arcs, free epochs, and multiple interior constraints, without any human intervention. 
+
+# 6 Discussion 
+
+6.1 System Adaptability 
+
+The key advantage of HELIOS is its general adaptability to constraint types, dynamics models, and optimization objectives :
+
+Constraint adaptability. Through the unified framework of Rule B2, the system auto-matically handles constraints with free parameters (the δ and ϕ of a GA) without per-constraint derivations. In traditional practice these must be derived by the researcher one by one, whereas HELIOS only needs the physical form of the constraint stated in the problem description. 14 Figure 4: S07 three-dimensional trajectory (48-variable converged solution). Color encodes the throttle magnitude u; green squares mark the stay points, the blue circle the departure asteroid Azusa, and the red star the arrival asteroid SIMBAD. 
+
+Figure 5: S07 thrust profile and mass history. Upper: throttle u(t), with green dashed lines marking the stay arcs; lower: spacecraft mass m(t). 15 Dynamics adaptability. Through the four-module code-generation architecture, the sys-tem produces complete custom code for different dynamics models. From chemical thrust (bang-bang) to solar sail (continuous cone angle), one only needs to state the dynamics equations in the problem description, and the LLM derives the Hamiltonian structure and the optimal control law autonomously. 
+
+Objective adaptability. Minimum-fuel problems (Lagrange form, L = T u/ (Isp g0)) and minimum-time problems (Mayer form, φ = tf ) have different Hamiltonian structures: 
+
+Jfuel =
+
+Z tf
+
+> t0
+
+T u Isp g0
+
+dt, (13) 
+
+Jtime = tf . (14) The unified PMP derivation framework handles both automatically. 
+
+6.2 Prompt Engineering and Pipeline Improvements 
+
+The derivation capability of the system originates mainly from the general rule set embedded in the prompt. These rules are not problem-specific “cheat” hints but general knowledge distilled from PMP theory: 
+
+• Rule B2 follows from the general theory of PMP: any free parameter in a constraint requires a stationarity condition; 
+
+• Rules G1–G4 follow from basic properties of the minimum principle; 
+
+• Rules G5–G6 forbid placeholders and simplifications in the derivation, requiring the full 3 × 3 Jacobian for the J2 costate gradient; 
+
+• the “Common Mistakes” entries are error-prone points discovered in practice, but every one of them is general in nature. Beyond the prompt, three key pipeline improvements significantly enhance robustness: 
+
+Compilation repair loop. On compilation failure, the compiler error messages are fed back to the LLM to repair the code (at most 3 rounds). This mechanism raises the compilation success rate from 36%–55% to 64%–100%; the repaired issues are pure code-quality problems (duplicated definitions, signature mismatches, etc.) that involve no change to the mathematical logic. 
+
+SymPy verification in advisory mode. SymPy verification failures no longer block the pipeline but serve as advisory checks. Code generation continues after a failed verification, avoid-ing pipeline crashes caused by false negatives (equivalent expressions not recognized). Statistics show that the SymPy verifier achieves 75% accuracy, with a 25% error rate. 
+
+STAY constraint grouping. The parser splits each STAY constraint into two independent entries (rendezvous + coast), and the LLM must first recognize and merge them into a single STAY constraint before counting variables. The enforced grouping step (Step 0b-STAY) avoids the double-counting problem. 
+
+6.3 Limitations 
+
+Numerical convergence. The convergence of the shooting method is strongly affected by the problem size: as the number of shooting variables increases, the probability that a random initial guess falls inside the basin of convergence decays rapidly. For scenarios with 17+ variables (e.g., S10 gravity assist), the random-restart strategy often fails to converge within the allowed time. It should be noted that the current evaluation relies on random initial guesses, which is not the most effective initialization strategy; the convergence dimension (d4) therefore carries an 16 element of chance, and the corresponding scores should be interpreted with appropriate caution. A systematic study of initialization techniques—including physics-informed initial-guess con-struction, continuation from reduced problems, and warm-start from approximate solutions—is a necessary next step to make the convergence evaluation more robust and reproducible. 
+
+SymPy verification. For complex dynamics models (e.g., solar sail), symbolic verification times out due to expression explosion. More efficient verification strategies are needed (e.g., verifying only the gravitational part, or increasing the timeout). 
+
+LLM output nondeterminism. Two inference runs on the same problem may pro-duce code with slightly different styles. For production-grade applications, deterministic post-processing is recommended (e.g., checking the linear independence of the shooting equations). 
+
+6.4 Future Directions 
+
+1. Initialization strategy: systematic initial-guess construction algorithms (physics-informed, continuation from reduced problems) and warm-start techniques to replace pure random guessing, improving convergence robustness and reproducibility; 2. Differential-evolution global search: use the DE algorithm of the halo library for global search at the ε = 1 stage; 3. SymPy verification optimization: for complex dynamics models, verify only the grav-itational part of the costate equations; 4. More dynamics models: solar radiation pressure, atmospheric drag, and higher-fidelity gravity field models; 
+
+# 7 Conclusion 
+
+This paper has presented HELIOS, an LLM-based autonomous indirect trajectory optimization agent. The core innovations of the system are: 1. a constraint-adaptive derivation framework that automatically handles arbitrary constraint combinations through the unified ψ(x, p) = 0 form and Category C free-parameter identification; 2. dynamics-adaptive code generation , in which the four-module architecture supports complete code generation for non-standard dynamics models; 3. a general derivation rule set (Rules G1–G4, B2, etc.) distilled from PMP theory rather than tailored to specific problems. Experiments validate the system on 11 scenarios: the compilation success rate reaches 100% (11/11) at best, and multiple scenarios converge to optimal solutions consistent with reference solutions, including a 48-variable STAY multiple-shooting problem and a 17-variable gravity-assist problem. The multi-model comparison (8 LLMs, total scores 250–905) verifies the model-agnostic nature of the architecture and reveals a positive correlation between model scale and derivation capability. HELIOS demonstrates the value of LLMs for symbolic derivation in astrodynamics—compressing a manual derivation process that traditionally takes days into an automated pipeline completed in minutes, while maintaining general adaptability across constraint types, dynamics models, and optimization objectives. 17 References 
+
+[1] D. F. Lawden. Optimal Trajectories for Space Navigation . Butterworths, London, 1963. [2] L. S. Pontryagin, V. G. Boltyanskii, R. V. Gamkrelidze, and E. F. Mishchenko. The Math-ematical Theory of Optimal Processes . Wiley, New York, 1962. [3] A. E. Bryson and Y. C. Ho. Applied Optimal Control . Hemisphere Publishing, 1975. [4] J. T. Betts. Survey of numerical methods for trajectory optimization. Journal of Guidance, Control, and Dynamics , 21(2):193–207, 1998. [5] J. A. Sims and S. N. Flanagan. Preliminary design of low-thrust interplanetary missions. AAS 99-338, AAS/AIAA Astrodynamics Specialist Conference, 1999. [6] R. P. Russell. Primer vector theory applied to global low-thrust trade studies. Journal of Guidance, Control, and Dynamics , 30(2):460–472, 2007. [7] R. Bertrand and R. Epenoy. New smoothing techniques for solving bang-bang optimal control problems—numerical results and statistical interpretation. Optimal Control Appli-cations and Methods , 23(4):171–197, 2002. [8] T. Haberkorn, P. Martinon, and J. Gergaud. Low thrust minimum-fuel orbital transfer: a homotopic approach. Journal of Guidance, Control, and Dynamics , 27(6):1046–1060, 2004. [9] F. Jiang, H. Baoyin, and J. Li. Practical techniques for low-thrust trajectory optimization with homotopic approach. Journal of Guidance, Control, and Dynamics , 35(1):245–258, 2012. [10] A. E. Petropoulos and J. M. Longuski. Shape-based algorithm for the automated design of low-thrust, gravity assist trajectories. Journal of Spacecraft and Rockets , 41(5):787–796, 2004. [11] L. Casalino and G. Colasurdo. Missions to asteroids using solar electric propulsion. Acta Astronautica , 97:183–192, 2014. [12] D. Izzo, D. Hennes, L. F. Sim˜ oes, and M. M¨ artens. Designing complex interplanetary trajectories for the global trajectory optimization competitions. In G. Fasano and J. D. Pint´ er, editors, Space Engineering: Modeling and Optimization with Case Studies , pages 151–176. Springer, Cham, 2016. [13] M. Vasile, E. Minisci, and M. Locatelli. An inflationary differential evolution algorithm for space trajectory optimization. IEEE Transactions on Evolutionary Computation ,15(2):267–281, 2011. [14] T. B. Brown et al. Language models are few-shot learners. In Advances in Neural Infor-mation Processing Systems (NeurIPS) , pages 1877–1901, 2020. [15] J. Wei et al. Chain-of-thought prompting elicits reasoning in large language models. In 
+
+Advances in Neural Information Processing Systems (NeurIPS) , pages 24824–24837, 2022. [16] M. Chen et al. Evaluating large language models trained on code. arXiv preprint arXiv:2107.03374 , 2021. [17] J. Achiam et al. GPT-4 technical report. arXiv preprint arXiv:2303.08774 , 2023. [18] A. Liu et al. DeepSeek-V3 technical report. arXiv preprint arXiv:2412.19437 , 2024. 18 [19] C. R. McInnes. Solar Sailing: Technology, Dynamics and Mission Applications . Springer-Praxis, London, 1999. [20] E. Taheri and O. Abdelkhalik. Shape-based approximation of constrained low-thrust space trajectories using Fourier series. Journal of Spacecraft and Rockets , 49(3):535–546, 2012. [21] A. Y. Huang, Z. Che, P. Huang, J. F. Li, Y. Lu, and H. N. Li. Low-thrust trajectory optimization for multi-asteroid exploration. Mechanics in Engineering , 37(1), 2015. DOI: 10.6052/1000-0879-14-392. [22] A. Y. Huang, Z. B. Zhang, and H. N. Li. Constraints handling method in indirect trajec-tory optimization for manned asteroid exploration. In Proceedings of 2016 IEEE Chinese Guidance, Navigation and Control Conference (CGNCC) , Nanjing, China, August 2016. [23] A. Y. Huang, Z. B. Zhang, and H. N. Li. Finite-thrust trajectory optimal of Earth orbit transfer with J2 perturbation considered by homotopic approach. In 2018 IEEE/CSAA Guidance, Navigation and Control Conference (CGNCC) , Xiamen, China, August 2018. [24] P. Sun, H. W. Yang, and S. Li. Convergence properties analysis of the indirect optimization techniques for solar sail trajectory optimization. SCIENCE CHINA Physics, Mechanics & Astronomy , 49(8):084505, 2019. DOI: 10.1360/SSPMA2018-00351. 
+
+# Declaration of AI Assistance 
+
+During the preparation of this work, the authors used large language models for code generation and debugging assistance in the development of the HELIOS system, and for translation and language polishing of the manuscript. The authors reviewed and verified all AI-generated content and take full responsibility for the integrity of this publication. 19
