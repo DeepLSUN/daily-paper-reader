@@ -6,97 +6,104 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-02
-- 运行时间：2026-08-02 21:58:08 UTC
+- 最新运行日期：2026-08-03
+- 运行时间：2026-08-03 22:37:09 UTC
 - 运行状态：成功
-- 本次总论文数：25
-- 精读区：10
+- 本次总论文数：28
+- 精读区：13
 - 速读区：15
 
 ### 今日简报（AI）
-今日共扫描25篇论文，精读10篇、速读15篇，覆盖AI代理与模型量化等方向。  
-最值得关注的是两篇高分工作：第三方API路由器的成本分析，以及面向Token级稀疏注意力的PIVOT索引方法。  
-建议优先精读这两篇9分论文，把握代理系统开销与高效注意力机制的当前突破。
-- 详情：[/202608/02/README](/202608/02/README)
+今日扫描28篇论文，13篇精读，聚焦预训练与数据工程前沿。最值得看：9.0分的《Bridging Compute- and Data-Optimal Pretraining》揭示算力与数据的最优配比，《DataClawEval》则提供工业级数据工程评测基准。普通读者可优先关注“预训练效率”和“数据质量”这两大核心杠杆。
+- 详情：[/202608/03/README](/202608/03/README)
 
 ### 精读区论文标签
-1. [Where Is the Cost of Third-Party API Routers in Agentic Software Development?](/202608/02/2607.23624v1-where-is-the-cost-of-third-party-api-routers-in-agentic-software-development)  
-   标签：评分：9.0/10、query:agent
-   evidence：编码智能体工作流、第三方API路由器、智能体自主性中的控制缺口
-2. [PIVOT: Efficient Query-Group Indexing for Token-Level Sparse Attention](/202608/02/2607.24593v1-pivot-efficient-query-group-indexing-for-token-level-sparse-attention)  
+1. [Bridging Compute- and Data-Optimal Pretraining](/202608/03/2607.25271v1-bridging-compute--and-data-optimal-pretraining)  
    标签：评分：9.0/10、query:llm
-   evidence：优化令牌级稀疏注意力索引器，加速大模型推理。
-3. [AngelSpec: Towards Real-World High Performance Inference with Speculative Decoding](/202608/02/2607.25852v1-angelspec-towards-real-world-high-performance-inference-with-speculative-decoding)  
-   标签：评分：9.0/10、query:llm
-   evidence：面向LLM高效推理的推测解码统一训练框架
-4. [AngelSpec: Towards Real-World High Performance Inference with Speculative Decoding](/202608/02/2607.25852v2-angelspec-towards-real-world-high-performance-inference-with-speculative-decoding)  
-   标签：评分：9.0/10、query:llm
-   evidence：提出统一的推测解码训练框架，针对真实负载优化大模型推理性能
-5. [Harness-G: A Graph-Structured Harness for Search Agents](/202608/02/2607.27652v1-harness-g-a-graph-structured-harness-for-search-agents)  
+   evidence：连接计算最优与数据最优预训练的缩放定律
+2. [DataClawEval: A Benchmark for Data Engineering Agents in Real Industrial Harness](/202608/03/2607.28033v1-dataclaweval-a-benchmark-for-data-engineering-agents-in-real-industrial-harness)  
    标签：评分：9.0/10、query:agent
-   evidence：面向搜索智能体的图结构训练框架，缓解检索别名问题
-6. [An Empirical Study of Coordination Mode as the First-Class Citizen in From-Scratch Multi-Agent Coding](/202608/02/2607.27877v1-an-empirical-study-of-coordination-mode-as-the-first-class-citizen-in-from-scratch-multi-agent-coding)  
-   标签：评分：9.0/10、query:agent
-   evidence：面向从零开始多智能体编程的基准与协作拓扑实证研究
-7. [RepBench: Compiling Benchmarks into Capability Representations for Large Language Models](/202608/02/2607.28008v1-repbench-compiling-benchmarks-into-capability-representations-for-large-language-models)  
+   evidence：面向自主数据工程智能体评估的基准
+3. [SemPIC: Learning Semantic Position-Independent KV Caches](/202608/03/2607.28069v1-sempic-learning-semantic-position-independent-kv-caches)  
    标签：评分：9.0/10、query:llm
-   evidence：面向大模型能力评估的基准数据层
-8. [ClawTrack: Towards Trace-Level Evaluation and Improvement of Real-World Autonomous Agents](/202608/02/2607.28037v1-clawtrack-towards-trace-level-evaluation-and-improvement-of-real-world-autonomous-agents)  
-   标签：评分：9.0/10、query:agent
-   evidence：面向真实世界自主智能体的轨迹级评估基准，结合任务得分与过程得分
-9. [(Towards) Scalable Reliable Automated Evaluation with Large Language Models](/202608/02/2607.28282v1-towards-scalable-reliable-automated-evaluation-with-large-language-models)  
+   evidence：面向高效推理的语义位置无关KV缓存
+4. [Group-Reflective Self-Distillation for Agentic Reinforcement Learning](/202608/03/2607.28076v1-group-reflective-self-distillation-for-agentic-reinforcement-learning)  
+   标签：评分：9.0/10、query:post-train
+   evidence：基于策略自身验证轨迹的在线自蒸馏方法，用于智能体强化学习
+5. [Benchmarks Are Not Monolithic: Sample-Level Auditing and Orchestration for LLM Evaluation](/202608/03/2607.28801v1-benchmarks-are-not-monolithic-sample-level-auditing-and-orchestration-for-llm-evaluation)  
    标签：评分：9.0/10、query:llm
-   evidence：使用成对比较和Elo评分自动评估LLM输出
-10. [MANTA: Multi-Agent Network Topology Adaptation for Self-Evolving Multi-Agent Systems](/202608/02/2607.28527v1-manta-multi-agent-network-topology-adaptation-for-self-evolving-multi-agent-systems)  
+   evidence：面向大语言模型评测基准的样本级审计与编排框架
+6. [IyawoBench v2.0: Extended Diagnostic Evaluation of Large Language Model Clinical Triage in Nigerian Primary Care](/202608/03/2607.29085v1-iyawobench-v20-extended-diagnostic-evaluation-of-large-language-model-clinical-triage-in-nigerian-primary-care)  
+   标签：评分：9.0/10、query:llm
+   evidence：IyawoBench v2.0是一个面向LLM临床分诊的诊断评估基准，直接匹配大语言模型评估基准需求。
+7. [Learning Latent Reasoning Traces for Scalar Reward Models End-to-End](/202608/03/2607.29185v1-learning-latent-reasoning-traces-for-scalar-reward-models-end-to-end)  
+   标签：评分：9.0/10、query:post-train
+   evidence：面向RLHF对齐的奖励模型训练
+8. [Don't Mix Rewards, Mix Policies: Policy Decomposition and Optimization for Multi-Reward RL](/202608/03/2607.29246v1-dont-mix-rewards-mix-policies-policy-decomposition-and-optimization-for-multi-reward-rl)  
+   标签：评分：9.0/10、query:post-train
+   evidence：面向LLM后训练的多奖励强化学习框架
+9. [Data Turnstile: A Scalable Open Framework for Function-Calling Data Generation](/202608/03/2607.29250v1-data-turnstile-a-scalable-open-framework-for-function-calling-data-generation)  
+   标签：评分：9.0/10、query:llm-synth
+   evidence：从API规范生成函数调用训练数据的开源框架
+10. [Studying quantization trade-offs for efficient inference deployment in machine translation](/202608/03/2607.29397v1-studying-quantization-trade-offs-for-efficient-inference-deployment-in-machine-translation)  
+   标签：评分：9.0/10、query:llm
+   evidence：面向翻译大模型的高效推理量化
+11. [Beyond Retrieval: Analytic Memory for Multimodal Agents](/202608/03/2607.29440v1-beyond-retrieval-analytic-memory-for-multimodal-agents)  
    标签：评分：9.0/10、query:agent
-   evidence：多智能体拓扑自适应框架
+   evidence：面向多模态智能体的分析记忆框架
+12. [Adaptive FastOPD: Progress-Aware Rollout Horizon Expansion for Efficient On-Policy Distillation](/202608/03/2607.29494v1-adaptive-fastopd-progress-aware-rollout-horizon-expansion-for-efficient-on-policy-distillation)  
+   标签：评分：9.0/10、query:post-train
+   evidence：在线策略蒸馏方法与 rollout 长度自适应扩展
+13. [Reusing Past Repairs Through Hierarchical Trajectory Abstraction for Coding Agents](/202608/03/2607.29658v1-reusing-past-repairs-through-hierarchical-trajectory-abstraction-for-coding-agents)  
+   标签：评分：9.0/10、query:agent
+   evidence：STAIR是一个编码智能体框架，通过层次化轨迹复用历史修复经验，强力匹配代码智能体研究。
 
 ### 速读区论文标签
-1. [Let AI Agents Translate Networks, Not Reason About Them](/202608/02/2607.22947v1-let-ai-agents-translate-networks-not-reason-about-them)  
+1. [From RLVR to RLSVR: Task Transformation Induces Self-Verifiable Rewards for Open-Ended LLM Self-Improvement](/202608/03/2607.23802v2-from-rlvr-to-rlsvr-task-transformation-induces-self-verifiable-rewards-for-open-ended-llm-self-improvement)  
+   标签：评分：8.0/10、query:post-train
+   evidence：将可验证奖励强化学习扩展到开放任务，提出自验证奖励机制
+2. [SIREN: Towards End-to-End Extreme-Weather Early Warning with Experience-Grounded LLM Agents](/202608/03/2607.24588v1-siren-towards-end-to-end-extreme-weather-early-warning-with-experience-grounded-llm-agents)  
    标签：评分：8.0/10、query:agent
-   evidence：AI智能体将网络工件翻译为形式逻辑而非直接推理
-2. [MixQuant: Adaptive Mixed-Precision Quantization for Large Language Models](/202608/02/2607.23047v1-mixquant-adaptive-mixed-precision-quantization-for-large-language-models)  
-   标签：评分：8.0/10、query:llm
-   evidence：提出MixQuant自适应混合精度量化框架，降低大模型内存占用和推理开销
-3. [Where Is the Cost of Third-Party API Routers in Agentic Software Development?](/202608/02/2607.23624v2-where-is-the-cost-of-third-party-api-routers-in-agentic-software-development)  
+   evidence：端到端极端天气预警的LLM智能体系统
+3. [Agentic Permissions Policy Algebra for Taint Confinement in LLM Agents](/202608/03/2607.24625v1-agentic-permissions-policy-algebra-for-taint-confinement-in-llm-agents)  
    标签：评分：8.0/10、query:agent
-   evidence：代码智能体工作流中第三方API路由器的影响分析
-4. [HELIOS: An LLM-Driven Autonomous Indirect Trajectory Optimization Agent](/202608/02/2607.24051v1-helios-an-llm-driven-autonomous-indirect-trajectory-optimization-agent)  
-   标签：评分：8.0/10、query:agent
-   evidence：大语言模型驱动的自主轨迹优化智能体
-5. [From Data to Device: ELMOD An Efficient German-First 2.7B Language Model for Mobile Inference](/202608/02/2607.24585v1-from-data-to-device-elmod-an-efficient-german-first-27b-language-model-for-mobile-inference)  
-   标签：评分：8.0/10、query:llm-reports
-   evidence：关于2.7B德语大模型的技术报告，涵盖数据处理、架构、训练与移动端推理
-6. [WaveZip: Wavelet-Driven Space-Time Decoupling for Video Token Condensation](/202608/02/2607.23265v1-wavezip-wavelet-driven-space-time-decoupling-for-video-token-condensation)  
+   evidence：为自主LLM代理设计的信息流控制框架
+4. [Inverse RL Helps Align AI by Imitating Humans](/202608/03/2607.24900v1-inverse-rl-helps-align-ai-by-imitating-humans)  
+   标签：评分：8.0/10、query:post-train
+   evidence：利用逆强化学习从示范中恢复隐式奖励来对齐AI，属于对齐技术相关方法。
+5. [Distilling Temporal Search and Reasoning: Evolving LLMs for Future Prediction via Harness-Assisted Efficient Data Synthesis](/202608/03/2607.25554v1-distilling-temporal-search-and-reasoning-evolving-llms-for-future-prediction-via-harness-assisted-efficient-data-synthesis)  
+   标签：评分：8.0/10、query:llm-synth
+   evidence：面向时态搜索与推理的高效数据合成
+6. [DataOrchestra: Learning to Orchestrate Per-Example Curation of Pretraining Data](/202608/03/2607.24717v1-dataorchestra-learning-to-orchestrate-per-example-curation-of-pretraining-data)  
    标签：评分：7.0/10、query:llm
-   evidence：小波驱动的视频token压缩，提升大型视觉语言模型推理效率
-7. [Latent-LoRA: Compact Latent-Space Adapters with Gradient-Free Routing for Continual Learning](/202608/02/2607.23837v1-latent-lora-compact-latent-space-adapters-with-gradient-free-routing-for-continual-learning)  
+   evidence：面向LLM预训练的逐样本数据策展
+7. [How Small Can You Go? A Controlled Study of LoRA Rank, Target Modules, and Quantization Trade-offs for Text-to-SQL on a 60M-Parameter Model](/202608/03/2607.25583v1-how-small-can-you-go-a-controlled-study-of-lora-rank-target-modules-and-quantization-trade-offs-for-text-to-sql-on-a-60m-parameter-model)  
    标签：评分：7.0/10、query:llm
-   evidence：基于LoRA适配器的持续学习方法，用于大语言模型微调
-8. [GOTS: Greedy Orthogonal Token Selection for High-Resolution Vision-Language Models](/202608/02/2607.23913v1-gots-greedy-orthogonal-token-selection-for-high-resolution-vision-language-models)  
+   evidence：LoRA秩、目标模块与量化权衡的受控实验研究
+8. [Evaluating Prompt Scope and Demonstration Similarity in Local LLM Machine Translation](/202608/03/2607.26286v1-evaluating-prompt-scope-and-demonstration-similarity-in-local-llm-machine-translation)  
    标签：评分：7.0/10、query:llm
-   evidence：面向高分辨率视觉-语言模型的视觉标记减少方法，可降低下游语言模型推理成本。
-9. [Messier: A High-Resolution Corpus for Cross-Benchmark Agent Evaluation](/202608/02/2607.25891v1-messier-a-high-resolution-corpus-for-cross-benchmark-agent-evaluation)  
+   evidence：本地LLM翻译中提示范围与示例相似性的评估
+9. [LLMET: Enabling Cross-Layer Evaluation of Emerging M3D Memories for Energy-Efficient LLM Serving](/202608/03/2607.26491v1-llmet-enabling-cross-layer-evaluation-of-emerging-m3d-memories-for-energy-efficient-llm-serving)  
+   标签：评分：7.0/10、query:llm
+   evidence：通过评估M3D存储技术实现LLM服务节能
+10. [A Graph-Native Bitemporal Memory Store for Conversational AI Agents](/202608/03/2607.26520v1-a-graph-native-bitemporal-memory-store-for-conversational-ai-agents)  
    标签：评分：7.0/10、query:agent
-   evidence：构建统一的大规模智能体评测语料，支持跨基准的智能体表现比较
-10. [\textsc{IH-Benchmark}: A Conflict-Centered Benchmark for Instruction-Hierarchy Robustness in LLM Applications](/202608/02/2607.25987v1-textscih-benchmark-a-conflict-centered-benchmark-for-instruction-hierarchy-robustness-in-llm-applications)  
-   标签：评分：7.0/10、query:llm
-   evidence：评估LLM指令层级鲁棒性的基准
-11. [Mwando: Leveraging AI to Preserve and Teach shiKomori](/202608/02/2607.23481v1-mwando-leveraging-ai-to-preserve-and-teach-shikomori)  
+   evidence：面向对话式AI代理的持久记忆存储
+11. [Hierarchical Soft Actor-Critic for Sparse-Reward Long-Horizon Reinforcement Learning](/202608/03/2607.23726v1-hierarchical-soft-actor-critic-for-sparse-reward-long-horizon-reinforcement-learning)  
    标签：评分：6.0/10、query:agent
-   evidence：面向虚拟教育助手的多智能体架构，结合向量检索、知识图谱与网页搜索回退。
-12. [LEACL: LLM-Enhanced Automatic Curriculum Learning for Reinforcement Learning in Long-Horizon Manipulation Tasks](/202608/02/2607.23515v1-leacl-llm-enhanced-automatic-curriculum-learning-for-reinforcement-learning-in-long-horizon-manipulation-tasks)  
+   evidence：面向长时间搜索救援任务的分层强化学习智能体
+12. [When Knowledge Changes: Metamorphic Testing of RAG Systems with Mutations](/202608/03/2607.26843v1-when-knowledge-changes-metamorphic-testing-of-rag-systems-with-mutations)  
+   标签：评分：6.0/10、query:llm
+   evidence：针对RAG语料演化的蜕变测试框架
+13. [LAST: The Last Query Token Guides Visual Token Pruning for Edge-Cloud Collaborative MLLM Inference](/202608/03/2607.27952v1-last-the-last-query-token-guides-visual-token-pruning-for-edge-cloud-collaborative-mllm-inference)  
+   标签：评分：6.0/10、query:llm
+   evidence：面向多模态大语言模型推理效率的视觉令牌剪枝
+14. [Capturing Token Tendencies for Training-Free Token Pruning in Multimodal Large Language Models](/202608/03/2607.28341v1-capturing-token-tendencies-for-training-free-token-pruning-in-multimodal-large-language-models)  
+   标签：评分：6.0/10、query:llm
+   evidence：面向多模态大语言模型高效推理的免训练令牌剪枝
+15. [GLM-RAG: Graph Language Models for Graph-Based Retrieval-Augmented Generation](/202608/03/2607.28397v1-glm-rag-graph-language-models-for-graph-based-retrieval-augmented-generation)  
    标签：评分：6.0/10、query:agent
-   evidence：面向自主RL代理的LLM增强课程学习
-13. [WISERouter: LLM Routing with Workload Budget Constraint](/202608/02/2607.23765v1-wiserouter-llm-routing-with-workload-budget-constraint)  
-   标签：评分：6.0/10、query:llm
-   evidence：面向预算约束的LLM路由实现成本高效的推理
-14. [Rethinking the Generation Order of Block Diffusion Language Models](/202608/02/2607.24306v1-rethinking-the-generation-order-of-block-diffusion-language-models)  
-   标签：评分：6.0/10、query:llm
-   evidence：面向块扩散语言模型的无训练并行采样，提升生成速度
-15. [Mergeable Model-Side Aggregation States for Long-Context Language Models](/202608/02/2607.26448v1-mergeable-model-side-aggregation-states-for-long-context-language-models)  
-   标签：评分：6.0/10、query:llm
-   evidence：引入模型侧聚合接口与HLL草图，增强长上下文语言模型架构能力
+   evidence：面向检索增强生成的图检索方法
 
 
 <div class="dpr-home-promo-card">
