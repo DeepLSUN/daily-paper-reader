@@ -6,104 +6,137 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-03
-- 运行时间：2026-08-03 22:37:09 UTC
+- 最新运行日期：2026-08-04
+- 运行时间：2026-08-04 22:58:51 UTC
 - 运行状态：成功
-- 本次总论文数：28
-- 精读区：13
+- 本次总论文数：39
+- 精读区：24
 - 速读区：15
 
 ### 今日简报（AI）
-今日扫描28篇论文，13篇精读，聚焦预训练与数据工程前沿。最值得看：9.0分的《Bridging Compute- and Data-Optimal Pretraining》揭示算力与数据的最优配比，《DataClawEval》则提供工业级数据工程评测基准。普通读者可优先关注“预训练效率”和“数据质量”这两大核心杠杆。
-- 详情：[/202608/03/README](/202608/03/README)
+今日共处理39篇论文，精读24篇、速读15篇，其中两篇获满分推荐。最值得关注的是弱到强在线策略蒸馏与长视野搜索智能体的失败模式诊断，均为当前对齐与智能体搜索方向的前沿突破。建议普通读者优先浏览速读中的OmniDelta与联合推测器强化学习，快速了解多模态压缩与工具调用加速的新思路。
+- 详情：[/202608/04/README](/202608/04/README)
 
 ### 精读区论文标签
-1. [Bridging Compute- and Data-Optimal Pretraining](/202608/03/2607.25271v1-bridging-compute--and-data-optimal-pretraining)  
-   标签：评分：9.0/10、query:llm
-   evidence：连接计算最优与数据最优预训练的缩放定律
-2. [DataClawEval: A Benchmark for Data Engineering Agents in Real Industrial Harness](/202608/03/2607.28033v1-dataclaweval-a-benchmark-for-data-engineering-agents-in-real-industrial-harness)  
+1. [Weak-to-Strong On-Policy Distillation](/202608/04/2607.26246v1-weak-to-strong-on-policy-distillation)  
+   标签：评分：10.0/10、query:post-train
+   evidence：面向LLM训练的在线蒸馏方法，构建弱到强教师。
+2. [Diagnosing Search Behavior and Failure Modes in Long-Horizon Search Agents](/202608/04/2608.01913v1-diagnosing-search-behavior-and-failure-modes-in-long-horizon-search-agents)  
+   标签：评分：10.0/10、query:agent
+   evidence：对长程搜索智能体行为与失败模式的轨迹级诊断
+3. [MemSFT: Mitigating Alignment Tax with an External Parametric Memory](/202608/04/2607.25614v1-memsft-mitigating-alignment-tax-with-an-external-parametric-memory)  
+   标签：评分：9.0/10、query:post-train
+   evidence：用外部参数化记忆进行监督微调以缓解对齐税，直接对应监督微调
+4. [Weak-to-Strong On-Policy Distillation](/202608/04/2607.26246v2-weak-to-strong-on-policy-distillation)  
+   标签：评分：9.0/10、query:post-train
+   evidence：提出弱到强的在线策略蒸馏框架
+5. [WikiLoop: Jointly Learning to Build and Navigate Agent-Native Wikis with Downstream Feedback](/202608/04/2607.26604v1-wikiloop-jointly-learning-to-build-and-navigate-agent-native-wikis-with-downstream-feedback)  
    标签：评分：9.0/10、query:agent
-   evidence：面向自主数据工程智能体评估的基准
-3. [SemPIC: Learning Semantic Position-Independent KV Caches](/202608/03/2607.28069v1-sempic-learning-semantic-position-independent-kv-caches)  
+   evidence：带导航器/构建器角色的智能体原生Wiki联合学习框架
+6. [From Single- to Cross-Document: Benchmarking Multi-Granularity Event Analysis of Large Language Models](/202608/04/2607.27654v1-from-single--to-cross-document-benchmarking-multi-granularity-event-analysis-of-large-language-models)  
    标签：评分：9.0/10、query:llm
-   evidence：面向高效推理的语义位置无关KV缓存
-4. [Group-Reflective Self-Distillation for Agentic Reinforcement Learning](/202608/03/2607.28076v1-group-reflective-self-distillation-for-agentic-reinforcement-learning)  
+   evidence：面向多粒度事件分析的LLM评测基准。
+7. [Cybersecurity Detection Classification with Reasoning-enabled Language Models](/202608/04/2607.28460v1-cybersecurity-detection-classification-with-reasoning-enabled-language-models)  
    标签：评分：9.0/10、query:post-train
-   evidence：基于策略自身验证轨迹的在线自蒸馏方法，用于智能体强化学习
-5. [Benchmarks Are Not Monolithic: Sample-Level Auditing and Orchestration for LLM Evaluation](/202608/03/2607.28801v1-benchmarks-are-not-monolithic-sample-level-auditing-and-orchestration-for-llm-evaluation)  
+   evidence：使用可验证奖励强化学习训练大模型分类器，直接对应强化学习后训练
+8. [Self-Supervised Skill Optimization](/202608/04/2607.28777v1-self-supervised-skill-optimization)  
+   标签：评分：9.0/10、query:agent
+   evidence：面向通用智能体的技能自监督优化方法
+9. [F-WANDA: Fisher-Reweighted Post-Training Pruning for Sustainable Deployment of Large Language Models](/202608/04/2608.00481v1-f-wanda-fisher-reweighted-post-training-pruning-for-sustainable-deployment-of-large-language-models)  
    标签：评分：9.0/10、query:llm
-   evidence：面向大语言模型评测基准的样本级审计与编排框架
-6. [IyawoBench v2.0: Extended Diagnostic Evaluation of Large Language Model Clinical Triage in Nigerian Primary Care](/202608/03/2607.29085v1-iyawobench-v20-extended-diagnostic-evaluation-of-large-language-model-clinical-triage-in-nigerian-primary-care)  
+   evidence：基于Fisher信息重加权的后训练剪枝，用于大模型高效推理
+10. [SERL-SQL: Selective Hindsight Distillation for Text-to-SQL Reinforcement Agentic Learning](/202608/04/2608.00485v1-serl-sql-selective-hindsight-distillation-for-text-to-sql-reinforcement-agentic-learning)  
+   标签：评分：9.0/10、query:post-train
+   evidence：面向LLM智能体后训练的在线蒸馏与执行感知强化学习
+11. [S$^4$R: Selective Sampling, Subspaces, and Sparse Reconstruction for Compressed Long-Context KV Caching](/202608/04/2608.00528v1-s4r-selective-sampling-subspaces-and-sparse-reconstruction-for-compressed-long-context-kv-caching)  
    标签：评分：9.0/10、query:llm
-   evidence：IyawoBench v2.0是一个面向LLM临床分诊的诊断评估基准，直接匹配大语言模型评估基准需求。
-7. [Learning Latent Reasoning Traces for Scalar Reward Models End-to-End](/202608/03/2607.29185v1-learning-latent-reasoning-traces-for-scalar-reward-models-end-to-end)  
+   evidence：面向长上下文LLM推理的KV缓存压缩
+12. [Distill Where You Fail: Recovering Learning Signals of Negative RL-Groups from Adaptive Teacher Guidance](/202608/04/2608.00782v1-distill-where-you-fail-recovering-learning-signals-of-negative-rl-groups-from-adaptive-teacher-guidance)  
    标签：评分：9.0/10、query:post-train
-   evidence：面向RLHF对齐的奖励模型训练
-8. [Don't Mix Rewards, Mix Policies: Policy Decomposition and Optimization for Multi-Reward RL](/202608/03/2607.29246v1-dont-mix-rewards-mix-policies-policy-decomposition-and-optimization-for-multi-reward-rl)  
+   evidence：针对LLM的在线蒸馏与强化学习后训练
+13. [Safety Invariants for Agents Orchestrating Irreversible State Transitions: A Four-Dimensional Formalism Evaluated on Public Ledgers](/202608/04/2608.00783v1-safety-invariants-for-agents-orchestrating-irreversible-state-transitions-a-four-dimensional-formalism-evaluated-on-public-ledgers)  
+   标签：评分：9.0/10、query:agent
+   evidence：面向自主智能体及智能体框架的安全形式化保证
+14. [PROGRESS: Coverage-guided RL to Train Search-augmented LLM Agent](/202608/04/2608.00969v1-progress-coverage-guided-rl-to-train-search-augmented-llm-agent)  
+   标签：评分：9.0/10、query:agent
+   evidence：搜索增强型LLM智能体的强化学习训练与查询分解
+15. [Search-GRT: Guided Retrieval Training of Search Agents to Optimize for Complex Question Answering](/202608/04/2608.00974v1-search-grt-guided-retrieval-training-of-search-agents-to-optimize-for-complex-question-answering)  
+   标签：评分：9.0/10、query:agent
+   evidence：用引导式检索训练优化搜索智能体，直接对应搜索智能体研究
+16. [BiCAA: Bidirectional Credit Assignment for Search-Augmented Agent](/202608/04/2608.01321v1-bicaa-bidirectional-credit-assignment-for-search-augmented-agent)  
+   标签：评分：9.0/10、query:agent
+   evidence：搜索增强代理的进程奖励信用分配
+17. [EviSD: Evidence-Conditioned Self-Distillation for Search-Augmented Agents](/202608/04/2608.01359v1-evisd-evidence-conditioned-self-distillation-for-search-augmented-agents)  
+   标签：评分：9.0/10、query:agent
+   evidence：搜索增强代理的证据条件自蒸馏
+18. [Rethinking Personalized Reward Modeling for LLMs under Preference Heterogeneity via Group-Debiased Federated Learning](/202608/04/2608.01556v1-rethinking-personalized-reward-modeling-for-llms-under-preference-heterogeneity-via-group-debiased-federated-learning)  
    标签：评分：9.0/10、query:post-train
-   evidence：面向LLM后训练的多奖励强化学习框架
-9. [Data Turnstile: A Scalable Open Framework for Function-Calling Data Generation](/202608/03/2607.29250v1-data-turnstile-a-scalable-open-framework-for-function-calling-data-generation)  
+   evidence：基于组去偏联邦学习的个性化奖励建模，用于大模型对齐
+19. [DAPD: Dual-Anchored Policy Distillation](/202608/04/2608.01735v1-dapd-dual-anchored-policy-distillation)  
+   标签：评分：9.0/10、query:post-train
+   evidence：面向语言模型后训练的在策略蒸馏
+20. [Toward Plasticity-Preserving KL Regularization for Capability Retention in LLM Reinforcement Learning](/202608/04/2608.01743v1-toward-plasticity-preserving-kl-regularization-for-capability-retention-in-llm-reinforcement-learning)  
+   标签：评分：9.0/10、query:post-train
+   evidence：基于正确性条件KL正则化的强化学习后训练
+21. [Fetch-then-Explore: Decoupling Selection from Extraction over a Persistent Workspace for Search Agents](/202608/04/2608.02097v1-fetch-then-explore-decoupling-selection-from-extraction-over-a-persistent-workspace-for-search-agents)  
+   标签：评分：9.0/10、query:agent
+   evidence：提出持久工作区与分离式选择/提取机制的搜索代理设计
+22. [SKT: Skill-Use Training at Scale via Verified Synthetic Data Generation](/202608/04/2608.02287v1-skt-skill-use-training-at-scale-via-verified-synthetic-data-generation)  
    标签：评分：9.0/10、query:llm-synth
-   evidence：从API规范生成函数调用训练数据的开源框架
-10. [Studying quantization trade-offs for efficient inference deployment in machine translation](/202608/03/2607.29397v1-studying-quantization-trade-offs-for-efficient-inference-deployment-in-machine-translation)  
-   标签：评分：9.0/10、query:llm
-   evidence：面向翻译大模型的高效推理量化
-11. [Beyond Retrieval: Analytic Memory for Multimodal Agents](/202608/03/2607.29440v1-beyond-retrieval-analytic-memory-for-multimodal-agents)  
+   evidence：面向智能体技能使用的已验证数据合成流水线，直接对应数据合成需求
+23. [SkillTrace: Traversing a Query-Skill Graph for Composable LLM Agents](/202608/04/2608.02356v1-skilltrace-traversing-a-query-skill-graph-for-composable-llm-agents)  
    标签：评分：9.0/10、query:agent
-   evidence：面向多模态智能体的分析记忆框架
-12. [Adaptive FastOPD: Progress-Aware Rollout Horizon Expansion for Efficient On-Policy Distillation](/202608/03/2607.29494v1-adaptive-fastopd-progress-aware-rollout-horizon-expansion-for-efficient-on-policy-distillation)  
-   标签：评分：9.0/10、query:post-train
-   evidence：在线策略蒸馏方法与 rollout 长度自适应扩展
-13. [Reusing Past Repairs Through Hierarchical Trajectory Abstraction for Coding Agents](/202608/03/2607.29658v1-reusing-past-repairs-through-hierarchical-trajectory-abstraction-for-coding-agents)  
+   evidence：面向LLM智能体的图结构技能组合
+24. [SWE-Touch: Benchmarking Coding Agents When Users Touch the Code](/202608/04/2608.02499v1-swe-touch-benchmarking-coding-agents-when-users-touch-the-code)  
    标签：评分：9.0/10、query:agent
-   evidence：STAIR是一个编码智能体框架，通过层次化轨迹复用历史修复经验，强力匹配代码智能体研究。
+   evidence：面向共享工作区用户修改场景的编码智能体基准
 
 ### 速读区论文标签
-1. [From RLVR to RLSVR: Task Transformation Induces Self-Verifiable Rewards for Open-Ended LLM Self-Improvement](/202608/03/2607.23802v2-from-rlvr-to-rlsvr-task-transformation-induces-self-verifiable-rewards-for-open-ended-llm-self-improvement)  
-   标签：评分：8.0/10、query:post-train
-   evidence：将可验证奖励强化学习扩展到开放任务，提出自验证奖励机制
-2. [SIREN: Towards End-to-End Extreme-Weather Early Warning with Experience-Grounded LLM Agents](/202608/03/2607.24588v1-siren-towards-end-to-end-extreme-weather-early-warning-with-experience-grounded-llm-agents)  
+1. [OmniDelta: Skill-Driven Budget Allocation for Token Compression in OmniLLMs](/202608/04/2607.25669v1-omnidelta-skill-driven-budget-allocation-for-token-compression-in-omnillms)  
+   标签：评分：8.0/10、query:llm
+   evidence：面向全模态大模型推理的词元压缩与预算分配
+2. [Speculate While You Reason: Teaching Agents to Predict Their Next Tool Call via Joint Agent-Speculator RL](/202608/04/2607.25816v1-speculate-while-you-reason-teaching-agents-to-predict-their-next-tool-call-via-joint-agent-speculator-rl)  
    标签：评分：8.0/10、query:agent
-   evidence：端到端极端天气预警的LLM智能体系统
-3. [Agentic Permissions Policy Algebra for Taint Confinement in LLM Agents](/202608/03/2607.24625v1-agentic-permissions-policy-algebra-for-taint-confinement-in-llm-agents)  
+   evidence：智能体框架设计中的自我推测工具调用预测
+3. [Towards a Systems Foundation for Agentic Cloud Management](/202608/04/2607.25883v1-towards-a-systems-foundation-for-agentic-cloud-management)  
    标签：评分：8.0/10、query:agent
-   evidence：为自主LLM代理设计的信息流控制框架
-4. [Inverse RL Helps Align AI by Imitating Humans](/202608/03/2607.24900v1-inverse-rl-helps-align-ai-by-imitating-humans)  
-   标签：评分：8.0/10、query:post-train
-   evidence：利用逆强化学习从示范中恢复隐式奖励来对齐AI，属于对齐技术相关方法。
-5. [Distilling Temporal Search and Reasoning: Evolving LLMs for Future Prediction via Harness-Assisted Efficient Data Synthesis](/202608/03/2607.25554v1-distilling-temporal-search-and-reasoning-evolving-llms-for-future-prediction-via-harness-assisted-efficient-data-synthesis)  
-   标签：评分：8.0/10、query:llm-synth
-   evidence：面向时态搜索与推理的高效数据合成
-6. [DataOrchestra: Learning to Orchestrate Per-Example Curation of Pretraining Data](/202608/03/2607.24717v1-dataorchestra-learning-to-orchestrate-per-example-curation-of-pretraining-data)  
+   evidence：自主管理代理与智能体云管理系统基础
+4. [StealthBench: Measuring Operational Stealth in Autonomous Offensive-Security Agents](/202608/04/2607.26314v1-stealthbench-measuring-operational-stealth-in-autonomous-offensive-security-agents)  
+   标签：评分：8.0/10、query:agent
+   evidence：自主攻击安全智能体的隐身性基准
+5. [Seeing or Knowing? Visual Context Sensitivity in Multimodal Large Language Models](/202608/04/2607.26326v1-seeing-or-knowing-visual-context-sensitivity-in-multimodal-large-language-models)  
+   标签：评分：8.0/10、query:llm
+   evidence：多模态大语言模型评测基准与诊断方法
+6. [TabRank: Chain-of-Thought Distillation for Table Re-Rankers](/202608/04/2607.25182v1-tabrank-chain-of-thought-distillation-for-table-re-rankers)  
    标签：评分：7.0/10、query:llm
-   evidence：面向LLM预训练的逐样本数据策展
-7. [How Small Can You Go? A Controlled Study of LoRA Rank, Target Modules, and Quantization Trade-offs for Text-to-SQL on a 60M-Parameter Model](/202608/03/2607.25583v1-how-small-can-you-go-a-controlled-study-of-lora-rank-target-modules-and-quantization-trade-offs-for-text-to-sql-on-a-60m-parameter-model)  
-   标签：评分：7.0/10、query:llm
-   evidence：LoRA秩、目标模块与量化权衡的受控实验研究
-8. [Evaluating Prompt Scope and Demonstration Similarity in Local LLM Machine Translation](/202608/03/2607.26286v1-evaluating-prompt-scope-and-demonstration-similarity-in-local-llm-machine-translation)  
-   标签：评分：7.0/10、query:llm
-   evidence：本地LLM翻译中提示范围与示例相似性的评估
-9. [LLMET: Enabling Cross-Layer Evaluation of Emerging M3D Memories for Energy-Efficient LLM Serving](/202608/03/2607.26491v1-llmet-enabling-cross-layer-evaluation-of-emerging-m3d-memories-for-energy-efficient-llm-serving)  
-   标签：评分：7.0/10、query:llm
-   evidence：通过评估M3D存储技术实现LLM服务节能
-10. [A Graph-Native Bitemporal Memory Store for Conversational AI Agents](/202608/03/2607.26520v1-a-graph-native-bitemporal-memory-store-for-conversational-ai-agents)  
+   evidence：将链式思维蒸馏到表格检索重排序器，提升语义与推理排序能力
+7. [GraphQAG: A Knowledge-Graph-Guided Visual Analytics Framework for Question-Answer Pairs Generation](/202608/04/2607.27182v1-graphqag-a-knowledge-graph-guided-visual-analytics-framework-for-question-answer-pairs-generation)  
+   标签：评分：7.0/10、query:llm-synth
+   evidence：基于知识图谱的问答对生成用于数据合成
+8. [Model or Harness? An Interaction-Centric Taxonomy for Localizing Agent Failures](/202608/04/2607.28802v1-model-or-harness-an-interaction-centric-taxonomy-for-localizing-agent-failures)  
    标签：评分：7.0/10、query:agent
-   evidence：面向对话式AI代理的持久记忆存储
-11. [Hierarchical Soft Actor-Critic for Sparse-Reward Long-Horizon Reinforcement Learning](/202608/03/2607.23726v1-hierarchical-soft-actor-critic-for-sparse-reward-long-horizon-reinforcement-learning)  
+   evidence：面向定位智能体故障的交互中心分类法
+9. [CAER: Conflict-Aware Evidence Routing with Dual Prefix Experts for Multimodal Large Language Models](/202608/04/2607.28991v1-caer-conflict-aware-evidence-routing-with-dual-prefix-experts-for-multimodal-large-language-models)  
+   标签：评分：7.0/10、query:llm
+   evidence：提出面向多模态LLM的视觉-语言冲突检测与冲突感知生成框架，贡献于多模态大模型架构与推理。
+10. [TransMem: Transforming Hidden States into Memory for Large Language Models](/202608/04/2607.29032v1-transmem-transforming-hidden-states-into-memory-for-large-language-models)  
+   标签：评分：7.0/10、query:llm
+   evidence：提出推理时参数化记忆模块，将稀疏隐状态转化为可复用记忆，直接相关于大模型高效推理优化。
+11. [The Case Against Generation for Retrieval: Discriminative Language Models as Effective Retrievers](/202608/04/2607.25346v1-the-case-against-generation-for-retrieval-discriminative-language-models-as-effective-retrievers)  
    标签：评分：6.0/10、query:agent
-   evidence：面向长时间搜索救援任务的分层强化学习智能体
-12. [When Knowledge Changes: Metamorphic Testing of RAG Systems with Mutations](/202608/03/2607.26843v1-when-knowledge-changes-metamorphic-testing-of-rag-systems-with-mutations)  
-   标签：评分：6.0/10、query:llm
-   evidence：针对RAG语料演化的蜕变测试框架
-13. [LAST: The Last Query Token Guides Visual Token Pruning for Edge-Cloud Collaborative MLLM Inference](/202608/03/2607.27952v1-last-the-last-query-token-guides-visual-token-pruning-for-edge-cloud-collaborative-mllm-inference)  
-   标签：评分：6.0/10、query:llm
-   evidence：面向多模态大语言模型推理效率的视觉令牌剪枝
-14. [Capturing Token Tendencies for Training-Free Token Pruning in Multimodal Large Language Models](/202608/03/2607.28341v1-capturing-token-tendencies-for-training-free-token-pruning-in-multimodal-large-language-models)  
-   标签：评分：6.0/10、query:llm
-   evidence：面向多模态大语言模型高效推理的免训练令牌剪枝
-15. [GLM-RAG: Graph Language Models for Graph-Based Retrieval-Augmented Generation](/202608/03/2607.28397v1-glm-rag-graph-language-models-for-graph-based-retrieval-augmented-generation)  
+   evidence：面向高吞吐搜索的LLM原生双塔检索
+12. [A Physics-Informed Framework for PID Tuning of Chemical Processes Using Large Language Model Agents](/202608/04/2607.26594v1-a-physics-informed-framework-for-pid-tuning-of-chemical-processes-using-large-language-model-agents)  
    标签：评分：6.0/10、query:agent
-   evidence：面向检索增强生成的图检索方法
+   evidence：LLM智能体框架将工程师式的PID整定工作流形式化为自主系统
+13. [OptGraph: Large Language Models Enhanced Evolutionary Optimization Via Graph Retrieval-Augmented Generation](/202608/04/2607.27918v1-optgraph-large-language-models-enhanced-evolutionary-optimization-via-graph-retrieval-augmented-generation)  
+   标签：评分：6.0/10、query:agent
+   evidence：基于图检索增强生成的优化智能体工作流
+14. [PARALLEL: A Prefrontal-Aligned Reinforcement inspired Approach for Language-Model Learning under Explicit Limits](/202608/04/2607.28982v1-parallel-a-prefrontal-aligned-reinforcement-inspired-approach-for-language-model-learning-under-explicit-limits)  
+   标签：评分：6.0/10、query:llm
+   evidence：按样本自适应更新强度的语言模型微调方法
+15. [Rethinking AI Cloud Infrastructure for Agentic Serving Systems with the Aries Experimentation Framework](/202608/04/2607.29069v1-rethinking-ai-cloud-infrastructure-for-agentic-serving-systems-with-the-aries-experimentation-framework)  
+   标签：评分：6.0/10、query:agent
+   evidence：面向持久上下文和工具执行的自主体服务实验框架
 
 
 <div class="dpr-home-promo-card">
