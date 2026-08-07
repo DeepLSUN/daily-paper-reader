@@ -1,49 +1,51 @@
 # 日报 · 2026-08-07
 
-- 生成时间：2026-08-07 03:35:37 UTC
-- 当次推荐总数：33
-- 精读区：18
+- 生成时间：2026-08-07 22:16:46 UTC
+- 当次推荐总数：35
+- 精读区：20
 - 速读区：15
 
 ## 今日简报（AI）
-今日精读 18 篇、速读 15 篇，共 33 篇 AI 论文，其中 K-EXAONE 2.0 与 DiffusionGemma 技术报告获满分推荐。最值得关注的是新一代多模态语言模型与扩散生成模型的技术报告，另有面向多智能体记忆、LLM 深度分工与验证编译器测试的速读亮点。建议优先阅读两篇满分报告，速读可先看 Σ-Mem 的在线可靠性记忆设计。
+今日聚焦大模型记忆机制与多域翻译技术，精读K-EXAONE 2.0及自适应记忆-参数协调，速读覆盖上下文记忆与异构KV缓存翻译。最值得关注的是K-EXAONE 2.0技术报告（10分）与LLM自我进化中的记忆-参数分配权衡，后者揭示了“记住什么”与“内化什么”的边界。建议下一步结合“理解早完成”的深度分工思路，评估长上下文场景下记忆压缩与推理效率的平衡。
 
 ## 精读区
 1. [K-EXAONE 2.0 Technical Report](/202608/07/2608.04505v1-k-exaone-20-technical-report) （10.0/10）
-2. [DiffusionGemma Technical Report](/202608/07/2608.00146v1-diffusiongemma-technical-report) （9.0/10）
-3. [Deep Agentic Search for Repository-Level Code Question Answering: An Empirical Study](/202608/07/2608.01507v1-deep-agentic-search-for-repository-level-code-question-answering-an-empirical-study) （9.0/10）
-4. [Bole: Efficient Tree Speculation for Hybrid-Attention Language Models](/202608/07/2608.01651v1-bole-efficient-tree-speculation-for-hybrid-attention-language-models) （9.0/10）
-5. [PrefixPlace: Provable Prefix Key-Value Placement for Large Language Model Serving under Heterogeneous Compute and Transfer Costs](/202608/07/2608.01655v1-prefixplace-provable-prefix-key-value-placement-for-large-language-model-serving-under-heterogeneous-compute-and-transfer-costs) （9.0/10）
-6. [Instruction Stacking Collapse: A Benchmark and the Capability-Dependent Value of Prompt Compilation](/202608/07/2608.02639v1-instruction-stacking-collapse-a-benchmark-and-the-capability-dependent-value-of-prompt-compilation) （9.0/10）
-7. [Search, Inspect, Fetch: Exploiting Structure-Aware Boolean Retrieval for Deep-Research Agents](/202608/07/2608.02751v2-search-inspect-fetch-exploiting-structure-aware-boolean-retrieval-for-deep-research-agents) （9.0/10）
-8. [TaskPress: Query-Agnostic KV Cache Compression via Task-Guided Pruning](/202608/07/2608.03276v1-taskpress-query-agnostic-kv-cache-compression-via-task-guided-pruning) （9.0/10）
-9. [When Teachers Mislead: Spurious-Signal-Aware On-Policy Distillation](/202608/07/2608.03632v1-when-teachers-mislead-spurious-signal-aware-on-policy-distillation) （9.0/10）
-10. [M-GATE: Multilingual Grammar, Accuracy in Translation, and Efficiency Benchmark for Large Language Models](/202608/07/2608.03803v1-m-gate-multilingual-grammar-accuracy-in-translation-and-efficiency-benchmark-for-large-language-models) （9.0/10）
-11. [EDATracer: An Agentic Framework for Large-Scale EDA Artifact Analysis](/202608/07/2608.04032v1-edatracer-an-agentic-framework-for-large-scale-eda-artifact-analysis) （9.0/10）
-12. [Breadcrumbing Search Agents](/202608/07/2608.04565v1-breadcrumbing-search-agents) （9.0/10）
-13. [EASy: Towards Efficient LLM-Based Agentic System](/202608/07/2608.04588v1-easy-towards-efficient-llm-based-agentic-system) （9.0/10）
-14. [When Absence Is Evidence: Evaluating Completeness-Sensitive Negative Reasoning in Large Language Models](/202608/07/2608.04591v1-when-absence-is-evidence-evaluating-completeness-sensitive-negative-reasoning-in-large-language-models) （9.0/10）
-15. [EviGraph: Evidence-Guided Autonomous Research Agents](/202608/07/2608.04738v1-evigraph-evidence-guided-autonomous-research-agents) （9.0/10）
-16. [MemoryCPT: An End-to-End Agent Memory Framework for Cost-Performance Trade-off](/202608/07/2608.04843v1-memorycpt-an-end-to-end-agent-memory-framework-for-cost-performance-trade-off) （9.0/10）
-17. [ABSeeker: Training Long-Horizon Search Agents via Answer-Backtracked Credit Assignment](/202608/07/2608.05102v1-abseeker-training-long-horizon-search-agents-via-answer-backtracked-credit-assignment) （9.0/10）
-18. [Argus: A General-Purpose Agentic Runtime for Long-Horizon Reasoning](/202608/07/2608.05144v1-argus-a-general-purpose-agentic-runtime-for-long-horizon-reasoning) （9.0/10）
+2. [Learning What to Remember and What to Internalize in LLM Self-Evolution via Adaptive Memory-Parameter Coordination](/202608/07/2608.01234v1-learning-what-to-remember-and-what-to-internalize-in-llm-self-evolution-via-adaptive-memory-parameter-coordination) （9.0/10）
+3. [Look Ahead Before You Distill: Future Trajectory Validation of Teacher Guidance for Agentic On-Policy Distillation](/202608/07/2608.01953v1-look-ahead-before-you-distill-future-trajectory-validation-of-teacher-guidance-for-agentic-on-policy-distillation) （9.0/10）
+4. [Output-Aware Rotation for INT2 KV-Cache Quantization](/202608/07/2608.02691v2-output-aware-rotation-for-int2-kv-cache-quantization) （9.0/10）
+5. [Search, Inspect, Fetch: Exploiting Structure-Aware Boolean Retrieval for Deep-Research Agents](/202608/07/2608.02751v2-search-inspect-fetch-exploiting-structure-aware-boolean-retrieval-for-deep-research-agents) （9.0/10）
+6. [Agentic Reinforcement Learning with Self-Distilled Reward Shaping](/202608/07/2608.03223v1-agentic-reinforcement-learning-with-self-distilled-reward-shaping) （9.0/10）
+7. [TaskPress: Query-Agnostic KV Cache Compression via Task-Guided Pruning](/202608/07/2608.03276v1-taskpress-query-agnostic-kv-cache-compression-via-task-guided-pruning) （9.0/10）
+8. [Noise-Aware Shrinkage for Differentially Private Zeroth-Order Fine-Tuning of Large Language Models](/202608/07/2608.03277v1-noise-aware-shrinkage-for-differentially-private-zeroth-order-fine-tuning-of-large-language-models) （9.0/10）
+9. [SFT Conflicts, RL Coexists: A Theoretical and Empirical Analysis of Multi-Task Learning for LLMs](/202608/07/2608.03573v1-sft-conflicts-rl-coexists-a-theoretical-and-empirical-analysis-of-multi-task-learning-for-llms) （9.0/10）
+10. [SFT Conflicts, RL Coexists: A Theoretical and Empirical Analysis of Multi-Task Learning for LLMs](/202608/07/2608.03573v2-sft-conflicts-rl-coexists-a-theoretical-and-empirical-analysis-of-multi-task-learning-for-llms) （9.0/10）
+11. [Formal Verification of Agentic Systems over Operational Data](/202608/07/2608.03609v1-formal-verification-of-agentic-systems-over-operational-data) （9.0/10）
+12. [When Teachers Mislead: Spurious-Signal-Aware On-Policy Distillation](/202608/07/2608.03632v1-when-teachers-mislead-spurious-signal-aware-on-policy-distillation) （9.0/10）
+13. [M-GATE: Multilingual Grammar, Accuracy in Translation, and Efficiency Benchmark for Large Language Models](/202608/07/2608.03803v1-m-gate-multilingual-grammar-accuracy-in-translation-and-efficiency-benchmark-for-large-language-models) （9.0/10）
+14. [Recurrent Residual Quantization: A Progressive Multi-Precision Representation for LLMs](/202608/07/2608.04048v1-recurrent-residual-quantization-a-progressive-multi-precision-representation-for-llms) （9.0/10）
+15. [SpecRoll: Fast-Slow Verifier-Feedback Adaptation for Speculative Reinforcement Learning Rollouts](/202608/07/2608.04962v1-specroll-fast-slow-verifier-feedback-adaptation-for-speculative-reinforcement-learning-rollouts) （9.0/10）
+16. [PRISM: Priority-aware Rubric Internalization via Structured Multimodal Data Synthesis](/202608/07/2608.05249v1-prism-priority-aware-rubric-internalization-via-structured-multimodal-data-synthesis) （9.0/10）
+17. [Beyond Full-Model Rollback: AuroSFT for Adapter-State Multi-Task Fine-Tuning](/202608/07/2608.05250v1-beyond-full-model-rollback-aurosft-for-adapter-state-multi-task-fine-tuning) （9.0/10）
+18. [Unified Agent: Managing Interactions across Devices](/202608/07/2608.05729v1-unified-agent-managing-interactions-across-devices) （9.0/10）
+19. [On-Policy Self-Distillation without Any Supervision](/202608/07/2608.06296v1-on-policy-self-distillation-without-any-supervision) （9.0/10）
+20. [RRC: Unlocking Generative Reward Models in LLM Reinforcement Learning via Ranking-Based Reward Construction](/202608/07/2608.06310v1-rrc-unlocking-generative-reward-models-in-llm-reinforcement-learning-via-ranking-based-reward-construction) （9.0/10）
 
 ## 速读区
-1. [$Σ$-Mem: An Online Reliability Memory for LLM-based Multi-Agent Systems](/202608/07/2607.27958v1--mem-an-online-reliability-memory-for-llm-based-multi-agent-systems) （8.0/10）
-2. [Understanding Is Done Early: A Depth Division of Labor in Large Language Models and Its Use for Unbounded-Context Memory](/202608/07/2607.28263v1-understanding-is-done-early-a-depth-division-of-labor-in-large-language-models-and-its-use-for-unbounded-context-memory) （8.0/10）
-3. [Automated Testing and Repair for Verified Compilers Generated by a Coding Agent](/202608/07/2607.28928v1-automated-testing-and-repair-for-verified-compilers-generated-by-a-coding-agent) （8.0/10）
-4. [EasyBCI Agent: Towards Universal Neural Data Preprocessing for Brain-Computer Interfaces](/202608/07/2607.29007v1-easybci-agent-towards-universal-neural-data-preprocessing-for-brain-computer-interfaces) （8.0/10）
-5. [Autonomous Repair for Multi-Agent Systems via Monte-Carlo Tree Search](/202608/07/2607.29055v1-autonomous-repair-for-multi-agent-systems-via-monte-carlo-tree-search) （8.0/10）
-6. [SDO: Structure-Aware Data Organization for Efficient LLM Post-Training](/202608/07/2607.27273v1-sdo-structure-aware-data-organization-for-efficient-llm-post-training) （7.0/10）
-7. [Mixture-of-Translators: Translating KV Caches Across Heterogeneous Large Language Models](/202608/07/2607.28979v1-mixture-of-translators-translating-kv-caches-across-heterogeneous-large-language-models) （7.0/10）
-8. [Translation with Thought: Difficulty-Adaptive Reasoning via Reinforcement Learning for Multi-Domain Machine Translation](/202608/07/2607.29287v1-translation-with-thought-difficulty-adaptive-reasoning-via-reinforcement-learning-for-multi-domain-machine-translation) （7.0/10）
-9. [Progressive$^2$: A Teacher-Student Progressive Co-Evolving Knowledge Distillation Method for Substantial Model Compression](/202608/07/2608.00129v1-progressive2-a-teacher-student-progressive-co-evolving-knowledge-distillation-method-for-substantial-model-compression) （7.0/10）
-10. [Select-And-Extract: A Lightweight Plugin for Retrieval-Augmented Generation](/202608/07/2608.00658v1-select-and-extract-a-lightweight-plugin-for-retrieval-augmented-generation) （7.0/10）
-11. [Scientific Knowledge Discovery in the Age of Large Language Models](/202608/07/2607.26670v1-scientific-knowledge-discovery-in-the-age-of-large-language-models) （6.0/10）
-12. [Benchmarking LLMs on File System Design and Implementation: The Good, The Bad, and The Ugly](/202608/07/2608.00280v1-benchmarking-llms-on-file-system-design-and-implementation-the-good-the-bad-and-the-ugly) （6.0/10）
-13. [LAB-Tab: LLM-Augmented Bayesian Network Adaptation for Few-Shot Tabular Generation](/202608/07/2608.01879v1-lab-tab-llm-augmented-bayesian-network-adaptation-for-few-shot-tabular-generation) （6.0/10）
-14. [Interpreting Black-Box Large Language Models with Sentence-Level Energy Landscapes](/202608/07/2608.02879v1-interpreting-black-box-large-language-models-with-sentence-level-energy-landscapes) （6.0/10）
-15. [TQLite: Multi-LLM Jury Guided Distillation for Real-time MQM Translation Quality Evaluation](/202608/07/2608.02975v1-tqlite-multi-llm-jury-guided-distillation-for-real-time-mqm-translation-quality-evaluation) （6.0/10）
+1. [Understanding Is Done Early: A Depth Division of Labor in Large Language Models and Its Use for Unbounded-Context Memory](/202608/07/2607.28263v1-understanding-is-done-early-a-depth-division-of-labor-in-large-language-models-and-its-use-for-unbounded-context-memory) （8.0/10）
+2. [Mixture-of-Translators: Translating KV Caches Across Heterogeneous Large Language Models](/202608/07/2607.28979v1-mixture-of-translators-translating-kv-caches-across-heterogeneous-large-language-models) （8.0/10）
+3. [Translation with Thought: Difficulty-Adaptive Reasoning via Reinforcement Learning for Multi-Domain Machine Translation](/202608/07/2607.29287v1-translation-with-thought-difficulty-adaptive-reasoning-via-reinforcement-learning-for-multi-domain-machine-translation) （8.0/10）
+4. [SeekBrain: An Autonomous Multi-Agent System for Accelerating Neuroscience Discovery](/202608/07/2607.29347v1-seekbrain-an-autonomous-multi-agent-system-for-accelerating-neuroscience-discovery) （8.0/10）
+5. [The Parts Are Greater Than the Sum: Automated Task Sequencing for Efficient Training of Multi-Policy LLMs](/202608/07/2607.29601v1-the-parts-are-greater-than-the-sum-automated-task-sequencing-for-efficient-training-of-multi-policy-llms) （8.0/10）
+6. [Beyond Retrieval: Analytic Memory for Multimodal Agents](/202608/07/2607.29440v2-beyond-retrieval-analytic-memory-for-multimodal-agents) （7.0/10）
+7. [MAPLE-Guard: Memory-Aware Link Enforcement Against Memory-Link Poisoning in Multi-Agent Systems](/202608/07/2608.00426v1-maple-guard-memory-aware-link-enforcement-against-memory-link-poisoning-in-multi-agent-systems) （7.0/10）
+8. [When Collaboration Becomes a Trigger: Collective Evidence-Threshold Backdoors in Multi-Agent Systems](/202608/07/2608.01085v1-when-collaboration-becomes-a-trigger-collective-evidence-threshold-backdoors-in-multi-agent-systems) （7.0/10）
+9. [RH-RAG: Trustworthy Long-Form Generation for Privacy-Constrained Settings](/202608/07/2608.01311v1-rh-rag-trustworthy-long-form-generation-for-privacy-constrained-settings) （7.0/10）
+10. [402Pilot: An x402 Decision Layer for Autonomous Agent Micropayments](/202608/07/2608.01341v1-402pilot-an-x402-decision-layer-for-autonomous-agent-micropayments) （7.0/10）
+11. [VAmoS Bench: Voice Agent Simulation Bench](/202608/07/2607.27453v1-vamos-bench-voice-agent-simulation-bench) （6.0/10）
+12. [Deep Reinforcement Learning: From First Principles to Reasoning Models](/202608/07/2608.00133v1-deep-reinforcement-learning-from-first-principles-to-reasoning-models) （6.0/10）
+13. [DeltaFlow: Noise-Adaptive Bidirectional Gated Delta Networks for Embedded Language Flows](/202608/07/2608.01240v1-deltaflow-noise-adaptive-bidirectional-gated-delta-networks-for-embedded-language-flows) （6.0/10）
+14. [ACE-GraphRAG: Agentic Context Engineering for Hierarchical GraphRAG](/202608/07/2608.01269v1-ace-graphrag-agentic-context-engineering-for-hierarchical-graphrag) （6.0/10）
+15. [FedChronos: Federated Fine-Tuning of Time-Series Foundation Models for Privacy-Preserving Commodity Price Forecasting](/202608/07/2608.01290v1-fedchronos-federated-fine-tuning-of-time-series-foundation-models-for-privacy-preserving-commodity-price-forecasting) （6.0/10）
 
 ---
 使用键盘方向键可在日报/论文之间快速切换。
