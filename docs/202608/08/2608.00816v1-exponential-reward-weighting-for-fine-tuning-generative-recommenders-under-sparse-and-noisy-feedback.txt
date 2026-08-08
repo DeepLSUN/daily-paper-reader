@@ -1,0 +1,831 @@
+Title: Exponential Reward Weighting for Fine-Tuning Generative Recommenders under Sparse and Noisy Feedback
+
+URL Source: https://arxiv.org/pdf/2608.00816v1
+
+Published Time: Tue, 04 Aug 2026 01:00:40 GMT
+
+Number of Pages: 16
+
+Markdown Content:
+# Exponential Reward Weighting for Fine-Tuning Generative Recommenders under Sparse and Noisy Feedback 
+
+# Keertana Chidambaram 1∗, Sanath Kumar Krishnamurthy 2†, Qiuling Xu 3†,Ko-Jen Hsiao 3, Moumita Bhattacharya 3
+
+> 1
+
+Department of Management Science & Engineering, Stanford University 
+
+> 2
+
+Meta 
+
+> 3
+
+Netflix Research vck@stanford.edu, sanathkk@meta.com, qxu@netflix.com, kojenh@netflix.com, moumitab@netflix.com 
+
+Abstract 
+
+In recommendation systems, users interact with only a small fraction of a vast item catalog, producing feedback that is both sparse and noisy. This challenges post-training generative rec-ommenders: reward models trained from logged interactions often fail to generalize, while directly optimizing imperfect rewards can lead to reward over-optimization. We propose Exponential reward-weighted fine-tuning (Exp-RSFT), where each logged interaction is weighted by exp( r/λ ), avoids this failure by optimizing directly on the logged rewards, with the temperature λ regularizing against their noise. We the-oretically show that Exp-RSFT’s suboptimality decomposes into two costs: a coverage cost arising from limitations of the logging policy and a noise cost from imperfect feedback. The temperature λ balances these competing effects, yielding an optimal tradeoff between exploiting high-reward behav-ior and robustness to noise. Across three public benchmarks and a large-scale industrial dataset, we verify this theoreti-cal prediction: performance follows an inverted-U trend as a function of λ, while PPO and DPO often over-optimize un-reliable reward models and degrade recommendation quality. Exp-RSFT consistently improves ranking performance with-out requiring online exploration or preference data. 
+
+# 1 Introduction 
+
+Generative recommenders cast recommendation as sequen-tial generation over a user’s interaction history, mirroring next-token prediction in LLMs (Yang et al. 2025; Rajput et al. 2023; Zhai et al. 2024; Deng et al. 2025). Architectures such as SASRec (Kang and McAuley 2018), HSTU (Zhai et al. 2024), and OneRec (Deng et al. 2025) are trained by behavior cloning, which imitates high-value engagements (genuine enjoyment) and low-value ones (accidental clicks, click-bait) indiscriminately. Reinforcement Learning from Human Feedback (RLHF) (Ouyang et al. 2022; Stiennon et al. 2020) shows that, for LLMs, post-training on real user feedback improves outcomes beyond what behavior cloning alone can achieve. Recommendation is a natural fit for this paradigm because 
+
+> ∗
+
+Work done while KC was an intern at Netflix Research. 
+
+> †
+
+These authors contributed equally. 
+
+organic feedback is available at scale through ratings, reviews, watch time, and re-engagement, which is precisely the signal needed to distinguish high-value from low-value engagements. However, adapting RLHF to generative recommenders introduces unique challenges: 
+
+• Sparse user interactions. In recommendation settings with large catalogs, users interact with only a tiny frac-tion of the available items, and item representations are learned purely from user behavior with no semantic grounding (Dulac-Arnold et al. 2015). A reward model fit on such sparse data must extrapolate across a vast item space, and generalizes poorly. During post-training, the policy exploits the resulting prediction errors, known as 
+
+reward hacking (Amodei et al. 2016), systematically se-lecting items for which the reward model is unreliable rather than those users actually prefer. 
+
+• Noisy rewards. Even the observed rewards are imperfect measures of preference: ratings for the same item vary across sessions, clicks are affected by position bias, and implicit signals fluctuate for reasons unrelated to true preference. Any method that optimizes directly on logged rewards must therefore guard against overfitting to this noise. 
+
+• No online exploration. Industrial datasets are pre-collected and static, so the policy cannot query users for new feedback mid-training. Standard RLHF pipelines (Ouyang et al. 2022; Stiennon et al. 2020) sidestep this by training a reward model as a simulator, but in our setting that simulator inherits the generalization failures above, reintroducing the very problem we set out to avoid. 
+
+• Unknown logging policy. Rewards are observed only for items previously shown to the user by the deployed (logging) policy, inducing selection bias. Inverse Propen-sity Scoring (IPS) could correct this in principle, by re-weighting examples by their probability of being shown, but the logging policy is typically too complex (Coving-ton, Adams, and Sargin 2016) or inaccessible (Liang and Vlassis 2022) to estimate, and IPS weights have extreme variance (Swaminathan and Joachims 2015; Dudík, Lang-arXiv:2608.00816v1 [cs.IR] 1 Aug 2026 ford, and Li 2011), especially when the logging policy is near-deterministic. To overcome these challenges, we adopt Exponential Reward-Weighted SFT (Exp-RSFT) where we weight each logged trajectory τ by exp( R(τ )/λ ), where R(τ ) is the ob-served cumulative reward of the trajectory and λ > 0 is a temperature parameter. Because Exp-RSFT never queries a learned reward model, it cannot reward hack; it needs no propensity scores; and it is fully offline. The algorithm itself is well known (Peters and Schaal 2007; Wang et al. 2018; Liang and Vlassis 2022); our contribution is a theoretical account of when and why it succeeds in this regime, together with experiments confirming the theory’s predictions: 
+
+• Theoretical sub-optimality decomposition. We prove that the policy learned by Exp-RSFT competes with any alternative policy one might hope to imitate, including the optimal one, and that its suboptimality against the optimal policy splits into two interpretable terms: a coverage cost that grows only logarithmically with the inverse proba-bility of the optimal trajectory under the logging policy, and a noise cost that grows only logarithmically with the catalog size. The analysis is trajectory-level, requires no reward model or value function, and recovers the contex-tual bandit as the special case T = 1 .
+
+• Temperature as a trade-off parameter. The two costs move in opposite directions in λ, while coverage favors small temperatures, noise robustness favors large ones. Their sum is minimized at a closed-form λ⋆, so the theory predicts an inverted-U in performance as λ varies. 
+
+• Experiments validating theory. Across three public benchmarks and a large-scale proprietary dataset, tem-perature sweeps trace the predicted inverted-U, and Exp-RSFT outperforms behavior cloning, linear reward weighting (RSFT), PPO, and DPO; the gains over RSFT isolate the temperature as the operative ingredient. Con-sistent with the regime our theory targets, the learned reward model fails to outperform naive baselines in our setup, and PPO and DPO collapse by over-optimizing it. 
+
+# 2 Related Literature 
+
+Post-training generative recommenders. Standard post-training methods include RLHF (Ouyang et al. 2022; Stien-non et al. 2020), GRPO (Shao et al. 2024), and DPO (Rafailov et al. 2023). RLHF and GRPO sample outputs from the cur-rent policy and score them with a reward model, verifier, or simulator; in recommendation there is no ground-truth cor-rectness to verify and no live simulator of user responses, so the score must come from a learned reward model that extrapolates across a vast catalog from sparse observations, inviting the reward hacking we document in Section 5. DPO sidesteps reward-model training but requires (preferred, dis-preferred) pairs, which scalar feedback such as ratings and watch time does not provide; constructing pairs by ranking candidates with a reward model reintroduces the same prob-lem. Beyond the reward-modeling problem, logged data only contains feedback on items the logging policy chose to show. Classical offline policy learning corrects for this with in-verse propensity scores (Swaminathan and Joachims 2015; Dudík, Langford, and Li 2011) or learns conservative value functions (Kumar et al. 2020), but propensities are unavail-able under complex production logging policies, and value functions must again generalize across the catalog. Behavior cloning needs none of these but cannot improve on the log-ging policy. This leaves methods that optimize directly on logged rewards while staying close to the logging policy as the natural candidates for our regime. 
+
+Exponential reward weighting. The algorithm we an-alyze is well established: RWR (Peters and Schaal 2007), MARWIL (Wang et al. 2018), IQL (Kostrikov, Nair, and Levine 2021), CRR (Wang et al. 2020), and LPI (Liang and Vlassis 2022) all weight log-likelihoods by monotonic, typ-ically exponential, functions of returns or advantages. IQL, CRR, and MARWIL build advantages from learned value functions; RWR weights by returns directly, as we do, avoid-ing value-function estimation altogether (Section 3). Relative to the linear reward weighting of Mukherjee et al. (2025), the exponential form adds the temperature λ as an explicit ro-bustness knob and avoids the negative-weight pathology of linear schemes in likelihood-based objectives (Steck 2010; Schnabel et al. 2016). Existing analyses of this family address optimization stability, convergence, and distribution shift in value-function estimation; none characterizes behavior un-der reward noise or quantifies the cost of limited coverage in large action spaces. Providing exactly this characterization is the contribution of Section 4. 
+
+Reward weighting in LLM post-training. RLOO (Ah-madian et al. 2024) samples multiple outputs per prompt and weights by the group-relative reward, and ALoL (Baheti et al. 2023) requires propensity scores and a learned value func-tion; neither transfers to our setting, where fresh feedback cannot be sampled and propensities are unknown. 
+
+# 3 Background 
+
+3.1 Problem Setting 
+
+A user’s interaction history serves as the initial context 
+
+s1 ∼ d0. Starting from s1, a policy generates a trajectory 
+
+of T recommendations: at step t it selects an item at ∈ A 
+
+given the current state st, and the state updates determin-istically by appending the selected item, st+1 = ( st, a t).A policy π thus induces a distribution over trajectories 
+
+τ = ( s1, a 1, . . . , s T , a T ), written equivalently in product or summation form: 
+
+π(τ | s1) = 
+
+> T
+
+Y
+
+> t=1
+
+π(at | st),
+
+log π(τ | s1) = 
+
+> T
+
+X
+
+> t=1
+
+log π(at | st). (1) Each trajectory receives a scalar reward R(τ ) summarizing the user’s feedback over the recommendation session. We treat R as an arbitrary functional of the trajectory: it may be computed from feedback observed at each recommen-dation step, intermediate feedback collected throughout the trajectory, terminal session-level feedback, or any other eval-uation metric. Our analysis only requires that the resulting feedback can be represented as a scalar reward associated with each trajectory. We assume access to an offline dataset 
+
+D = {τi}ni=1 of trajectories with observed rewards, collected under an unknown logging (behavior) policy πβ . The value of a policy from context s is 
+
+V π (s) = Eτ ∼π(·| s)[R(τ )] . (2) The contextual bandit setting is the special case T = 1 ,where τ = ( s, a ) and R(τ ) = r(s, a ).
+
+3.2 Exponential Reward-Weighted Policy Optimization 
+
+Following Nair et al. (2020), we seek a policy that maximizes expected reward while remaining close to the data-generating distribution: 
+
+max  
+
+> π
+
+Es∼d0, τ ∼π(·| s)[R(τ )] (3) s.t. Es∼d0 [DKL (π(·| s) ∥ πβ (·| s))] ≤ ε, 
+
+where the optimization is over distributions on trajectories. Forming the Lagrangian with multiplier λ and setting the functional derivative to zero yields the closed-form solution 
+
+π∗(τ |s) = 1
+
+Z(s) πβ (τ |s) exp 
+
+ R(τ )
+
+λ
+
+
+
+, (4) where Z(s) = P  
+
+> τ′
+
+πβ (τ ′ | s) exp( R(τ ′)/λ ) is the parti-tion function, with the summation taken over all trajectories 
+
+τ ′ originating from the initial state s. Equation (4) can be viewed as an exponential tilt of the behavior policy toward high-reward trajectories. Since generative recommenders de-fine autoregressive distributions over trajectories, the tilted distribution π∗ remains within the same autoregressive pol-icy class. To obtain a parametric policy πθ , we project π∗
+
+onto the policy class by minimizing DKL (π∗∥πθ ). Rewrit-ing the expectation under πβ via the density ratio π∗/π β and dropping the partition function as in Nair et al. (2020) gives the weighted maximum-likelihood objective 
+
+θ∗ = arg max 
+
+> θ
+
+Eτ ∼D 
+
+"
+
+exp 
+
+ R(τ )
+
+λ
+
+ TX
+
+> t=1
+
+log πθ (at | st)
+
+#
+
+,
+
+(5) where the inner sum is the trajectory log-likelihood from Equation (1). This is Algorithm 1: standard supervised fine-tuning in which each logged trajectory is weighted by its exponentiated, temperature-scaled reward. It requires no re-ward model, no propensity scores, and no knowledge of πβ ;the single hyperparameter λ controls regularization strength. In the next section, we analyze the behavior of exponen-tial reward weighting under noisy reward observations. We derive high-probability improvement guarantees relative to arbitrary comparator policies and characterize how the tem-perature λ balances reward optimization, noise sensitivity, and offline data coverage. 
+
+# 4 Theoretical Analysis 
+
+We analyze exponential reward weighting from three per-spectives: improvement over the behavior policy, robustness 
+
+Algorithm 1 Exponential Reward-Weighted SFT (Exp-RSFT) 
+
+Input: Offline dataset D = {τi}ni=1 with rewards R(τi),initial policy πθ , temperature λ > 0, epochs E
+
+for e = 1 , . . . , E do for each mini-batch B ⊂ D do 
+
+L(θ) ← − 1
+
+> |B|
+
+X 
+
+> τ∈B
+
+exp 
+
+ R(τ )
+
+λ
+
+ TX
+
+> t=1
+
+log πθ (at | st)
+
+Update: θ ← θ − η∇θ L(θ)
+
+end for end for Output: Fine-tuned policy πθ
+
+to noisy user feedback, and the trade-off between reward op-timization and offline data coverage. Throughout, we fix a context s and let T denote the set of trajectories reachable from s, with |T | ≤ |A| T .We first consider the idealized setting where the dataset provides the true rewards R∗. Following the policy-improvement argument of Wang et al. (2018), the reward-weighted policy π∗
+
+> λ
+
+(τ |s) ∝ πβ (τ |s) exp( R∗(τ )/λ ) satisfies 
+
+V π∗ 
+
+> λ
+
+(s) ≥ V πβ (s). Thus, in the absence of reward noise, exponential weighting improves over the behavior policy by shifting probability mass toward higher-reward trajectories. In practice, however, user feedback is noisy: clicks are af-fected by presentation effects, ratings vary with user context, and engagement signals contain stochastic variation unre-lated to preference. We therefore study the more realistic setting where the observed reward is a noisy estimate of the underlying reward. 
+
+Assumption 4.1 (Sub-Gaussian Reward Noise) . The ob-served reward satisfies ˆR(τ ) = R∗(τ ) + ξ(τ ), where R∗ is the expected reward and ξ(τ ) is a zero-mean σ-sub-Gaussian random variable for every trajectory τ .This assumption captures common feedback signals in rec-ommendation systems. Bounded feedback such as clicks or ratings satisfies the assumption through Hoeffding’s lemma, while continuous feedback with approximately Gaussian variation is also covered. Importantly, the assumption is im-posed only on the final trajectory reward: intermediate re-wards may be correlated arbitrarily, as long as their aggrega-tion produces a sub-Gaussian trajectory-level error. Let πλ(τ |s) ∝ πβ (τ |s) exp 
+
+ ˆR(τ )/λ 
+
+
+
+denote the pol-icy obtained from noisy rewards. Rather than comparing πλ
+
+only against πβ , we analyze performance against an arbitrary comparator policy ˜π. This allows the learned policy to be evaluated against any target policy, including an optimal pol-icy, while explicitly accounting for how far that target lies from the offline data distribution. 
+
+Theorem 4.2 (Policy Improvement Under Noisy Rewards) .
+
+Fix a context s. Under Assumption 4.1, with probability at least 1 − δ, for every comparator policy ˜π,
+
+V πλ (s) ≥ V ˜π (s) − λ D KL (˜ π(·| s) ∥ πβ (·| s)) − 2ϵ, (6) 
+
+where ϵ := σp2 log(2 |T | /δ ).Theorem 4.2 separates the performance gap into two in-terpretable terms. The first term, λ D KL (˜ π ∥ πβ ), is the cov-erage cost : offline learning cannot reliably imitate policies that place probability mass far outside the logged data. The second term, 2ϵ, is the noise cost induced by stochastic user feedback. Since log |T | ≤ T log |A| , the noise penalty scales as O(σpT log |A| ), which grows only logarithmically with the catalog size. The previous theorem treats λ only as a regularization parameter. When rewards are bounded, we can characterize how λ explicitly controls the noise–coverage trade-off. 
+
+Theorem 4.3 (Temperature-Dependent Comparator Bound) .
+
+Assume R∗(τ ) ∈ [0 , R max ]. Under the conditions of Theo-rem 4.2, with probability at least 1 − δ, for every comparator policy ˜π:
+
+V πλ (s) ≥ V ˜π (s) − λ D KL (˜ π(·| s) ∥ πβ (·| s)) 
+
+− Rmax 
+
+
+
+e2ϵ/λ − 1
+
+
+
+. (7) 
+
+For λ ≥ 2ϵ, Rmax 
+
+ e2ϵ/λ − 1 ≤ 4Rmax ϵλ .
+
+Theorem 4.3 reveals the role of temperature. Increasing λ
+
+makes the policy more conservative, increasing the compara-tor cost linearly while reducing sensitivity to reward noise at rate O(1 /λ ). Conversely, smaller λ enables stronger ex-ploitation of high-reward trajectories but amplifies reward noise. Finally, we choose the comparator policy ˜π to be the opti-mal policy for context s, which converts the general com-parator bound into a characterization of the suboptimal-ity relative to the highest-reward trajectory. Let τ ⋆(s) ∈
+
+arg max τ R∗(τ ) denote an optimal trajectory from con-text s, and define its coverage under the behavior policy as p⋆(s) = πβ (τ ⋆(s)|s).
+
+Theorem 4.4 (Coverage-Dependent Suboptimality Bound) .
+
+Under the conditions of Theorem 4.3, with probability at least 1 − δ:
+
+max  
+
+> τ
+
+R∗(τ ) − V πλ (s) ≤ λ log 1
+
+p⋆(s) + Rmax 
+
+
+
+e2ϵ/λ − 1
+
+
+
+.
+
+(8) 
+
+For λ ≥ 2ϵ, the right-hand side is at most λ log(1 /p ⋆(s)) + 4Rmax ϵ/λ , which is minimized at 
+
+λ⋆ = 2 
+
+s
+
+Rmax ϵ
+
+log(1 /p ⋆(s)) , (9) 
+
+where the minimized bound equals 4pRmax ϵ log(1 /p ⋆(s)) .
+
+Theorem 4.4 gives the central trade-off of exponential re-ward weighting. The first term measures the difficulty of recovering the optimal trajectory from offline data: if the be-havior policy rarely visits the optimal trajectory, no support-preserving method can reliably recover it. The second term captures sensitivity to noisy feedback. Therefore, the optimal temperature increases with reward noise and decreases with data coverage. The coverage term admits a useful sequential interpre-tation. Using the autoregressive factorization from Equa-tion (1), 
+
+log 1
+
+p⋆(s) =
+
+> T
+
+X
+
+> t=1
+
+log 1
+
+πβ (a⋆t | s⋆t ) , (10) where (s⋆t , a ⋆t ) are the states and actions along the optimal trajectory. Thus, the coverage penalty decomposes into a sum of per-step costs. Although the probability of observing a spe-cific length-T trajectory under the behavior policy decreases multiplicatively with the horizon, the corresponding penalty in the bound is its logarithm, which accumulates additively across steps. Therefore, the cost of recovering a target tra-jectory grows linearly with the trajectory length rather than exponentially. When rewards are noiseless, the noise term disappears and smaller temperatures increasingly favor optimal trajectories, with the remaining limitation determined only by offline cov-erage. Under noisy rewards, however, λ cannot be reduced arbitrarily: aggressive reweighting improves exploitation of high-reward trajectories but amplifies sensitivity to reward noise, while larger temperatures improve robustness at the cost of staying closer to the behavior policy. This trade-off explains the inverted-U relationship between temperature and recommendation performance observed empirically in Section 5 (Figure 1). Although Equation (9) characterizes the optimal temperature λ∗, evaluating it requires unknown quantities such as the reward noise level and the coverage of the optimal trajectory. Therefore, it cannot be directly used for hyperparameter selection in practice, and we tune λ em-pirically. 
+
+# 5 Experiments 
+
+Experimental Setting. Our theoretical analysis considers the general trajectory-level setting for autoregressive gen-erative recommenders. In experiments, we instantiate this framework in the next-item recommendation setting, corre-sponding to the single-step case ( T = 1 ). In this setting, the trajectory consists of a user context and one recommended item, τ = ( s, a ), and the trajectory reward reduces to the observed item-level feedback, R(τ ) = r(s, a ). This allows us to directly evaluate exponential reward weighting while preserving the connection to the general formulation. 
+
+Datasets. We evaluate on three public sequential rec-ommendation benchmarks and one large-scale indus-trial dataset: MovieLens 1M (ML-1M), MovieLens 20M (ML-20M) (Harper and Konstan 2015), Amazon Re-views (McAuley et al. 2015), and an anonymized propri-etary streaming dataset, denoted as StreamCo . Each dataset contains user-item interaction sequences with associated feedback signals. Table 1 summarizes the statistics of each dataset. The benchmarks cover a range of recommendation settings, from dense movie recommendation to sparse large-catalog recommendation. 
+
+Model and Training Setup. We use HSTU (Zhai et al. 2024) as the underlying generative recommender model. The pretrained HSTU model serves as the behavior cloning (BC) baseline, predicting the next item given the user’s interac-tion history. For reward-model-based methods, we train a lightweight reward head on top of the recommender repre-sentation to predict the feedback associated with the selected Table 1: Dataset Statistics Dataset Users Items Avg. Interactions/User Test Cases ( r ≥ 4.5)ML-1M 6,040 3,706 165.60 1,530 ML-20M 138,493 26,744 144.41 40,667 Amazon Books 811,227 695,762 14.47 424,271 StreamCo O(Millions) O(Thousands) O(Tens) O(Thousands) item. The predicted item-level reward is used as the opti-mization signal for methods that require a learned reward function. 
+
+Algorithms. We compare five approaches spanning be-havior cloning, reward-weighted supervised fine-tuning, and RL-based alignment: 
+
+• BC (Behavior Cloning): The pretrained HSTU model (Zhai et al. 2024), trained only with next-item prediction and without reward optimization. 
+
+• RSFT (Reward-weighted Supervised Fine-Tuning): A reward-weighted supervised fine-tuning approach that weights training examples according to their observed rewards (Mukherjee et al. 2025). 
+
+• DPO (Direct Preference Optimization): A preference op-timization method that increases the likelihood of pre-ferred items relative to dispreferred ones (Rafailov et al. 2023). Since recommendation datasets do not contain ex-plicit preference pairs, we construct preferences by sam-pling candidate items and comparing them using reward-model scores, following online DPO-style training (Deng et al. 2025). 
+
+• PPO (Proximal Policy Optimization): A reinforcement learning approach (Schulman et al. 2017; Stiennon et al. 2020; Ouyang et al. 2022) that updates the recommender policy using rewards from the learned reward model. 
+
+• Exp-RSFT (Exponential Reward-weighted Supervised Fine-Tuning): Our proposed method, described in Algo-rithm 1. In the experimental T = 1 setting, it weights next-item likelihoods by exp( r(s, a )/λ ), which is the single-step instantiation of the trajectory-level exponen-tial weighting derived in Section 3.2. Due to the proprietary nature of the StreamCo dataset, we report results relative to RSFT rather than absolute perfor-mance values. We train the algorithms for 30, 12, and 10 epochs on ML-1M, ML-20M, and Amazon Books, respec-tively. 
+
+Evaluation. We evaluate on the standard test splits of ML-1M, ML-20M, and Amazon Books, restricting evaluation to held-out interactions with rating ≥ 4.5. This focuses evalu-ation on high-preference recommendations and aligns with the reward optimization objective. All methods, including BC, are evaluated on the same filtered test sets. For each test case, let ri denote the rank assigned to the ground-truth item among all candidate items. We report Hit Rate (HR@ K), Normalized Discounted Cumulative Gain (NDCG@ K), and Mean Reciprocal Rank (MRR): HR@ K = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+1(ri ≤ K), (11) NDCG@ K = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+1(ri ≤ K)log 2(ri + 1) , (12) MRR = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+1
+
+ri
+
+. (13) We report HR and NDCG at cutoffs K ∈ { 10 , 50 }.Table 2: Reward model prediction performance compared to naive baselines. The trained reward model fails to outperform the simple Item Mean baseline on most metrics. Columns abbreviate the User-Mean, Item-Mean, Global-Mean, and trained reward-model predictors. Best results per row are 
+
+bolded .                                         
+
+> Dataset Metric User Item Global RM ML-1M MSE 1.0784 0.9179 1.2394 1.2166 MAE 0.8232 0.7619 0.9268 0.8680 ML-20M MSE 0.9550 0.8898 1.0939 0.8963 MAE 0.7588 0.7320 0.8423 0.7307
+> Amazon Books MSE 1.1578 0.7290 1.1868 1.1067 MAE 0.7411 0.5651 0.8636 0.8140 StreamCo MSE 2.412 2.568 2.568 2.486 MAE 2.112 2.442 2.451 1.916
+
+Evidence for Reward Hacking. Table 3 shows that PPO and DPO can attain high reward-model scores while substan-tially degrading recommendation quality. This discrepancy suggests reward hacking: optimizing an imperfect learned re-ward function may exploit weaknesses in the reward model rather than improve alignment with true user preferences. We investigate this phenomenon through two analyses. 
+
+Benchmarking reward model quality. To evaluate the re-liability of the learned reward model, we compare its pre-diction error against three simple baselines: User Mean, Item Mean, and Global Mean predictors (Table 2). The re-ward model does not consistently outperform these base-lines across datasets, indicating that accurately predicting user feedback for unseen items remains challenging. 
+
+Reward model-as-judge evaluation. We further test whether optimization methods exploit the reward model by measuring the average predicted reward across 10 genera-tions from each of 10,000 evaluation contexts, reported as Table 3: Recommendation performance on the public benchmarks (rating ≥ 4.5) and the proprietary StreamCo dataset (high-reward trajectories). Best results per dataset and metric are bolded . StreamCo values are relative changes from RSFT, used in place of BC due to data confidentiality. Dataset Method NDCG@10 NDCG@50 HR@10 HR@50 MRR Avg Reward ML-1M BC 0.1304 0.1866 0.2405 0.4967 0.1116 3.8672 DPO 0.0091 0.0231 0.0163 0.0824 0.0122 3.3737 PPO 0.0303 0.0617 0.0673 0.2124 0.0285 4.4775 
+
+RSFT 0.1437 0.2003 0.2608 0.5163 0.1230 3.6558 Exp-RSFT 0.1465 0.2029 0.2712 0.5261 0.1235 3.6933 ML-20M BC 0.1753 0.2313 0.3035 0.5569 0.1510 3.7388 DPO 0.0196 0.0342 0.0372 0.1052 0.0195 4.4008 
+
+PPO 0.1164 0.1688 0.2141 0.4536 0.1008 3.7547 RSFT 0.1847 0.2403 0.3161 0.5677 0.1593 3.7904 Exp-RSFT 0.1912 0.2462 0.3238 0.5726 0.1651 3.8611 Amazon Books BC 0.0328 0.0478 0.0589 0.1279 0.0296 4.2824 DPO 0.0008 0.0020 0.0019 0.0075 0.0013 4.8615 
+
+PPO 0.0094 0.0156 0.0184 0.0469 0.0088 4.4549 RSFT 0.0349 0.0514 0.0630 0.1388 0.0314 4.3350 Exp-RSFT 0.0356 0.0520 0.0641 0.1397 0.0319 4.3374 StreamCo RSFT 0.00% 0.00% 0.00% 0.00% 0.00% 0.00% DPO -99.30% -96.77% -99.14% -95.52% -95.34% 19.21% 
+
+PPO -4.88% -24.01% -14.66% -35.71% -8.60% 13.39% Exp-RSFT 106.20% 69.71% 98.07% 49.58% 86.31% 17.27% 
+
+Figure 1: NDCG@10 for different values of λ across datasets. “Avg Reward” in Table 3. Reward-model score does not cor-relate with recommendation quality: on every dataset, the method achieving the highest Avg Reward also experiences severe degradation in ranking metrics (PPO on ML-1M; DPO on ML-20M, Amazon Books, and StreamCo), providing ev-idence of reward hacking. Training curves in Appendix B.4 show that this collapse occurs early in training. 
+
+Robustness–Improvement Tradeoff with λ. Theo-rems 4.3 and 4.4 predict a tradeoff controlled by the tem-perature λ: small values aggressively emphasize high-reward actions but increase sensitivity to reward noise, while large values remain closer to the behavior policy and reduce poten-tial improvement. We evaluate this prediction by sweeping λ
+
+across all datasets. Figure 1 shows NDCG@10 as a function of λ; other metrics exhibit similar trends. Across all datasets, performance follows an inverted-U pattern, improving as λ
+
+decreases from large values, reaching a maximum at an in-termediate temperature ( λ ≈ 0.5–1.0), and degrading when 
+
+λ becomes too small. This behavior is consistent with the theoretical prediction: large temperatures suppress improve-ment by limiting deviation from the behavior policy, while excessively small temperatures amplify noise sensitivity. The same trend is observed when selecting either the best or fi-nal training epoch (Appendix B.3), ruling out early stopping as an explanation. These results confirm that moderate re-ward weighting provides the best balance between reward exploitation and robustness to noisy feedback. 
+
+# 6 Conclusions and Limitations 
+
+We analyzed exponential reward-weighted fine-tuning for generative recommenders trained offline from logged user feedback. Our theoretical analysis shows that the suboptimal-ity of the learned policy decomposes into two interpretable costs: a coverage cost determined by limitations of the log-ging policy, and a noise cost arising from imperfect feedback. The temperature λ balances these competing effects, yield-ing an interior optimum that explains the observed tradeoff between reward exploitation and robustness. Experiments on three public benchmarks and a large-scale proprietary dataset validate these predictions: temperature sweeps exhibit the predicted inverted-U behavior, while standard reward-model-based post-training methods can over-optimize imperfect reward signals and degrade recommendation quality. Exp-RSFT provides a simple and effective alternative for post-training generative recommenders in sparse, noisy offline settings. Our analysis also has several limitations. First, it focuses on the regime where users interact with only a small fraction of a large catalog and feedback is available as scalar re-wards. In settings with substantially richer supervision, such as dense preference comparisons or extensive user feedback coverage, other post-training approaches may become more effective. Second, Exp-RSFT does not eliminate the funda-mental challenge of preference estimation under sparse in-teractions. More sophisticated reward modeling approaches, including uncertainty-aware or conservative reward models and models incorporating additional user signals, may alle-viate some of the limitations observed in our experiments. However, when feedback covers only a small portion of the catalog, generalizing reliable preferences to unseen items re-mains challenging. Third, our theoretical guarantees assume sub-Gaussian reward noise; real-world feedback may exhibit heavier tails or more complex dependencies. Extending the analysis to broader noise models and studying the interac-tion between improved reward modeling and offline policy optimization are important directions for future work. 
+
+# References 
+
+Ahmadian, A.; Cremer, C.; Gallé, M.; Fadaee, M.; Kreutzer, J.; Pietquin, O.; Üstün, A.; and Hooker, S. 2024. Back to ba-sics: Revisiting reinforce style optimization for learning from human feedback in llms. arXiv preprint arXiv:2402.14740 .Amodei, D.; Olah, C.; Steinhardt, J.; Christiano, P.; Schul-man, J.; and Mané, D. 2016. Concrete problems in AI safety. 
+
+arXiv preprint arXiv:1606.06565 .Baheti, A.; Lu, X.; Brahman, F.; Bras, R. L.; Sap, M.; and Riedl, M. 2023. Leftover lunch: Advantage-based offline reinforcement learning for language models. arXiv preprint arXiv:2305.14718 .Covington, P.; Adams, J.; and Sargin, E. 2016. Deep neural networks for youtube recommendations. In Proceedings of the 10th ACM conference on recommender systems , 191–198. Deng, J.; Wang, S.; Cai, K.; Ren, L.; Hu, Q.; Ding, W.; Luo, Q.; and Zhou, G. 2025. Onerec: Unifying retrieve and rank with generative recommender and iterative preference alignment. arXiv preprint arXiv:2502.18965 .Dudík, M.; Langford, J.; and Li, L. 2011. Doubly robust pol-icy evaluation and learning. arXiv preprint arXiv:1103.4601 .Dulac-Arnold, G.; Evans, R.; van Hasselt, H.; Sunehag, P.; Lillicrap, T.; Hunt, J.; Mann, T.; Weber, T.; Degris, T.; and Coppin, B. 2015. Deep reinforcement learning in large dis-crete action spaces. arXiv preprint arXiv:1512.07679 .Harper, F. M.; and Konstan, J. A. 2015. The movielens datasets: History and context. Acm transactions on interac-tive intelligent systems (tiis) , 5(4): 1–19. Kang, W.-C.; and McAuley, J. 2018. Self-attentive sequential recommendation. In 2018 IEEE international conference on data mining (ICDM) , 197–206. IEEE. Kostrikov, I.; Nair, A.; and Levine, S. 2021. Offline rein-forcement learning with implicit q-learning. arXiv preprint arXiv:2110.06169 .Kumar, A.; Zhou, A.; Tucker, G.; and Levine, S. 2020. Con-servative q-learning for offline reinforcement learning. Ad-vances in neural information processing systems , 33: 1179– 1191. Liang, D.; and Vlassis, N. 2022. Local policy improvement for recommender systems. arXiv preprint arXiv:2212.11431 .McAuley, J.; Targett, C.; Shi, Q.; and Van Den Hengel, A. 2015. Image-based recommendations on styles and substi-tutes. In Proceedings of the 38th international ACM SIGIR conference on research and development in information re-trieval , 43–52. Mukherjee, S.; Lai, V. D.; Addanki, R.; Rossi, R. A.; Yoon, S.; Bui, T.; Rao, A.; Subramanian, J.; and Kveton, B. 2025. Offline RL by Reward-Weighted Fine-Tuning for Conversa-tion Optimization. In The Thirty-ninth Annual Conference on Neural Information Processing Systems .Nair, A.; Gupta, A.; Dalal, M.; and Levine, S. 2020. Awac: Accelerating online reinforcement learning with of-fline datasets. arXiv preprint arXiv:2006.09359 .Ouyang, L.; Wu, J.; Jiang, X.; Almeida, D.; Wainwright, C.; Mishkin, P.; Zhang, C.; Agarwal, S.; Slama, K.; Ray, A.; et al. 2022. Training language models to follow instructions with human feedback. Advances in neural information processing systems , 35: 27730–27744. Peters, J.; and Schaal, S. 2007. Using reward-weighted re-gression for reinforcement learning of task space control. In 
+
+2007 IEEE International Symposium on Approximate Dy-namic Programming and Reinforcement Learning , 262–267. IEEE. Rafailov, R.; Sharma, A.; Mitchell, E.; Manning, C. D.; Er-mon, S.; and Finn, C. 2023. Direct preference optimization: Your language model is secretly a reward model. Advances in neural information processing systems , 36: 53728–53741. Rajput, S.; Mehta, N.; Singh, A.; Hulikal Keshavan, R.; Vu, T.; Heldt, L.; Hong, L.; Tay, Y.; Tran, V.; Samost, J.; et al. 2023. Recommender systems with generative retrieval. 
+
+Advances in Neural Information Processing Systems , 36: 10299–10315. Schnabel, T.; Swaminathan, A.; Singh, A.; Chandak, N.; and Joachims, T. 2016. Recommendations as treatments: Debi-asing learning and evaluation. In international conference on machine learning , 1670–1679. PMLR. Schulman, J.; Wolski, F.; Dhariwal, P.; Radford, A.; and Klimov, O. 2017. Proximal policy optimization algorithms. 
+
+arXiv preprint arXiv:1707.06347 .Shao, Z.; Wang, P.; Zhu, Q.; Xu, R.; Song, J.; Bi, X.; Zhang, H.; Zhang, M.; Li, Y.; Wu, Y.; et al. 2024. Deepseekmath: Pushing the limits of mathematical reasoning in open lan-guage models. arXiv preprint arXiv:2402.03300 .Steck, H. 2010. Training and testing of recommender sys-tems on data missing not at random. In Proceedings of the 16th ACM SIGKDD international conference on Knowledge discovery and data mining , 713–722. Stiennon, N.; Ouyang, L.; Wu, J.; Ziegler, D.; Lowe, R.; Voss, C.; Radford, A.; Amodei, D.; and Christiano, P. F. 2020. Learning to summarize with human feedback. Advances in neural information processing systems , 33: 3008–3021. Swaminathan, A.; and Joachims, T. 2015. Batch learning from logged bandit feedback through counterfactual risk minimization. The Journal of Machine Learning Research ,16(1): 1731–1755. Wang, Q.; Xiong, J.; Han, L.; Liu, H.; Zhang, T.; et al. 2018. Exponentially weighted imitation learning for batched his-torical data. Advances in Neural Information Processing Systems , 31. Wang, Z.; Novikov, A.; Zolna, K.; Merel, J. S.; Springen-berg, J. T.; Reed, S. E.; Shahriari, B.; Siegel, N.; Gulcehre, C.; Heess, N.; et al. 2020. Critic regularized regression. Ad-vances in Neural Information Processing Systems , 33: 7768– 7778. Yang, Z.; Lin, H.; Zhang, Z.; et al. 2025. Gr-llms: Recent advances in generative recommendation based on large lan-guage models. arXiv preprint arXiv:2507.06507 .Zhai, J.; Liao, L.; Liu, X.; Wang, Y.; Li, R.; Cao, X.; Gao, L.; Gong, Z.; Gu, F.; He, M.; et al. 2024. Actions speak louder than words: Trillion-parameter sequential transducers for generative recommendations. In International Confer-ence on Machine Learning (ICML) .A Proofs 
+
+Throughout the appendix, fix a context s and recall the notation of Section 4: T is the set of trajectories reach-able from s; ˆR = R∗ + ξ are the noisy rewards of As-sumption 4.1; πλ(τ |s) ∝ πβ (τ |s) exp( ˆR(τ )/λ ) is the ex-ponential tilt computed from the noisy rewards; and values 
+
+V π (s) = Eτ ∼π(·| s)[R∗(τ )] are always evaluated under the true rewards. If DKL (˜ π(·| s) ∥ πβ (·| s)) = ∞, every bound below holds trivially, so we assume throughout that it is finite; equivalently, ˜π(·| s) is supported on the support of 
+
+πβ (·| s). We also note that the noiseless monotonic improve-ment used as a warm-up in Section 4 is the σ = 0 case of Theorem 4.2: with σ = 0 we have ϵ = 0 , and taking ˜π = πβ
+
+gives V π∗ 
+
+> λ
+
+(s) ≥ V πβ (s) deterministically. 
+
+A.1 Proof of Theorem 4.2 
+
+Theorem 4.2 (Policy Improvement Under Noisy Rewards; restated) . Fix a context s. Under Assumption 4.1, with prob-ability at least 1 − δ, for every comparator policy ˜π:
+
+V πλ (s) ≥ V ˜π (s) − λ D KL (˜ π(·| s) ∥ πβ (·| s)) − 2ϵ, 
+
+where ϵ := σp2 log(2 |T | /δ ).Proof. Step 1 (noise event). Since each ξ(τ ) is σ-sub-Gaussian, a standard tail bound combined with a union bound over the |T | trajectories yields, with probability at least 1−δ,
+
+|ξ(τ )| ≤ ϵ ∀τ ∈ T , ϵ := σp2 log(2 |T | /δ ). (A1) No independence across trajectories is needed: the union bound uses only the marginal tail of each ξ(τ ). We condi-tion on this event for the remainder of the proof and fix a comparator policy ˜π.
+
+Step 2 (variational identity). Define 
+
+F (π) = X
+
+> τ
+
+π(τ |s) ˆR(τ )−λ D KL (π(·| s) ∥ πβ (·| s)) , (A2) and recall that the tilted policy normalizes as 
+
+πλ(τ |s) = 1
+
+Z πβ (τ |s) exp ˆR(τ )
+
+λ
+
+!
+
+,Z = X
+
+> τ
+
+πβ (τ |s) exp ˆR(τ )
+
+λ
+
+!
+
+.
+
+For any policy π with π(·| s) supported on the support of 
+
+πβ (·| s),
+
+DKL (π ∥ πλ) = X
+
+> τ
+
+π(τ |s) log π(τ |s)
+
+πβ (τ |s) exp( ˆR(τ )/λ )/Z 
+
+= DKL (π ∥ πβ ) + log Z
+
+− 1
+
+λ
+
+X
+
+> τ
+
+π(τ |s) ˆR(τ ),
+
+and rearranging yields the identity 
+
+F (π) = λ log Z − λ D KL (π ∥ πλ). (A3) Since the KL divergence is nonnegative and vanishes iff 
+
+π = πλ, the tilted policy is the unique maximizer of F ;in particular, F (πλ) ≥ F (˜ π).
+
+Step 3 (comparator inequality). Writing out F (πλ) ≥
+
+F (˜ π) via (A2) and dropping the nonnegative term 
+
+λD KL (πλ ∥ πβ ) ≥ 0 on the left-hand side: 
+
+X
+
+> τ
+
+πλ(τ |s) ˆR(τ ) ≥ X
+
+> τ
+
+˜π(τ |s) ˆR(τ ) − λ D KL (˜ π ∥ πβ ).
+
+(A4) 
+
+Step 4 (noise conversion). On the event (A1), since 
+
+πλ(·| s) and ˜π(·| s) are probability distributions, 
+
+V πλ (s) ≥ X
+
+> τ
+
+πλ(τ |s) ˆR(τ ) − ϵ, 
+
+X
+
+> τ
+
+˜π(τ |s) ˆR(τ ) ≥ V ˜π (s) − ϵ. 
+
+Chaining these with (A4) completes the proof. 
+
+A.2 Proof of Theorem 4.3 
+
+Theorem 4.3 (Temperature-Dependent Comparator Bound; restated) . Under the conditions of Theorem 4.2, if rewards are bounded R∗(τ ) ∈ [0 , R max ], then with probability at least 1 − δ, for every comparator policy ˜π:
+
+V πλ (s) ≥ V ˜π (s) − λ D KL (˜ π(·| s) ∥ πβ (·| s)) 
+
+− Rmax 
+
+
+
+e2ϵ/λ − 1
+
+
+
+.
+
+When λ ≥ 2ϵ, the noise cost simplifies: Rmax 
+
+ e2ϵ/λ − 1 ≤
+
+4Rmax ϵ/λ .Proof. Let π∗ 
+
+> λ
+
+denote the tilt under the true rewards and πλ
+
+the tilt under the noisy rewards: 
+
+π∗
+
+> λ
+
+(τ |s) = 1
+
+Z∗ πβ (τ |s) exp 
+
+ R∗(τ )
+
+λ
+
+
+
+, (A5) 
+
+πλ(τ |s) = 1
+
+Z πβ (τ |s) exp ˆR(τ )
+
+λ
+
+!
+
+, (A6) with normalizing factors Z∗ = P 
+
+> τ
+
+πβ (τ |s) exp( R∗(τ )/λ )
+
+and Z = P 
+
+> τ
+
+πβ (τ |s) exp( ˆR(τ )/λ ). As in the proof of The-orem 4.2, we condition on the event (A1), which holds with probability at least 1 − δ, and fix a comparator policy ˜π.
+
+Step 1 (clean comparator inequality). Applying the variational identity (A3) with the true rewards R∗ in place of ˆR shows that π∗ 
+
+> λ
+
+is the unique maximizer of F ∗(π) = P 
+
+> τ
+
+π(τ |s) R∗(τ ) − λ D KL (π ∥ πβ ). Hence 
+
+F ∗(π∗
+
+> λ
+
+) ≥ F ∗(˜ π), and dropping the nonnegative term 
+
+λD KL (π∗ 
+
+> λ
+
+∥ πβ ) ≥ 0 on the left-hand side gives, determinis-tically, 
+
+V π∗ 
+
+> λ
+
+(s) ≥ V ˜π (s) − λ D KL (˜ π ∥ πβ ). (A7) No noise event is needed here: both sides involve only the true rewards. 
+
+Step 2 (decomposition). The value of the noisy tilt de-composes as 
+
+V πλ (s) = V π∗ 
+
+> λ
+
+(s) −
+
+
+
+V π∗ 
+
+> λ
+
+(s) − V πλ (s)
+
+
+
+, (A8) so by (A7) it suffices to bound the noise difference |V π∗ 
+
+> λ
+
+(s)−
+
+V πλ (s)|.
+
+Step 3 (bounding the noise difference). Since R∗(τ ) ∈
+
+[0 , R max ]:
+
+V π∗ 
+
+> λ
+
+(s) − V πλ (s) = X
+
+> τ
+
+(π∗
+
+> λ
+
+(τ |s) − πλ(τ |s)) R∗(τ )
+
+≤ Rmax 
+
+X
+
+> τ
+
+|π∗
+
+> λ
+
+(τ |s) − πλ(τ |s)|
+
+= 2 Rmax DTV (π∗
+
+> λ
+
+(·| s), π λ(·| s)) .
+
+(A9) Define the noise weight w(τ ) = exp( ξ(τ )/λ ). On the event (A1): 
+
+e−ϵ/λ ≤ w(τ ) ≤ eϵ/λ ∀ τ ∈ T . (A10) Since ˆR(τ ) = R∗(τ ) + ξ(τ ), the noisy partition function factorizes as 
+
+Z = X
+
+> τ
+
+πβ (τ |s) exp 
+
+ R∗(τ )
+
+λ
+
+
+
+w(τ )= Z∗ X
+
+> τ
+
+π∗
+
+> λ
+
+(τ |s) w(τ ), (A11) where the last step uses (A5). The ratio Z/Z ∗ is therefore the expected noise weight under the clean policy; combined with (A10), this gives 
+
+e−ϵ/λ ≤ ρ ≤ eϵ/λ , where ρ := Z∗/Z. (A12) For any trajectory τ , dividing (A6) by (A5) gives the policy ratio πλ(τ |s)
+
+π∗
+
+> λ
+
+(τ |s) = w(τ ) ρ. (A13) Substituting (A13) into the total variation: 
+
+2 DTV (π∗
+
+> λ
+
+, π λ) = X
+
+> τ
+
+π∗
+
+> λ
+
+(τ |s) |w(τ ) ρ − 1| . (A14) From (A10) and (A12), the product w(τ ) ρ lies in 
+
+[e−2ϵ/λ , e 2ϵ/λ ], so 
+
+|w(τ ) ρ − 1| ≤ max 
+
+
+
+e2ϵ/λ − 1, 1 − e−2ϵ/λ 
+
+= e2ϵ/λ − 1,
+
+(A15) where the equality holds because ex −1 ≥ 1−e−x for x ≥ 0.Substituting back into (A14): 
+
+DTV (π∗
+
+> λ
+
+(·| s), π λ(·| s)) ≤ e2ϵ/λ − 12 . (A16) 
+
+Step 4 (combining). Substituting (A16) into (A9), and the result together with (A7) into (A8): 
+
+V πλ (s) ≥ V ˜π (s) − λ D KL (˜ π ∥ πβ )
+
+− Rmax 
+
+
+
+e2ϵ/λ − 1
+
+
+
+. (A17) When λ ≥ 2ϵ, we have 2ϵ/λ ≤ 1, and ex − 1 ≤ 2x for x ∈
+
+[0 , 1] , giving Rmax (e2ϵ/λ − 1) ≤ 4Rmax ϵ/λ . Substituting 
+
+ϵ = σp2 log(2 |T | /δ ) completes the proof. 
+
+A.3 Proof of Theorem 4.4 
+
+Theorem 4.4 (Coverage-Dependent Suboptimality Bound; restated) . Under the conditions of Theorem 4.3, with proba-bility at least 1 − δ:
+
+max  
+
+> τ
+
+R∗(τ ) − V πλ (s) ≤ λ log 1
+
+p⋆(s) + Rmax 
+
+
+
+e2ϵ/λ − 1
+
+
+
+.
+
+When λ ≥ 2ϵ, the right-hand side is at most 
+
+λ log(1 /p ⋆) + 4 Rmax ϵ/λ , which is minimized at λ⋆ =2pRmax ϵ/ log(1 /p ⋆), where the minimized bound equals 
+
+4pRmax ϵ log(1 /p ⋆).Proof. If p⋆(s) = 0 the right-hand side of Equation (8) is infinite and the bound holds trivially, so assume p⋆(s) > 0.Take ˜π(·| s) to be the optimal policy from s, i.e., the point mass on τ ⋆(s). Then V ˜π (s) = max τ R∗(τ ) and 
+
+DKL (˜ π(·| s) ∥ πβ (·| s)) = log 1
+
+πβ (τ ⋆(s)|s) = log 1
+
+p⋆(s) .
+
+(A18) Substituting into Theorem 4.3 and rearranging yields Equa-tion (8). For the second claim, when λ ≥ 2ϵ the noise cost is at most 4Rmax ϵ/λ as in Theorem 4.3, so the right-hand side is at most 
+
+g(λ) := λ log 1
+
+p⋆ + 4Rmax ϵλ . (A19) The function g is convex with g′(λ) = log(1 /p ⋆) −
+
+4Rmax ϵ/λ 2, which vanishes at 
+
+λ⋆ = 2 
+
+s
+
+Rmax ϵ
+
+log(1 /p ⋆) , (A20) 
+
+g(λ⋆) = 4 pRmax ϵ log(1 /p ⋆). (A21) 
+
+# B Additional Experimental Results 
+
+B.1 Training Details 
+
+All experiments were run on 4 NVIDIA A100 GPUs. Each reported result corresponds to a single training run per algorithm–dataset configuration; the consistency of Exp-RSFT’s improvements across all five evaluation metrics and all four datasets serves as evidence of the robustness of the reported gains. The temperature λ and training epochs are specified in Section 5; all remaining hyperparameter settings, including the fixed random seeds used for training, are pro-vided in the accompanying code, allowing exact replication of the reported results. 
+
+B.2 Rating Distribution 
+
+Figure 2 shows the distribution of ratings across the three public datasets. Ratings concentrate at the high end of the scale, which motivates the rating ≥ 4.5 filter used in our evaluation (Section 5). Figure 2: Distribution of ratings in the three public test datasets. 
+
+B.3 Temperature Sweep at Best and Final Epochs 
+
+Figures 3 and 4 report the full temperature sweep of Section 5 for all five evaluation metrics, selecting the best training epoch and the final training epoch, respectively. The inverted-U shape predicted by Theorem 4.4 appears in both, ruling out early stopping as a confound. 
+
+B.4 Metric Evolution over Training 
+
+Figures 5–7 show the evolution of all five metrics across training epochs for every algorithm on the three public bench-marks; epoch 0 corresponds to the BC baseline. PPO and DPO collapse early in training, consistent with reward-model over-optimization. Figures 8–10 zoom in on RSFT and Exp-RSFT only: Exp-RSFT improves on RSFT at essentially ev-ery epoch on every dataset. Figure 3: Best-epoch values of all five metrics for different λ, on the three public benchmarks. Figure 4: Final-epoch values of all five metrics for different λ, on the three public benchmarks. Figure 5: All metrics across training epochs for all algorithms on ML-1M. 
+
+Figure 6: All metrics across training epochs for all algorithms on ML-20M. Figure 7: All metrics across training epochs for all algorithms on Amazon Books. 
+
+Figure 8: RSFT versus Exp-RSFT across training epochs on ML-1M. Figure 9: RSFT versus Exp-RSFT across training epochs on ML-20M. 
+
+Figure 10: RSFT versus Exp-RSFT across training epochs on Amazon Books.
