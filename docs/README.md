@@ -6,109 +6,101 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-10
-- 运行时间：2026-08-10 22:05:01 UTC
+- 最新运行日期：2026-08-11
+- 运行时间：2026-08-11 22:15:20 UTC
 - 运行状态：成功
-- 本次总论文数：29
-- 精读区：14
+- 本次总论文数：27
+- 精读区：12
 - 速读区：15
 
 ### 今日简报（AI）
-今日精读14篇、速读15篇，共梳理29篇论文，重点关注图引导搜索与策略滞后优化两大方向。  
-最值得看的是《G-ReAct》的结构-状态协同进化搜索，以及《Reusing Rollouts》的前缀归一化策略优化，分别对复杂推理与LLM强化学习效率提升有明确启发。  
-顺带关注速读中的KV Cache压缩、罕见病医疗辅助与推理调度能耗研究，适合作为下一步扩展阅读。
-- 详情：[/202608/10/README](/202608/10/README)
+今日共读27篇，精读12篇、速读15篇，重点探索LLM语言知识学习与推理机制。最值得看精读中的ConlangBench（构造语言评测语言知识）和Reversing Arrows（反向推理），速读中PALMs、Agentic AI安全与PrefixPlace也有亮点。建议优先精读高分论文，并结合实际场景验证这些方法的可复用性。
+- 详情：[/202608/11/README](/202608/11/README)
 
 ### 精读区论文标签
-1. [G-ReAct: Graph-Guided Deep Search via Structure-State Co-Evolution](/202608/10/2608.01324v1-g-react-graph-guided-deep-search-via-structure-state-co-evolution)  
-   标签：评分：9.0/10、query:agent
-   evidence：面向LLM智能体的图引导深度搜索框架
-2. [Reusing Rollouts under Policy Lag: Prefix-Normalized Policy Optimization for LLM Reinforcement Learning](/202608/10/2608.01418v1-reusing-rollouts-under-policy-lag-prefix-normalized-policy-optimization-for-llm-reinforcement-learning)  
+1. [ConlangBench: Exploring Language Knowledge and Learning in LLMs through Diverse Constructed Languages](/202608/11/2608.03505v2-conlangbench-exploring-language-knowledge-and-learning-in-llms-through-diverse-constructed-languages)  
+   标签：评分：9.0/10、query:llm
+   evidence：评估LLM在构造语言上表现的新基准
+2. [Reversing Arrows in Large Language Models](/202608/11/2608.03512v1-reversing-arrows-in-large-language-models)  
+   标签：评分：9.0/10、query:llm
+   evidence：评估大语言模型逆关系方向性理解的基准
+3. [Adaptive Supervised Anchoring for On-Policy Self-Distillation](/202608/11/2608.07935v1-adaptive-supervised-anchoring-for-on-policy-self-distillation)  
    标签：评分：9.0/10、query:post-train
-   evidence：用于LLM后训练的强化学习方法，复用rollout
-3. [Training Small LLMs as Spatial Multi-Agent Policies](/202608/10/2608.01425v1-training-small-llms-as-spatial-multi-agent-policies)  
+   evidence：在线自蒸馏中的自适应监督锚定方法
+4. [RotaryQuant: Fitting 120B MoE Models on Consumer Hardware via Fused Compressed-Space Attention](/202608/11/2608.08081v1-rotaryquant-fitting-120b-moe-models-on-consumer-hardware-via-fused-compressed-space-attention)  
+   标签：评分：9.0/10、query:llm
+   evidence：面向MoE大语言模型的推理压缩系统
+5. [FailForge: Distilling Procedural Competence from Persistent Failures into Code Agents](/202608/11/2608.08570v1-failforge-distilling-procedural-competence-from-persistent-failures-into-code-agents)  
    标签：评分：9.0/10、query:agent
-   evidence：将小规模LLM训练为空间多智能体策略，是多智能体系统核心研究
-4. [Look Ahead Before You Distill: Future Trajectory Validation of Teacher Guidance for Agentic On-Policy Distillation](/202608/10/2608.01953v2-look-ahead-before-you-distill-future-trajectory-validation-of-teacher-guidance-for-agentic-on-policy-distillation)  
+   evidence：从失败轨迹训练代码智能体
+6. [The Evolution of Mixture-of-Experts Architectures in Large Language Models: Routing, Topology, Load Balancing, and Expert Parallelism](/202608/11/2608.08650v1-the-evolution-of-mixture-of-experts-architectures-in-large-language-models-routing-topology-load-balancing-and-expert-parallelism)  
+   标签：评分：9.0/10、query:llm
+   evidence：大语言模型混合专家架构技术综述
+7. [LibraSpec: Dynamic Diffusion-Based Speculative Decoding via Marginal-Gain-Driven Optimization](/202608/11/2608.08721v1-libraspec-dynamic-diffusion-based-speculative-decoding-via-marginal-gain-driven-optimization)  
+   标签：评分：9.0/10、query:llm
+   evidence：基于边际增益优化的动态扩散推测解码，加速LLM推理
+8. [PAST: Privileged Adaptation from Complete Student Trajectories for On-Policy Self-Distillation](/202608/11/2608.08726v1-past-privileged-adaptation-from-complete-student-trajectories-for-on-policy-self-distillation)  
    标签：评分：9.0/10、query:post-train
-   evidence：面向智能体任务的在线蒸馏方法
-5. [Evaluating LLMs in Database Scenarios: A Lifecycle Benchmark for Assessing Their Potential in Core Database Tasks](/202608/10/2608.03794v1-evaluating-llms-in-database-scenarios-a-lifecycle-benchmark-for-assessing-their-potential-in-core-database-tasks)  
+   evidence：基于特权学生轨迹的在线策略自蒸馏
+9. [BOUND: Brief-Guided Corrective Preference Distillation at Search-Control Boundaries](/202608/11/2608.08768v1-bound-brief-guided-corrective-preference-distillation-at-search-control-boundaries)  
+   标签：评分：9.0/10、query:agent
+   evidence：针对基于LLM的深度搜索代理中的错误锚点、约束漂移和局部主题漂移，提出简报引导的校正偏好蒸馏
+10. [DistillCache: KL-Guided Adaptive KV-Cache Eviction for Memory-Efficient LLM Inference](/202608/11/2608.08878v1-distillcache-kl-guided-adaptive-kv-cache-eviction-for-memory-efficient-llm-inference)  
    标签：评分：9.0/10、query:llm
-   evidence：面向数据库任务的LLM生命周期评测基准
-6. [Training-Free Hashing-Based Attention via Binary Principal Components](/202608/10/2608.04405v1-training-free-hashing-based-attention-via-binary-principal-components)  
+   evidence：提出基于强化学习的自适应KV缓存驱逐策略，用于减少LLM推理显存瓶颈
+11. [SwiftQK: Fast and Communication-Efficient Tensor Parallelism for Query-Key Normalization](/202608/11/2608.09160v1-swiftqk-fast-and-communication-efficient-tensor-parallelism-for-query-key-normalization)  
    标签：评分：9.0/10、query:llm
-   evidence：面向长上下文LLM推理的无训练哈希稀疏注意力
-7. [MemoryCPT: An End-to-End Agent Memory Framework for Cost-Performance Trade-off](/202608/10/2608.04843v1-memorycpt-an-end-to-end-agent-memory-framework-for-cost-performance-trade-off)  
-   标签：评分：9.0/10、query:agent
-   evidence：面向长程LLM智能体的端到端内存框架
-8. [PRISM: Priority-aware Rubric Internalization via Structured Multimodal Data Synthesis](/202608/10/2608.05249v2-prism-priority-aware-rubric-internalization-via-structured-multimodal-data-synthesis)  
-   标签：评分：9.0/10、query:llm-synth
-   evidence：面向指令微调的结构化多模态数据合成框架
-9. [ADIAS: Automated Design of Interactive Agentic Systems](/202608/10/2608.06410v1-adias-automated-design-of-interactive-agentic-systems)  
-   标签：评分：9.0/10、query:agent
-   evidence：自动化智能体设计，以持久问题状态指导迭代修订
-10. [The Optimizer Is the Agent: Reasoning-Driven Search across Prompts, Programs, and ML Workflows](/202608/10/2608.06714v1-the-optimizer-is-the-agent-reasoning-driven-search-across-prompts-programs-and-ml-workflows)  
-   标签：评分：9.0/10、query:agent
-   evidence：面向提示、程序与ML工作流的统一智能体框架，用于推理驱动优化
-11. [ReQuant: Fixed-Grid Discrete Refinement for Post-Training Quantization](/202608/10/2608.07019v1-requant-fixed-grid-discrete-refinement-for-post-training-quantization)  
-   标签：评分：9.0/10、query:llm
-   evidence：针对大语言模型后训练量化，降低推理显存与计算开销
-12. [RoRA: Role-Oriented Regional Allocation for Visual Token Pruning in MLLMs](/202608/10/2608.07088v1-rora-role-oriented-regional-allocation-for-visual-token-pruning-in-mllms)  
-   标签：评分：9.0/10、query:llm
-   evidence：通过视觉token剪枝降低多模态大模型的预填充与KV缓存开销
-13. [Agent Memory Distillation: Empowering Small LLM Agents with Hierarchical Teacher Memory](/202608/10/2608.07169v1-agent-memory-distillation-empowering-small-llm-agents-with-hierarchical-teacher-memory)  
-   标签：评分：9.0/10、query:agent
-   evidence：面向小型LLM代理的代理记忆蒸馏
-14. [Fisher-R1: Training LLM Agents for Reliable Hypothesis Testing](/202608/10/2608.07437v1-fisher-r1-training-llm-agents-for-reliable-hypothesis-testing)  
-   标签：评分：9.0/10、query:agent
-   evidence：训练LLM智能体进行可靠的科学假设检验
+   evidence：针对QK-Norm的张量并行通信优化，提升大模型推理效率
+12. [Bidirectional Context Self-Distillation for Reinforcement Learning of Skill-Based LLM Agents](/202608/11/2608.09555v1-bidirectional-context-self-distillation-for-reinforcement-learning-of-skill-based-llm-agents)  
+   标签：评分：9.0/10、query:post-train
+   evidence：面向技能型LLM智能体强化学习的双向上下文自蒸馏
 
 ### 速读区论文标签
-1. [Practical Online KV Cache Compaction for LLM Agents: An Empirical Study](/202608/10/2608.00902v1-practical-online-kv-cache-compaction-for-llm-agents-an-empirical-study)  
-   标签：评分：8.0/10、query:llm
-   evidence：面向LLM智能体的在线KV缓存压缩，实现高效推理
-2. [MedUPS: Towards Diagnostic Assistance in Uncommon Medical Cases with Large Language Models](/202608/10/2608.01012v1-medups-towards-diagnostic-assistance-in-uncommon-medical-cases-with-large-language-models)  
+1. [PALMs: Using Multi Construct-Grounded Rationales for Modeling Population Preferences in LLMs](/202608/11/2608.01458v1-palms-using-multi-construct-grounded-rationales-for-modeling-population-preferences-in-llms)  
    标签：评分：8.0/10、query:post-train
-   evidence：提出监督中间临床决策的LLM对齐框架
-3. [Smoothing the Ramp, Not the Peak: Scheduling-Induced Power Dynamics of LLM Inference and Their Grid-Scale Consequences](/202608/10/2608.01250v1-smoothing-the-ramp-not-the-peak-scheduling-induced-power-dynamics-of-llm-inference-and-their-grid-scale-consequences)  
+   evidence：合成理由用于LLM群体对齐
+2. [Securing Agentic AI: From Per-Action Checks to Trajectory Assurance](/202608/11/2608.01558v1-securing-agentic-ai-from-per-action-checks-to-trajectory-assurance)  
+   标签：评分：8.0/10、query:agent
+   evidence：探讨LLM智能体从单步检查到轨迹保证的安全保障问题
+3. [PrefixPlace: Provable Prefix Key-Value Placement for Large Language Model Serving under Heterogeneous Compute and Transfer Costs](/202608/11/2608.01655v1-prefixplace-provable-prefix-key-value-placement-for-large-language-model-serving-under-heterogeneous-compute-and-transfer-costs)  
    标签：评分：8.0/10、query:llm
-   evidence：分析大语言模型推理调度对功耗动态与电网的影响
-4. [Prompt-Induced Waste in Large Reasoning Models: A Preregistered Two-Harness Benchmark of Coding Agents](/202608/10/2608.01347v1-prompt-induced-waste-in-large-reasoning-models-a-preregistered-two-harness-benchmark-of-coding-agents)  
+   evidence：提出前缀KV放置规划器以优化异构计算和传输成本下的LLM推理服务
+4. [Self-Improving Large Language Models via Progressive Experience Evolution](/202608/11/2608.02139v2-self-improving-large-language-models-via-progressive-experience-evolution)  
+   标签：评分：8.0/10、query:post-train
+   evidence：通过经验蒸馏的自我改进，桥接测试时与训练时优化
+5. [From Profiling to Synthesis: Benchmarking Implicit Behavioral Alignment in Personalized LLM Agents](/202608/11/2608.02171v1-from-profiling-to-synthesis-benchmarking-implicit-behavioral-alignment-in-personalized-llm-agents)  
    标签：评分：8.0/10、query:agent
-   evidence：关于编码智能体提示词引发推理成本浪费的基准研究
-5. [Long-Horizon Embodied Decision-Making via Multimodal Memory Compression](/202608/10/2608.01456v1-long-horizon-embodied-decision-making-via-multimodal-memory-compression)  
-   标签：评分：8.0/10、query:agent
-   evidence：面向自主具身决策智能体的基准
-6. [Beyond Routing Saturation: A Long-Horizon Class-Incremental Perspective on Expert Routing in Multimodal Continual Instruction Tuning](/202608/10/2608.01437v1-beyond-routing-saturation-a-long-horizon-class-incremental-perspective-on-expert-routing-in-multimodal-continual-instruction-tuning)  
+   evidence：个性化LLM智能体隐式行为对齐基准
+6. [TextNCA: Neural Cellular Automata for Language Modeling via Hierarchical Local Attention](/202608/11/2608.02050v1-textnca-neural-cellular-automata-for-language-modeling-via-hierarchical-local-attention)  
    标签：评分：7.0/10、query:llm
-   evidence：针对多模态持续指令微调引入长视界专家路由评测基准FLEX
-7. [LAB-Tab: LLM-Augmented Bayesian Network Adaptation for Few-Shot Tabular Generation](/202608/10/2608.01879v1-lab-tab-llm-augmented-bayesian-network-adaptation-for-few-shot-tabular-generation)  
-   标签：评分：7.0/10、query:llm-synth
-   evidence：利用LLM增强贝叶斯网络自适应以生成少量样本表格数据
-8. [Training-Free versus Training-Based Intent Classification in LLMs: Accuracy, Robustness, and Failure Modes](/202608/10/2608.02415v1-training-free-versus-training-based-intent-classification-in-llms-accuracy-robustness-and-failure-modes)  
+   evidence：研究局部注意力与权重共享的语言模型架构
+7. [PI-Mem: Pushing Long-Context Reasoning to 3.6M Tokens with Parallel-Iterative Memory](/202608/11/2608.03048v1-pi-mem-pushing-long-context-reasoning-to-36m-tokens-with-parallel-iterative-memory)  
    标签：评分：7.0/10、query:llm
-   evidence：面向领域专用LLM路由的意图分类方法系统对比
-9. [PAMT: Process-Aligned Reinforcement Learning for Multi-Domain Machine Translation](/202608/10/2608.03077v1-pamt-process-aligned-reinforcement-learning-for-multi-domain-machine-translation)  
-   标签：评分：7.0/10、query:post-train
-   evidence：面向LLM后训练的过程对齐强化学习
-10. [Attacking and Defending Multi-Agent Collaborative Filtering Systems Through Connectivity](/202608/10/2608.03272v1-attacking-and-defending-multi-agent-collaborative-filtering-systems-through-connectivity)  
+   evidence：面向长上下文LLM推理的新型并行迭代记忆机制
+8. [DataSpace: Benchmarking Data Agents for Verifiable Analytics over Heterogeneous Workspaces](/202608/11/2608.03451v1-dataspace-benchmarking-data-agents-for-verifiable-analytics-over-heterogeneous-workspaces)  
    标签：评分：7.0/10、query:agent
-   evidence：针对由自主LLM驱动的多智能体协同过滤系统的攻击与防御分析
-11. [Who Belongs in the Eval Set? A Capability-Taxonomy-Driven Pipeline for Curating Regression Eval Sets in Agent-Extensibility Platforms](/202608/10/2608.01004v1-who-belongs-in-the-eval-set-a-capability-taxonomy-driven-pipeline-for-curating-regression-eval-sets-in-agent-extensibility-platforms)  
-   标签：评分：6.0/10、query:agent
-   evidence：面向智能体扩展平台的回归评测集筛选，基于能力分类学
-12. [SG-Layout: Structured Scene Graph-Guided Layout Generation with LLMs](/202608/10/2608.01106v1-sg-layout-structured-scene-graph-guided-layout-generation-with-llms)  
+   evidence：异构工作空间数据智能体可验证分析基准
+9. [FraQ: Efficient Coordinate-Space Recompression for Federated Low-Rank Adaptation](/202608/11/2608.03605v1-fraq-efficient-coordinate-space-recompression-for-federated-low-rank-adaptation)  
+   标签：评分：7.0/10、query:llm
+   evidence：面向LLM联邦LoRA微调的高效坐标空间重压缩方法
+10. [On Design Principles for Efficient Heterogeneous DRAM-PIM-GPU Systems](/202608/11/2608.04169v1-on-design-principles-for-efficient-heterogeneous-dram-pim-gpu-systems)  
+   标签：评分：7.0/10、query:llm
+   evidence：提出面向LLM解码阶段和长输出生成的DRAM-PIM-GPU异构系统高效设计原则
+11. [KV-Skill: Forging Expertise in the Model's Native Language](/202608/11/2608.05475v1-kv-skill-forging-expertise-in-the-models-native-language)  
+   标签：评分：6.0/10、query:post-train
+   evidence：通过奖励学习形成潜在技能操作符
+12. [Mapping Similarity Spaces across Embedding Models with Synthetic Query Probing](/202608/11/2608.05857v1-mapping-similarity-spaces-across-embedding-models-with-synthetic-query-probing)  
+   标签：评分：6.0/10、query:llm-synth
+   evidence：从文档生成合成查询以建立跨模型相似度映射
+13. [Beyond Post-Hoc Temperature Scaling: Bilevel Optimization for LLM Calibration](/202608/11/2608.07419v1-beyond-post-hoc-temperature-scaling-bilevel-optimization-for-llm-calibration)  
+   标签：评分：6.0/10、query:post-train
+   evidence：针对偏好对齐导致的过度自信，通过最大化熵的双层优化进行校准
+14. [Preserving Item Semantics for Free: Rethinking Token Initialization in LLM-Based Generative Recommendation](/202608/11/2608.07816v1-preserving-item-semantics-for-free-rethinking-token-initialization-in-llm-based-generative-recommendation)  
    标签：评分：6.0/10、query:llm
-   evidence：采用含LoRA适配器的两阶段指令微调框架，针对布局生成任务微调LLM
-13. [ACE-GraphRAG: Agentic Context Engineering for Hierarchical GraphRAG](/202608/10/2608.01269v2-ace-graphrag-agentic-context-engineering-for-hierarchical-graphrag)  
-   标签：评分：6.0/10、query:agent
-   evidence：为检索增强生成框架设计智能体式上下文策略层
-14. [Interpreting Black-Box Large Language Models with Sentence-Level Energy Landscapes](/202608/10/2608.02879v1-interpreting-black-box-large-language-models-with-sentence-level-energy-landscapes)  
+   evidence：重新思考LLM生成式推荐中的token初始化，一种微调适配技术
+15. [KGCache: Amortized Subgraph Retrieval for KG Reasoning with LLMs](/202608/11/2608.07954v1-kgcache-amortized-subgraph-retrieval-for-kg-reasoning-with-llms)  
    标签：评分：6.0/10、query:llm
-   evidence：使用能量模型代理对黑盒LLM进行句子级归因解释
-15. [Predicting Multilingual Classification and Translation Performance of LLMs with Cross-Lingual Alignment $\unicode{x2013}$ Is English Enough?](/202608/10/2608.03446v1-predicting-multilingual-classification-and-translation-performance-of-llms-with-cross-lingual-alignment-unicodex2013-is-english-enough)  
-   标签：评分：6.0/10、query:llm
-   evidence：对比27种跨语言对齐分数以预测LLM下游性能
+   evidence：在LLM知识图谱问答推理中缓存邻域查询以摊销重复检索
 
 
 <div class="dpr-home-promo-card">
