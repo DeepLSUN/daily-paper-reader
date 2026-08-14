@@ -1,0 +1,1605 @@
+Title: Beyond Sequence Order: Syntax-Informed Positional Embeddings for Transformers
+
+URL Source: https://arxiv.org/pdf/2608.06111v1
+
+Published Time: Fri, 07 Aug 2026 01:19:59 GMT
+
+Number of Pages: 21
+
+Markdown Content:
+# Beyond Sequence Order: Syntax-Informed Positional Embeddings for Transformers 
+
+Haris Riaz and Hyungji Kim and Mihai Surdeanu 
+
+Department of Computer Science University of Arizona Tucson, AZ, USA 
+
+§ Code 
+
+Abstract 
+
+Positional embeddings (PE) in Transformers encode token distance and order but are largely agnostic to syntactic structure . We intro-duce Syntax-informed Positional Embeddings (SiPE ), which learns a lightweight syntactic prior from dependency parses during pretrain-ing and injects it across all three dominant PE families (absolute, relative, rotary), for both en-coders and decoders, leaving self-attention and the rest of the architecture untouched. We iso-late where and how the prior should enter the model, and find it depends on the architecture: for autoregressive decoders that use relative PE, the prior is strongest when coupled multi-plicatively with the relative-position term of the attention score, outperforming injection into the input embeddings, into self-attention, or into the positional and attention terms jointly— while for encoders it is best added directly to the input embeddings, composing with each encoder’s native positional mechanism. We find that models pre-trained with SiPE im-prove on the SyntaxGym benchmark by up to 
+
+10 .3% while simultaneously reducing perplex-ity by 9.0% over a base model with no syn-tactic supervision—a metric nearly every exist-ing syntax-injection method instead degrades. Crucially, these gains extend beyond syntactic generalization: SiPE also improves real-world language understanding, raising scores on the GLUE benchmark by up to 8.2% over a model trained without it. Unlike existing syntactic language models that marginalize over many parses at inference or discard syntax at runtime, SiPE conditions on a single parse, establishing a new Pareto frontier between syntactic super-vision and inference cost. 
+
+1 Introduction 
+
+The transformer architecture (Vaswani et al., 2017) forms the foundation of modern LLMs. While 0 1 300    
+
+> Inference cost (parse trees evaluated per sentence)
+> 72 74 76 78 80 82
+> SyntaxGym score
+> parser-free single parse beam marginalization
+> //
+> Transformer-XL (no syntactic supervision) TPT TreeReg PLM Pushdown LM TG
+> SiPE (ours)
+
+Figure 1: Our Syntax-Informed Positional Embeddings (SiPE) move the Pareto frontier between syntactic super-vision and inference cost. Each point plots a method’s Syn-taxGym score (Table 2) against the number of parse trees it evaluates per sentence at inference. Joint syntactic LMs (TG (Sartran et al., 2022), Pushdown LM (Murty et al., 2023), PLM (Qian et al., 2021)) recover p(x) by marginalizing over 
+
+≈300 candidate parses; parser-free methods (TreeReg (Nandi et al., 2025), Tree-Planted Transformers (Yoshida et al., 2024)) inject syntax only during training and discard the parser at runtime, making inference cheap but sacrificing some syntac-tic knowledge. SiPE conditions on a single parse, retaining most of the benefit of full marginalization at 1/300 th of its inference cost. 
+
+the impact of LLMs is substantial, several linguis-tic simplifications were introduced in the underly-ing architecture to improve scalability. One key choice was the use of positional embeddings (PE) to encode each token’s location within a sequence. While this approach preserved computational effi-ciency and scalability, it reduced positional infor-mation to a simple ordering mechanism—sufficient to indicate where tokens appear, but insufficient to capture the syntactic relations that form the scaf-folding for downstream semantics. That is, without explicitly modeling syntactic compositionality, se-mantic frames (Baker et al., 1998; Kingsbury and 1arXiv:2608.06111v1 [cs.CL] 6 Aug 2026 Figure 2: Left: From bottom to top, the figure shows the correspondence between dependency arcs, binary head tree (BHT), and hexatags (left-shifted) for the sentence “she watches funny videos.” Right: Our prior-injection method for absolute positional embeddings (input-pathway injection). From bottom to top, each token (at its first subword; subsection A.1) selects one row from each of four lookup tables: the token embedding ( |V | × D; omitted from the figure for brevity), the non-terminal tag embedding ENνp (5 × D), the terminal tag embedding ETτp (2 × D), and the positional embedding ( N × D). The selected rows are combined via an injection operation ⊕ (addition by default; we ablate concatenation, weighted-addition and addition to skip connection in Appendix E) into the syntax-informed input xp (Equation 2). The transformer maps these inputs to contextual states hi, and at each masked position i ∈ M three prediction heads recover the token xi, terminal tag τi, and non-terminal tag              
+
+> νi, yielding L=LMLM +LT+LNT ; one masked position is shown, and head colors match the embedding rows they supervise. For decoders, next-token prediction replaces MLM: the token head at position ipredicts token i+1 at every position, while the tag heads are applied only at first-subword positions and predict the tags of the next tagged position (subsection A.1).
+
+Palmer, 2002) are more likely to be extracted incor-rectly, increasing the risk of misinterpretation for LLM-based agents. Consider, for example, this hy-pothetical agent request: “Please move this large file to another folder.” To execute the requested action correctly, the move predicate must be asso-ciated with its arguments: the object to be moved (file ) and the destination ( folder ). Absolute posi-tional encodings (Devlin et al., 2019; Liu et al., 2019), provide no signal to link this predicate to its arguments. Relative positional encodings, e.g., De-BERTa (He et al., 2021) and Transformer-XL (Dai et al., 2019), weaken this signal. For instance, the relative distance between move and folder is large (six words), even though a direct oblique 
+
+syntactic dependency connects the verb to its mod-ifier (De Marneffe et al., 2021). Partially due to this shallower representation, language models (LMs) still exhibit weak composi-tional generalization (Guo et al., 2020). Prior work injects hierarchical inductive bias by constraining self-attention using constituency or dependency structure, often via quadratic token-token interac-tions and hard-coded attention masks (Sartran et al., 2022; Zhao et al., 2024; Murty et al., 2023; Qian et al., 2021; Xie et al., 2021). This is a complex process that requires considerable changes in the transformer architecture and which increases the at-tention mechanism’s computational overhead (e.g., Pushdown LMs (Murty et al., 2023) maintain a recursively updated stack over the sequence that reshapes the attention pattern at every step). The main contributions of our paper are: 
+
+(1) We introduce Syntax-informed Positional 
+
+Embeddings ( SiPE ) that augment a model’s po-sitional pathway with a lightweight prior derived from linearized dependency trees—coarse direc-tional indicators relating each token to its syntactic governor (§3), learned during pre-training via an auxiliary indicator-prediction objective alongside the LM loss. 
+
+(2) SiPE composes with all three dominant po-sitional encoding families—absolute (Liu et al., 2019), relative (He et al., 2021; Dai et al., 2019), and rotary (Warner et al., 2024)—without modify-2ing self-attention or any other Transformer compo-nent. 
+
+(3) For encoders, SiPE improves BLiMP (Warstadt et al., 2023) syntactic generalization across all three families (up to +2 .3% relative for Modern-BERT), with gains compounding under continued pre-training on BLLIP-LG ( +3% for DeBERTa-v3 on out-of-domain evaluation), indicating the prior generalizes beyond its pre-training distribu-tion (Table 3). The same models also improve on GLUE (Wang et al., 2019) at both small and large scale (tables Table 4, 5 and 6). 
+
+(4) For autoregressive decoders like Transformer-XL, injecting through the positional pathway alone is the strongest recipe: it achieves the best Syn-taxGym (Hu et al., 2020) score of any configura-tion of our method ( 80 .60 , +10 .3 relative improve-ment over the no-syntax baseline) while cutting perplexity by 9.0% (relative), and drives a signif-icant +8 .2% relative improvement on GLUE for the same model (Table 6). 
+
+(5) As shown in Figure 1, prior syntactic LMs sit at two extremes: parsing at inference (expensive marginalization over many parse trees) or only dur-ing training (discarding syntax at runtime, with weaker syntactic generalization). SiPE moves the Pareto frontier between these by conditioning on a 
+
+single parse at inference. The injection of syntac-tic information adds no asymptotic cost over self-attention, 1 and unlike most prior syntactic LMs which jointly model syntax and language, SiPE leaves downstream usage unchanged—models ar-chitecturally remain compatible with continual pre-training, supervised fine-tuning and reinforcement learning. Empirically we outperform parser-free approaches—Tree-Planted Transformers (Yoshida et al., 2024) and TreeReg (Nandi et al., 2025)—on both BLLIP-LG perplexity and SyntaxGym (Ta-ble 2). 
+
+2 Related Work, Background, and Notations 
+
+Prior work shows that pretraining on formal lan-guages or injecting tree-based signals can improve syntactic generalization and data efficiency (Hu   
+
+> 1Dependency tags are predicted in parallel by a lightweight
+> DeBERTa-v3-base classifier whose overhead on top of the en-coder’s is linear in input length; see Appendix B. Implemented in-house with a multitask-learning encoder, two per-token tag heads: https://clulab.org/processors/
+
+et al., 2025). However, most methods encode syn-tax by constraining self-attention via pairwise to-ken interactions and hard-coded attention masks, adding parameters and training complexity (Xie et al., 2021; Sartran et al., 2022; Qian et al., 2021; Murty et al., 2023). We instead sidestep this by encoding dependency structure as two lightweight prior vectors derived from Hexatagging , and apply these priors to the positional embedding pathway. Modern Transformers encode position through three dominant schemes: absolute embeddings added to the input residual (Liu et al., 2019), rel-ative embeddings indexed by offset i − j inside attention (He et al., 2023; Dai et al., 2019), and 
+
+rotary embeddings that rotate queries and keys by position-dependent angles (Su et al., 2023). We show that our method seamlessly composes with all three PE types (subsection 3.1). 
+
+Hexatagging. In this work, we leverage Hexatag-ger (Amini et al., 2023), a “parsing-as-tagging” de-pendency parser that assigns each token two types of discrete syntactic labels (analogous to position or subword IDs): (a) the position of its syntac-tic governor (which can further be decomposed into two subtypes) and (b) the dependency rela-tion. This formulation can be mapped to simple embedding lookup tables that can be linearly com-bined with token embeddings without modifying self-attention. Hexatagger maps a projective depen-dency tree to a binary head tree (BHT, a special form of constituency tree) by binarizing the struc-ture and labeling each internal node with L/R to in-dicate whether the span head lies in the left or right subtree, then linearizes the BHT via an in-order (left-corner) traversal. Each visited node yields a tag encoding its attachment direction (left vs. right child), and for non-terminals, the head-direction ( L
+
+vs. R). This yields a fixed projective tag inventory with terminal tags 
+
+> →
+
+and 
+
+> →
+
+, plus non-terminal tags  
+
+> ⇒L
+
+, 
+
+> ⇒R
+
+, 
+
+> ⇒ L
+
+, and  
+
+> ⇒ R
+
+(Figure 2, left). This avoids unbounded (length-dependent) tag sets whose car-dinality grows with the input length; instead each token’s tag can be predicted independently with a linear classifier. In our implementation, we fur-ther append a dedicated EOS non-terminal (via a left shift of between-token non-terminals) to obtain one non-terminal label per token. 1 In this work, we omit dependency relation labels, finding that terminal/non-terminal hexatags alone provide suf-ficient syntactic inductive bias to improve down-stream language modeling performance. 33 Approach 
+
+Both training and inference operate on a hex-atagged sequence: the input is first tagged by our parser (subsection A.1). Encoders train with the standard MLM objective; decoder training is stan-dard next-token prediction, as each token carries its own tags and truncating the sequence at any prefix leaves the retained tags intact. 
+
+3.1 Deriving a Positional Syntactic Bias 
+
+An inductive bias can enter the PE layer in three ways (Figure 2): (a) entangled with the token em-bedding , applied to the input before any positional or attention information is introduced; (b) com-posed with the default PE scheme under some oper-ation; or (c) disentangled , a separate additive term in the attention score that modulates each head. Linearizing the binary head tree into discrete tags (the hexatagging procedure of section 2) yields two embedding tables, one per tag type, composable with the PE mechanism under any of these opera-tions. At position p they contribute: 
+
+mp ·  ETτp + ENνp
+
+ (1) where ET ∈ R|T |× d and EN ∈ R|N |× d are learned tables ( |T | =2 terminals, |N | =5 non-terminals), and mp ∈ { 0, 1} is the first-subword mask, equal to 1 only at each word’s first subword so the hex-atag is injected once per word (subsection A.1). Tables are randomly initialized and trained jointly with the LM objective. Throughout the paper, every occurrence of ETτp + ENνp is implicitly multiplied by mp; we omit the mask from later equations for readability, so continuation subwords contribute no tag term anywhere. 
+
+3.2 RoBERTa: Absolute Positional Embeddings 
+
+We begin with the simplest case. Adopting strat-egy (a), hexatag priors are injected directly into the input embedding, which combines a learned ab-solute position vector pp with the token, segment, and tag terms: 
+
+xp = etok  
+
+> p
+
++ pp + eseg  
+
+> p
+
++ mp ·  ETτp + ENνp
+
+ (2) The tag term sits at the same level as pp, so the model learns to attend to a richer composite input without architectural conflict 2.
+
+> 2However, the input embedding is not the only place in the transformer where we can inject these priors; see appendix E and figure 9.
+
+3.3 Transformer-XL: Syntactic Priors in an Autoregressive Decoder with Relative PE 
+
+To test prior injection on autoregressive decoders, we use Transformer-XL (Dai et al., 2019) (hereon referred to as TXL), which is one of the earli-est “LLM-like” architectures carrying a sinusoidal relative-position encoding directly in the attention score and is a common syntactic-LM baseline (Sar-tran et al., 2022; Zhao et al., 2024). Following prior work, we disable cross-segment caching (so relative positions apply only within the current win-dow) and replace the adaptive softmax with a tied linear projection, making TXL a purely causal de-coder. For a query at position i and key at position 
+
+j in head n of layer ℓ, the attention score splits into a content term and a position term:                 
+
+> A(ℓ)
+> i,j,n =q(ℓ)
+> i,n +un,k(ℓ)
+> j,n
+> |{z }
+> AC (ℓ)
+> i,j,n (content)
+> +q(ℓ)
+> i,n +vn,WRri−j,n
+> |{z }
+> BD (ℓ)
+> i,j,n (position)
+
+(3) where ri−j,n is the sinusoidal vector for offset i−j,
+
+WR projects it into head n’s dhead -dimensional sub-space, and un, vn are the learned content and posi-tion bias vectors. Notably, this content-conditioned relative-position term remains competitive at fron-tier scale: the concurrent 975B-parameter open-weights model Inkling (Thinking Machines Lab, 2026) abandons RoPE for a relative positional bias of the same query–offset-embedding form, citing better quality and length extrapolation. Because 
+
+BD depends only on i−j, it carries no informa-tion about which tokens occupy positions i and j
+
+or their syntactic role. We supply that missing sig-nal from the hexatag embeddings ETτj + ENνj and study where in the score it should enter, across five injection sites treated in turn below. 
+
+3.3.1 Input-Side Injection (ADD) 
+
+The simplest approach adds the tag embeddings to the token embedding, so the prior enters the input residual at layer 0 and reaches the score only indi-rectly, through the content projections WQ, WK
+
+that build the query and key: 
+
+h(0)  
+
+> p
+
+= etok  
+
+> p
+
++ mp (ETτp + ENνp ) (4) with mp ∈ { 0, 1} masking tag-free positions. The relative-position encoding itself is untouched; the prior entangles with lexical content rather than with position. 43.3.2 Position-Pathway Injection (PP-SiPE) 
+
+The approach which we find works best is to leave the input residual clean and route the tag straight into the position term. Using a layer-specific pro-jection W (ℓ) 
+
+> E
+
+, we map the tag at key j into head 
+
+n’s subspace and take its inner product with the 
+
+same effective query q(ℓ) 
+
+> i,n
+
++ vn that appears in the position term BD (Eq. 3): 
+
+c(ℓ) 
+
+> i,j,n
+
+= 1√dhead 
+
+q(ℓ) 
+
+> i,n
+
++ vn, W (ℓ) 
+
+> E
+
+(ETτj + ENνj )
+
+> n
+
+(5) where [ · ]n selects head n’s dhead -dimensional block and where ETτj and ENνj are the terminal and nonterminal hexatag embeddings at key j. Eqs. 3 and 5 are deliberately parallel: the one effective query q(ℓ) 
+
+> i,n
+
++ vn poses two questions — “how well do I align with this offset ?” ( BD ) and “how well do I align with this tag ?” ( c). The second is there-fore a syntactic counterpart of the first, on the same per-head scale. We couple it to the position term multiplicatively, leaving the content term AC un-touched: 
+
+eA(ℓ) 
+
+> i,j,n
+
+= AC (ℓ) 
+
+> i,j,n
+
++  1 + c(ℓ)
+
+> i,j,n
+
+ · BD (ℓ)
+
+> i,j,n
+
+(6) In our syntactic evaluation, we observe the mul-tiplicative form (Eq. 6) to outperform all other approaches (refer to experiments in table 2 and ablations in table 7, appendix A.2): its correction term c · BD gates by offset alignment , applying the syntactic adjustment in proportion to how strongly the query already attends to that offset. Where the query-offset alignment is strong ( |BD | large), the tag exerts a large pull; where it is near zero, the tag exerts almost none, so syntax modulates an ex-isting positional preference rather than acting in isolation. 3 The offset embedding ri−j,n itself is never modified. 
+
+3.3.3 Fully-Disentangled Injection 
+
+A third option completely disentangles the tag from 
+
+both pathways. Rather than multiplying c with BD ,we add it as an independent third component of the logit, alongside the content and position terms and on the standard attention scale: 
+
+eA(ℓ) 
+
+> i,j,n
+
+= AC (ℓ) 
+
+> i,j,n
+
++ BD (ℓ) 
+
+> i,j,n
+
++ c(ℓ)
+
+> i,j,n
+
+. (7) Now c(ℓ) 
+
+> i,j,n
+
+depends on the query and the tag but not on BD (ℓ)
+
+> i,j,n
+
+, so its size is fixed once the tag is            
+
+> 3We initialize W(ℓ)
+> Esmall, so c≈0and eA≈Aat initial-ization: training starts from the vanilla Transformer-XL score and learns the syntactic correction into it.
+
+chosen: a query at i adds the same syntactic bias toward key j whether or not it already attends to the offset i−j. This is the opposite of the multi-plicative coupling (Eq. 6), where that same bias is scaled by BD , and therefore drops to nearly zero when the query does not attend to the offset (i.e., when BD ≈ 0). In our experiments, we find that this ungated form is weaker (refer to Table 2 and ablations in Table 8, appendix A.3) than the mul-tiplicatively entangled bias, which indicates that the bias from SiPE helps most when it augments an attention preference the position pathway has already established, rather than when it acts on its own. 
+
+3.3.4 Injecting Syntactic Bias in Self-Attention 
+
+Motivated by nearly all prior work which imposes syntactic constraints on attention weights as either a hard or soft bias, (Strubell et al., 2018; Murty et al., 2023; Zhao et al., 2024; Omote et al., 2019; Xie et al., 2021; Yoshida et al., 2024), we propose our hexatag-derived bias applied to attention logits and the attention output, leaving the input residual, 
+
+AC , and the positional pathway BD untouched (h(0)  
+
+> p
+
+= etok  
+
+> p
+
+). The mechanism follows Shaw et al. (2018), who augment attention with learned key-side and value-side vectors. We project the summed hexatag em-bedding at key j two ways: through Wtag ,(ℓ) 
+
+> K
+
+to form a key bias that is added to the attention score 
+
+eA(ℓ)
+
+> i,j,n
+
+, and through Wtag ,(ℓ) 
+
+> V
+
+to form a value bias that is added to the attended output z(ℓ)
+
+> i,n
+
+:         
+
+> eA(ℓ)
+> i,j,n =A(ℓ)
+> i,j,n +1√dhead
+> q(ℓ)
+> i,n ,[Wtag ,(ℓ)
+> K(ETτj+ENνj)] n
+
+(8) 
+
+z(ℓ) 
+
+> i,n
+
+= X
+
+> j
+
+α(ℓ)
+
+> i,j,n
+
+
+
+v(ℓ) 
+
+> j,n
+
++ [ Wtag ,(ℓ) 
+
+> V
+
+(ETτj + ENνj )] n
+
+
+
+(9) where α(ℓ) 
+
+> i,j,n
+
+are the softmax weights, and [ · ]n se-lects multi-head attention head n’s block. Two things differ from the multiplicative alignment score c(ℓ) 
+
+> i,j,n
+
+of Eq. 5. First, that score was built from the effective query q(ℓ) 
+
+> i,n
+
++ vn and scaled the position term BD , whereas this key bias uses the plain query q(ℓ) 
+
+> i,n
+
+and is added directly to the logit. Second, it is keyed on the tag at the single key po-sition j rather than on a relative pair (i, j ), which keeps the added cost linear (rather than quadratic) in sequence length. The projections may be learned 5per layer (the (ℓ) superscript) or tied to a single pair shared across all layers; in our experiments we find the former (per-layer variant) outperforms the latter (shared variant) on syntactic generalization tasks, both on its own and when combined with the input-side injection of Eq. 4 (Appendix A.4). 
+
+3.3.5 Injecting Syntax into Position and Attention Simultaneously 
+
+The final variant pairs our two strongest single-site injections: SiPE on the positional pathway (the multiplicative coupling, Eq. 6) and the per-layer attention-side biases. Combining the two, however, hurts: the joint variant scores below either injection strategy used on its own (Table 2, Appendix A.4). 
+
+Injecting the same hexatag signal as both a posi-tional and attentional bias is thus redundant rather than complementary ; for Transformer-XL, the prior is best supplied once, through the positional path-way. Having established where and how in the score the prior should be combined, we next ask 
+
+which layer it should enter from: at least for the decoder model in our experiments, syntax is best infused from layer 1 onward (section 5). 
+
+3.4 DeBERTa-v3: Injecting the Prior under Disentangled Relative Attention 
+
+DeBERTa-v3 (He et al., 2023) carries no input-level position embedding; positional information enters only at the attention score, through disen-tangled relative attention . For a query at i and key at j, the score splits into a content term and two relative-position terms: 
+
+Sij = Qci Kcj⊤
+
+| {z } 
+
+Scon 
+
+> ij
+
++ Qci Krδ(i,j ) 
+
+> ⊤
+
++ Kcj Qrδ(i,j )
+
+> ⊤
+
+| {z }
+
+Spos 
+
+> ij
+
+,
+
+(10) where δ(i, j ) is the bucketed relative offset and 
+
+Qc, K c are the content query and key. As with the relative-PE models above, we consider two injec-tion sites: the input residual, and the position term 
+
+Spos .
+
+3.4.1 Input-Side Injection 
+
+Because DeBERTa has no absolute position embed-ding, the tag prior becomes the only positionally-localized signal at the input layer: 
+
+h(0)  
+
+> p
+
+= etok  
+
+> p
+
++ eseg  
+
+> p
+
++ mp · ETτp + ENνp
+
+. (11) The prior propagates through WQ and WK into the content terms of the attention score, while the relative-position mechanisms (its bucketing, lookup table, and projection matrices) are left un-touched. Tag priors and relative position thus in-teract only through the content stream , which is what makes the injection portable across positional-encoding families. More details, including how the prior propagates to all three score terms, is given in Appendix A.5. 
+
+3.4.2 Position-Pathway Injection (PP-SiPE) 
+
+Mirroring our Transformer-XL injection, we do not add the prior to the input embeddings (the token representations enter the network unchanged) and instead route it only into the relative-position term 
+
+Spos  
+
+> ij
+
+of the attention score, leaving the content term 
+
+Scon  
+
+> ij
+
+untouched. A per-layer projection W (ℓ) 
+
+> E
+
+maps the summed hexatag embedding at key j into head space, and we form a tag–query alignment against the content query: 
+
+cij = 1√dh
+
+Qci , W (ℓ) 
+
+> E
+
+(ETτj + ENνj ) , (12) 
+
+˜Sij = Scon  
+
+> ij
+
++ (1 + cij ) Spos  
+
+> ij
+
+. (13) The coefficient cij scales the relative-position score in proportion to how strongly the query aligns with the key’s syntactic tag, so syntax sharpens an exist-ing positional preference rather than acting on its own, exactly as in the multiplicative Transformer-XL variant (Eq. 6). 4
+
+3.5 ModernBERT: Injecting the Prior into Rotary Position Encoding 
+
+ModernBERT (Warner et al., 2024) like many other Large language models (Dubey et al., 2024; DeepSeek-AI, 2024; Yang et al., 2025; Kamath et al., 2025) delivers positional information through rotary positional embeddings (RoPE) (Su et al., 2023), which rotate the content query and key by position-dependent angles after the content projec-tions, so that relative-position dependence emerges from the geometry of two absolute rotations. Each head dimension is split into frequency pairs in-dexed by t; pair t is rotated by θp,t = p ω t at ab-solute position p, with frequency ωt and a 2×2
+
+rotation R(·). Because RoPE carries no input-level position term, we again consider two injection sites: the input residual, and the rotation angle itself.           
+
+> 4W(ℓ)
+> Eis initialized small so that cij ≈0and ˜Sij ≈Sij at initialization; training starts from the unmodified DeBERTa score and learns the syntactic correction into it.
+
+6BLIMP Example 
+
+✓ The keys to the cabinet are on the table. 
+
+✗ The keys to the cabinet is on the table. 
+
+SyntaxGym Example 
+
+✓ The farmer near the clerks knows many people. 
+
+✗ The farmer near the clerks know many people. 
+
+Table 1: Examples from the BLIMP dataset (top) and SyntaxGym (bottom). In both datasets, p(✓) > p (✗),but in BLIMP this probability is computed for the com-plete sentence, whereas in SyntaxGym it is computed only over the region of interest. 
+
+3.5.1 Input-Side Injection 
+
+Since RoPE has no input-level position embedding, the tag prior is added at the input residual exactly as in DeBERTa (Eq. 11, without the segment term, which ModernBERT does not use), and propagates into qp, kp before rotation; the rotary mechanism itself is untouched. 
+
+3.5.2 Position-Pathway Injection (PP-SiPE) 
+
+Mirroring the Transformer-XL and DeBERTa injec-tions, we can also route the prior into the position pathway instead of the input embedding, which for RoPE is the rotation angle. Using the summed hex-atag embedding at position p, a per-layer projection 
+
+W (ℓ)
+
+δ produces a per-frequency phase offset 
+
+∆θp,t =  W (ℓ)
+
+δ (ETτp + ENνp )
+
+t, (14) which is added to the rotary angle before rotation, for both the query at position m and the key at position j:
+
+˜qm,t = R m ω t + ∆ θm,t 
+
+ qm,t , (15) 
+
+˜kj,t = R j ω t + ∆ θj,t 
+
+ kj,t . (16) The effective angle between query m and key j at frequency t is then (m − j) ωt + (∆ θm,t − ∆θj,t ),so the tag enters as a syntactic phase shift on top of the positional one: the rotation that already en-codes relative distance is nudged by how the two positions’ hexatags relate. Since the tag enters only as a rotation angle, it leaves the query and key mag-nitudes unchanged and perturbs only their direction (Appendix A.6). 
+
+4 Experimental Results 
+
+4.1 Experimental Settings and Datasets 
+
+Prior work injecting syntax into Transformers fo-cused mainly on intrinsic evaluation—directly test-ing syntactic understanding (Sartran et al., 2022;                                                                                                                                                      
+
+> Model BLiMP
+> ↑
+> ∆
+> BLiMP PPL
+> ↓
+> ∆
+> PPL Syntax Gym ↑
+> ∆
+> SyntaxGym
+> No Inductive Bias
+> Transformer-XL (tokens) 75.30 –18.63 –73.09 –GPT-2 (tokens) (Radford et al., 2019) 72.20 ↓-4.12 21.60 ↓-15.94 71.90 ↓-1.63
+> Constituency Parsing
+> PLM (GPT-2) (Qian et al., 2021) 75.10 ↓-0.27 29.80 ↓-59.96 80.20 ↑+9.73 Transformer Gram-mar (Transformer-XL) (Sartran et al., 2022) 73.50 ↓-2.39 18.40 ↑+1.23 82.50 ↑+12.87
+> Pushdown LM (GPT-2) (Murty et al., 2023)
+> 75.60 ↑+0.40 19.90 ↓-6.82 82.30 ↑+12.60 TreeReg (GPT-2) (Nandi et al., 2025) 74.80 ↓-0.66 22.30 ↓-19.70 80.00 ↑+9.45
+> Tree-Planted Transformers (TPT) (Yoshida et al., 2024)
+> TPT [zero] ——47.50 ↓-154.97 71.70 ↓-1.90 TPT [rand.] ——47.40 ↓-154.43 69.00 ↓-5.60 TPT [seq.] ——47.30 ↓-153.89 70.10 ↓-4.09 TPT [dep.] ——47.70 ↓-156.04 77.10 ↑+5.49 TPT [cons.] ——45.50 ↓-144.23 75.80 ↑+3.71 TPT [bin.] ——45.60 ↓-144.77 73.00 ↓-0.12
+> Syntax-Informed Embeddings with Hexatagging (Ours) SiPE (positional pathway)
+> Input-side Injec-tion 73.82 ↓-1.97 16.16 ↑+13.26 76.97 ↑+5.31 Position-pathway Injection 74.01 ↓-1.71 16.95 ↑+9.02 80.60 ↑+10.29 Fully-disentangled Injection 74.72 ↓-0.77 16.66 ↑+10.57 78.72 ↑+7.70
+> Attention Bias
+> Projections shared across layers 73.60 ↓-2.26 16.73 ↑+10.20 76.35 ↑+4.46 Projections Learned Per-Layer 74.66 ↓-0.85 16.24 ↑+12.83 78.10 ↑+6.86
+> SiPE + Attention Bias
+> Input-side Injec-tion 74.16 ↓-1.51 15.89 ↑+14.71 78.47 ↑+7.36 Position-pathway Injection 74.44 ↓-1.14 16.52 ↑+11.32 77.97 ↑+6.68
+
+Table 2: Language modeling and syntax evaluation of decoder LMs; all our SiPE variants (Ours) use Transformer-XL as the decoder model, and each baseline’s model is noted in paren-theses. BLiMP and SyntaxGym are higher-is-better, while PPL (perplexity, computed on BLLIP-LG test split (Charniak et al., 2000)) is lower-is-better. ∆ columns report relative improvement or degradation against vanillaTransformer-XL (tokens). Best scores for each dataset are bolded .
+
+Xie et al., 2021; Omote et al., 2019; Yoshida and Oseki, 2022; Zhao et al., 2024; Murty et al., 2023). We argue these gains should also be assessed ex-trinsically , on downstream tasks where syntax is indirectly useful, and organize our experiments ac-cordingly. 
+
+Intrinsic evaluation: We test syntactic under-standing on BLiMP (Warstadt et al., 2023) and Syn-taxGym (Hu et al., 2020), both targeted minimal-pair benchmarks contrasting grammaticality (Ta-7Model Acc. (%) ∆ (%)                                       
+
+> Our models on WikiText
+> RoBERTa-base 70.68 –RoBERTa + SiPE (Input pathway) 71.68 ↑+1.41 DeBERTa-base 67.40 –DeBERTa + SiPE (Input pathway) 68.93 ↑+2.27 ModernBERT-base 49.94 –ModernBERT + SiPE (Input pathway) 51.10 ↑+2.32
+> Transformer-XL 53.56 –Transformer-XL +SiPE (Positional Pathway) 53.44 ↓-0.22
+> OOD Eval: WikiText →BLLIP-LG
+> RoBERTa-base 71.29 –RoBERTa + SiPE (Input pathway) 72.62 ↑+1.87 DeBERTa-base 69.01 –DeBERTa-base + SiPE (Input pathway) 71.12 ↑+3.06 ModernBERT-base 51.25 –ModernBERT-base + SiPE (Input path-way) 53.41 ↑+4.21
+
+Table 3: BLiMP accuracy results for models trained with SiPE. For each model family we report its most performant GLUE variant: input-pathway SiPE injection for the encoders and positional-pathway SiPE injection for the Transformer-XL decoder; the OOD experiments likewise use the most performant GLUE variant of each family. For encoders, we use PLL-based accuracy. ∆: relative change w.r.t. the corre-sponding base model. OOD section: models pre-trained on WikiText, then continuously pre-trained on BLLIP-LG (Char-niak et al., 2000). ↑ improvement, ↓ degradation. Bold : best relative improvement with our method. 
+
+ble 1). BLiMP requires assigning higher probabil-ity to the grammatical sentence overall, whereas SyntaxGym compares probabilities only in the crit-ical region where the ungrammaticality occurs. Following prior work (Zhao et al., 2024; Sar-tran et al., 2022), we pretrain Transformer-XL on BLLIP-LG (Charniak et al., 2000) with their hy-perparameters, using the training splits of Hu et al. (2020). 5 We report BLiMP accuracy via sentence log-likelihood, SyntaxGym via the standard suite-level voting protocol, and BLLIP-LG test perplex-ity to confirm language-modeling ability is pre-served. For our models, test sentences are hex-atagged once by the parser before scoring, so our perplexity is conditioned on this single fixed parse, 
+
+p(x | ˆT (x)) , whereas joint syntactic LMs report a marginal p(x) approximated by summing over many candidate parses. 6
+
+In a second set of experiments, we pretrain three encoders: RoBERTa, DeBERTa, ModernBERT   
+
+> 5We do not use the dataset’s syntactic annotations; we hexatag the sentences with an in-house parser (URL hidden for blind review).
+> 6This is the trade-off SiPE makes by design: a single parse at inference instead of expensive marginalization (Figure 1).
+
+(Liu et al., 2019; He et al., 2023; Warner et al., 2024) and Transformer-XL for 1M steps on a 50M-token, offline-hexatagged slice of WikiText-103 (Merity et al., 2016). 7 We evaluate these models on a hexatagged BLiMP (Warstadt et al., 2023): us-ing encoders, for each minimal pair we prefer the sentence with higher pseudo-log-likelihood (PLL) (Salazar et al., 2020) under the masked-LM ob-jective; for the Transformer-XL decoder we in-stead use sentence log-likelihood (the sum of next-token log-probabilities). Accuracy is scored against BLiMP’s gold labels. 
+
+Extrinsic evaluation: To assess the downstream impact of injecting syntactic information directly in the transformer architecture, we carry out ex-periments on the GLUE benchmark (Wang et al., 2019), which contains a suite of real-world NLP tasks. We finetune our three encoder models as well as Transformer-XL (which were all previously pre-trained with SiPE on Wikitext) on each task using standard GLUE hyperparameters for each model (refer to Tables 4, 5 and 6 for results) and table 11 in appendix D. 
+
+4.2 Key Takeaways Positional-pathway injection is the strongest recipe for a relative-PE decoder. On Transformer-XL, injecting the SiPE prior into the positional pathway gives our best decoder result— SyntaxGym 80.60 ( +10 .29 over the vanilla token baseline) with perplexity cut from 18.63 to 16.95 (Table 2). This carries through to GLUE, improv-ing the TXL macro average from 68.17 to 73.78, a dramatic +8 .2% relative gain (Table 6). Using only a single parse tree at inference, SiPE also surpasses parser-free approaches, TreeReg (Nandi et al., 2025) and all Tree-Planted Transformer variants (Yoshida et al., 2024), on both SyntaxGym and BLLIP-LG perplexity, cutting perplexity by roughly a quarter against the strongest such baseline (16.95 vs. 22.30 for TreeReg) and by more than half against the Tree-Planted Transformer variants (16.95 vs. 45.5–47.7) while matching or exceeding their syntactic generalization. 
+
+For encoders, the simpler input-embedding in-jection is better, with gains that strengthen 
+
+> 7Our goal is to study syntactic embeddings on real down-stream tasks, so we pretrain on WikiText and then fine-tune on GLUE. For encoders, we also re-use the same checkpoints for syntactic evaluation as a separate BLLIP-LG pretraining run with its own hyperparameter tuning was beyond our academic budget.
+
+8RoBERTa (base) DeBERTa (base) ModernBERT (base) Task Base +SiPE Base +SiPE +PP-SiPE Base +SiPE +PP-SiPE CoLA 31.41 
+
+> (±2.02)
+
+31.77 
+
+> (±0.71)
+
+27.22 
+
+> (±2.37)
+
+26.09 
+
+> (±2.14)
+
+24.97 
+
+> (±2.02)
+
+25.00 
+
+> (±0.83)
+
+24.45 
+
+> (±1.85)
+
+23.26 
+
+> (±2.83)
+
+SST-2 87.23 
+
+> (±0.79)
+
+87.22 
+
+> (±0.52)
+
+87.31 
+
+> (±0.30)
+
+87.88 
+
+> (±0.54)
+
+87.50 
+
+> (±0.19)
+
+85.09 
+
+> (±1.01)
+
+85.86 
+
+> (±0.79)
+
+84.25 
+
+> (±1.38)
+
+QQP 83.24 
+
+> (±0.21)
+
+83.36 
+
+> (±0.11)
+
+84.02 
+
+> (±0.31)
+
+84.95 
+
+> (±0.15)
+
+84.88 
+
+> (±0.13)
+
+83.53 
+
+> (±0.13)
+
+83.09 
+
+> (±0.45)
+
+82.45 
+
+> (±0.94)
+
+QNLI 77.65 
+
+> (±0.50)
+
+78.24 
+
+> (±0.27)
+
+68.07 
+
+> (±0.08)
+
+68.88 
+
+> (±0.24)
+
+67.94 
+
+> (±0.29)
+
+62.51 
+
+> (±1.01)
+
+61.83 
+
+> (±0.70)
+
+65.79 
+
+> (±0.39)
+
+MNLI 73.03 
+
+> (±0.33)
+
+74.05 
+
+> (±0.17)
+
+71.25 
+
+> (±0.14)
+
+71.85 
+
+> (±0.14)
+
+71.74 
+
+> (±0.30)
+
+71.29 
+
+> (±0.03)
+
+72.24 
+
+> (±0.35)
+
+71.15 
+
+> (±0.11)
+
+RTE 65.76 
+
+> (±0.74)
+
+64.66 
+
+> (±0.56)
+
+62.94 
+
+> (±1.23)
+
+63.06 
+
+> (±1.73)
+
+64.14 
+
+> (±1.68)
+
+62.21 
+
+> (±0.45)
+
+63.06 
+
+> (±2.13)
+
+63.90 
+
+> (±1.02)
+
+STSB 79.11 
+
+> (±0.30)
+
+81.41 
+
+> (±0.13)
+
+76.20 
+
+> (±0.56)
+
+76.98 
+
+> (±0.24)
+
+76.33 
+
+> (±1.32)
+
+79.67 
+
+> (±0.30)
+
+81.21 
+
+> (±0.78)
+
+79.49 
+
+> (±0.06)
+
+MRPC 80.96 
+
+> (±0.44)
+
+82.02 
+
+> (±0.85)
+
+80.49 
+
+> (±0.84)
+
+81.11 
+
+> (±0.76)
+
+83.45 
+
+> (±0.71)
+
+79.74 
+
+> (±1.43)
+
+82.82 
+
+> (±1.08)
+
+81.56 
+
+> (±1.07)
+
+Macro 72.30 
+
+> (±0.33)
+
+72.84 
+
+> (±0.42)
+
+69.69 
+
+> (±0.25)
+
+70.10 
+
+> (±0.39)
+
+70.12 
+
+> (±0.22)
+
+68.63 
+
+> (±0.08)
+
+69.32 
+
+> (±0.11)
+
+68.98 
+
+> (±0.37)
+
+Table 4: GLUE evaluation of baseline encoders vs. SiPE augmentation, over 3 seeds (std in parentheses). Baselines span three PE schemes: RoBERTa-base (absolute), DeBERTa-v3-base (relative), ModernBERT-base (RoPE). SiPE is injected via two routes: input pathway (into token embeddings) and positional pathway (into positional information; relative/RoPE only). Best variant per task in bold . SiPE improves every architecture on the macro average—RoBERTa +0 .75% , DeBERTa-v3 +0 .59% ,ModernBERT +1 .0% relative. 
+
+RoBERTa (large) ModernBERT (large) Task Base +SiPE Base +SiPE CoLA 30.71 
+
+> (±0.51)
+
+30.36 
+
+> (±0.88)
+
+25.06 
+
+> (±1.21)
+
+24.58 
+
+> (±0.87)
+
+SST-2 88.95 
+
+> (±0.35)
+
+87.50 
+
+> (±0.09)
+
+84.44 
+
+> (±0.52)
+
+85.47 
+
+> (±0.36)
+
+QQP 84.31 
+
+> (±0.18)
+
+85.10 
+
+> (±0.24)
+
+82.54 
+
+> (±0.39)
+
+82.55 
+
+> (±0.55)
+
+QNLI 80.18 
+
+> (±0.18)
+
+82.68 
+
+> (±0.33)
+
+61.99 
+
+> (±0.52)
+
+62.11 
+
+> (±0.41)
+
+MNLI 74.72 
+
+> (±0.10)
+
+74.43 
+
+> (±0.31)
+
+72.03 
+
+> (±0.53)
+
+72.36 
+
+> (±0.22)
+
+RTE 65.94 
+
+> (±0.45)
+
+64.62 
+
+> (±1.06)
+
+63.54 
+
+> (±0.29)
+
+61.49 
+
+> (±2.27)
+
+STSB 81.89 
+
+> (±0.59)
+
+82.34 
+
+> (±0.38)
+
+79.03 
+
+> (±0.41)
+
+80.05 
+
+> (±0.35)
+
+MRPC 80.92 
+
+> (±1.00)
+
+83.70 
+
+> (±1.15)
+
+81.86 
+
+> (±1.24)
+
+82.00 
+
+> (±0.76)
+
+Macro 73.45 
+
+> (±0.16)
+
+73.84 
+
+> (±0.13)
+
+68.81 
+
+> (±0.13)
+
+68.83 
+
+> (±0.35)
+
+We did not pre-train DeBERTa-large with SiPE (input pathway/positional pathway), nor ModernBERT-large with SiPE (positional pathway), due to limited academic compute and budget constraints. 
+
+Table 5: GLUE evaluation results for large encoder models. 
+
+out of distribution. Across all three encoder families—absolute (RoBERTa), disentangled-relative (DeBERTa-v3), and rotary (ModernBERT), input-pathway SiPE consistently outperforms the base model on GLUE (Table 4); the positional-pathway route also helps for the relative and rotary 
+
+Transformer-XL Task Base +PP-SiPE CoLA 13.80 
+
+> (±0.26)
+
+26.26 
+
+> (±0.22)
+
+SST-2 84.14 
+
+> (±0.11)
+
+88.80 
+
+> (±0.44)
+
+QQP 83.83 
+
+> (±0.12)
+
+85.64 
+
+> (±0.21)
+
+QNLI 76.00 
+
+> (±0.26)
+
+82.28 
+
+> (±0.29)
+
+MNLI 68.07 
+
+> (±0.32)
+
+75.22 
+
+> (±0.14)
+
+RTE 63.42 
+
+> (±1.70)
+
+67.51 
+
+> (±0.29)
+
+STSB 76.90 
+
+> (±0.17)
+
+81.80 
+
+> (±0.12)
+
+MRPC 79.20 
+
+> (±0.21)
+
+82.75 
+
+> (±0.26)
+
+Macro 68.17 
+
+> (±0.17)
+
+73.78 
+
+> (±0.05)
+
+Table 6: GLUE results for the decoder-only Transformer-XL (TXL) baseline and its SiPE (positional pathway) variant (blue tint); best per task in bold. SiPE improves every task and gains +8.2% relative on the macro average (68.17 →73.78), showing the positional pathway best augments TXL’s relative positional encoding. 
+
+schemes but yields slightly smaller gains, so for encoders mixing the prior directly with input em-beddings is sufficient and most reliable. All three encoders likewise improve on BLiMP— +1 .41% 
+
+(RoBERTa), +2 .27% (DeBERTa-v3), +2 .32% 
+
+(ModernBERT) (Table 3)—and these gains grow 91 2 4 6 8 10 12 14 k = first injected layer (k=1: all 16 layers injected; higher k later, fewer layers) 
+
+> 68 70 72 75 78 80 82
+> SyntaxGym accuracy (%)
+> Syntax-injection depth sweep
+> SyntaxGym accuracy Word-level PPL (right)
+> 15.9 16.2 16.5 16.8 17.1
+> Word-level perplexity  (lower is better)
+
+Figure 3: Layerwise SiPE injection sweep on Transformer-XL. Injecting from layer k=1 (all layers) is best; skipping the first layer already drops SyntaxGym accuracy sharply, and later entry points degrade syntactic generalization further. 
+
+under continued pre-training on BLLIP-LG af-ter WikiText, rising to +1 .87% , +3 .06% , and 
+
++4 .21% respectively, indicating the prior gener-alizes beyond its original distribution rather than overfitting. 8
+
+5 Where Should Syntax Enter? A Layerwise Injection Study 
+
+To understand at which depth syntax should in-teract with semantics, we sweep the entry point of the positional pathway SiPE bias (PP-SiPE) in Transformer-XL. For a model with N layers, we inject the bias from layer k onwards: layers 
+
+1, . . . , k −1 use the default positional information, while layers k, . . . , N receive the SiPE bias. We vary k ∈ { 2, 4, 6, 8, 10 , 12 , 14 } and compare in-jecting syntactic information in every layer (from 
+
+k=1 onwards), measuring syntactic generaliza-tion (SyntaxGym) and word-level perplexity on BLLIP LG (Figure 3). Two findings emerge. First, syntax is most im-pactful at the very first layer: full injection ( k=1 )is clearly best, and skipping just the first layer (k=2 ) already causes a sharp drop in syntactic gen-eralization: SyntaxGym falls from 80 .6 to 73 .5.Second, and more broadly, syntactic information matters most in the lower layers of a decoder like Transformer-XL: injecting it in later layers yields consistently weaker syntactic generalization. To-gether, these results indicate that for autoregressive models the positional pathway should carry syntac-tic structure from the earliest layer onward, rather 
+
+> 8
+
+The small BLiMP drops are expected: BLiMP scores the 
+
+full sentence, so language-modeling ability dominates over the ungrammatical span alone (Zhao et al., 2024). Most baselines in Table 2 (PLM, Transformer Grammars, TreeReg, most TPT variants) likewise fall below the vanilla token baseline on BLiMP. 
+
+than being introduced in later layers. Complementing this view of where syntax should enter, Appendix C examines how the in-jected prior manifests in attention on BLiMP object–verb agreement: the encoders redistribute verb →object attention to mirror syntactic adja-cency, whereas Transformer-XL surfaces the prior only weakly in its attention maps and instead converts it into the largest downstream semantic (GLUE) gains of any model we train. 
+
+6 Conclusion 
+
+We proposed a simple strategy to infuse syntactic information in any transformer architecture. Our proposed modification is lightweight, adding only 
+
+O(1 , 000) parameters per model via an additive prior embedding, yet it yields reliable gains in both intrinsic and extrinsic evaluations and multiple en-coder and decoder transformer variants. 
+
+Limitations 
+
+Our approach assumes access to hexatag annota-tions at inference time: each input sequence must be tagged by a dependency parser before being passed to the syntax-infused encoder. While this adds a preprocessing step, the tagger is lightweight and fast in practice (we use DeBERTa-v3-base as the hexatagger, 184M parameters) and runs effi-ciently relative to encoder pre-training and down-stream finetuning. The approach also inherits the hexatagger’s errors, so its benefit may be smaller in domains where the parser is less accurate. We consider only coarse-grained syntactic priors derived from directional terminal and non-terminal tags. Preliminary pre-training experiments incorpo-rating full dependency-relation labels ( DEPREL )did not yield meaningful gains on GLUE (Ap-pendix E, Figures 7 and 8), but we did not investi-gate this further. Our study of where to inject the prior is broad but not exhaustive. We study the main injection sites and coupling choices for each positional scheme, but under a fixed academic compute budget we could not pre-train every conceivable combination, particularly for the relative and rotary attention-side variants, where the design space is large. The configurations we report are therefore the strongest we found rather than a guaranteed global optimum, and our per-dataset results with RoBERTa (Fig-ure 8) show that no single setting dominates across all tasks. 10 Perhaps the biggest limitation, which we plan to address in future work, is fast autoregressive text generation with the decoder. Because the in-jected prior is conditioned on hexatags, generating each new token requires re-tagging the sequence produced so far. Our hexatagger is fast, so this is feasible in principle, but it is not compatible with standard KV-caching: as the sequence grows, the parser may revise the tags of earlier tokens, chang-ing their injected representations and invalidating the cached keys and values. Efficient incremental decoding under a per-step syntactic prior is there-fore an open research-engineering problem, and the direction we consider most important for future work. Finally, our experiments are limited to small models, English text, and the pre-training budgets used here. Whether the gains hold at larger scale, in other languages, or under substantially longer pre-training, especially with billion parameter LLMs remains to be seen; its unclear how the relative benefit of an explicit syntactic prior will scale as model and data scale increase. 
+
+References 
+
+Afra Amini, Tianyu Liu, and Ryan Cotterell. 2023. Hex-atagging: Projective dependency parsing as tagging. 
+
+Preprint , arXiv:2306.05477. Collin F Baker, Charles J Fillmore, and John B Lowe. 1998. The berkeley framenet project. In COLING 1998 Volume 1: The 17th International Conference on Computational Linguistics .Eugene Charniak, Don Blaheta, Niyu Ge, Keith Hall, John Hale, and Mark Johnson. 2000. BLLIP 1987-89 WSJ corpus release 1. LDC2000T43. Zihang Dai, Zhilin Yang, Yiming Yang, Jaime Car-bonell, Quoc V. Le, and Ruslan Salakhutdinov. 2019. Transformer-xl: Attentive language models beyond a fixed-length context. Preprint , arXiv:1901.02860. Marie-Catherine De Marneffe, Christopher D Manning, Joakim Nivre, and Daniel Zeman. 2021. Universal dependencies. Computational linguistics , 47(2):255– 308. DeepSeek-AI. 2024. Deepseek-v3 technical report. 
+
+Preprint , arXiv:2412.19437. Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. 2019. Bert: Pre-training of deep bidirectional transformers for language understand-ing. Preprint , arXiv:1810.04805. Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey, Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman, Akhil Mathur, Alan Schelten, Amy Yang, Angela Fan, Anirudh Goyal, Anthony S. Hartshorn, Aobo Yang, Archi Mitra, Archie Sravankumar, Artem Ko-renev, Arthur Hinsvark, Arun Rao, Aston Zhang, and 510 others. 2024. The llama 3 herd of models. Yinuo Guo, Zeqi Lin, Jian-Guang Lou, and Dongmei Zhang. 2020. Hierarchical poset decoding for com-positional generalization in language. Advances in Neural Information Processing Systems , 33:6913– 6924. Pengcheng He, Jianfeng Gao, and Weizhu Chen. 2023. Debertav3: Improving deberta using electra-style pre-training with gradient-disentangled embedding shar-ing. Preprint , arXiv:2111.09543. Pengcheng He, Xiaodong Liu, Jianfeng Gao, and Weizhu Chen. 2021. Deberta: Decoding-enhanced bert with disentangled attention. Preprint ,arXiv:2006.03654. Jennifer Hu, Jon Gauthier, Peng Qian, Ethan Wilcox, and Roger P. Levy. 2020. A systematic assessment of syntactic generalization in neural language models. 
+
+Preprint , arXiv:2005.03692. Michael Y. Hu, Jackson Petty, Chuan Shi, William Mer-rill, and Tal Linzen. 2025. Between circuits and chomsky: Pre-pretraining on formal languages im-parts linguistic biases. Preprint , arXiv:2502.19249. Gemma Team Aishwarya Kamath, Johan Ferret, Shreya Pathak, Nino Vieillard, Ramona Merhej, Sarah Perrin, Tatiana Matejovicova, Alexandre Ram’e, Morgane Rivière, Louis Rouillard, Thomas Mesnard, Geoffrey Cideron, Jean-Bastien Grill, Sabela Ramos, Edouard Yvinec, Michelle Casbon, Etienne Pot, Ivo Penchev, Gael Liu, and 191 others. 2025. Gemma 3 technical report. ArXiv , abs/2503.19786. Paul R Kingsbury and Martha Palmer. 2002. From tree-bank to propbank. In Proceedings of the Language Resources and Evaluation Conference (LREC) , pages 1989–1993. Yinhan Liu, Myle Ott, Naman Goyal, Jingfei Du, Man-dar Joshi, Danqi Chen, Omer Levy, Mike Lewis, Luke Zettlemoyer, and Veselin Stoyanov. 2019. Roberta: A robustly optimized bert pretraining ap-proach. Preprint , arXiv:1907.11692. Stephen Merity, Caiming Xiong, James Bradbury, and Richard Socher. 2016. Pointer sentinel mixture mod-els. arXiv preprint arXiv:1609.07843 .Shikhar Murty, Pratyusha Sharma, Jacob Andreas, and Christopher D. Manning. 2023. Pushdown layers: Encoding recursive structure in transformer language models. Preprint , arXiv:2310.19089. Ananjan Nandi, Christopher D. Manning, and Shikhar Murty. 2025. Sneaking syntax into transformer lan-guage models with tree regularization. Preprint ,arXiv:2411.18885. 
+
+11 Yutaro Omote, Akihiro Tamura, and Takashi Ninomiya. 2019. Dependency-based relative positional encod-ing for transformer nmt. In Proceedings of the Inter-national Conference on Recent Advances in Natural Language Processing (RANLP 2019) , pages 854–861, Varna, Bulgaria. INCOMA Ltd. Peng Qian, Tahira Naseem, Roger Levy, and Ramón Fernandez Astudillo. 2021. Structural guidance for transformer language models. In Proceedings of the 59th Annual Meeting of the Association for Compu-tational Linguistics and the 11th International Joint Conference on Natural Language Processing (Vol-ume 1: Long Papers) , pages 3735–3745, Online. As-sociation for Computational Linguistics. Alec Radford, Jeff Wu, Rewon Child, David Luan, Dario Amodei, and Ilya Sutskever. 2019. Language models are unsupervised multitask learners. Julian Salazar, Davis Liang, Toan Q. Nguyen, and Ka-trin Kirchhoff. 2020. Masked language model scor-ing. In Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics . Asso-ciation for Computational Linguistics. Laurent Sartran, Samuel Barrett, Adhiguna Kuncoro, Miloš Stanojevi´ c, Phil Blunsom, and Chris Dyer. 2022. Transformer grammars: Augmenting trans-former language models with syntactic inductive bi-ases at scale. Transactions of the Association for Computational Linguistics , 10:1423–1439. Peter Shaw, Jakob Uszkoreit, and Ashish Vaswani. 2018. Self-attention with relative position representations. 
+
+Preprint , arXiv:1803.02155. Emma Strubell, Patrick Verga, Daniel Andor, David Weiss, and Andrew McCallum. 2018. Linguistically-informed self-attention for semantic role labeling. In Proceedings of the 2018 Conference on Empiri-cal Methods in Natural Language Processing , pages 5027–5038, Brussels, Belgium. Association for Com-putational Linguistics. Jianlin Su, Yu Lu, Shengfeng Pan, Ahmed Murtadha, Bo Wen, and Yunfeng Liu. 2023. Roformer: En-hanced transformer with rotary position embedding. 
+
+Preprint , arXiv:2104.09864. Ian Tenney, Dipanjan Das, and Ellie Pavlick. 2019. BERT rediscovers the classical NLP pipeline. In 
+
+Proceedings of the 57th Annual Meeting of the Asso-ciation for Computational Linguistics , pages 4593– 4601, Florence, Italy. Association for Computational Linguistics. Thinking Machines Lab. 2026. Inkling: Our open-weights model. https://thinkingmachines.ai/ news/introducing-inkling/ . Blog post; model weights at https://huggingface.co .Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia Polosukhin. 2017. Attention is all you need. Advances in neural information processing systems , 30. Alex Wang, Amanpreet Singh, Julian Michael, Felix Hill, Omer Levy, and Samuel R. Bowman. 2019. Glue: A multi-task benchmark and analysis plat-form for natural language understanding. Preprint ,arXiv:1804.07461. Benjamin Warner, Antoine Chaffin, Benjamin Clavié, Orion Weller, Oskar Hallström, Said Taghadouini, Alexis Gallagher, Raja Biswas, Faisal Ladhak, Tom Aarsen, Nathan Cooper, Griffin Adams, Jeremy Howard, and Iacopo Poli. 2024. Smarter, better, faster, longer: A modern bidirectional encoder for fast, memory efficient, and long context finetuning and inference. Preprint , arXiv:2412.13663. Alex Warstadt, Alicia Parrish, Haokun Liu, An-had Mohananey, Wei Peng, Sheng-Fu Wang, and Samuel R. Bowman. 2023. Blimp: The benchmark of linguistic minimal pairs for english. Preprint ,arXiv:1912.00582. Yikuan Xie, Wenyong Wang, Mingqian Du, and Qing He. 2021. Transformer with syntactic position en-coding for machine translation. In Proceedings of the International Conference on Recent Advances in Natural Language Processing (RANLP 2021) , pages 1536–1544, Held Online. INCOMA Ltd. An Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao, Chengen Huang, Chenxu Lv, Chujie Zheng, Dayi-heng Liu, Fan Zhou, Fei Huang, Feng Hu, Hao Ge, Haoran Wei, Huan Lin, Jialong Tang, and 41 oth-ers. 2025. Qwen3 technical report. arXiv preprint arXiv:2505.09388 .Ryo Yoshida and Yohei Oseki. 2022. Composition, at-tention, or both? In Findings of the Association for Computational Linguistics: EMNLP 2022 , page 5822–5834. Association for Computational Linguis-tics. Ryo Yoshida, Taiga Someya, and Yohei Oseki. 2024. Tree-planted transformers: Unidirectional trans-former language models with implicit syntactic su-pervision. In Findings of the Association for Com-putational Linguistics ACL 2024 , page 5120–5134. Association for Computational Linguistics. Yida Zhao, Chao Lou, and Kewei Tu. 2024. De-pendency transformer grammars: Integrating depen-dency structures into transformer language models. 
+
+Preprint , arXiv:2407.17406. 
+
+A Preliminaries 
+
+A.1 Subword-Level Tag Injection 
+
+Hexatag annotations are produced at the word level: every word wi in a sentence carries a terminal tag 
+
+ti and a nonterminal tag ni (drawn from small vo-cabularies T and N , respectively, where |T | = 2 
+
+and |N | = 5 ). The language model, however, oper-ates on subword tokens: the tokenizer may split wi
+
+12 into one or more subwords si, 1, . . . , s i,k i . We must therefore specify how a word-level hexatag is asso-ciated with its corresponding subword positions. We adopt a assign hexatag to first-subword only strategy : the tag pair (ti, n i) is attached to the po-sition of the first subword si, 1, and the remaining subwords si, 2, . . . , s i,k i receive no tag (in our im-plementation this is equivalent to receiving a tag ID of −100 ). Concretely, for each subword posi-tion p in the flattened input sequence, we define the following mask: 
+
+mp =
+
+
+
+1 if p is the first subword of some word wi,
+
+0 otherwise. (17) At subword positions with mp = 1 , the prior con-tributes a learned tag embedding to augment the subword embedding; at positions with mp = 0 
+
+(continuation subwords), no prior is added, and the subword embedding is used as-is. Tag information still reaches continuation subwords, but only indi-rectly, through self-attention in subsequent layers. This design has two practical benefits: (i) The total tag embedding signal injected per word is invariant to its subword length ki, avoiding over-amplification for words that break into many sub-words (ii) it gives a clean one-to-one correspondence between words and tagged subword positions, which is required by the auxiliary tag-prediction objective: this objective is a per-position classifica-tion head that predicts the (terminal, nonterminal) tag pair, and it only contributes loss at positions where mp = 1 .The assign hexatag to first-subword only is also the simpler choice here. The natural alternative would be to assign the same hexatag to all ki sub-words of a word, which would require supervising all pieces, contributing ki loss terms per word and thus over-weighting words that fragment into many subwords. We leave this variant to future work. The indicator mp thus controls both prior injec-tion and supervision, giving each word exactly one tag signal at the input and one prediction at the output. The auxiliary objective takes one of two concrete forms in our experiments. In autoregres-sive models, the head at position p predicts the tags 
+
+(τp+1 , ν p+1 ) of the next tagged position, teacher-forced from gold left context. In masked language models, the head at position p predicts (τp, ν p) at masked positions only; wherever a token is masked, its injected tag embedding is masked along with it (the mp term is zeroed), so the auxiliary head must infer the tag from surrounding context rather than copy it from its own input. The remainder of this section details the design choices and trade-offs for each injection strategy we study. These fall into a few families: adding the syntactic bias to the input embeddings; entangling it directly with the positional encoding; keeping it disentangled and adding it as a separate term to the attention score; injecting it as a separate attention-side bias; and combining any of these. We examine these strategies across four model ar-chitectures that span the major positional-encoding schemes: RoBERTa (encoder, absolute positional embeddings), DeBERTa-v3 (encoder, relative po-sitional embeddings), ModernBERT (encoder, ro-tary positional embeddings), and Transformer-XL (autoregressive decoder, relative positional embed-dings). 
+
+A.2 SiPE Position-Pathway Design Choices for Transformer-XL 
+
+The multiplicative position-pathway injection of section 3.3 has two design axes. Layer sharing 
+
+controls whether a single projection WE is reused across all layers or each layer learns its own W (ℓ) 
+
+> E
+
+.
+
+Projection target controls the dimension W (ℓ)
+
+> E
+
+projects the tag into before its inner product with the query forms the alignment score c: either a sin-gle attention head’s dhead -dimensional subspace (a small map that places the tag in the same space as that head’s query, so c is formed by the same query that produces BD and lands on the same per-head scale; the one projected vector is then shared across all heads), or the full model dimension dmodel (a larger map whose output is split into nhead blocks, giving each head its own projected tag). Table 7 reports all four combinations. For Transformer-XL, the best configuration we find is the per-layer projection into the full model dimension (74.01 BLiMP, 80.60 SG). Neither axis dominates alone: the gain comes from their pair-ing. Per-layer projections matter because the tag correction is scaled by each layer’s own BD , so a separate W (ℓ) 
+
+> E
+
+lets each layer specialize how syn-tax modulates its positional preference. The full-dimension target matters because it gives the tag a richer map than a single head’s subspace allows. Notably, the better projection target flips with the coupling: the multiplicative coupling here works 13 Sharing Projection BLiMP ↑ SG ↑            
+
+> Shared dhead 73.95 78.80 Per-layer dhead 74.15 75.84 Shared dmodel 73.95 75.09 Per-layer dmodel 74.01 80.60
+
+Table 7: Multiplicative position-pathway injection across the two design axes: layer sharing (shared vs. per-layer WE ) and projection target ( dhead head sub-space vs. dmodel full dimension). Per-layer projection into the full model dimension gives the best average across BLiMP and SyntaxGym (SG); this is the con-figuration we adopt as SiPE (positional pathway) for Transformer-XL. 
+
+better with dmodel , whereas the fully-disentangled coupling of Appendix A.3 works better in the dhead 
+
+head subspace. The best target therefore depends on how the prior is coupled to the position pathway, not on the projection axis in isolation. Beyond these two axes, the form of the coupling itself matters: multiplicative coupling scales the position term by the tag alignment (Eq. 6), while the disentangled form adds the alignment as a stan-dalone logit term (section 3.3.3, Eq. 7). The mul-tiplicative variants are the strongest overall, but the ordering is informative: disentangled injection already outperforms input-side injection (Eq. 4), and multiplicative coupling outperforms both. En-tangling the prior with position thus helps progres-sively more as the coupling becomes gated by the query’s existing offset alignment, so that syntax sharpens a positional preference the model has al-ready formed rather than adding an unconditional bias. 
+
+A.3 Fully-Disentangled Syntax Injection Design Choices for Transformer-XL 
+
+The fully-disentangled variant of section 3.3.3 adds the tag–query alignment c to the attention logit as a standalone term (Eq. 7), leaving both the con-tent term AC and the position term BD exactly as in standard Transformer-XL. It is governed by the same two design axes (layer sharing and projec-tion target) as the multiplicative position-pathway variant of Appendix A.2, the only difference being that there c multiplies BD whereas here it is added as a standalone logit term: W (ℓ) 
+
+> E
+
+may map the tag into the full model dimension (then reshaped into per-head blocks) or directly into a single head’s 
+
+dhead -dimensional subspace, and it may be shared across all layers or learned per layer. Since neither axis has an obvious right answer a priori, we ran all four combinations and report them in Table 8.                  
+
+> Sharing Projection BLiMP ↑SG ↑
+> Shared dhead 74.17 77.72 Shared dmodel 75.03 76.10 Per-layer dmodel 73.51 77.20 Per-layer dhead 74.72 78.72
+
+Table 8: Fully-disentangled injection across the two pro-jection axes: layer sharing (a single WE shared across all layers vs. a per-layer W (ℓ) 
+
+> E
+
+) and projection target (mapping the tag into a single head’s dhead -dimensional subspace vs. the full model dimension dmodel , reshaped into per-head blocks). Per-layer projection into the head subspace gives the best average across BLiMP and Syn-taxGym (SG); this is the configuration reported in the main results. 
+
+The best disentangled configuration is per-layer projection into the head subspace (74.72 BLiMP, 78.72 SG; Table 8). In terms of syntactic gener-alization performance, it outperforms input-side injection (73.82 BLiMP, 76.97 SG) but lags behind the multiplicative coupling (§3.3.2). We thus find that the least to most performant design choices for entangling the syntactic prior are: input-side <
+
+fully disentangled < multiplicative. 
+
+A.4 Attention-Side and Combined Injection Design Choices for Transformer-XL Relation to the Shaw formulation: The key and value biases of Eqs. 8–9 adapt Shaw et al. (2018), who add learned per-pair vectors aKij and aVij to the key-side logit and the value-side aggregation, 
+
+eij += q⊤ 
+
+> i
+
+aKij and zi += P 
+
+> j
+
+αij aVij . We change two things. First, our bias is indexed by the key po-sition j alone rather than by the relative pair (i, j ),so the tag at j contributes a single per-key vector that every query sees; this is what keeps the added cost linear in sequence length rather than quadratic. Second, the bias is conditioned on hexatag identity rather than relative offset, and is learned jointly with the language model. The terminal and nonter-minal tag embeddings are projected separately and summed, and a position-validity mask mj zeroes the contribution wherever the tag label is -100 . The tag bias is formed from the unmodified query q(ℓ) 
+
+> i
+
+,not q(ℓ) 
+
+> i
+
++ un as in the content term, so it bypasses the global content bias un of Dai et al. (2019). And since we set mem_len = 0 , it spans the same keys as intra-segment attention, so no padding is needed for memory positions. 14 This places our design between the dependency-distance bias of Omote et al. (Omote et al., 2019) and the root-to-node path embedding of Xie et al. (Xie et al., 2021). Both put syntactic structure inside attention rather than in the residual stream, but our bias is keyed on hexatag identity rather than a tree-distance proxy, is a single per-key term rather than a pairwise one, and is applied in a causally masked unidirectional language model rather than a bidirectional encoder. 
+
+Sharing across layers. The one design consid-eration here is whether Wtag  
+
+> K
+
+and Wtag  
+
+> V
+
+are shared across all layers or learned per layer. In the shared form a single pair is reused at every layer; in the per-layer form each of the L layers owns its own pair, giving L independent key and value maps and letting each layer specialize its tag-to-attention routing, in the same way the content projections 
+
+WQ, WK , WV already specialize per layer. The per-layer form is the stronger of the two on syntac-tic evaluations, both for the attention-side injection on its own and for its combination with the input-side injection of Eq. 4, so we use it wherever the attention-side biases appear. 
+
+A.5 DeBERTa-v3: Disentangled Relative Positional Embeddings and Tag Injection 
+
+DeBERTa-v3 (He et al., 2023) does not use abso-lute positional embeddings at the input level. In-stead it delivers positional information through dis-entangled relative attention : each pair of positions 
+
+(i, j ) contributes three distinct terms to the atten-tion score, only one of which depends on token content alone. This raises a natural question for our setting: where do tag priors enter when there is no input-level position embedding to sit alongside? 
+
+Background: disentangled attention. For a query at position i and a key at position j, the score decomposes into a content-to-content (c2c), a content-to-position (c2p), and a position-to-content (p2c) term, 
+
+Aij = q⊤ 
+
+> i
+
+kj
+
+| {z } 
+
+> c2c
+
++ q⊤ 
+
+> i
+
+Wc2p rδ(i,j )
+
+| {z }
+
+> c2p
+
++ k⊤ 
+
+> j
+
+Wp2c rδ(j,i )
+
+| {z }
+
+> p2c
+
+, (18) where qi = WQh(0)  
+
+> i
+
+and kj = WK h(0)  
+
+> j
+
+. The relative-position embeddings rδ(·,·) are pulled from a learned table indexed by bucketed signed offsets, and Wc2p, Wp2c project content vectors into this relative-position subspace. 9
+
+Input-side injection: where priors enter, and where they do not. Under input-side injection (Eq. 11) each input vector carries the summed tag prior, so the queries and keys carry it into the score through the content stream: 
+
+qi = WQ
+
+
+
+etok  
+
+> i
+
++ eseg  
+
+> i
+
++ mi · ETτi + ENνi
+
+
+
+,
+
+(19) 
+
+kj = WK
+
+
+
+etok  
+
+> j
+
++ eseg  
+
+> j
+
++ mj · ETτj + ENνj
+
+
+
+.
+
+(20) Reading Eqs. 18–20 together makes the design visible. The tag priors sit inside h(0)  
+
+> i
+
+and h(0) 
+
+> j
+
+and therefore propagate through WQ, WK into all three score terms via the content projections. The relative-position table, by contrast, appears only in c2p and p2c, and is purely a function of the offset. The two streams enter through entirely separate pathways and meet only when their score terms are summed to form the attention logit Aij ;the relative-position components themselves — the bucketing, the rδ table, and the Wc2p, Wp2c pro-jections — are left entirely unmodified. 
+
+Tag priors interact with relative position through the content stream alone , which is what makes the design portable across positional schemes. The tag tables ET , EN are constructed similarly to RoBERTa: uniformly initialized, masked by the first-subword indicator mp, and added inside the input layer norm. 
+
+Position-pathway injection: The position-pathway variant of section 3.4.2 leaves the input clean and instead multiplies the two relative-position terms (c2p and p2c, grouped as Spos in Eq. 10) by the tag–query alignment cij of Eq. 12, leaving the content-to-content term untouched. Here cij is formed from the content query Qci
+
+and the per-layer projection W (ℓ) 
+
+> E
+
+of the summed hexatag embedding, and the relative-position table and the Wc2p, Wp2c projections are left unmodi-fied. This is the direct DeBERTa analogue of the multiplicative Transformer-XL injection: the prior             
+
+> 9The buckets δcollapse pairs of positions with similar offsets into shared rows of the relative-position table, follow-ing (Shaw et al., 2018): small offsets {− 3,−2,−1,0,1,2,3}
+> each receive their own bucket, while larger offsets are pro-gressively merged — e.g. {+9 , . . . , +15 }might collapse into a single bucket — so the table stays small while preserving fine-grained discrimination near the diagonal.
+
+15 scales the position pathway and leaves the content pathway untouched with the only difference being that DeBERTa’s position pathway carries two terms (c2p and p2c) rather than Transformer-XL’s single BD .
+
+A.6 ModernBERT: Rotary Injection Details Portability of input-side injection: The unify-ing observation across the three encoders is that input-level injection commutes with whatever posi-tional mechanism the model already uses, whether absolute (RoBERTa), relative (DeBERTa), or rotary (ModernBERT). 
+
+Identity at initialization. With W (ℓ) 
+
+> δ
+
+→ 0 we have ∆θ → 0 in Eq. 14, so Eqs. 15–16 reduce to plain RoPE: training starts from an unmodified ModernBERT, exactly as in the Transformer-XL and DeBERTa variants. 
+
+B Time Complexity 
+
+SiPE adds two small embedding tables for ter-minal and non-terminal tags, ET ∈ R2×d and 
+
+EN ∈ R5×d, totaling 7d parameters per pathway (∼5K at d = 768 , ∼7K at d = 1024 ), well under 
+
+0.01% of the LM’s total parameters 10 . Looking up and adding these embeddings costs O(Ld ) per se-quence, which is lower-order than self-attention’s 
+
+O(L2d) cost. Position-pathway variants intro-duce tag–query interactions with O(L2d) complex-ity, matching the asymptotic cost of self-attention. SiPE therefore preserves the underlying Trans-former’s asymptotic complexity. At inference, a single auxiliary parser pass supplies the hexatags, while two lightweight token-level heads add only linear overhead beyond the parser encoder. 
+
+C Analyzing Attention Patterns on Object–Verb Agreement Tasks 
+
+A natural desideratum for SiPE-pretrained mod-els is that they should up-weight attention be-tween tokens that are linearly distant but syn-tactically adjacent (distance 1 in the depen-dency tree). We probe this on the BLiMP 
+
+Causative split for three model architectures spanning the three positional encoding families: 
+
+RoBERTa-base (absolute), ModernBERT-base (ro-tary), and Transformer-XL (relative), each against    
+
+> 10 For comparison, a single attention layer in RoBERTa-base contains ∼2.4M parameters; the priors add less than 0.3% of a single layer’s parameters.
+
+Figure 4: Verb →object attention on BLiMP (Warstadt et al., 2023) for RoBERTa-base vs. RoBERTa-base+SiPE (in-put pathway injection), both pre-trained on the 50M-token WikiText slice (subsection 4.1). On the subset of Causative 
+
+> examples where SiPE assigns higher PLL to the grammatical sentence but the base model does not, verb →object attention is higher under SiPE in 90% of cases (Appendix C).
+
+Figure 5: Verb →object attention on BLiMP for      
+
+> ModernBERT-base vs. ModernBERT-base+SiPE (input path-way injection), both pre-trained on the 50M-token WikiText slice (subsection 4.1). On Causative examples where SiPE is correct and the base model is not, the SiPE model assigns higher verb →object attention in 17/20 (85%) cases, mirroring the RoBERTa pattern despite ModernBERT’s rotary positional encoding.
+
+its SiPE counterpart. Verb →object attention is av-eraged across all heads; the layers we average over differ by architecture. For Transformer-XL, our lay-erwise injection study (section5) shows that syntax matters at every layer, so we average over all of its layers. We have not run the corresponding sweep for the encoders, so we instead follow Tenney et al. (2019), who find that “BERT’s intermediate layers encode a rich hierarchy of linguistic information, with surface features at the bottom, syntactic fea-tures in the middle and semantic features at the top,” and therefore average over each encoder’s middle layer band. 11 
+
+Across all three families, SiPE attains higher overall BLiMP accuracy than the corresponding base model. To understand how this syntactic in-formation influences attention, we restrict the anal-ysis to the subset of minimal pairs where the SiPE model is correct and the base model is not. We man-ually inspect 20 examples from this subset. We find      
+
+> 11 Layers 5–8 for the 12-layer RoBERTa-base and layers 9–12 for the 22-layer ModernBERT-base ; all layers 1–16 for the Transformer-XL we pre-train.
+
+16 Figure 6: Verb →object attention on BLiMP for        
+
+> Transformer-XL vs. Transformer-XL+SiPE (positional pathway injection), both pre-trained on the 50M-token Wiki-Text slice (subsection 4.1), averaged over all 16 layers. On
+> Causative examples where SiPE assigns higher sentence log-likelihood to the grammatical sentence but the base model does not, SiPE places higher verb →object attention in 11 /20
+> (55% ) cases: the same direction as the encoders (Figs. 4 and 5), but a much weaker majority. The green dashed line (right axis) marks the verb →object surface distance.
+
+that RoBERTa+SiPE places higher verb →object at-tention than its base model in 90% of cases (Fig-ure 4) and ModernBERT+SiPE does so in 85% of cases (Figure 5). Transformer-XL moves in the same direction but far more weakly: only a bare ma-jority ( 11 /20 (55% )) of such cases shift attention toward the object (Figure 6), where the encoders push it almost every time. Moreover, in over 80% 
+
+of the subset of 20 examples we examine, the object is nonadjacent to the verb, indicating a redirection of attention weights to the syntactically relevant ob-ject, even when it is linearly distant from the verb. This suggests that SiPE effectively leverages syn-tactic information to guide attention in a way that captures long-range dependencies, which is crucial for understanding complex sentence structures. The weak Transformer-XL effect poses an open question. The encoders appear to spend most of the syntactic prior directly on attention, redistributing mass to mirror syntactic adjacency. Transformer-XL barely does so in its attention maps, yet it con-verts the same signal into the largest downstream gain of any model we train ( +8 .2% relative on GLUE; Table 6). This suggests the decoder routes more of the enhanced syntactic knowledge beyond attention, towards semantic processing. 
+
+D Hyperparameters 
+
+Table 11 reports the task-specific fine-tuning hy-perparameters used for each backbone. Unless noted otherwise, all models use AdamW with 
+
+(β1, β 2) = (0 .9, 0.999) and ϵ = 10 −6.                   
+
+> LR WD
+> RoBERTa-base/large & DeBERTa-v3-base/large
+> all tasks 1e −50.1
+> ModernBERT-base/large (per task)
+> CoLA 8e −51e −6
+> SST-2 8e −51e −5
+> MRPC 5e −55e −6
+> STS-B 8e −55e −6
+> QQP 5e −55e −6
+> MNLI 5e −55e −6
+> QNLI 8e −55e −6
+> RTE 5e −51e −5
+
+Table 11: GLUE fine-tuning hyperparameters. Only ModernBERT’s LR/WD vary by task; RoBERTa and DeBERTa-v3 use LR 1e −5, WD 0.1 throughout. All runs: 20 epochs, AdamW, ϵ = 10 −6.
+
+E Alternative Embedding Combination Strategies 
+
+Throughout the paper, each token carries just two hexatag priors: a terminal tag ti = ETτi and a non-terminal tag ni = ENνi , read from small learned tables ( 2 × D for the terminals, 5 × D for the non-terminals). But is this the richest syntactic signal we could inject? A natural alternative is the token’s full dependency-relation label ( DEPREL ;40 labels such as nsubj and dobj ), which would come from a much larger 40 × D table, giving a per-token embedding deprel i. This opens two questions we study together: whether the richer  
+
+> DEPREL
+
+prior helps, and, once it is combined with the terminal and non-terminal priors, how all of these vectors should be fused with the token and positional embeddings, by addition, concatenation, a learned interpolation weight, or injection deeper into the network. We explore both questions as a small neural-architecture search over injection strategies. To keep it tractable we run the search on the simplest positional scheme, absolute positional embeddings, using RoBERTa-base as the encoder (the case illus-trated in Figure 9). The strategies we explore are collected in Table 12 and split into two studies at different pretraining scales. 
+
+Fusion mechanism (1M steps). We first fix the priors to ti and ni and vary only how they enter the model, pretraining RoBERTa-base for 1M steps (top block of Table 12, Table 9). The simplest option wins: ADD_T_NT , which just adds the two priors to the input embedding with no extra parameters, attains the best macro-average. CON-CAT_T_NT is the weakest (with large drops on QNLI and CoLA), and injection into the model’s residual (skip) connection ( ADD_T_NT (Residual 
+
+17 −0.5 0.0 0.5 1.0 1.5 2.0   
+
+> ADD T+NT α
+> ADD T+NT+DR CONCAT POS+NT+T ADD DNT ADD DNT α
+> CONCAT POS+DNT CONCAT POS+NT+T+DR
+> ADD T+NT
+> 69.18 69.28 69.32 69.48 69.60 69.61 69.63
+> 70.19
+
+Figure 7: Average GLUE performance across prior-injection variants for RoBERTa-base, shown as the improvement over the no-prior baseline ( 68 .64 ± 0.61 , shaded band at zero); bar-end labels give absolute scores and whiskers denote one standard deviation over 3 seeds. The strongest downstream performance is achieved by directly adding terminal and non-terminal prior embeddings to the absolute positional embedding model ( ADD T+NT ), outperforming concatenation, weighted addition, and variants using full dependency labels (the residual-injection variant is evaluated separately in Table 9). In these experiments, we set α = 0 .5.
+
+Figure 8: GLUE performance averaged across 3 random seeds per dataset under various prior-injection variants for RoBERTa-base. The strongest downstream performance is achieved by directly adding terminal and non-terminal prior embeddings to the absolute positional embedding model, outperforming concatenation, weighted addition, and variants using full dependency labels (the residual-injection variant is evaluated separately in Table 9). 
+
+Connection) ) yields only modest gains. Replacing the plain addition with a learned linear interpola-tion between the input embedding and the prior, 
+
+ADD_T_NT ( α): x′ 
+
+> i
+
+= α xi + (1 − α)( ti + ni),never improves over ADD_T_NT at any α initial-ization (Table 10). Adding capacity or depth to the fusion, therefore, does not help; direct addition at the embedding layer is both the cheapest and the strongest. 
+
+Adding dependency relations (500k steps). We then enrich the prior itself: we embed each to-ken’s DEPREL label and combine it with the ter-minal and non-terminal priors through the bottom-block strategies of Table 12. Because this study is more expensive, every variant, including a re-run baseline and ADD_T_NT , is pretrained for 500k steps for an apples-to-apples comparison (Fig-ures 7, 8). Every prior-injection variant improves over the no-prior baseline on macro-average, yet 
+
+ADD_T_NT still attains the highest mean. Layer-ing DEPRELS on top of ti + ni (ADD_T_NT_DR ,
+
+CONCAT_POS_NT_T_DR ) does not close the gap, and swapping the terminal tag for the DEPREL 
+
+18 Task Baseline ADD_T_NT CONCAT_T_NT ADD_T_NT (Residual Connection) 
+
+CoLA 31.41 (±2.02) 31.77 (±0.71) ↑ 26.85 (±1.06) ↓ 32.35 (±0.79) ↑
+
+SST-2 87.23 (±0.79) 87.22 (±0.52) ↓ 87.27 (±0.35) ↑ 87.42 (±0.19) ↑
+
+QQP 83.24 (±0.21) 83.36 (±0.11) ↑ 82.60 (±0.22) ↓ 83.13 (±0.15) ↓
+
+QNLI 77.65 (±0.50) 78.24 (±0.27) ↑ 70.79 (±0.70) ↓ 75.47 (±0.54) ↓
+
+MNLI 73.03 (±0.33) 74.05 (±0.17) ↑ 72.89 (±0.31) ↓ 73.90 (±0.14) ↑
+
+RTE 65.76 (±0.74) 64.66 (±0.56) ↓ 64.74 (±1.45) ↓ 65.46 (±0.45) ↓
+
+STSB 79.11 (±0.30) 81.41 (±0.13) ↑ 79.36 (±0.26) ↑ 80.41 (±0.47) ↑
+
+MRPC 80.96 (±0.44) 82.02 (±0.85) ↑ 82.76 (±0.72) ↑ 81.06 (±0.96) ↑
+
+Average 72.30 72.84 ↑ 70.91 ↓ 72.40 ↑
+
+Table 9: RoBERTa performance on GLUE under alternative strategies for combining syntactic priors. ADD_T_NT 
+
+adds the terminal prior ti and non-terminal prior ni directly to the token representation (i.e., additive fusion at the embedding layer). CONCAT_T_NT concatenates the original embedding (including standard positional information) with ti and ni, then applies a learned linear down-projection to the model dimension before feeding the encoder. ADD_T_NT (Residual connection) injects (ti + ni) into the residual stream before the multi-head self-attention sublayer. Results are averaged over 3 random seeds. Green arrows indicate improvements over the baseline and red arrows indicate degradations. Overall, ADD_T_NT yields the strongest macro-average (72.84%), while concatenation is the weakest configuration (70.91%), with particularly large drops on QNLI and CoLA. 
+
+Task Baseline α = 0.1 α = 0.5 α = 0.9 
+
+CoLA 31.41 (±2.02) 29.40 (±1.62) ↓ 29.89 (±0.71) ↓ 30.37 (±0.54) ↓
+
+SST-2 87.23 (±0.79) 86.93 (±0.34) ↓ 86.81 (±0.29) ↓ 88.13 (±0.06) ↑
+
+QQP 83.24 (±0.21) 83.04 (±0.08) ↓ 83.01 (±0.11) ↓ 83.66 (±0.48) ↑
+
+QNLI 77.65 (±0.50) 77.08 (±0.73) ↓ 73.72 (±0.22) ↓ 76.45 (±2.00) ↓
+
+MNLI 73.03 (±0.33) 72.58 (±0.02) ↓ 73.50 (±0.37) ↑ 73.07 (±0.05) ↑
+
+RTE 65.76 (±0.74) 66.25 (±0.18) ↑ 64.98 (±0.62) ↓ 66.07 (±1.44) ↑
+
+STSB 79.11 (±0.30) 78.38 (±0.03) ↓ 79.64 (±0.51) ↑ 78.25 (±0.14) ↓
+
+MRPC 80.96 (±0.44) 82.77 (±0.09) ↑ 81.28 (±1.51) ↑ 80.42 (±0.04) ↓
+
+Average 72.30 72.05 ↓ 71.60 ↓ 72.05 ↓
+
+Table 10: Effect of initializing the interpolation gate α for RoBERTa under the ADD_T_NT setting. We initialize 
+
+α ∈ { 0.1, 0.5, 0.9} and allow it to be updated during pretraining via backpropagation; all results report downstream GLUE performance after pretraining. Despite task-level variability (notably on QNLI), none of the α initializations improves upon the baseline on average, and all are weaker than the simple additive fusion. 
+
+is no better, whether added directly ( ADD_DNT ), concatenated ( CONCAT_POS_DNT ), or interpo-lated through a learned weight, ADD_DNT ( α):
+
+x′ 
+
+> i
+
+= α xi + (1 − α)( deprel i + ni). Richer syn-tactic signal, at least in this form, does not translate into stronger downstream performance. 
+
+Summary and scope. Taken together, these ex-periments identify ADD_T_NT , direct addition of the terminal and non-terminal priors at the input embedding, as the strongest injection strategy for absolute positional embeddings on the RoBERTa en-coder. Two considerations bound the generality of this finding. First, the per-dataset results (Fig-ure 8) show that no single variant is optimal on every task; the relative ordering of strategies varies across GLUE tasks, and ADD_T_NT is strongest in the macro-average rather than uniformly. Sec-ond, our search covers only the absolute-PE en-coder; the optimal injection strategy for relative (DeBERTa-v3, Transformer-XL) and rotary (Mod-ernBERT) positional schemes, and under larger pretraining budgets, remains open. We therefore adopt ADD_T_NT as a simple and robust default, and leave a systematic study of injection strategies across positional schemes to future work. 19 Strategy Injected input representation x′ 
+
+> i
+
+Description 
+
+Fusion mechanism (terminal + non-terminal tags) 
+
+ADD_T_NT x′ 
+
+> i
+
+= xi + ti + ni Add both priors to the input embedding (default; no extra parameters). 
+
+CONCAT_T_NT x′ 
+
+> i
+
+= W [ xi; ti; ni ] Concatenate with the input embedding, then down-project to D.
+
+ADD_T_NT (Residual Connection) h(1)  
+
+> i
+
+= LN  xi + ti + ni + Attn( x)i
+
+ Add the priors to the skip connection of the first attention sublayer. 
+
+ADD_T_NT ( α) x′ 
+
+> i
+
+= α xi + (1 − α)( ti + ni) Linearly interpolate the input embedding with the (terminal + non-terminal) prior; learned α initialized in {0.1, 0.5, 0.9}.
+
+Adding dependency relations ( deprel i, 40 labels) 
+
+ADD_T_NT_DR x′ 
+
+> i
+
+= xi + ti + ni + deprel i Add all three priors to the input embedding. 
+
+CONCAT_POS_NT_T_DR x′ 
+
+> i
+
+= W [ xi; ni; ti; deprel i ] Concatenate all priors with the input embedding, then down-project. 
+
+ADD_DNT x′ 
+
+> i
+
+= xi + deprel i + ni Swap the terminal tag for the DEPREL .
+
+ADD_DNT ( α) x′ 
+
+> i
+
+= α xi + (1 − α)( deprel i + ni) Interpolated counterpart of ADD_DNT ;learned α initialized in {0.1, 0.5, 0.9}.
+
+CONCAT_POS_DNT x′ 
+
+> i
+
+= W [ xi; deprel i; ni ] Concatenate ( DEPREL replacing the terminal), then down-project. 
+
+Table 12: Injection strategies we explore for absolute positional embeddings on RoBERTa-base . xi = ei + pi
+
+is the standard input embedding (token ei plus positional pi), x′ 
+
+> i
+
+the representation actually fed to the encoder, and W a learned projection back to the model dimension D. ti/ni are the terminal/non-terminal hexatag priors and deprel i the dependency-relation prior. For the residual variant we write the first attention sublayer explicitly, 
+
+h(1) = LN( x + Attn( x)) : the priors are added on the skip branch, so unlike ADD_T_NT they do not enter the self-attention computation itself. The top block fuses only the terminal and non-terminal tags; the bottom block additionally brings in DEPRELS .
+
+20 Figure 9: Injection points for syntactic priors in a Transformer encoder. We study where and how to inject hexatag-derived priors (terminal ti, non-terminal ni, and optionally dependency-relation labels deprel i) into RoBERTa-base. Three architectural locations are considered: (i) at the input embedding , alongside the token, segment, and positional embeddings; (ii) at the residual (skip) connection entering the first self-attention sublayer; and (iii) implicitly in the attention computation, by injecting at the input and propagating through WQ, WK .
+
+21
