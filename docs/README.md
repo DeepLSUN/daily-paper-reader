@@ -6,99 +6,95 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-15
-- 运行时间：2026-08-15 21:24:54 UTC
+- 最新运行日期：2026-08-16
+- 运行时间：2026-08-16 21:14:02 UTC
 - 运行状态：成功
 - 本次总论文数：25
 - 精读区：10
 - 速读区：15
 
 ### 今日简报（AI）
-今日阅读25篇论文，精读10篇、速读15篇，重点关注自蒸馏与多智能体内存机制。
-
-最值得精读的是《Matching Supervision to the Student's Learning Capacity》与《LatticeMind》，分别从监督匹配和冲突感知内存切入，均获9.0高分。
-
-建议普通读者优先从多智能体系统与高效训练两个方向入手，先读精读列表加深理解，再速读扩展视野。
-- 详情：[/202608/15/README](/202608/15/README)
+今日精读10篇、速读15篇，重点聚焦大模型高效训练与个性化调优。最值得关注两项9分工作：用logit空间传输实现“无权重”轻量微调，以及结合局部注意力与解耦知识记忆的预训练加速架构LoKiFormer。普通读者可优先追踪这两项技术，它们有望降低大模型定制与训练成本，同时兼顾安全与效率。
+- 详情：[/202608/16/README](/202608/16/README)
 
 ### 精读区论文标签
-1. [Matching Supervision to the Student's Learning Capacity: A Unified Framework for On-Policy Self-Distillation](/202608/15/2608.08176v1-matching-supervision-to-the-students-learning-capacity-a-unified-framework-for-on-policy-self-distillation)  
+1. [Weightless Fine-Tuning: Personalizing LLMs via Logit-Space Transport](/202608/16/2608.11342v1-weightless-fine-tuning-personalizing-llms-via-logit-space-transport)  
    标签：评分：9.0/10、query:post-train
-   evidence：提出了在线自蒸馏的统一框架，通过学生容量耦合token加权与教师特权信息
-2. [LatticeMind: A Conflict-Aware Memory Primitive for Multi-Agent Systems](/202608/15/2608.08236v1-latticemind-a-conflict-aware-memory-primitive-for-multi-agent-systems)  
-   标签：评分：9.0/10、query:agent
-   evidence：面向多智能体系统的冲突感知记忆原语，属于智能体框架设计
-3. [OmnilingualGAIA2: Evaluating the Multilingual Gap in Frontier AI Agents](/202608/15/2608.08775v1-omnilingualgaia2-evaluating-the-multilingual-gap-in-frontier-ai-agents)  
-   标签：评分：9.0/10、query:agent
-   evidence：面向多语言前沿AI智能体的智能体基准评估
-4. [From Relevance to Execution Utility: Reward-Aware Dynamic Execution Gating for Skill-Based LLM Agents](/202608/15/2608.09168v1-from-relevance-to-execution-utility-reward-aware-dynamic-execution-gating-for-skill-based-llm-agents)  
-   标签：评分：9.0/10、query:agent
-   evidence：提出RADEG，一种面向技能型LLM智能体的奖励感知动态执行门控
-5. [OpenCodeReview: Determinism over Non-Determinism for Cost-Effective Agent-Based Code Review](/202608/15/2608.09290v1-opencodereview-determinism-over-non-determinism-for-cost-effective-agent-based-code-review)  
-   标签：评分：9.0/10、query:agent
-   evidence：基于LLM的代码评审智能体，直接针对代码智能体研究
-6. [OpenCodeReview: Determinism over Non-Determinism for Cost-Effective Agent-Based Code Review](/202608/15/2608.09290v2-opencodereview-determinism-over-non-determinism-for-cost-effective-agent-based-code-review)  
-   标签：评分：9.0/10、query:agent
-   evidence：基于LLM的代码评审智能体，用确定性工程设计提升稳定性和成本效益
-7. [Co-Evolution in Agentic Systems: Toward Self-Directed Evolution Beyond Human Design](/202608/15/2608.10299v1-co-evolution-in-agentic-systems-toward-self-directed-evolution-beyond-human-design)  
-   标签：评分：9.0/10、query:agent
-   evidence：关于多智能体系统中共同演化的综述，提出三阶段分类法
-8. [TEAMMix: Taxonomy Enrichment Augmentation and Minority-augmented Mixing Strategy for LLM-enhanced Weak-Supervised Hierarchical Text Classification](/202608/15/2608.11044v1-teammix-taxonomy-enrichment-augmentation-and-minority-augmented-mixing-strategy-for-llm-enhanced-weak-supervised-hierarchical-text-classification)  
-   标签：评分：9.0/10、query:llm-synth
-   evidence：利用LLM生成伪样本与类别体系扩充的数据增强方法
-9. [A Multi-Agent Framework for Automated Coarse-Grained Molecular Dynamics of Polymers](/202608/15/2608.06694v1-a-multi-agent-framework-for-automated-coarse-grained-molecular-dynamics-of-polymers)  
+   evidence：面向LLM监督微调的无权重解码期替代方法，直接相关于微调主题
+2. [LoKiFormer: Locality-aware Attention with Decoupled Knowledge Memory for Efficient Large Language Model Pretraining](/202608/16/2608.12419v1-lokiformer-locality-aware-attention-with-decoupled-knowledge-memory-for-efficient-large-language-model-pretraining)  
+   标签：评分：9.0/10、query:llm
+   evidence：面向高效预训练的新颖LLM架构
+3. [SPADE: Speculative Decoding for Precise and Low Cost Distributed Edge Cloud Inference](/202608/16/2608.13076v1-spade-speculative-decoding-for-precise-and-low-cost-distributed-edge-cloud-inference)  
+   标签：评分：9.0/10、query:llm
+   evidence：面向边缘-云分布式大模型推理的投机解码
+4. [DFM Mimir v1: An Open HRM Delivering Frontier Performance at 1B Parameters Using Only Permissible Post-Training Data](/202608/16/2608.13517v1-dfm-mimir-v1-an-open-hrm-delivering-frontier-performance-at-1b-parameters-using-only-permissible-post-training-data)  
+   标签：评分：9.0/10、query:llm-reports
+   evidence：开源语言模型技术报告，仅使用合规后训练数据
+5. [NeuPAT: Neuron-aware Plasticity Allocation Tuning for Language-Preserving MLLMs](/202608/16/2608.08107v1-neupat-neuron-aware-plasticity-allocation-tuning-for-language-preserving-mllms)  
+   标签：评分：8.0/10、query:llm
+   evidence：基于神经元可塑性的多模态大模型微调方法
+6. [Yesterday's Shield, Today's Spear: A Self-Evolving Safety Guardrail in Production](/202608/16/2608.08471v1-yesterdays-shield-todays-spear-a-self-evolving-safety-guardrail-in-production)  
+   标签：评分：8.0/10、query:llm-synth
+   evidence：自演化护栏从模型错误合成训练数据，属于自训练方法
+7. [Multi-Agent Reinforcement Learning via Agent-Specific Preference](/202608/16/2608.08604v1-multi-agent-reinforcement-learning-via-agent-specific-preference)  
    标签：评分：8.0/10、query:agent
-   evidence：面向科学模拟的多智能体框架
-10. [AndroidReality: How Far Are Mobile Agents from the Real World?](/202608/15/2608.07775v1-androidreality-how-far-are-mobile-agents-from-the-real-world)  
+   evidence：多智能体强化学习与偏好建模，贴合自主智能体系统主题
+8. [ForestBench: A Unified Graph Framework for Evaluating Multi-Agent Collaboration](/202608/16/2608.08605v1-forestbench-a-unified-graph-framework-for-evaluating-multi-agent-collaboration)  
    标签：评分：8.0/10、query:agent
-   evidence：真实扰动下移动智能体的鲁棒性评估
+   evidence：统一图框架用于评估多智能体协作
+9. [UniDFKD: A Unified Semantic Prior Framework for Architecture-Agnostic Data-Free Knowledge Distillation](/202608/16/2608.09287v1-unidfkd-a-unified-semantic-prior-framework-for-architecture-agnostic-data-free-knowledge-distillation)  
+   标签：评分：8.0/10、query:post-train
+   evidence：无数据知识蒸馏框架，合成语义数据实现架构无关的模型压缩
+10. [Harness-IF: Evaluating Instruction Following Across Instruction Surfaces in Coding Agents](/202608/16/2608.11727v1-harness-if-evaluating-instruction-following-across-instruction-surfaces-in-coding-agents)  
+   标签：评分：8.0/10、query:agent
+   evidence：评估编码代理在不同指令面上遵循指令能力的基准
 
 ### 速读区论文标签
-1. [An AI4AI Framework for Visual Token Pruning](/202608/15/2608.07193v1-an-ai4ai-framework-for-visual-token-pruning)  
+1. [When Skills Meet Safety: Benchmarking and Characterizing the Adaptive Jailbreak Robustness of Skill-Merged LLMs](/202608/16/2608.08542v1-when-skills-meet-safety-benchmarking-and-characterizing-the-adaptive-jailbreak-robustness-of-skill-merged-llms)  
    标签：评分：8.0/10、query:llm
-   evidence：用大模型自动设计视觉token剪枝以降低多模态大模型推理成本
-2. [Why Study Emergent Behavior When You Can Regulate It? Aligning Multi-Agent Systems with Reward Prediction](/202608/15/2608.07280v1-why-study-emergent-behavior-when-you-can-regulate-it-aligning-multi-agent-systems-with-reward-prediction)  
+   evidence：针对技能融合大语言模型的自适应越狱鲁棒性评测基准
+2. [Reliability-Safety Trade-off in AI Distillation: A Renormalization-Group Approach](/202608/16/2608.08572v1-reliability-safety-trade-off-in-ai-distillation-a-renormalization-group-approach)  
+   标签：评分：8.0/10、query:post-train
+   evidence：知识蒸馏传递安全与可靠性倾向，并存在统计力学框架下的权衡
+3. [VLZip: Unified Visual and Textual Compression for Interleaved Long-Context Modeling](/202608/16/2608.08630v1-vlzip-unified-visual-and-textual-compression-for-interleaved-long-context-modeling)  
+   标签：评分：8.0/10、query:llm
+   evidence：统一视觉和文本压缩以实现高效长上下文VLM推理
+4. [Can We Optimize the Performance-Carbon Emission Break-Even Point?: The Quest for Greener LLMs](/202608/16/2608.08744v1-can-we-optimize-the-performance-carbon-emission-break-even-point-the-quest-for-greener-llms)  
+   标签：评分：8.0/10、query:llm
+   evidence：将碳代理纳入微调目标以实现大模型高效推理
+5. [OmnilingualGAIA2: Evaluating the Multilingual Gap in Frontier AI Agents](/202608/16/2608.08775v2-omnilingualgaia2-evaluating-the-multilingual-gap-in-frontier-ai-agents)  
    标签：评分：8.0/10、query:agent
-   evidence：用于对齐多智能体涌现行为的多智能体奖励预测框架
-3. [ZeroLock: Concurrent Memory-Efficient LLM Training via Modular Update Decoupling](/202608/15/2608.07974v1-zerolock-concurrent-memory-efficient-llm-training-via-modular-update-decoupling)  
-   标签：评分：8.0/10、query:llm
-   evidence：无反向传播的内存高效LLM训练
-4. [Quantization Degradation in Large Language Models: A Signal-Noise Perspective](/202608/15/2608.08188v1-quantization-degradation-in-large-language-models-a-signal-noise-perspective)  
-   标签：评分：8.0/10、query:llm
-   evidence：用信噪比系统研究LLM后训练量化退化
-5. [Learning from Environmental Feedback: Credit Assignment across Multiple Timescales for Agentic Reinforcement Learning](/202608/15/2608.08255v1-learning-from-environmental-feedback-credit-assignment-across-multiple-timescales-for-agentic-reinforcement-learning)  
-   标签：评分：8.0/10、query:agent
-   evidence：基于多时间尺度信用分配的智能体强化学习
-6. [Compiling and Benchmarking Task-State Horizons for Embodied Agents](/202608/15/2608.08036v1-compiling-and-benchmarking-task-state-horizons-for-embodied-agents)  
+   evidence：评估前沿AI智能体在多语言环境下的表现
+6. [SkillsMetric: Mapping the Detection Boundary of Static Analysis for Malicious Agent Skills](/202608/16/2608.08468v1-skillsmetric-mapping-the-detection-boundary-of-static-analysis-for-malicious-agent-skills)  
    标签：评分：7.0/10、query:agent
-   evidence：面向长时域具身智能体的基准与编译器推进自主智能体评估
-7. [STEMMA: An Adversarial Multi-Agent Framework for Evaluating Self-Identity Consistency in LLMs](/202608/15/2608.08164v1-stemma-an-adversarial-multi-agent-framework-for-evaluating-self-identity-consistency-in-llms)  
-   标签：评分：7.0/10、query:agent
-   evidence：对抗式多智能体框架，用于评估LLM自我身份一致性
-8. [VTO: Visual Tool Orchestration for Video Anomaly Detection](/202608/15/2608.08219v1-vto-visual-tool-orchestration-for-video-anomaly-detection)  
-   标签：评分：7.0/10、query:agent
-   evidence：基于过程监督强化学习的智能体工具编排框架
-9. [A Controlled Study of Feature-Based Knowledge Distillation Across Student Designs](/202608/15/2608.08294v1-a-controlled-study-of-feature-based-knowledge-distillation-across-student-designs)  
+   evidence：针对恶意代理技能安全的静态分析框架
+7. [TrustRoboReward: Preference-Ordered Isotonic Score Editing for Multi-Paradigm Robot Reward Models](/202608/16/2608.08491v1-trustroboreward-preference-ordered-isotonic-score-editing-for-multi-paradigm-robot-reward-models)  
    标签：评分：7.0/10、query:post-train
-   evidence：对基于特征的知识蒸馏进行受控比较，可为大模型蒸馏压缩提供方法参考
-10. [Tangent: An Empirical Study of Testing Practices for LLM-Based Agent Applications](/202608/15/2608.08413v1-tangent-an-empirical-study-of-testing-practices-for-llm-based-agent-applications)  
+   evidence：面向RLHF/DPO的偏好有序奖励模型训练
+8. [MathShikkha: A Controlled Study of Answer-Only and Chain-of-Thought Supervision for Bangla Mathematical Reasoning in Small Language Models](/202608/16/2608.08503v1-mathshikkha-a-controlled-study-of-answer-only-and-chain-of-thought-supervision-for-bangla-mathematical-reasoning-in-small-language-models)  
+   标签：评分：7.0/10、query:post-train
+   evidence：对数学推理中仅答案与思维链监督的受控SFT对比研究
+9. [PluginEval: A Diagnostic Benchmark for Fine-Grained Error Attribution in Function Calling](/202608/16/2608.08700v1-plugineval-a-diagnostic-benchmark-for-fine-grained-error-attribution-in-function-calling)  
    标签：评分：7.0/10、query:agent
-   evidence：对基于LLM的智能体应用测试实践的实证研究
-11. [Why Knowing Both Hops Is Not Enough: Understanding Two-Hop Generalization in Language Models](/202608/15/2608.07261v1-why-knowing-both-hops-is-not-enough-understanding-two-hop-generalization-in-language-models)  
+   evidence：面向自主智能体工具路由的诊断基准
+10. [How Robust Are LLMs to Vietnamese Dialects?](/202608/16/2608.10414v1-how-robust-are-llms-to-vietnamese-dialects)  
+   标签：评分：7.0/10、query:llm
+   evidence：首个LLM越南方言鲁棒性系统基准
+11. [Evaluating Dedicated Monolingual and Joint Multilingual Causal Models for Dravidian Languages](/202608/16/2608.07727v1-evaluating-dedicated-monolingual-and-joint-multilingual-causal-models-for-dravidian-languages)  
    标签：评分：6.0/10、query:llm
-   evidence：通过受控训练分析语言模型的双跳泛化机制
-12. [Circuit Fine-Tuning for Compute-Efficient Transformer Adaptation](/202608/15/2608.08336v1-circuit-fine-tuning-for-compute-efficient-transformer-adaptation)  
-   标签：评分：6.0/10、query:llm
-   evidence：基于电路发现的计算高效Transformer微调，对LLM PEFT有迁移潜力
-13. [From Product Search to Preference Articulation: The Economics of Agentic Commerce](/202608/15/2608.08395v1-from-product-search-to-preference-articulation-the-economics-of-agentic-commerce)  
+   evidence：从零训练并评估因果语言模型
+12. [Quality-Diversity Stress Tests for Process Reward Models:What Archive Coverage Can and Cannot Certify](/202608/16/2608.08008v1-quality-diversity-stress-tests-for-process-reward-modelswhat-archive-coverage-can-and-cannot-certify)  
+   标签：评分：6.0/10、query:post-train
+   evidence：过程奖励模型鲁棒性压力测试
+13. [Neurosymbolic Discovery of Algebraic Graph Constructions](/202608/16/2608.08118v1-neurosymbolic-discovery-of-algebraic-graph-constructions)  
    标签：评分：6.0/10、query:agent
-   evidence：研究智能体搜索及其在产品发现中的经济权衡
-14. [Deployable Per-Instance Multi-Layer Activation Steering for Large Language Models](/202608/15/2608.08829v1-deployable-per-instance-multi-layer-activation-steering-for-large-language-models)  
-   标签：评分：6.0/10、query:post-train
-   evidence：激活引导通过残差向量编辑大模型行为，与对齐技术相关
-15. [Learning Preference Adaptation for Large Language Model Personalization via Verbal Reinforcement Learning](/202608/15/2608.09507v2-learning-preference-adaptation-for-large-language-model-personalization-via-verbal-reinforcement-learning)  
-   标签：评分：6.0/10、query:post-train
-   evidence：语言强化学习用于大语言模型个性化
+   evidence：基于大语言模型的自主智能体用于数学发现
+14. [Population-Scalable Multi-Agent World Modeling](/202608/16/2608.08600v1-population-scalable-multi-agent-world-modeling)  
+   标签：评分：6.0/10、query:agent
+   evidence：多智能体世界模型与推理时可扩展性
+15. [LegoLM: Structured Weight Sharing for Large Language Models](/202608/16/2608.08652v1-legolm-structured-weight-sharing-for-large-language-models)  
+   标签：评分：6.0/10、query:llm
+   evidence：大语言模型压缩与权重共享架构
 
 
 <div class="dpr-home-promo-card">
