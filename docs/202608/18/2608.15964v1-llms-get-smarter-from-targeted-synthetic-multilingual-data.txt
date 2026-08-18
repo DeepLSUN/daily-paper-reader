@@ -1,0 +1,447 @@
+Title: LLMs Get Smarter from Targeted Synthetic Multilingual Data
+
+URL Source: https://arxiv.org/pdf/2608.15964v1
+
+Published Time: Tue, 18 Aug 2026 01:25:57 GMT
+
+Number of Pages: 21
+
+Markdown Content:
+## LLMs Get Smarter from Targeted Synthetic Multilingual Data 
+
+Ishika Agarwal 1, Arkajyoti Chakraborty 2, Tanner Sorensen 2,Neha Gupta 2, Andreas Stolcke 2
+
+> 1
+
+UIUC, 2Uniphore  
+
+> Correspondence: ishikaa2@illinois.edu
+
+Abstract 
+
+Language-specific competency (LSC) is the phenomenon of a language model perform-ing better or worse depending on the language of the prompt. In other words, a language model outputs different (and potentially incor-rect) responses to the same semantic query when prompted in different languages. Prior work attributes this to an internal misalign-ment of semantic representation across lan-guages. Currently, there are two main ap-proaches to address LSC in the literature: (1) routing all queries through English, improv-ing performance, but limiting language expres-sivity to English; or (2) training on language-balanced data, equalizing model performance across languages, but reducing overall perfor-mance. In this work, we take a data centric per-spective and introduce HOTFIXR: Hardness 
+
+Optimized Training-data For Improving X-lingual Reasoning. It is a data generation framework that uses models to probe and learn a student model’s multilingual weak-nesses, and generates data to mitigate them. HOTFIXR can generate multilingual synthetic training data that can improve multilingual per-formance. We evaluate on three in-distribution tasks, three out-of-distribution tasks, and four out-of-distribution languages. On average, HOTFIXR (1) improves in-distribution per-formance by 6.2%, (2) reduces catastrophic for-getting (induced by fine-tuning) on OOD tasks by 3.7%, and (3) on OOD languages by 7.1%. Overall, as many real-world applications re-quires multilingual LLMs, our work contributes to the efforts of making LLMs multilingually proficient. We will release code upon accep-tance. 
+
+1 Introduction 
+
+Many LLM-related business use cases require mod-els to reliably converse in languages other than English. Multilingual language models are trained by adding in non-English data (Singh et al., 2024).                             
+
+> Performance Language Method ID ( ↑)OOD ( ↑)Spread ( ↓)Base 51.9 65.6 9.6 EngReason 50.8 65.4 8.8 SelectionGT 49.2 60.9 9.8 SelectionGEN 50.2 55.8 9.5 Filtered 48.9 58.2 10.6 Untrained 50.4 63.4 9.7 DataEnvGym 49.0 57.4 10.2 HOTFIXR (ours) 56.2 64.7 9.4
+
+Table 1: HOTFIXR has the best in-distribution per-formance, the best out-of-distribution performance among the training-based baselines, and remains multilingually consistent. This table shows the cross-lingual consistency with respect to ID and OOD perfor-mance. Language spread is the standard deviation of performance across languages. Low spread indicates more consistent performance across languages. Note: the training-based baselines are SelectionGT, Selection-GEN, Filtered, Untrained, and DataEnvGym. 
+
+However, English data significantly dominates the training data. As a result, a lot of internal LLM processes happen in English (Wendler et al., 2024). Specifically, as an LLM processes Spanish (or any non-English) text, it tries to anchor its understand-ing in English, before answering in Spanish. This anchoring could upper-bound what an LLM can understand in non-English. This points to the rep-resentational gap in LLMs, where they represent the same concept differently, in different languages. We also see empirical evidence of this. In Figure 1, we evaluate Qwen/Qwen2.5-7B-Instruct (Team, 2024) on multilingual HotPotQA (Li et al., 2026) (a multilingual RAG dataset). This plot shows that the model capability varies by language. If the discrepancy was created by imbalanced data, what happens when we balance the pre-training data? Aryabumi et al. (2024) trained 
+
+Cohere/aya-23-8B with a focus on balancing 23 languages in their pretraining data as much as possi-1arXiv:2608.15964v1 [cs.CL] 16 Aug 2026 EN CN RU AR 010 20 30 40 50 60 70 80 90 Pass@5 Rate (%)    
+
+> 84.3 73.4 65.7 63.6 70.6 74.4 73.9 69.3
+> HotPotQA
+> Qwen2.5-7B-Instruct Aya-23-8B
+
+Figure 1: Motivating results for LSC: the performance of Aya (with a more language-balanced pretraining dataset) versus Qwen (with a more English-dominant pretraining dataset) on multilingual HotPotQA (Li et al., 2026). We see that although Aya performs more consis-tently across languages, Aya degrades in performance (see Qwen’s performance in English). 
+
+ble. In Figure 1, we also included the performance of this Aya model. With the language-balanced pretraining dataset, Aya is able to perform more consistently across languages. However, it doesn’t perform as well as Qwen does on English. Of course, the models differ in model architecture, ingested data, train-ing strategies, and more, making this more illus-trative rather than controlled. Still, this pattern matches the lessons from prior work: Conneau et al. (2020)’s “Curse of Multilinguality” for un-supervised learning states that as more languages are added, the overall performance plateaus. Over-all, we are seeing a pattern of degradation when models are trained with multilingual data. 
+
+To summarize, the multilingual tradeoff is to ei-ther optimize for English performance and suffer in non-English tasks, or to optimize for consistency in English/non-English performance and suffer in overall model accuracy. We try to explore a mid-dle ground: if data is truly that important, can we curate post-training data to teach a model perform well both across languages and overall? We introduce HOTFIXR: a post-training data generation framework that aims to improve an LLM’s multilingual ability without degrading its general abilities. HOTFIXR is a synthetic data generation framework that trains a question gener-ation model based on a student model’s feedback signals. The question generator is trained to probe the student’s weakness (Section 3). We evaluate HOTFIXR across a variety of baselines and bench-marks to support our claims (Section 4). 
+
+2 Related Works 
+
+Multilingual LLMs try to map the same semantic phrases into one unified representation space (Xu et al., 2025; Ghosh et al., 2025). However, represen-tation misalignments occur within languages them-selves. This usually emerges in three behaviors: (1) language-specific knowledge (Agarwal et al., 2026a) where a model can output a different answer to the same factual query in different languages, (2) non-isomorphism (Wu et al., 2024) where certain words or phrases don’t have direct translations in other languages, (3) non-compositionality (Agar-wal et al., 2026b) where the meaning cannot be derived (and therefore, translated) from individual words, including idioms and metaphors. Previous work has shown this misalignment is mainly due to the English-dominant pretraining data (Aryabumi et al., 2024). This gears the model towards internally representing language in English (Wendler et al., 2024; Schut et al., 2025; Zhao et al., 2024). Particularly, Wendler et al. (2024) show that models route all their latent thinking into English spaces in the early-to-middle layers, then route their thinking back to non-English spaces in the later layers. This results in English becoming an upper bound for representation: concepts that can be represented in English are more likely to result in accurate answers. The key is to realign these concepts; Section 3.2 shows evidence that they can be realigned in pretraining, but pretraining is prohibitively expensive in many settings. 
+
+Mitigating misalignment Misalignment can be mitigated using a few strategies. First there is smart prompting. Researchers craft particular prompts that elicit language-dependent knowledge from a model to increase performance on a multi-lingual task (Donthi et al., 2025). The limitation of this approach is that the prompts are hand-crafted and might not generalize across language models. Mod-els can also be sensitive to the style of the prompt, making this an unreliable method. Next is con-trastive learning. Usually, a contrastive learning ob-jective is employed to re-align representations (Tan et al., 2023; Li et al., 2024b; Zhang et al., 2026) and requires positive-negative paired data in order to improve the representations. This is more reli-able than prompting, but still requires high-quality samples with human ground truth. Focusing on multilingual reasoning specifically, one way to mitigate is to make architectural changes. For example, Yoon et al. (2024) uses 2a multilingual model to provide embedding inputs to a reasoning model to use the specialized capa-bilities of each model. Other fine-tuning methods either try to align low-resource language reasoning chains with those from high-resource languages (She et al., 2024) or carefully try to craft correct reasoning traces in other languages to improve the performance (Ranaldi and Pucci, 2025). Finally, other works also focus on data curation for aligning representations. 
+
+Multilingual data curation. Most of the data curation works are focused on filtering and clean-ing up existing datasets (Nguyen et al., 2024; Li et al., 2024a; Penedo et al., 2025; Messmer et al., 2025). The cleaning strategies involve deduplica-tion and removing multilingual documents. The filtering strategies involve model-based data selec-tion (keeping training samples that are within the distribution of the existing reference set). Li et al. (2024a) use a form of self-distillation where they generate cross-lingual samples (instruction in one language, but response in a low-resource language). This helps to generate QA pairs with fewer transla-tion mistakes. 
+
+3 HOTFIXR Methodology 
+
+HOTFIXR is a synthetic data generation frame-work in which we train a question generation model based on the student model’s signals. Our frame-work is inspired by AcquisitionSynthesis (Agarwal et al., 2026c). First, a question generation model is asked to generate a data sample. 1 Second, the stu-dent model is provided with the data sample, where we design an acquisition function 2 that indicates whether the sample uncovers a student model’s lin-gual deficit . The acquisition function is described in Section 3.1, but is essentially a difficulty and misalignment score that indicates whether the sam-ple elicits a student model weakness. Finally, this score is given as feedback to the question genera-tion model, where it will be optimized to generate samples that maximize the difficulty score. The op-timization algorithm is GRPO (Shao et al., 2024). Figure 3 contains a visualization of HOTFIXR. 
+
+> 1The question generation model is given a prompt that outlines the data sample requirements and we even provide an in-context sample. Prompts are available in Appendix E.
+> 2Acquisition functions are primarily known as the selection criteria within data selection and active learning works (Settles, 2012). We use the term “acquisition function” because it is a metric that informs us how good our data is for training purposes.
+
+Data Space 
+
+> Lingual Deficit Score
+> GRPO optimization improves the
+> synthetic data quality
+> Untrained Generator
+> Trained
+> Generator
+
+Figure 2: Intuition behind HOTFIXR. The “data space” represents the data samples generated by the question generator. Essentially, we want to hill climb through the data space to find samples that have high lingual deficit scores, as they will be most informative to the student model. By fine-tuning the question generation model to generate samples according to the student model’s lingual deficit, we can improve the information embed-ded within data, improving our models on downstream tasks. 
+
+3.1 Measuring Lingual Deficit 
+
+Student models have two kinds of weaknesses: language-agnostic incompetencies (cannot answer the question correctly in any language) and language-specific incompetency (cannot answer the some questions correctly in certain languages). We need a metric that can capture both weaknesses. To measure language-agnostic incompetency (LAI) , we use the LLM’s uncertainty in answer-ing the question by using English-centric reasoning. Once the student model receives the question gener-ated by the question generation model, we prompt the student model to “answer the following ques-tion, reason using English”. Given a prompt P and response R (where R(i) 
+
+> t
+
+is the i-th most probable token in the t-th spot), the uncertainty of a model is U (P, R ) = 1 −
+
+ 1
+
+> |R|
+
+P 
+
+> t
+
+pθ(R(1)  
+
+> t
+
+| P, R <t )
+
+
+
+or 1 minus the probability of the most probable token, averaged across the sequence. A higher re-ward is assigned to the question generator if the student model is uncertain about the question in its strongest language 3.To measure language-specific incompetence (LSI) , we prompt the student model to answer the same model-generated question in two ways: one with “answer the following question, reason using English” ( REN ), and the other with “answer the following question, reason using L” ( RL), where 
+
+L alternates between French, Spanish, Arabic, Por-
+
+> 3We assume this to be English, because the majority of pre-training data is in English.
+
+3<question> ¿Cuál de las siguientes afirmaciones es verdadera   
+
+> sobre...? </question>
+> generates
+> Reason about the question in
+> English: …
+> Reason about the question in
+> English: …
+> Reason about
+> the question in
+> Spanish: …
+> Language-Agnostic
+> Incompetency
+> Confidence
+> Language-Specific
+> Incompetency
+> Hidden State Divergence
+> Lingual Deficit:
+> min 1, 𝐿𝐴𝐼 + min(1, 𝐿𝑆𝐼)
+> Question Generation Model Reward
+
+Figure 3: An illustration of how to train the question generation model in HOTFIXR, along with the reward design. 
+
+tuguese, or Italian. Next, we find the last reasoning token of both REN and RL (the token right before the answer delimiter), extract the model’s hidden state of the last layer for that token, and compute the cosine distance between them. The question generator is assigned a higher reward if the dis-tance is larger between the two. Since the correct answer is invariant to the reasoning language, the two reasoning trajectories should be represented in nearby regions of the representation space. If they differ, this represents a cross-lingual misalignment (Wendler et al., 2024) that the student needs to be trained to reduce. 
+
+Intuition. A question generation model that is trained on a student model’s feedback signals learns to generate data that is good for the student to learn from. Figure 2 is a schematic of an arbitrary "data" space (what the question generation model can gen-erate) versus the score from the acquisition func-tion. During GRPO optimization, the question gen-eration model figuratively probes the data space to understand what data elicits the highest peak in the acquisition function. In this case, “good” for the student is where the reasoning diverges: either because of incorrect answers or because of the representational gap be-tween languages. Of course, there will always be some difference in the representation of two lan-guages, but the aim is to minimize it so that models can generalize well to other languages without re-quiring training data in those languages. 
+
+3.2 Training Setup 
+
+To train our question generator model, we use 500 samples from the training dataset DQG . These 500 samples are used as in-context samples to inform the data sample generation during rollouts. Our training size is small because we see that with more training samples, models reward hack the student feedback signal, and start to generate the one sam-ple that elicits a local maximum reward. Empiri-cally, 500 samples are a sweet spot between maxi-mizing reward and avoiding reward hacks (more in Appendix A). After training our question generation model, we use it to create a dataset for a student model, 
+
+DS , of 5,000 samples. In both the training dataset 
+
+DQG and generated dataset DS , we prompt the model to generate a sample in a particular language between English, French, Spanish, Arabic, Por-tuguese, and Italian. To obtain reliable answers for 
+
+DS , we use Qwen/Qwen2.5-32B-Instruct (Team, 2024) as our label generation model. We train the student model on DS with SFT. Then, we evaluate the student model. The better the student model, the higher quality DS is. 
+
+4 Experiments 
+
+In this section, we describe our thorough evalua-tions. 
+
+4.1 Setup 
+
+For HOTFIXR question generation training set 
+
+DQT , we use ∼500 samples of Nemotron-PTDv2’s STEM, MATH, and CHAT subsets (167 samples each). We generate DS based on the Nemotron data as well. We use the student models trained on these data to showcase the benefits of our method. 4Models. We use three models for this task: Qwen/Qwen2.5-7B-Instruct and 
+
+Qwen/Qwen2.5-14B-Instruct (Team, 2024), and meta-llama/Llama-3.1-8B-Instruct 
+
+(Grattafiori et al., 2024). We chose this set to showcase the robustness of our method across model families and model sizes. All question generation models and student models are different instantiations of the same instruction-tuned model. In other words, a slightly different Qwen model will teach itself. 
+
+Tasks. We break up our evaluation into four tasks: (1) Nemotron (Nathawani et al., 2025) for agen-tic reasoning, (2) factual parametric knowledge, tested with MMMLU 4, (3) RAG -based reading comprehension, tested with mHotPotQA (Li et al., 2026), and (4) translation , tested with OPUS-100 (Zhang et al., 2020). These four tasks are used to determine whether HOTFIXR can teach models that do not forget previously trained information, as well as improve the multilingual performance of LLMs. 
+
+Languages. As mentioned before, HOTFIXR will generate data in English, French, Spanish, Ara-bic, Portuguese, and Italian. These are our in-distribution languages – our training datasets are equally balanced among all six languages. In ad-dition, we use German and Japanese as our out-of-distribution languages, to ensure the performance does not degrade across languages. 
+
+Metrics. Each task requires a different kind of similarity metric. Nemotron STEM and MMMLU are multiple-choice question answering tasks. Hence, these tasks are measured by Accuracy ,or the percentage of test samples where the LLM chose the same answer as the ground truth. mHot-PotQA (multilingual HotPotQA) has short answers, so we use ROUGE -L to capture the lexical agree-ment by measuring the n-gram overlap between the few-worded answers. OPUS-100 also has short phrases, but could require a metric to reflect the semantic similarity. Hence, we use an LLM-as-a-Judge (LAJ) to determine on a scale of 1-5 whether an English sentence and the translated ver-sion match semantically. We use Prometheus-7b-V2.0 (Kim et al., 2024) as our LAJ. Finally, we have two other in-distribution tasks that require se-mantic similarity for evaluation: Nemotron MATH and Nemotron CHAT. We also use LAJ to evaluate 
+
+> 4https://huggingface.co/datasets/openai/MMMLU
+
+these. A prediction with at least a score of 4/5 is considered correct. To make the metrics comparable, we discretize them into binary correct/incorrect labels, and report the % of predictions that are correct. Accuracy is already the binary scale. A prediction with at least an 80% ROUGE score or at least 4/5 LAJ score is considered correct. 
+
+Baselines. To ensure our method is competitive and comparable, we adopt a variety of baselines to prove the various aspects of our claims. 1. Base : the performance of the base models. 2. EngReason : training-free baseline that mea-sures the performance of base models when the model is prompted to “reason about the question in English”. This baseline represents the strategy of falling back on English as the “language of thought”. 3. SelectionGT : this is a data selection baseline. We use 5,000 samples (with their questions, and ground truth answers) from the Nemetron PTDv2STEM, MATH, and CHAT subsets to train a student model. The data selection base-lines help evaluate data synthesis compared to just using the available data. 4. SelectionGEN : this is also a data selection 
+
+baseline. The only difference between this and SelectionGT is where the labels come from. SelectionGEN gen erates the labels us-ing Qwen/Qwen2.5-32B-Instruct , instead of obtaining them from the original dataset, and helps isolate the role of ground truth ver-sus generated labels. 5. Filtered : this is another data selection base-line where we use the Lingual Deficit score to rank 10,000 samples. We select 5,000 samples with the highest Lingual Deficit score. 6. Untrained : this is a data synthesis baseline. We use the base, untrained model as question generation models to generate datasets for stu-dent models. This clarifies the importance of optimizing the data generation models. 7. DataEnvGym : this is another data synthe-sis baseline from (Khan et al., 2025). They use a teacher model to synthesize data based on a student’s weaknesses, irrespective of lan-guage. To adapt it to our setting, we add to 5their prompts to generate data in a particu-lar language (same as ours), and we keep the teacher and student models the same as in our settings. 
+
+4.2 Results All of the results reported in this section are averaged across 3 runs. We’ve only reported the averages in the main plots. To see the error bars, please refer to Appendix B. Figure 4 showcases the performance of all stu-dent models from baselines and HOTFIXR for all three datasets, on the in-distribution task of Nemotron STEM, MATH, and CHAT. To clarify, in all the plots, the bars with × are the untrained baselines, the bars with circles are data selection baselines, and the bars with diagonal lines are data synthesis baselines. 020 40 60 80 100 Performance 
+
+Qwen2.5-7B-Instruct 
+
+> 56.4 13.0 87.6 55.4 11.4 86.8 54.6 5.2 85.6 57.0 6.8 87.2 55.8 4.6 85.4 56.6 7.2 89.8 54.0 9.6 84.2 62.2 17.8 93.4
+
+020 40 60 80 100 Performance 
+
+Qwen2.5-14B-Instruct 
+
+> 63.4 13.8 88.4 61.8 12.2 88.2 60.0 6.8 87.4 63.6 7.0 85.6 60.2 3.6 89.0 61.8 6.8 87.8 54.8 9.2 86.8 66.6 16.2 92.0
+
+STEM (Accuracy) Math (LAJ) Chat (LAJ) 020 40 60 80 100 Performance 
+
+Llama-3.1-8B-Instruct 
+
+> 55.2 1.6 87.6 53.0 2.4 85.6 52.2 2.8 87.8 55.0 2.0 87.4 52.2 2.4 87.0 54.0 2.0 87.2 52.2 3.0 87.6 57.1 6.4 94.0
+
+Base EnglishReasoning SelectionGT SelectionGEN Filtered Untrained DataEnvGym HOTFIXR 
+
+Figure 4: Performance of data curation methods in-distribution .Qwen2.5-7B-Instruct Qwen2.5-14B-Instruct Llama-3.1-8B-Instruct 020 40 60 80 100 Accuracy 
+
+> 67.0 68.2 63.9 59.9 61.7 59.2 46.2 64.3 73.7 73.0 67.3 70.3 59.1 71.0 62.6 67.9 48.5 47.3 48.8 48.6 48.8 49.5 48.8 49.3
+> Base EnglishReasoning SelectionGT SelectionGEN Filtered Untrained DataEnvGym HOTFIXR
+
+Figure 5: Performance of data curation methods for 
+
+factual (MMMLU) queries, an out-of-distribution task. 
+
+Figures 5, 6, and 7 compare the performance of all student models trained (or untrained) by all base-lines on out-of-distribution tasks, including fac-tual parametric knowledge, RAG, and translation, respectively. These plots have whiskers on each plot. For clarity, we report the average result across languages for each baseline. The whisker length indicates the minimum and maximum language performance. The shorter the whisker, the more consistent the performance is across languages. In Appendix B, we report the granular per-language results for each task. Qwen2.5-7B-Instruct Qwen2.5-14B-Instruct Llama-3.1-8B-Instruct 020 40 60 80 100 ROUGE 
+
+> 79.0 79.3 61.5 41.4 66.5 72.3 47.5 76.7 79.9 81.0 73.8 42.8 45.5 77.5 70.4 78.3 67.7 65.2 67.2 67.2 68.4 68.6 69.1 69.7
+> Base EnglishReasoning SelectionGT SelectionGEN Filtered Untrained DataEnvGym HOTFIXR
+
+Figure 6: Performance of data curation methods for 
+
+RAG (multilingual HotPotQA) queries, an out-of-distribution task. Qwen2.5-7B-Instruct Qwen2.5-14B-Instruct Llama-3.1-8B-Instruct 020 40 60 80 100 LAJ 
+
+> 59.2 59.0 53.8 56.8 56.6 57.1 56.9 59.1 59.4 59.5 54.2 57.4 59.1 57.9 57.4 58.2 56.3 56.4 57.6 57.6 57.7 57.1 57.5 58.9
+> Base EnglishReasoning SelectionGT SelectionGEN Filtered Untrained DataEnvGym HOTFIXR
+
+Figure 7: Performance of data curation methods for 
+
+translation (OPUS-100) queries, an out-of-distribution task. 
+
+4.3 Analysis 
+
+Takeaway 1: HOTFIXR generates more infor-mative in-distribution data. On Nemotron STEM, MATH, and CHAT tasks, HOTFIXR gets an overall improvement of 4.3% over the base model (5.5% on Qwen 7B, 3.1% on Qwen 14B, and 4.4% on Llama 8B), improvement of 6.0% over the best selection method (7.5% on Qwen 7B, 6.2% on Qwen 14B, and 4.4% on Llama 8B), and an improvement of 5.8% over the 
+
+best synthesis method (6.6% on Qwen 7B, 6.1% on Qwen 14B, and 4.8% on Llama 8B). 6In-Distribution Out-of-Distribution Baseline ∆ Wins ∆ Wins Base +4.3 9/9 -0.9 3/9 EngReason +5.4 9/9 -0.7 4/9 SelectionGT +7.0 9/9 +3.8 9/9 SelectionGEN +6.0 9/9 +8.9 8/9 Filtered +7.3 9/9 +6.6 8/9 Untrained +5.8 9/9 +1.4 7/9 DataEnvGym +7.1 9/9 +7.3 9/9     
+
+> Average +6.2 9/9 +3.7 7/9
+
+Table 2: Average performance difference of HOTFIXR versus each baseline. The average is over nine settings: three students (Qwen 7B, Qwen 14B, Llama 8B) × three ID/OOD tasks. “Wins” counts the number of settings where HOTFIXR scores higher. 
+
+Takeaway 2: HOTFIXR minimizes out-of-distribution degradation. Because all baselines train on 5,000 samples, it is expected that the models will lose some OOD per-formance relative to the base model. There are two ways we evaluate for OOD generalization perfor-mance: by task, and by language. 
+
+By OOD task generalization , we refer to the performance on Factual Knowledge (MMMLU), Translation (OPUS-100), and RAG (mHotPotQA). According to Table 2, HOTFIXR performance degrades by 0.9% compared to the base model (av-eraged over three OOD tasks and three students). However, HOTFIXR is on average 5.6% better than other training-based baselines . Compared to SelectionGT and SelectionGEN, we achieve a 6.4% improvement. This is because the questions are generic in the selection methods, and not tar-geted towards a model’s weaknesses. The effect of Untrained versus HOTFIXR in OOD tasks is small but nontrivial (1.4%), which shows that syn-thetic data will not harm OOD. Still, HOTFIXR achieves a 5.8% improvement in-distribution, so training data generation models is still important to achieve overall performance. Finally, over DataEn-vGym, HOTFIXR performs 7.3% better in OOD tasks. This is because DataEnvGym is designed to generate data that mitigate student mistakes on a particular dataset. Instead, HOTFIXR’s dataset-agnostic reward is able to probe a student model’s general weaknesses. 
+
+By OOD language generalization , we refer to the performance on languages not included in the training distribution. In Factual Knowledge (MMMLU) and Translation (OPUS-100), these                                    
+
+> Method De Ja Ru Zh Avg SelectionGT -3.3 -4.7 -9.5 -10.5 -7.0 SelectionGEN -1.9 -4.0 -22.5 -21.5 -12.5 Filtered -3.8 -4.8 -14.7 -16.3 -9.9 Untrained -2.9 -2.0 -2.3 -5.3 -3.1 DataEnvGym -6.8 -6.0 -12.2 -15.4 -10.1
+> HOTFIXR -2.6 -0.7 -0.9 -1.3 -1.4
+
+Table 3: OOD language generalization: performance dif-ferences relative to the Base model, averaged across all models and corresponding tasks. Averaging the differ-ence in HOTFIXR and other methods, we can compute how much HOTFIXR avoids catastrophic forgetting. For example, averaged across all languages, HOTFIXR avoids catastrophic forgetting by 8.7% compared to DataEnvGym (10.1-1.4). 
+
+are German and Japanese. In RAG (mHotPotQA), these are Russian and Chinese. Please refer to Ap-pendix B for the per-language results of all OOD tasks. Table 3 summarizes the results. Overall, there is post-training decline in performance. How-ever, HOTFIXR suffers the least: it performs bet-ter by 7.1% compared to other training-based base-lines.                                              
+
+> Method Range Trim. Range Std IQR CV Base 20.2 16.0 7.2 9.6 0.12 EngReason 20.7 15.4 7.2 8.8 0.12 SelectionGT 22.3 17.1 7.9 9.8 0.13 SelectionGEN 18.8 14.9 6.9 9.5 0.13 Filtered 22.6 17.1 8.0 10.6 0.14 Untrained 20.1 15.0 7.1 9.7 0.12 DataEnvGym 22.8 17.0 8.0 10.2 0.14 HOTFIXR 19.4 14.6 6.9 9.4 0.11
+
+Table 4: Cross-lingual spread of student performance, averaged over three student models (Qwen2.5-7B, Qwen2.5-14B, Llama-3.1-8B) and three multilingual tasks (OPUS, MMMLU, mHotpotQA) evaluated with each task’s primary metric. Lower is more consistent for all dispersion columns; Bold marks the best value among data-generation methods. Range is the max −
+
+min performance across all languages. Trimmed Range 
+
+is the best minus the 2nd worst language accuracy. Std 
+
+is standard deviation of the performance. IQR is the Inter-Quartile Range (difference in the 25% and 75% quartile). CV is the coeffiecient of variation (the stan-dard devation divided by the mean). 
+
+Takeaway 3: HOTFIXR modestly improves multilingual consistency from the base model. Table 4 reports various spread measures for de-termining the multilingual consistency of models. 7The Range is the max − min performance across all languages. But, Range is not a reliant metric, as it suffers from outliers of low-resource languages. To avoid this outlier, we also report the Trimmed Range , which is the best minus the 2nd worst lan-guage accuracy. We also report the Standard De-viation (Std) , the Inter-Quartile Range (IQR) ,and the Coefficient of Variation (CV) . All of these methods show that HOTFIXR is slightly more con-sistent, but there is no SOTA data curation method for ensuring multilingual consistency. Still, we can say that HOTFIXR, among other data curation methods, can maintain (and sometimes, improve) the multilingual consistency of LLMs. 
+
+Lingual Deficit score ablations. Table 5 con-tains an ablation over the lingual deficit score com-ponents for training the question generator. We see that the format reward, LAI, and LSI do not have strong effects individually. But combined, they are able to train a strong data generator. 
+
+Knowledge Distillation. In Appendix C, we test the effects of knowledge distillation (both ques-tions and labels) from Qwen 32B. The results show that although it can improve performance, the ma-jority of the gains come from the learned question generation in HOTFIXR. 
+
+Continual Learning. In Appendix D, we train a fresh question generator on a continuously trained student, and see significant improvements of 7% on Nemotron tasks, 8% on OOD tasks, and 8% on seen v.s. 7% on unseen languages. 
+
+4.4 Discussion 
+
+In business use cases, where it is important to adapt a model to a particular task while also maintaining the model’s general reasoning, context understand-ing, and answer generation abilities, HOTFIXR offers the best of both worlds. Compared to the base model, it achieves a 4.3% improvement, and loses only 0.9% performance on out-of-distribution task. Ultimately, fine-tuned models will lose some generalization performance for a price. Across all the training-based baselines, HOTFIXR achieves the best performance (6.2% average improvement) and generalization (5.6% average improvement). Still, HOTFIXR costs more due to the GRPO optimization of the data generator. With roughly 40 steps of RL optimization and 6 A100 NVIDIA GPUs, HOTFIXR occurs a cost of 0.96min/training data sample (which is roughly                                                       
+
+> ID OOD Model Config Nemo. Trans. Fact. RAG Qwen 7B Format 52.0 57.6 64.0 75.8 + LAI 50.9 57.9 64.3 77.2 + LSI 50.8 57.8 63.6 77.7 + LAI + LSI 57.8 59.1 64.3 76.7 Llama 8B Format 48.2 57.8 49.9 70.2 + LAI 48.5 57.2 49.2 69.2 + LSI 47.5 57.5 49.3 67.8 + LAI + LSI 52.5 58.9 49.3 69.7 Qwen 14B Format 49.3 58.0 71.5 79.8 + LAI 50.9 58.6 66.3 76.0 + LSI 48.8 57.2 62.3 76.8 + LAI + LSI 58.3 58.2 67.9 78.3
+> Table 5: Reward-signal ablation. All rows include the format reward. “Nemo.” is Nemotron, “Trans.” is Trans-lation, “Fact.” is Factual. Highlights the impact each reward has—there is more effect of the reward functions combined, than individually. LAI is the “Language Ag-nostic Incompetency” and LSI is the “Language Specific Incompetency”, as described in Section 3.
+
+8 hours for |D QG | = 500 ) to train a data generator. 
+
+However, 8 GPU-hours is a one-time cost . Once a model is trained for data generation, it can generate as much data as required. Furthermore, there are no efforts required to obtain high-quality seed data, clean generated data, or remove any PII content. HOTFIXR does increase training time, but it makes up for it with consistent improvements in distribution, and reliable generalization per-formance on out-of-distribution tasks. 
+
+5 Conclusion 
+
+In this paper, we tackle the problem of adapting models to improve their multilingual abilities with-out degrading the overall performance. To do so, we present HOTFIXR: a principled data synthesis pipeline that trains data generation models to gen-erate data that targets the improvement of agentic abilities and the consistency in multilingual set-tings. Our reward for the data generator finds sam-ples that are both difficult (LAI) and have larger multilingual representation gaps (LSI). In our ex-perimentation, we see that HOTFIXR is able to im-prove performance on in-distribution benchmarks, and remain reliable on OOD tasks and languages. Future work involves scaling experiments in the pretraining regime, where most of the multilingual representations are formed. 86 Limitations 
+
+Our work primarily focuses on high-resource languages: English, French, Spanish, German, Japanese, Portuguese, Italian. Even though we also test with Arabic, accounting for low-resource lan-guages requires special consideration, that we aim to address in future work. For now, a demonstra-tion of fine-tuning models to generate good data for high-resource languages is a nontrivial task in itself. Furthermore, with LLMs that face heavy training data biases, there is a risk of generating harmful data—we restrict our study to verifiable tasks that have clear correct and incorrect answers. We can-not predict whether our findings will extrapolate to unverifiable domains. Finally, our results rely on a strong label generation model that can output re-liable labels ( Qwen/Qwen2.5-32B-Instruct ). In preliminary experiments, we tried generating labels with the respective student models themselves, but their instruction following abilities (in particular, ensuring that they generated labels in the prompted language) are poor. So we opted for generating labels with larger models. In spite of this weak-ness, we still showcase improved performance with few samples—in future work, we will explore a synthetic, active learning setup where models can generate questions that they want labeled, but also reduce the amount of data used. This can help en-sure the labeling cost (either by LLM or by human) is reduced. 
+
+References 
+
+Ishika Agarwal, Nimet Beyza Bozdag, Nisval Patel, and Dilek Hakkani-Tür. 2026a. Language specific knowledge: Do models know better in X than in English? Preprint , arXiv:2505.14990. Ishika Agarwal, Zhenlin He, Dhruva Patil, and Dilek Hakkani-Tür. 2026b. A rising tide lifts all boats: Mtqe rewards for idioms improve general translation quality. Preprint , arXiv:2601.06307. Ishika Agarwal, Sofia Stoica, Emre Can Acikgoz, Pradeep Natarajan, Mahdi Namazifar, Jiaqi Ma, and Dilek Hakkani-Tür. 2026c. AcquisitionSynthesis: Targeted data generation using acquisition functions. 
+
+Preprint , arXiv:2605.13149. Viraat Aryabumi, John Dang, Dwarak Talupuru, Saurabh Dash, David Cairuz, Hangyu Lin, Bharat Venkitesh, Madeline Smith, Kelly Marchisio, Se-bastian Ruder, Acyr Locatelli, Julia Kreutzer, Nick Frosst, Phil Blunsom, Marzieh Fadaee, Ahmet Üstün, and Sara Hooker. 2024. Aya 23: Open weight re-leases to further multilingual progress. Preprint ,arXiv:2405.15032. Alexis Conneau, Kartikay Khandelwal, Naman Goyal, Vishrav Chaudhary, Guillaume Wenzek, Francisco Guzmán, Edouard Grave, Myle Ott, Luke Zettle-moyer, and Veselin Stoyanov. 2020. Unsupervised cross-lingual representation learning at scale. In Pro-ceedings of the 58th Annual Meeting of the Asso-ciation for Computational Linguistics , pages 8440– 8451, Online. Association for Computational Lin-guistics. Sundesh Donthi, Maximilian Spencer, Om B. Patel, Joon Young Doh, Eid Rodan, Kevin Zhu, and Sean O’Brien. 2025. Improving LLM abilities in idiomatic translation. In Proceedings of the First Workshop on Language Models for Low-Resource Languages ,pages 175–181, Abu Dhabi, United Arab Emirates. Association for Computational Linguistics. Akash Ghosh, Debayan Datta, Sriparna Saha, and Chi-rag Agarwal. 2025. A survey of multilingual reason-ing in language models. Preprint , arXiv:2502.09457. Aaron Grattafiori, Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey, Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman, Akhil Mathur, Alan Schel-ten, Alex Vaughan, Amy Yang, Angela Fan, Anirudh Goyal, Anthony Hartshorn, Aobo Yang, Archi Mi-tra, Archie Sravankumar, Artem Korenev, Arthur Hinsvark, and 542 others. 2024. The llama 3 herd of models. Preprint , arXiv:2407.21783. Zaid Khan, Elias Stengel-Eskin, Jaemin Cho, and Mo-hit Bansal. 2025. DataEnvGym: Data generation agents in teacher environments with student feedback. 
+
+Preprint , arXiv:2410.06215. Seungone Kim, Juyoung Suk, Shayne Longpre, Bill Yuchen Lin, Jamin Shin, Sean Welleck, Graham Neubig, Moontae Lee, Kyungjae Lee, and Minjoon Seo. 2024. Prometheus 2: An open source language model specialized in evaluating other language mod-els. Preprint , arXiv:2405.01535. Bo Li, Zhenghua Xu, and Rui Xie. 2026. Language drift in multilingual retrieval-augmented generation: Characterization and decoding-time mitigation. In 
+
+Fortieth AAAI Conference on Artificial Intelligence, Thirty-Eighth Conference on Innovative Applications of Artificial Intelligence, Sixteenth Symposium on Educational Advances in Artificial Intelligence, AAAI 2026, Singapore, January 20-27, 2026 , pages 31519– 31526. AAAI Press. Chong Li, Wen Yang, Jiajun Zhang, Jinliang Lu, Shaonan Wang, and Chengqing Zong. 2024a. X-instruction: Aligning language model in low-resource languages with self-curated cross-lingual instructions. In Findings of the Association for Com-putational Linguistics: ACL 2024 , pages 546–566, Bangkok, Thailand. Association for Computational Linguistics. 
+
+9Guanlin Li, Xuechen Zhao, Amir Jafari, Wenhao Shao, Reza Farahbakhsh, and Noel Crespi. 2024b. Improv-ing cross-lingual transfer with contrastive negative learning and self-training. In Proceedings of the 2024 Joint International Conference on Computa-tional Linguistics, Language Resources and Eval-uation (LREC-COLING 2024) , pages 8781–8791, Torino, Italia. ELRA and ICCL. Bettina Messmer, Vinko Sabolˇ cec, and Martin Jaggi. 2025. Enhancing multilingual LLM pretraining with model-based data selection. In Proceedings of the 10th edition of the Swiss Text Analytics Conference ,pages 31–56, Winterthur, Switzerland. Association for Computational Linguistics. Dhruv Nathawani, Shuoyang Ding, Vitaly Lavrukhin, Igor Gitman, Somshubra Majumdar, Evelina Bakh-turina, Boris Ginsburg, and Jane Polak Scowcroft. 2025. Nemotron-Post-Training-Dataset-v2. Thuat Nguyen, Chien Van Nguyen, Viet Dac Lai, Hieu Man, Nghia Trung Ngo, Franck Dernoncourt, Ryan A. Rossi, and Thien Huu Nguyen. 2024. Cul-turaX: A cleaned, enormous, and multilingual dataset for large language models in 167 languages. In Pro-ceedings of the 2024 Joint International Conference on Computational Linguistics, Language Resources and Evaluation (LREC-COLING 2024) , pages 4226– 4237, Torino, Italia. ELRA and ICCL. Guilherme Penedo, Hynek Kydlíˇ cek, Vinko Sabolˇ cec, Bettina Messmer, Negar Foroutan, Amir Hossein Kargaran, Colin Raffel, Martin Jaggi, Leandro Von Werra, and Thomas Wolf. 2025. Fineweb2: One pipeline to scale them all — adapting pre-training data processing to every language. In Second Confer-ence on Language Modeling .Leonardo Ranaldi and Giulia Pucci. 2025. Multilin-gual reasoning via self-training. In Proceedings of the 2025 Conference of the Nations of the Americas Chapter of the Association for Computational Lin-guistics: Human Language Technologies (Volume 1: Long Papers) , pages 11566–11582, Albuquerque, New Mexico. Association for Computational Linguis-tics. Lisa Schut, Yarin Gal, and Sebastian Farquhar. 2025. Do multilingual llms think in english? Preprint ,arXiv:2502.15603. Burr Settles. 2012. Active learning . Morgan & Clay-pool Publishers. Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Mingchuan Zhang, Y. K. Li, Y. Wu, and Daya Guo. 2024. Deepseekmath: Pushing the limits of mathematical reasoning in open language models. CoRR , abs/2402.03300. Shuaijie She, Wei Zou, Shujian Huang, Wenhao Zhu, Xiang Liu, Xiang Geng, and Jiajun Chen. 2024. MAPO: Advancing multilingual reasoning through multilingual-alignment-as-preference optimization. In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 10015–10027, Bangkok, Thai-land. Association for Computational Linguistics. Shivalika Singh, Freddie Vargus, Daniel Dsouza, Börje F. Karlsson, Abinaya Mahendiran, Wei-Yin Ko, Herumb Shandilya, Jay Patel, Deividas Mat-aciunas, Laura OMahony, Mike Zhang, Ramith Hettiarachchi, Joseph Wilson, Marina Machado, Luisa Souza Moura, Dominik Krzemi´ nski, Hakimeh Fadaei, Irem Ergün, Ifeoma Okoh, and 14 oth-ers. 2024. Aya dataset: An open-access collec-tion for multilingual instruction tuning. Preprint ,arXiv:2402.06619. Weiting Tan, Kevin Heffernan, Holger Schwenk, and Philipp Koehn. 2023. Multilingual representation distillation with contrastive learning. In Proceed-ings of the 17th Conference of the European Chap-ter of the Association for Computational Linguistics ,pages 1477–1490, Dubrovnik, Croatia. Association for Computational Linguistics. Qwen Team. 2024. Qwen2.5: A party of foundation models. Chris Wendler, Veniamin Veselovsky, Giovanni Monea, and Robert West. 2024. Do llamas work in English? on the latent language of multilingual transformers. In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 15366–15394, Bangkok, Thai-land. Association for Computational Linguistics. Di Wu, Yibin Lei, Andrew Yates, and Christof Monz. 2024. Representational isomorphism and alignment of multilingual large language models. In Findings of the Association for Computational Linguistics: EMNLP 2024 , pages 14074–14085, Miami, Florida, USA. Association for Computational Linguistics. Yuemei Xu, Ling Hu, Jiayi Zhao, Zihan Qiu, Kexin Xu, Yuqi Ye, and Hanwen Gu. 2025. A survey on multi-lingual large language models: corpora, alignment, and bias. Frontiers of Computer Science , 19(11). Dongkeun Yoon, Joel Jang, Sungdong Kim, Seungone Kim, Sheikh Shafayat, and Minjoon Seo. 2024. Lang-Bridge: Multilingual reasoning without multilingual supervision. In Proceedings of the 62nd Annual Meeting of the Association for Computational Lin-guistics (Volume 1: Long Papers) , pages 7502–7522, Bangkok, Thailand. Association for Computational Linguistics. Biao Zhang, Philip Williams, Ivan Titov, and Rico Sen-nrich. 2020. Improving massively multilingual neu-ral machine translation and zero-shot translation. In 
+
+Proceedings of the 58th Annual Meeting of the Asso-ciation for Computational Linguistics , pages 1628– 1639, Online. Association for Computational Linguis-tics. Yuchen Zhang, Haralambos Mouratidis, and Ravi Shekhar. 2026. Speak in context: Multilingual asr 
+
+10 with speech–context alignment via contrastive learn-ing. In Proceedings of the Fifteenth Language Re-sources and Evaluation Conference (LREC 2026) ,pages 5873–5882, Palma, Mallorca, Spain. European Language Resources Association (ELRA). Yiran Zhao, Wenxuan Zhang, Guizhen Chen, Kenji Kawaguchi, and Lidong Bing. 2024. How do large language models handle multilingualism? In Ad-vances in Neural Information Processing Systems ,volume 37, pages 15296–15319. Curran Associates, Inc. 
+
+11 A Reward Hacking 
+
+In Section 3.2, we mention that our training dataset DQG is only 500 because the question generator reward hacks. We would like to clarify what that means. Although Figure 2 is an illustrative example, it can still help us understand reward hacking. When a data generation model reward hacks, it finds the sample with the local maximum lingual deficit reward. It will not explore further and gets stuck there. During inference, this results in the data generator generating that one sample (with the local maximum reward) over and over again. Even if we change the in-context sample, the generator will generate the exact same data point repeatedly. This means that the resulting dataset will be 5,000 copies of the exact same sample, which will cause trained student models to fail catastrophically. Hence, to avoid reward hacking, we simply reduce the number of optimization steps in GRPO (to around 41 steps) and reduce the number of training samples. 12 B Error Bars for Performance on ID and OOD tasks, and Per-Language Performance on OOD tasks. 
+
+Figure 8 contains the error bars for all Nemotron tasks. Figures 9, 10 and 11 contain the error bars as well as the per-language performance of all methods, for each model on the factual, translation, and RAG tasks, respectively. Because the error bars are quite small on the figures themselves, we also note down the minimum and maximum standard deviations for each subtask for the Nemotron (Table 6), Translation (Table 7), Factual (Table 8) and RAG (Table 9)) tasks. 
+
+Qwen 7B Qwen 14B Llama 8B Method min max min max min max Base 0.30 1.50 0.10 0.40 0.20 2.00 EngReason 0.25 1.23 0.16 0.75 0.34 1.00 SelectionGT 0.20 3.40 0.10 1.00 0.40 2.20 SelectionGEN 0.30 3.10 0.00 0.90 0.10 2.20 Filtered 0.70 0.90 0.30 0.80 0.30 1.70 Untrained 0.40 1.90 0.00 1.50 0.30 0.70 DataEnvGym 0.40 1.20 0.10 0.70 0.20 1.70 HOTFIXR 0.10 0.90 0.20 0.40 0.05 0.50 
+
+Table 6: Minimum and maximum standard deviation (across 3 runs) for the Nemotron task (STEM, MATH, and CHAT), per model and method. This explains the small error bars in Figure 8. 
+
+Qwen 7B Qwen 14B Llama 8B Method min max min max min max Base 0.43 0.85 0.41 1.55 0.58 1.56 EngReason 0.40 0.83 0.43 1.05 0.55 1.56 SelectionGT 0.10 1.40 0.20 1.00 0.40 1.60 SelectionGEN 0.00 0.80 0.00 1.50 0.10 1.50 Filtered 0.10 1.60 0.10 0.80 0.10 1.60 Untrained 0.20 0.50 0.00 0.70 0.30 1.70 DataEnvGym 0.00 1.10 0.20 0.70 0.20 0.80 HOTFIXR 0.00 0.90 0.00 0.80 0.20 1.10 
+
+Table 7: Minimum and maximum standard deviation (across 3 runs) for the Translation task (OPUS-100), per model and method. This explains the small error bars in Figure 10. 
+
+Qwen 7B Qwen 14B Llama 8B Method min max min max min max Base 0.10 1.50 0.10 1.10 0.00 2.30 EngReason 0.09 1.27 0.28 1.09 0.33 1.73 SelectionGT 0.30 2.30 0.20 1.80 0.10 1.60 SelectionGEN 0.40 2.60 0.10 1.80 0.10 2.30 Filtered 0.10 1.30 0.20 1.20 0.00 1.20 Untrained 0.30 1.00 0.10 1.00 0.20 2.20 DataEnvGym 0.30 2.40 0.10 1.40 0.10 1.20 HOTFIXR 0.30 1.40 0.30 1.30 0.30 2.60 
+
+Table 8: Minimum and maximum standard deviation (across 3 runs) for the Factual task (MMMLU), per model and method. This explains the small error bars in Figure 9. 
+
+13 Qwen 7B Qwen 14B Llama 8B Method min max min max min max Base 0.10 0.90 0.10 0.80 0.80 2.50 EngReason 0.33 0.99 0.16 1.05 0.53 1.71 SelectionGT 0.30 1.20 0.10 0.80 0.30 1.80 SelectionGEN 0.80 1.40 0.30 1.50 0.00 2.50 Filtered 0.10 1.10 0.40 1.50 0.00 1.30 Untrained 0.20 1.10 0.30 1.10 0.10 1.30 DataEnvGym 0.20 1.40 0.30 0.60 0.30 1.20 HOTFIXR 0.00 0.60 0.20 1.50 0.00 1.40 
+
+Table 9: Minimum and maximum standard deviation (across 3 runs) for the RAG task (mHotPotQA), per model and method. This explains the small error bars in Figure 11. 020 40 60 80 100 Performance 
+
+Qwen2.5-7B-Instruct 
+
+> 56.4 13.0 87.6 55.4 11.4 86.8 54.6 5.2 85.6 57.0 6.8 87.2 55.8 4.6 85.4 56.6 7.2 89.8 54.0 9.6 84.2 62.2 17.8 93.4
+
+020 40 60 80 100 Performance 
+
+Qwen2.5-14B-Instruct 
+
+> 63.4 13.8 88.4 61.8 12.2 88.2 60.0 6.8 87.4 63.6 7.0 85.6 60.2 3.6 89.0 61.8 6.8 87.8 54.8 9.2 86.8 66.6 16.2 92.0
+
+STEM (Accuracy) Math (LAJ) Chat (LAJ) 020 40 60 80 100 Performance 
+
+Llama-3.1-8B-Instruct 
+
+> 55.2 1.6 87.6 53.0 2.4 85.6 52.2 2.8 87.8 55.0 2.0 87.4 52.2 2.4 87.0 54.0 2.0 87.2 52.2 3.0 87.6 57.1 6.4 94.0
+
+Base EnglishReasoning SelectionGT SelectionGEN Filtered Untrained DataEnvGym HOTFIXR 
+
+Figure 8: Performance of data curation methods for Nemotron queries, per task. 
+
+14 020 40 60 80 100 Accuracy 
+
+Qwen2.5-7B-Instruct 
+
+> 58.8 67.8 67.4 71.4 69.8 62.8 71.0 62.8 68.2 68.6 71.6 68.6 64.6 73.0 58.2 63.4 62.4 68.0 66.8 60.4 68.2 54.4 64.0 60.8 61.6 64.0 53.4 61.0 58.0 62.0 65.2 64.4 61.6 57.0 63.8 52.4 60.6 61.8 64.4 59.8 55.6 59.6 43.4 45.8 46.0 49.8 47.8 43.6 47.2 57.2 63.4 66.8 69.0 65.4 59.8 68.8
+
+020 40 60 80 100 Accuracy 
+
+Qwen2.5-14B-Instruct 
+
+> 68.2 76.4 74.2 76.6 73.2 70.4 76.6 69.4 76.4 72.6 75.4 72.4 69.8 75.0 59.8 73.0 69.8 70.2 68.4 59.6 70.4 60.4 74.6 74.6 74.6 72.0 62.8 72.8 55.2 64.0 57.8 63.0 60.8 51.2 62.0 65.0 72.6 72.8 74.2 69.4 68.0 74.8 58.2 63.2 59.6 62.4 63.8 63.2 68.0 60.4 68.6 70.2 70.6 68.4 66.6 70.8
+
+AR_XY DE_DE ES_LA FR_FR IT_IT JA_JP PT_BR 020 40 60 80 100 Accuracy 
+
+Llama-3.1-8B-Instruct 
+
+> 41.2 52.2 50.2 47.6 48.2 42.4 57.4 40.4 49.6 48.6 48.6 50.4 38.8 55.0 41.8 52.2 51.6 49.0 48.4 42.8 55.8 42.4 52.2 50.4 50.2 49.0 42.2 53.6 41.6 50.2 49.4 48.6 50.4 45.6 55.8 42.4 51.4 53.6 48.8 51.4 44.6 54.0 41.4 51.0 52.0 48.6 51.0 41.6 56.2 41.4 51.0 52.8 47.4 51.0 44.2 57.4
+
+Factual Knowledge (MMMLU, Accuracy) 
+
+Base EnglishReasoning SelectionGT SelectionGEN Filtered Untrained DataEnvGym HOTFIXR Figure 9: Performance of data curation methods for factual (MMMLU) queries, per language. 020 40 60 80 100 LAJ 
+
+Qwen2.5-7B-Instruct 
+
+> 46.4 71.4 57.8 63.8 38.6 66.6 69.6 46.3 71.5 57.7 63.6 38.3 66.2 69.1 43.2 69.0 50.2 57.8 30.8 60.8 65.0 43.4 70.2 53.2 61.4 34.8 65.0 69.8 44.2 69.4 53.2 61.0 35.4 65.6 67.4 43.6 71.0 53.4 61.2 36.6 64.4 69.4 46.0 70.2 53.4 61.8 33.6 65.6 67.4 47.4 71.2 55.4 64.2 38.0 67.8 69.8
+
+020 40 60 80 100 LAJ 
+
+Qwen2.5-14B-Instruct 
+
+> 49.3 71.4 55.5 62.6 39.7 67.3 70.3 49.6 71.2 55.8 62.8 39.2 67.6 70.4 44.6 68.6 50.0 56.6 31.2 62.4 65.8 46.2 69.8 53.8 61.8 36.2 66.0 68.0 45.8 72.8 55.6 63.4 35.0 69.0 72.0 45.8 70.2 54.2 61.8 37.2 67.0 69.2 47.2 69.2 55.4 61.6 35.0 65.2 68.2 46.6 71.0 54.0 61.2 37.6 67.6 69.2
+
+Arabic French German Italian Japanese Portuguese Spanish 020 40 60 80 100 LAJ 
+
+Llama-3.1-8B-Instruct 
+
+> 41.4 70.4 55.0 60.2 35.6 64.8 67.0 41.3 70.6 55.2 60.8 35.6 64.3 67.2 42.8 70.2 56.2 62.8 36.4 65.6 69.4 42.0 71.0 55.6 62.2 36.2 66.0 70.2 41.8 71.8 57.0 62.2 36.6 66.4 68.0 41.8 71.2 55.4 62.0 35.6 64.8 68.6 42.2 70.4 55.2 62.8 36.2 65.4 70.0 44.4 71.6 56.8 62.4 39.4 66.2 71.4
+
+Translation (OPUS, LAJ) 
+
+Base EnglishReasoning SelectionGT SelectionGEN Filtered Untrained DataEnvGym HOTFIXR 
+
+Figure 10: Performance of data curation methods for translation (OPUS-100) queries, per language. 
+
+15 020 40 60 80 100 ROUGE 
+
+Qwen2.5-7B-Instruct 
+
+> 70.2 91.6 79.2 74.8 78.6 91.2 80.0 67.6 55.0 76.4 60.8 54.0 35.8 41.8 43.2 44.8 59.6 75.4 68.4 62.6 68.8 80.6 74.0 66.0 31.6 69.0 47.0 42.4 70.8 88.2 78.2 69.4
+
+020 40 60 80 100 ROUGE 
+
+Qwen2.5-14B-Instruct 
+
+> 74.6 89.6 81.8 73.6 78.8 90.6 80.0 74.6 72.8 86.2 72.0 64.4 43.2 38.6 51.4 37.8 31.0 65.2 47.4 38.2 76.8 86.0 79.6 67.8 65.2 81.0 76.2 59.2 78.4 83.4 78.6 72.8
+
+ar en ru zh 020 40 60 80 100 ROUGE 
+
+Llama-3.1-8B-Instruct 
+
+> 66.6 72.6 66.8 64.6 65.4 72.4 63.6 59.6 66.0 73.2 66.6 63.2 65.2 72.0 65.8 65.8 68.4 74.0 68.0 63.2 68.6 75.2 67.4 63.2 68.4 74.8 68.0 65.2 68.8 74.8 68.2 67.0
+
+RAG (MHotpotQA, ROUGE) 
+
+Base EnglishReasoning SelectionGT SelectionGEN Filtered Untrained DataEnvGym HOTFIXR Figure 11: Performance of data curation methods for RAG (multilingual HotPotQA) queries, per language. 
+
+16 C Knowledge Distillation 
+
+In order to separate the gains from the question generation versus Qwen 32B’s label generation, we use Qwen 32B to generate both the questions and labels. This is similar to the Untrained baseline, but with Qwen 32B. Table 10 contains those results, in which we call the new baseline “Distillation (32b)”. The table shows that while distillation with a larger model does help improve performance, HOTFIXR’s trained question generation model is able to understand model weaknesses much better than simply distilling knowledge from a larger model. 
+
+Method Nemotron Factual Translation RAG 
+
+Qwen2.5-7B-Instruct 
+
+Base 52.3 67.0 59.2 79.0 EngReason 51.2 68.2 59.0 79.3 SelectionGT 48.5 63.9 53.8 61.5 SelectionGEN 50.3 59.9 56.8 41.4 Filtered 48.6 61.7 56.6 66.5 mCOT 47.9 55.3 54.4 53.8 Untrained 51.2 59.2 57.1 72.3 DataEnvGym 49.3 46.2 56.9 47.5 Distillation (32B) 49.6 64.7 58.9 77.3 HOTFIXR 57.8 64.3 59.1 76.7 
+
+Qwen2.5-14B-Instruct 
+
+Base 55.2 73.7 59.4 79.9 EngReason 54.1 73.0 59.5 81.0 SelectionGT 51.4 67.3 54.2 73.8 SelectionGEN 52.1 70.3 57.4 42.8 Filtered 50.9 59.1 59.1 45.5 Untrained 52.1 71.0 57.9 77.5 DataEnvGym 50.3 62.6 57.4 70.4 Distillation (32B) 53.3 69.5 59.0 78.4 HOTFIXR 58.3 67.9 58.2 78.3 
+
+Llama-3.1-8B-Instruct 
+
+Base 48.1 48.5 56.3 67.7 EngReason 47.0 47.3 56.4 65.2 SelectionGT 47.6 48.8 57.6 67.2 SelectionGEN 48.1 48.6 57.6 67.2 Filtered 47.2 48.8 57.7 68.4 Untrained 47.7 49.5 57.1 68.6 DataEnvGym 47.6 48.8 57.5 69.1 Distillation (32B) 47.7 51.1 58.0 70.3 HOTFIXR 52.5 49.3 58.9 69.7 
+
+Table 10: Average performance per model, with the added Distillation method. Here, we are able to show that a lot of HOTFIXR’s empirical success comes from the targeted question generation, rather than having correct, distilled labels from a large model. 
+
+17 D An Experiment on Continual Learning 
+
+In this section, we describe an experiment where we test the effects of a second round of HOTFIXR. The question generator model is trained from scratch (the base model), but the student model is continuously trained (from the checkpoint of Round 0 of HOTFIXR). We call the first iteration Round 0 and the second iteration (of a fresh generator model, but continuously trained student model) Round 1. In Figure 12, we present the aggregate results and the per-task results of the experiment, respectively on the left and right. This experiment is only on the Qwen 7B setting. 
+
+> Figure 12: The delta in performance of student models trained with two rounds of HOTFIXR versus one round. The improvement with two rounds is much more than the improvement with one round.
+
+As shown, even though the question generation model is trained from scratch, each iteration of HOTFIXR improves the student model much more significantly, even on unseen, OOD tasks and languages. These improvements show that using HOTFIXR in iterations will yield higher gains not only in cross-linguality but also model response quality. 18 E Prompts 
+
+Figures 13-15 contain the three prompts used for HOTFIXR’s question generator training and data generation for each subset of Nemotron (MATH, STEM, and CHAT). Prompt for HOTFIXR training on Nemotron MATH 
+
+In {language}, generate a NEW, ORIGINAL math problem that is AS DIFFICULT as the reference below. Do NOT copy, paraphrase, or reuse it in any way. Reference (difficulty calibration only — do not reproduce): <question> {question} </question> <reasoning> {reasoning} </reasoning> <answer> {answer} </answer> Requirements for your generated problem: - The question, reasoning, and answer should all be in {language}. - Requires non-trivial reasoning steps (no single-step shortcuts) - Draws from: number theory, combinatorics, algebra, geometry, or probability - Is self-contained and precisely stated - Reasoning should include a complete step-by-step derivation - Answer includes just the final result IMPORTANT: generate a (question, reasoning, answer) triplet; wrap your question, reasoning, and answer in the following special tokens: <question> Insert your {language} question here. </question> <reasoning> Insert the thinking and general reasoning here in {language}. </reasoning> <answer> Insert your short {language} answer here. </answer>      
+
+> Figure 13: Prompt used during HOTFIXR training and data generation, for the Nemotron MATH subset. As input, the prompt takes a question ,answer , and reasoning from the Nemotron MATH training dataset, and a language
+> that alternates between English, French, Spanish, Arabic, Portuguese, or Italian.
+
+F LLM Usage 
+
+In writing this paper, the only main use of LLMs was for creating figures, specifically Claude Opus 4.8. After providing the experimental results from our results, the authors prompted it to write code using matplotlib to create the figures. Other LLM usages were very minimal: only enhancing the writing and small code suggestions. We did not use LLMs to write code files, perform literature reviews, or describe our methodology/evaluation. All LLM use was reviewed heavily by the authors. 19 Prompt for HOTFIXR training on Nemotron STEM 
+
+In {language}, generate a NEW, ORIGINAL STEM multiple-choice question (MCQA) that is AS DIFFICULT as the reference below. Do NOT copy, paraphrase, or reuse it in any way. Reference (difficulty calibration only — do not reproduce): <question> {question} </question> <reasoning> {reasoning} </reasoning> <answer> {answer} </answer> Requirements for your generated question: - The question, reasoning, and answer should all be in {language}. - Draws from STEM domains: physics, chemistry, biology, computer science, engineering, or mathematics - Requires non-trivial conceptual or quantitative reasoning (no single-step lookups or trivial recall) - Has exactly 4 answer choices labeled (A), (B), (C), (D) — only one is correct - Distractors are plausible and reflect common misconceptions or near-miss reasoning errors - Is self-contained, unambiguous, and precisely stated - Reasoning walks through the correct derivation/justification step by step and explains why each distractor is wrong - Answer is the correct letter only, e.g. "(B)" IMPORTANT: generate a (question, reasoning, answer) triplet; wrap them in the following special tokens: <question> Insert your {language} question stem followed by the four answer choices (A)–(D). </question> <reasoning> Insert the step-by-step reasoning in {language}, including why each distractor is incorrect. </reasoning> <answer> Insert only the correct letter, e.g. "(A)". </answer>      
+
+> Figure 14: Prompt used during HOTFIXR training and data generation, for the Nemotron STEM subset. As input, the prompt takes a question ,answer , and reasoning from the Nemotron STEM training dataset, and a language
+> that alternates between English, French, Spanish, Arabic, Portuguese, or Italian.
+
+20 Prompt for HOTFIXR training on Nemotron CHAT 
+
+In {language}, generate a NEW, ORIGINAL instruction-following task that is AS COMPLEX as the reference below. Do NOT copy, paraphrase, or reuse it in any way. Reference (complexity calibration only — do not reproduce): <question> "{question}" </question> <reasoning> {reasoning} </reasoning> <answer> {answer} </answer> Requirements for your generated task: - The question, reasoning, and answer should all be in {language}. - Instruction imposes at least as many explicit constraints as the reference (e.g. format, length, style, content restrictions, conditional logic) - Constraints are specific and verifiable — a reader can check whether the response satisfies each one - Draws from: open-ended knowledge tasks (Alpaca-style), conversational requests (LMArena-style), or format-constrained tasks (IFEval-style) - Instruction is self-contained and unambiguous - Reasoning walks through how each constraint is satisfied, step by step - Answer is a complete response that fully obeys every constraint in the instruction IMPORTANT: generate a (question, answer) pair; wrap your question and answer in the following special tokens: <question> Insert your {language} instruction here. </question> <reasoning> Insert the step-by-step reasoning in {language}. </reasoning> <answer> Insert the complete response in {language} that satisfies all constraints. </answer>      
+
+> Figure 15: Prompt used during HOTFIXR training and data generation, for the Nemotron CHAT subset. As input, the prompt takes a question ,answer , and reasoning from the Nemotron CHAT training dataset, and a language
+> that alternates between English, French, Spanish, Arabic, Portuguese, or Italian.
+
+21
