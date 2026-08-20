@@ -6,103 +6,95 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-19
-- 运行时间：2026-08-19 21:36:40 UTC
+- 最新运行日期：2026-08-20
+- 运行时间：2026-08-20 21:52:25 UTC
 - 运行状态：成功
-- 本次总论文数：27
-- 精读区：12
+- 本次总论文数：25
+- 精读区：10
 - 速读区：15
 
 ### 今日简报（AI）
-今日共读27篇论文，精读12篇，速读15篇，重点聚焦长上下文推理与记忆检索优化。
-最值得关注的是满分10分的《MoNe》模块化神经记忆架构，以及9分的《ERSkill》技能引导自适应检索，二者均属高效记忆方向。
-建议优先精读MoNe的工程实现细节，再结合ERSkill对比记忆分配与检索策略的差异。
-- 详情：[/202608/19/README](/202608/19/README)
+今日共读论文25篇，其中精读10篇、速读15篇，重点聚焦大模型强化学习与智能体系统。最值得关注的是精读9.0分的《GCPO》——诊断并约束rollout RL中的子空间几何，以及《JarvisBench》对人机协同智能体的评测；速读中《SynWeaver》等Web智能体数据合成也值得一瞥。若想快速上手，建议优先精读这两篇9分论文，再按需浏览8分速读列表。
+- 详情：[/202608/20/README](/202608/20/README)
 
 ### 精读区论文标签
-1. [MoNe: Modular Neural Memory for Efficient Long Context Inference](/202608/19/2608.17616v1-mone-modular-neural-memory-for-efficient-long-context-inference)  
-   标签：评分：10.0/10、query:llm
-   evidence：提出MoNe模块化神经内存，实现高效长上下文推理无需重训练
-2. [ERSkill: Evolving for Skill-Guided Adaptive Memory Retrieval](/202608/19/2608.12720v1-erskill-evolving-for-skill-guided-adaptive-memory-retrieval)  
-   标签：评分：9.0/10、query:agent
-   evidence：大模型智能体的自进化技能引导记忆检索框架
-3. [Geometric Filtering of LLM-Generated Samples for Few-Shot Text Classification](/202608/19/2608.13866v1-geometric-filtering-of-llm-generated-samples-for-few-shot-text-classification)  
-   标签：评分：9.0/10、query:llm-synth
-   evidence：通过几何过滤提升LLM生成样本的质量
-4. [Constraint-Aware Synthetic Tabular Data Generation via Inter-Column Constraint Discovery with LLM Agents](/202608/19/2608.15109v1-constraint-aware-synthetic-tabular-data-generation-via-inter-column-constraint-discovery-with-llm-agents)  
-   标签：评分：9.0/10、query:llm-synth
-   evidence：合成表格数据生成，含列间约束发现与执行
-5. [SAPE: Sandwich Adapters for Parameter Efficiency in Large Language Model Fine-Tuning](/202608/19/2608.15360v1-sape-sandwich-adapters-for-parameter-efficiency-in-large-language-model-fine-tuning)  
-   标签：评分：9.0/10、query:llm
-   evidence：针对大语言模型微调的参数高效迁移框架
-6. [Dear Algo: A Precision-First Agentic Intent Layer for Unified Search and Recommendation](/202608/19/2608.15877v1-dear-algo-a-precision-first-agentic-intent-layer-for-unified-search-and-recommendation)  
-   标签：评分：9.0/10、query:agent
-   evidence：面向统一搜索与推荐的智能体意图层，通过开放式请求引导信息流
-7. [QUMem: Personalized Memory for Query-Conditioned User-State Inference in LLM Agents](/202608/19/2608.16168v1-qumem-personalized-memory-for-query-conditioned-user-state-inference-in-llm-agents)  
-   标签：评分：9.0/10、query:agent
-   evidence：面向LLM智能体长期交互历史的个性化记忆与用户状态推断
-8. [Palmyra x6 Technical Report: An Agentic, Tool-Use Model Post-Trained via Anchored Supervised Fine-Tuning](/202608/19/2608.16620v1-palmyra-x6-technical-report-an-agentic-tool-use-model-post-trained-via-anchored-supervised-fine-tuning)  
-   标签：评分：9.0/10、query:llm-reports
-   evidence：面向智能体工具使用的大模型技术报告，采用锚定监督微调
-9. [DeAR: Decentralized Agentic Reasoning via Capability Grounding and Collaborative Thought Navigation](/202608/19/2608.17282v1-dear-decentralized-agentic-reasoning-via-capability-grounding-and-collaborative-thought-navigation)  
-   标签：评分：9.0/10、query:agent
-   evidence：面向多智能体协作的自适应去中心化智能体推理框架
-10. [TileMix: Tile-Centric Mixed-Precision Attention for LLM Inference Acceleration](/202608/19/2608.17336v1-tilemix-tile-centric-mixed-precision-attention-for-llm-inference-acceleration)  
-   标签：评分：9.0/10、query:llm
-   evidence：面向大模型推理加速的基于评分tile的混合精度注意力
-11. [GUPO: Gradient Uncertainty-aware Policy Optimization for Post-Training Large Language Models](/202608/19/2608.17411v1-gupo-gradient-uncertainty-aware-policy-optimization-for-post-training-large-language-models)  
+1. [GCPO: Diagnosing and Constraining Subspace Geometry in Rollout RL for LLMs](/202608/20/2608.11674v1-gcpo-diagnosing-and-constraining-subspace-geometry-in-rollout-rl-for-llms)  
    标签：评分：9.0/10、query:post-train
-   evidence：面向大语言模型后训练的不确定性感知策略优化方法
-12. [VisDocAgentBench: Benchmarking Agents for Visually Rich Document Retrieval](/202608/19/2608.17889v1-visdocagentbench-benchmarking-agents-for-visually-rich-document-retrieval)  
+   evidence：诊断基于滚动的RL后训练中的子空间几何，并提出约束策略优化
+2. [JarvisBench: Always-on Intelligence Between Humans and Agents](/202608/20/2608.14870v1-jarvisbench-always-on-intelligence-between-humans-and-agents)  
    标签：评分：9.0/10、query:agent
-   evidence：面向视觉丰富文档检索的智能体基准
+   evidence：面向人类与智能体协调的基准与框架；与Agent主题高度相关
+3. [S2-MoE: Enabling Efficient Self-Speculative Decoding for Mixture-of-Experts on Edge Devices](/202608/20/2608.15018v2-s2-moe-enabling-efficient-self-speculative-decoding-for-mixture-of-experts-on-edge-devices)  
+   标签：评分：9.0/10、query:llm
+   evidence：面向边缘设备MoE推理的自投机解码；直接应对LLM推理优化
+4. [Funnel of Thoughts: Efficient Test-Time Scaling via Early Voting and Rollout Pruning](/202608/20/2608.15065v1-funnel-of-thoughts-efficient-test-time-scaling-via-early-voting-and-rollout-pruning)  
+   标签：评分：9.0/10、query:llm
+   evidence：针对大推理模型的高效推理方法，降低注意力计算量
+5. [Measuring Reward Hacking and Reasoning-Answer Decoupling Under Position-Confounded Optimization](/202608/20/2608.15445v1-measuring-reward-hacking-and-reasoning-answer-decoupling-under-position-confounded-optimization)  
+   标签：评分：9.0/10、query:post-train
+   evidence：使用GRPO进行语言模型后训练并测量奖励黑客
+6. [Agent Gym: A Framework for Continuous Evaluation and Evolution of LLM Agents Through Human-in-the-Loop Feedback](/202608/20/2608.15591v1-agent-gym-a-framework-for-continuous-evaluation-and-evolution-of-llm-agents-through-human-in-the-loop-feedback)  
+   标签：评分：9.0/10、query:agent
+   evidence：面向LLM智能体持续评测与演化的框架；直接对应智能体框架设计
+7. [SubZero+: Efficient Zeroth-Order LLM Fine-Tuning via Large Learning Rates](/202608/20/2608.15665v1-subzero-efficient-zeroth-order-llm-fine-tuning-via-large-learning-rates)  
+   标签：评分：9.0/10、query:llm
+   evidence：采用大学习率的高效零阶大语言模型微调方法
+8. [RLCascadeRouter: Quality-Estimator-Free Cascade Routing via Reinforcement Learning](/202608/20/2608.15817v1-rlcascaderouter-quality-estimator-free-cascade-routing-via-reinforcement-learning)  
+   标签：评分：9.0/10、query:llm
+   evidence：使用强化学习优化大模型推理级联路由，兼顾性能与成本
+9. [A Jagged Frontier: Evaluating Robustness of Code Agents to Semantics-Preserving Transformations](/202608/20/2608.18389v1-a-jagged-frontier-evaluating-robustness-of-code-agents-to-semantics-preserving-transformations)  
+   标签：评分：9.0/10、query:agent
+   evidence：通过语义保持变换评估代码智能体鲁棒性，涉及多种智能体脚手架与前沿模型
+10. [Rethinking Agent Security as a Networking Problem](/202608/20/2608.12172v1-rethinking-agent-security-as-a-networking-problem)  
+   标签：评分：8.0/10、query:agent
+   evidence：AI智能体系统的安全与自主性问题
 
 ### 速读区论文标签
-1. [ENTLORE: A Graph-Grounded Benchmark for Latent Organizational Reasoning in Enterprise Question Answering](/202608/19/2608.10679v1-entlore-a-graph-grounded-benchmark-for-latent-organizational-reasoning-in-enterprise-question-answering)  
-   标签：评分：8.0/10、query:llm
-   evidence：用于评估企业问答中潜在组织推理的图基基准
-2. [XBridge: Entity-Grounded Latent Bridge for Heterogeneous LLM Communication](/202608/19/2608.11676v1-xbridge-entity-grounded-latent-bridge-for-heterogeneous-llm-communication)  
-   标签：评分：8.0/10、query:agent
-   evidence：面向异构多智能体大模型系统的通信协议，解决实体锚定问题
-3. [Epiplexity Guided Data Selection and Generation for Out-of-Distribution Generalization](/202608/19/2608.11746v1-epiplexity-guided-data-selection-and-generation-for-out-of-distribution-generalization)  
+1. [SynWeaver: Website-Prior Task and Trajectory Co-Synthesis for Web Agents](/202608/20/2608.12429v1-synweaver-website-prior-task-and-trajectory-co-synthesis-for-web-agents)  
    标签：评分：8.0/10、query:llm-synth
-   evidence：基于Epiplexity的数据选择与合成数据生成
-4. [Behavioral Reprogramming of Open-Weights Models: Cognitive Plasticity and Alignment Bounds](/202608/19/2608.13069v1-behavioral-reprogramming-of-open-weights-models-cognitive-plasticity-and-alignment-bounds)  
-   标签：评分：8.0/10、query:llm
-   evidence：使用LoRA秩边界对LLM进行参数高效微调
-5. [Bootstrapping Niche Multilingual Code Translation via Reinforcement Learning with Execution-Based Verifiable Supervision](/202608/19/2608.13854v1-bootstrapping-niche-multilingual-code-translation-via-reinforcement-learning-with-execution-based-verifiable-supervision)  
+   evidence：为Web智能体协同合成任务与轨迹，属于数据合成方法
+2. [GRPO Beyond English: A Large-Scale Study of GRPO in Non-English and Multilingual Settings](/202608/20/2608.13698v1-grpo-beyond-english-a-large-scale-study-of-grpo-in-non-english-and-multilingual-settings)  
    标签：评分：8.0/10、query:post-train
-   evidence：基于偏好的强化学习结合执行验证监督用于大模型后训练
-6. [Mapping and Measuring the Behavioral Evolution of Large Language Models](/202608/19/2608.11027v1-mapping-and-measuring-the-behavioral-evolution-of-large-language-models)  
+   evidence：多语言GRPO的大规模实证研究，涉及可验证奖励的强化学习
+3. [CForce: Boosting Parallel Decoding for dLLMs via Consistency Forcing](/202608/20/2608.13925v1-cforce-boosting-parallel-decoding-for-dllms-via-consistency-forcing)  
+   标签：评分：8.0/10、query:post-train
+   evidence：面向扩散语言模型训练的在线策略蒸馏方法
+4. [AI Research Preference Models](/202608/20/2608.13940v1-ai-research-preference-models)  
+   标签：评分：8.0/10、query:agent
+   evidence：面向AI研究智能体的偏好模型，用于分配执行预算
+5. [Batch-wise Adaptive Pruning: Periodic Neuron Activation-Aware Weight Pruning for Language Reasoning Model](/202608/20/2608.14003v1-batch-wise-adaptive-pruning-periodic-neuron-activation-aware-weight-pruning-for-language-reasoning-model)  
+   标签：评分：8.0/10、query:llm
+   evidence：面向批推理的自适应剪枝
+6. [Constructing Dynamic Master Logic Models as Knowledge Graphs for Complex System Diagnostics Using Retrieval-Augmented Large Language Models](/202608/20/2608.12304v1-constructing-dynamic-master-logic-models-as-knowledge-graphs-for-complex-system-diagnostics-using-retrieval-augmented-large-language-models)  
    标签：评分：7.0/10、query:llm
-   evidence：用于大语言模型行为评估与演化分析的距离度量方法，补足基准测试之外的行为刻画
-7. [Guided Table Retrieval for Structured Data Search](/202608/19/2608.11644v2-guided-table-retrieval-for-structured-data-search)  
+   evidence：使用检索增强生成与LLM自动构建系统诊断的知识图谱DML模型
+7. [DIVE: Unlocking Self-Improvement in Frozen Language Models Through Diversity-Driven Skill Evolution](/202608/20/2608.12486v1-dive-unlocking-self-improvement-in-frozen-language-models-through-diversity-driven-skill-evolution)  
    标签：评分：7.0/10、query:llm
-   evidence：面向结构化数据检索的LLM引导式表格检索，与检索主题相符
-8. [Better Decomposition, Free Aggregation: A Synthesizer-Folding Framework for Multilingual Multi-Hop Question Answering](/202608/19/2608.13160v1-better-decomposition-free-aggregation-a-synthesizer-folding-framework-for-multilingual-multi-hop-question-answering)  
-   标签：评分：7.0/10、query:llm
-   evidence：多语言检索增强生成，结合分解与合成器折叠进行多跳问答
-9. [GEM: A Generative Embedding Model Bridging Reasoning and Retrieval](/202608/19/2608.13200v2-gem-a-generative-embedding-model-bridging-reasoning-and-retrieval)  
+   evidence：通过验证器反馈进化自然语言技能，实现冻结大模型的自我改进
+8. [MLLM-Routed Heterogeneous Ensembles for Robust Cross-Dataset Image Classification](/202608/20/2608.13463v1-mllm-routed-heterogeneous-ensembles-for-robust-cross-dataset-image-classification)  
    标签：评分：7.0/10、query:agent
-   evidence：基于生成式嵌入的大模型检索方法，通过推理查询意图改进检索，揭示搜索智能体如何理解用户意图
-10. [SemPlan: Benchmarking Structured Semantic Planning for LLM-Based Queries over Enterprise Data](/202608/19/2608.13612v1-semplan-benchmarking-structured-semantic-planning-for-llm-based-queries-over-enterprise-data)  
-   标签：评分：7.0/10、query:llm
-   evidence：面向企业数据的LLM查询语义规划基准
-11. [SAG: SQL-Retrieval Augmented Generation with Query-Time Dynamic Hyperedges](/202608/19/2608.12129v1-sag-sql-retrieval-augmented-generation-with-query-time-dynamic-hyperedges)  
+   evidence：利用多模态大模型智能体动态路由图像，体现通用智能体人工智能
+9. [MMDynOpt-Agent: Dynamic Optimization for Multimodal Large Language Model Reasoning via Reinforcement Learning](/202608/20/2608.14026v2-mmdynopt-agent-dynamic-optimization-for-multimodal-large-language-model-reasoning-via-reinforcement-learning)  
+   标签：评分：7.0/10、query:agent
+   evidence：通过端到端强化学习的多模态Agent动态优化多模态大模型推理
+10. [Envs-FORGE: Frontier-Optimized Reward-Grounded Environment Synthesis for Agent RL](/202608/20/2608.14312v1-envs-forge-frontier-optimized-reward-grounded-environment-synthesis-for-agent-rl)  
+   标签：评分：7.0/10、query:llm-synth
+   evidence：使用LLM为智能体强化学习合成训练环境，属于数据合成方法
+11. [GEM: A Generative Embedding Model Bridging Reasoning and Retrieval](/202608/20/2608.13200v1-gem-a-generative-embedding-model-bridging-reasoning-and-retrieval)  
    标签：评分：6.0/10、query:agent
-   evidence：用于RAG的结构化检索架构，用潜在超边保留多元关系
-12. [SAEVerbalizer: Generating Explanations for Sparse Autoencoder Features via Representation Verbalization](/202608/19/2608.13538v2-saeverbalizer-generating-explanations-for-sparse-autoencoder-features-via-representation-verbalization)  
+   evidence：生成式嵌入模型在检索前对用户意图和相关性进行推理，直接增强搜索类任务的检索能力
+12. [Divergent-Convergent Reasoning: Scaling Test-Time Compute through Structured Solution Synthesis](/202608/20/2608.15303v1-divergent-convergent-reasoning-scaling-test-time-compute-through-structured-solution-synthesis)  
    标签：评分：6.0/10、query:llm
-   evidence：微调大模型下游层以生成稀疏自编码器特征的自然语言解释
-13. [Leading-Silence Augmentation and Multi-Stage Synthetic Supervision for the Second MLC-SLM Challenge](/202608/19/2608.14150v1-leading-silence-augmentation-and-multi-stage-synthetic-supervision-for-the-second-mlc-slm-challenge)  
-   标签：评分：6.0/10、query:llm-synth
-   evidence：针对语音语言模型的合成问答对生成与增广
-14. [A Declarative-Procedural Perspective on Expert Routing in Bilingual Mixture-of-Experts Language Models](/202608/19/2608.15102v1-a-declarative-procedural-perspective-on-expert-routing-in-bilingual-mixture-of-experts-language-models)  
+   evidence：面向LLM测试时计算扩展的两阶段推理方法；与综合LLM主题相关
+13. [MoE Router-Guided Clustering for Heterogeneous Federated Instruction Tuning](/202608/20/2608.15311v1-moe-router-guided-clustering-for-heterogeneous-federated-instruction-tuning)  
    标签：评分：6.0/10、query:llm
-   evidence：研究MoE语言模型架构中的专家路由机制，属于LLM架构分析
-15. [FedPA-LoRA: Product-Aligned Framework for Mitigating Aggregation and Initialization Errors in Heterogeneous Federated LoRA](/202608/19/2608.15381v1-fedpa-lora-product-aligned-framework-for-mitigating-aggregation-and-initialization-errors-in-heterogeneous-federated-lora)  
+   evidence：基于路由引导聚类的MoE大模型联邦指令微调
+14. [Language models suffer from a curse of ambiguity](/202608/20/2608.15448v1-language-models-suffer-from-a-curse-of-ambiguity)  
    标签：评分：6.0/10、query:llm
-   evidence：基于LoRA的联邦微调，解决聚合与初始化误差
+   evidence：大语言模型训练与架构局限的理论分析
+15. [Who Leads Now? Token-Level Modality Arbitration for Chart-to-Code Generation](/202608/20/2608.15510v1-who-leads-now-token-level-modality-arbitration-for-chart-to-code-generation)  
+   标签：评分：6.0/10、query:llm
+   evidence：跨模态仲裁的图表代码生成训练
 
 
 <div class="dpr-home-promo-card">
