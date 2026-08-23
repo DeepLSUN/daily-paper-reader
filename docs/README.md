@@ -6,99 +6,95 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-22
-- 运行时间：2026-08-22 21:17:52 UTC
+- 最新运行日期：2026-08-23
+- 运行时间：2026-08-23 21:06:51 UTC
 - 运行状态：成功
 - 本次总论文数：25
 - 精读区：10
 - 速读区：15
 
 ### 今日简报（AI）
-今日共处理25篇论文，精读10篇、速读15篇，重点关注大模型推理效率与智能体检索语料两大方向。
-
-其中《FlashQuant》提出稀疏-稠密融合的异常值感知推理方案，显著降低内存占用；《Projecting BrowseComp-Plus onto ClimbMix》则为智能体搜索构建更真实的语料分布，均值得深入阅读。
-
-建议普通读者优先关注FlashQuant的工程实现思路，再结合Wyvern等智能体框架文章，快速把握高效推理与多模态报告生成的前沿趋势。
-- 详情：[/202608/22/README](/202608/22/README)
+今日精读10篇、速读15篇，聚焦知识蒸馏与多模态智能体构建3D世界两大高分方向。最值得关注《The Distributional View of Knowledge Distillation》和《VibeWorlding》，分别揭示蒸馏的分布视角与端到端开放世界生成潜力。建议普通读者优先浏览这两篇精读，并速读LLM服务系统分析以理解落地瓶颈。
+- 详情：[/202608/23/README](/202608/23/README)
 
 ### 精读区论文标签
-1. [FlashQuant: Sparse-Dense Fusion for Memory-Efficient Outlier-Aware LLM Inference](/202608/22/2608.15531v1-flashquant-sparse-dense-fusion-for-memory-efficient-outlier-aware-llm-inference)  
-   标签：评分：9.0/10、query:llm
-   evidence：通过稀疏-稠密融合实现大模型内存高效推理
-2. [Projecting BrowseComp-Plus onto ClimbMix: Toward More Realistic Corpora for Agentic Search](/202608/22/2608.20317v1-projecting-browsecomp-plus-onto-climbmix-toward-more-realistic-corpora-for-agentic-search)  
+1. [The Distributional View of Knowledge Distillation](/202608/23/2608.15215v1-the-distributional-view-of-knowledge-distillation)  
+   标签：评分：9.0/10、query:post-train
+   evidence：提出基于多温度视角与Wasserstein重心分布的蒸馏方法，直接推进面向大模型压缩的知识蒸馏技术。
+2. [VibeWorlding: Can Multimodal Agents Construct 3D Open Worlds End-to-End?](/202608/23/2608.15265v1-vibeworlding-can-multimodal-agents-construct-3d-open-worlds-end-to-end)  
    标签：评分：9.0/10、query:agent
-   evidence：为智能体搜索评测构建更真实语料库
-3. [AutoSchema: Live Schema Grounding for Agentic Text-to-Sparql over Heterogeneous Knowledge Graphs](/202608/22/2608.14228v1-autoschema-live-schema-grounding-for-agentic-text-to-sparql-over-heterogeneous-knowledge-graphs)  
-   标签：评分：8.0/10、query:agent
-   evidence：面向异构知识图谱智能体查询的模式接地框架
-4. [SheetCompass: Hierarchical Relation Graphs for Agentic Spreadsheet Reasoning](/202608/22/2608.14452v1-sheetcompass-hierarchical-relation-graphs-for-agentic-spreadsheet-reasoning)  
-   标签：评分：8.0/10、query:agent
-   evidence：代理框架设计，智能体表格推理
-5. [Twin: Playing an Unknown Game with a Test-Time Digital Twin](/202608/22/2608.14490v1-twin-playing-an-unknown-game-with-a-test-time-digital-twin)  
-   标签：评分：8.0/10、query:agent
-   evidence：前沿编码智能体在网格游戏上编写可执行世界模型以进行测试时学习
-6. [From LLM Inference to Agentic Workloads: Characterization and Implications for Serving Systems](/202608/22/2608.15127v1-from-llm-inference-to-agentic-workloads-characterization-and-implications-for-serving-systems)  
-   标签：评分：8.0/10、query:agent
-   evidence：通过基准套件与系统级插桩刻画智能体工作负载，支撑Agent服务系统设计
-7. [Divergent-Convergent Reasoning: Scaling Test-Time Compute through Structured Solution Synthesis](/202608/22/2608.15303v1-divergent-convergent-reasoning-scaling-test-time-compute-through-structured-solution-synthesis)  
-   标签：评分：8.0/10、query:llm
-   evidence：面向大模型的测试时计算扩展方法，基于发散-收敛推理
-8. [Beyond FLOPs: Energy-Aware Knowledge Distillation for Sustainable LLMs on Code-Related Task](/202608/22/2608.17515v1-beyond-flops-energy-aware-knowledge-distillation-for-sustainable-llms-on-code-related-task)  
-   标签：评分：8.0/10、query:post-train
-   evidence：面向代码任务的能量感知知识蒸馏，用于可持续LLM压缩
-9. [VA-Judger: Reward Modeling from Human Preference Feedback for Joint Video-Audio Generation](/202608/22/2608.18607v1-va-judger-reward-modeling-from-human-preference-feedback-for-joint-video-audio-generation)  
-   标签：评分：8.0/10、query:post-train
-   evidence：面向人类反馈强化学习后训练的奖励模型训练
-10. [Learning What to Fail On: Failure-Mode Contextual Bandits for Adversarial Data Curation](/202608/22/2608.18681v1-learning-what-to-fail-on-failure-mode-contextual-bandits-for-adversarial-data-curation)  
-   标签：评分：8.0/10、query:llm-synth
-   evidence：用LLM生成对抗合成样本，以失败模式上下文Bandit做数据筛选
+   evidence：提出面向多模态智能体从用户查询构建3D世界的基准与框架，属于通用智能体研究
+3. [VibeWorlding: Can Multimodal Agents Construct 3D Open Worlds End-to-End?](/202608/23/2608.15265v2-vibeworlding-can-multimodal-agents-construct-3d-open-worlds-end-to-end)  
+   标签：评分：9.0/10、query:agent
+   evidence：提出多模态智能体的统一训练与评测框架，涵盖规划、调用工具与反思，是智能体框架设计的直接体现。
+4. [KV-Pipe: On the Relation Between KV Sharing and Pipeline Parallel Efficiency in LLMs](/202608/23/2608.15943v1-kv-pipe-on-the-relation-between-kv-sharing-and-pipeline-parallel-efficiency-in-llms)  
+   标签：评分：9.0/10、query:llm
+   evidence：通过阶段感知的KV共享均衡流水线阶段，提升大模型训练效率，是具体训练技术。
+5. [CAPO: Constraint-Aware Prompt Optimization for LLM Agents](/202608/23/2608.16068v1-capo-constraint-aware-prompt-optimization-for-llm-agents)  
+   标签：评分：9.0/10、query:agent
+   evidence：用于LLM智能体的约束感知系统提示优化
+6. [MUSE: An Interactive Meta-Agent for Understanding and Steering LLM-powered Data Science Systems](/202608/23/2608.16181v1-muse-an-interactive-meta-agent-for-understanding-and-steering-llm-powered-data-science-systems)  
+   标签：评分：9.0/10、query:agent
+   evidence：提出用于理解和操控LLM数据科学智能体的交互式元智能体框架
+7. [Looped Language Models Improve Compositional Tool Calling](/202608/23/2608.18171v1-looped-language-models-improve-compositional-tool-calling)  
+   标签：评分：9.0/10、query:agent
+   evidence：循环语言模型用于组合工具调用
+8. [Beyond LLM-Based Reasoning: Lightweight GNNs for Agent Failure Attribution](/202608/23/2608.18575v1-beyond-llm-based-reasoning-lightweight-gnns-for-agent-failure-attribution)  
+   标签：评分：9.0/10、query:agent
+   evidence：面向多智能体系统失败归因的轻量级图神经网络方法
+9. [SAPO: Single-Rollout Autoregressive Policy Optimization for Agentic Reinforcement Learning](/202608/23/2608.19842v1-sapo-single-rollout-autoregressive-policy-optimization-for-agentic-reinforcement-learning)  
+   标签：评分：9.0/10、query:post-train
+   evidence：面向LLM后训练的强化学习优化方法，采用单次采样策略优化。
+10. [Learning how to Forget: Fine-tuning for Long-Context Sparse Attention](/202608/23/2608.19920v1-learning-how-to-forget-fine-tuning-for-long-context-sparse-attention)  
+   标签：评分：9.0/10、query:llm
+   evidence：基于稀疏注意力微调实现长上下文高效推理并降低KV缓存开销
 
 ### 速读区论文标签
-1. [Wyvern: An Agentic Framework for Generating Grounded Multimodal Reports](/202608/22/2608.14446v1-wyvern-an-agentic-framework-for-generating-grounded-multimodal-reports)  
+1. [From LLM Inference to Agentic Workloads: Characterization and Implications for Serving Systems](/202608/23/2608.15127v1-from-llm-inference-to-agentic-workloads-characterization-and-implications-for-serving-systems)  
    标签：评分：8.0/10、query:agent
-   evidence：用于生成有依据多模态报告的多智能体框架
-2. [Semantic Uncertainty-Guided Orchestration in Hierarchical Multi-Agent Systems](/202608/22/2608.14707v1-semantic-uncertainty-guided-orchestration-in-hierarchical-multi-agent-systems)  
+   evidence：刻画智能体工作负载并发布AgentSysBench，从系统视角研究自主智能体应用。
+2. [LAPF: LLM-Agent-Based Path Finder Using the UAVScenes Dataset](/202608/23/2608.15175v1-lapf-llm-agent-based-path-finder-using-the-uavscenes-dataset)  
    标签：评分：8.0/10、query:agent
-   evidence：基于语义不确定性的分层多智能体系统编排框架
-3. [AI Agents and the Future of VIS](/202608/22/2608.14815v1-ai-agents-and-the-future-of-vis)  
+   evidence：提出基于LLM代理的无人机路径查找框架
+3. [LongRCA Bench: Diagnosing Responsible Roles and Root Causes in Long-Horizon Agent Failures](/202608/23/2608.15242v2-longrca-bench-diagnosing-responsible-roles-and-root-causes-in-long-horizon-agent-failures)  
    标签：评分：8.0/10、query:agent
-   evidence：探讨自主AI智能体在数据密集型任务中的应用
-4. [SysEvolve: An AI-native, safe, autonomous adversarial attack-defense co-evolutionary system](/202608/22/2608.15012v1-sysevolve-an-ai-native-safe-autonomous-adversarial-attack-defense-co-evolutionary-system)  
+   evidence：诊断长时程代理故障中的责任角色与根因
+4. [Agentic-SQL Revisited: Autonomy-Based Taxonomy and Empirical Benchmark Analysis for LLM Text-to-SQL](/202608/23/2608.15389v1-agentic-sql-revisited-autonomy-based-taxonomy-and-empirical-benchmark-analysis-for-llm-text-to-sql)  
    标签：评分：8.0/10、query:agent
-   evidence：攻防AI智能体在对抗交锋中自主协同进化
-5. [Agentic AI-Enabled Solar-Powered High-Altitude Platforms for Sustainable SAGINs](/202608/22/2608.15087v1-agentic-ai-enabled-solar-powered-high-altitude-platforms-for-sustainable-sagins)  
-   标签：评分：8.0/10、query:agent
-   evidence：提出一种面向高空平台的Agentic AI自主网络框架
-6. [Workspace Topology as an Attack Vector in Agentic Coding Assistants](/202608/22/2608.14876v1-workspace-topology-as-an-attack-vector-in-agentic-coding-assistants)  
+   evidence：从自主性维度分析智能体式文本转SQL系统，直接关联LLM任务的自主智能体。
+5. [Dynamic Multi-Byte Prediction With Hierarchical Language Models](/202608/23/2608.15454v1-dynamic-multi-byte-prediction-with-hierarchical-language-models)  
+   标签：评分：8.0/10、query:llm
+   evidence：多字节预测加速字节级分层语言模型的推理
+6. [UniFed-VLM: Federated Instruction Tuning for Vision-Language Models with Multiple Heterogeneity](/202608/23/2608.15516v1-unifed-vlm-federated-instruction-tuning-for-vision-language-models-with-multiple-heterogeneity)  
+   标签：评分：7.0/10、query:llm
+   evidence：面向视觉语言模型的多异构联邦指令微调
+7. [Large Models for Small Devices: Recent Advances and Empirical Analysis of Edge AI Deployment](/202608/23/2608.15693v1-large-models-for-small-devices-recent-advances-and-empirical-analysis-of-edge-ai-deployment)  
+   标签：评分：7.0/10、query:llm
+   evidence：针对边缘端大模型部署的压缩与推理优化实证分析，提供部署指南。
+8. [Principled Authority Switching for Shared Autonomy in Human-Robot Teams](/202608/23/2608.16293v1-principled-authority-switching-for-shared-autonomy-in-human-robot-teams)  
    标签：评分：7.0/10、query:agent
-   evidence：智能编码助手中的工作区拓扑攻击面研究
-7. [AutoSQL: Extracting SQL Templates from Imperative ORM Code in Large-Scale Repositories](/202608/22/2608.15595v1-autosql-extracting-sql-templates-from-imperative-orm-code-in-large-scale-repositories)  
-   标签：评分：7.0/10、query:agent
-   evidence：LLM代理在代码索引上遍历以抽取SQL模板
-8. [Augmenting Text to Increase Translation Difficulty](/202608/22/2608.15932v1-augmenting-text-to-increase-translation-difficulty)  
+   evidence：面向人机团队共享自治的博弈论权威切换机制
+9. [FedPref: Federated Preference Learning for Structured Radiology Report Extraction](/202608/23/2608.16971v1-fedpref-federated-preference-learning-for-structured-radiology-report-extraction)  
+   标签：评分：7.0/10、query:post-train
+   evidence：面向LLM对齐的联邦偏好学习
+10. [Chain-of-Experience for Continual LLM Improvement](/202608/23/2608.18027v1-chain-of-experience-for-continual-llm-improvement)  
    标签：评分：7.0/10、query:llm
-   evidence：通过对抗优化扩充基准数据以增加机器翻译评估难度
-9. [SEER: Long-Context Reasoning via Selective Visual-Text Compression](/202608/22/2608.15962v1-seer-long-context-reasoning-via-selective-visual-text-compression)  
-   标签：评分：7.0/10、query:llm
-   evidence：通过选择性视觉-文本压缩提高LLM长上下文推理效率
-10. [Cached LLM Probability Retrieval for Speech Recognition](/202608/22/2608.16023v1-cached-llm-probability-retrieval-for-speech-recognition)  
-   标签：评分：7.0/10、query:llm
-   evidence：基于缓存概率检索的高效大模型推理
-11. [Where Does Retrieval Fail? Evaluating RAG Architectures for Agricultural Advisory](/202608/22/2608.14886v1-where-does-retrieval-fail-evaluating-rag-architectures-for-agricultural-advisory)  
-   标签：评分：6.0/10、query:agent
-   evidence：评测不同查询条件下检索架构，为搜索代理行为提供参考
-12. [ACTS-SQL: Agentic and Critic-Oriented Tree-Structured SQL Correctness with Large Language Models](/202608/22/2608.15145v1-acts-sql-agentic-and-critic-oriented-tree-structured-sql-correctness-with-large-language-models)  
-   标签：评分：6.0/10、query:agent
-   evidence：基于回溯的树结构智能体化SQL纠错框架
-13. [Scaling Manual-Grounded Appliance Manipulation with Data Synthesis and Unified Planning](/202608/22/2608.15863v1-scaling-manual-grounded-appliance-manipulation-with-data-synthesis-and-unified-planning)  
-   标签：评分：6.0/10、query:llm-synth
-   evidence：从家电说明书生成操作数据的数据合成管线与统一规划
-14. [What Tokens are Learned when Tokenization is Optimized Jointly with Language Modeling?](/202608/22/2608.17325v1-what-tokens-are-learned-when-tokenization-is-optimized-jointly-with-language-modeling)  
+   evidence：通过经验积累的持续LLM改进评测设置
+11. [GLaQ: Grounding Latent Queries in Visual Evidence for Multimodal Reasoning](/202608/23/2608.15517v1-glaq-grounding-latent-queries-in-visual-evidence-for-multimodal-reasoning)  
    标签：评分：6.0/10、query:llm
-   evidence：跨多语种联合优化分词与语言建模，学习词元结构
-15. [Policy-Invariant Reward Shaping from LLM Feedback: A Framework for Hybrid RL Agents](/202608/22/2608.18008v1-policy-invariant-reward-shaping-from-llm-feedback-a-framework-for-hybrid-rl-agents)  
+   evidence：改进多模态大模型潜在推理的架构方法
+12. [DEPT: Document Embedding Preservation Tuning for Unified Query Expansion and Retrieval](/202608/23/2608.17632v1-dept-document-embedding-preservation-tuning-for-unified-query-expansion-and-retrieval)  
+   标签：评分：6.0/10、query:llm
+   evidence：端到端训练单个解码器专用LLM用于查询扩展和检索
+13. [TraceSQL: Traceable Answerability Estimation for Reference-Free Text-to-SQL Verification](/202608/23/2608.17795v1-tracesql-traceable-answerability-estimation-for-reference-free-text-to-sql-verification)  
+   标签：评分：6.0/10、query:llm
+   evidence：为无参考环境下验证LLM生成的SQL提出可追踪的可回答性估计
+14. [ARASH: Adaptive Retrieval And Shot Selection for Tabular Prediction](/202608/23/2608.17856v1-arash-adaptive-retrieval-and-shot-selection-for-tabular-prediction)  
+   标签：评分：6.0/10、query:llm
+   evidence：通过自适应检索与样例选择提升表格预测的上下文学习效率，属于推理优化相关方法。
+15. [Towards Zero-Shot Task Transfer with Neurosymbolic World Models](/202608/23/2608.17959v1-towards-zero-shot-task-transfer-with-neurosymbolic-world-models)  
    标签：评分：6.0/10、query:agent
-   evidence：利用LLM反馈在混合强化学习智能体中进行奖励塑形
+   evidence：面向基于模型的强化学习代理零样本任务迁移的神经符号世界模型
 
 
 <div class="dpr-home-promo-card">
