@@ -6,112 +6,95 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-24
-- 运行时间：2026-08-24 21:30:02 UTC
+- 最新运行日期：2026-08-25
+- 运行时间：2026-08-25 21:34:58 UTC
 - 运行状态：成功
-- 本次总论文数：30
-- 精读区：15
+- 本次总论文数：25
+- 精读区：10
 - 速读区：15
 
 ### 今日简报（AI）
-今日精读30篇论文，聚焦AI智能体长程记忆与多租户模型服务效率，其中两篇获9分高分。  
-最值得关注的是HyMem的层次化上下文隔离机制和Global Simulation的动态调度优化，分别解决长时任务记忆混乱与多租户服务瓶颈。  
-普通读者可优先速读《Towards Risk-free AI Agent Deployment》与《Walk Before You Run》，先关注安全风险和数据探索，再考虑复杂Agent落地。
-- 详情：[/202608/24/README](/202608/24/README)
+今日精读25篇论文，聚焦智能体强化学习与工具遗忘两大高分方向，其中《LEGO-RL》和《Agentic Tool Unlearning》均获9.0分。最值得关注的是面向编码智能体的原生强化学习框架，以及让LLM智能体通过工具实现“选择性遗忘”的新机制。建议读者优先精读这两篇高分论文，并搭配速读中的轻量GNN失误归因方法，快速把握智能体训练与安全的核心趋势。
+- 详情：[/202608/25/README](/202608/25/README)
 
 ### 精读区论文标签
-1. [HyMem: Hierarchical Context Management for Long-Horizon Agents via Information Isolation](/202608/24/2608.15703v1-hymem-hierarchical-context-management-for-long-horizon-agents-via-information-isolation)  
+1. [LEGO-RL: Harness-Native Reinforcement Learning for Coding Agents](/202608/25/2608.17393v1-lego-rl-harness-native-reinforcement-learning-for-coding-agents)  
    标签：评分：9.0/10、query:agent
-   evidence：面向长周期LLM智能体的层级上下文管理框架
-2. [Global Simulation-Guided Dynamic Operator Scheduling for Efficient Multi-Tenant Model Serving](/202608/24/2608.15762v1-global-simulation-guided-dynamic-operator-scheduling-for-efficient-multi-tenant-model-serving)  
+   evidence：面向编码智能体的强化学习
+2. [Forgotten in Weights, Recovered by Tools: Agentic Tool Unlearning for LLM Agents](/202608/25/2608.21544v1-forgotten-in-weights-recovered-by-tools-agentic-tool-unlearning-for-llm-agents)  
+   标签：评分：9.0/10、query:agent
+   evidence：面向LLM智能体的工具遗忘方法
+3. [Beyond Success and Failure: Length-Aware Contrastive Learning for GUI Agents](/202608/25/2608.21830v1-beyond-success-and-failure-length-aware-contrastive-learning-for-gui-agents)  
+   标签：评分：9.0/10、query:agent
+   evidence：提出面向GUI代理的长度感知对比学习，贡献于通用代理研究。
+4. [LLM4LLM: Bridging Kernel Benchmarks and Real Deployment via Closed-Loop Agentic Optimization](/202608/25/2608.21836v1-llm4llm-bridging-kernel-benchmarks-and-real-deployment-via-closed-loop-agentic-optimization)  
+   标签：评分：9.0/10、query:agent
+   evidence：使用LLM代理进行闭环内核优化，直接贡献于代码代理研究。
+5. [CD-LoRA: Consistency-Driven Low-Rank Adaptation for Multi-Task Fine-Tuning](/202608/25/2608.21909v1-cd-lora-consistency-driven-low-rank-adaptation-for-multi-task-fine-tuning)  
    标签：评分：9.0/10、query:llm
-   evidence：面向模型推理服务的动态算子调度优化，强匹配LLM推理优化需求
-3. [Bounded Agents: Delegation Security for Multi-Agent AI Systems](/202608/24/2608.15888v1-bounded-agents-delegation-security-for-multi-agent-ai-systems)  
-   标签：评分：9.0/10、query:agent
-   evidence：多智能体AI系统中的委托与安全研究
-4. [CAPO: Constraint-Aware Prompt Optimization for LLM Agents](/202608/24/2608.16068v1-capo-constraint-aware-prompt-optimization-for-llm-agents)  
-   标签：评分：9.0/10、query:agent
-   evidence：面向LLM智能体的约束感知提示词优化
-5. [Skill2Query: Exploiting Skill Structure to Generate Pseudo-Queries for Agent Skill Retrieval](/202608/24/2608.16071v1-skill2query-exploiting-skill-structure-to-generate-pseudo-queries-for-agent-skill-retrieval)  
-   标签：评分：9.0/10、query:agent
-   evidence：面向智能体技能检索的伪查询生成
-6. [When to Review: Spaced Repetition for Continual Pre-Training of Language Models](/202608/24/2608.17530v1-when-to-review-spaced-repetition-for-continual-pre-training-of-language-models)  
-   标签：评分：9.0/10、query:llm
-   evidence：提出间隔重复法用于大语言模型持续预训练，直接关注训练技术
-7. [DART-SD: Diamond-topology Aware Retrieval and Tuning for Self-Distillation of Multi-Turn Tool-Calling Agents](/202608/24/2608.18524v1-dart-sd-diamond-topology-aware-retrieval-and-tuning-for-self-distillation-of-multi-turn-tool-calling-agents)  
-   标签：评分：9.0/10、query:agent
-   evidence：面向自主智能体的多轮工具调用、自蒸馏与拓扑感知检索框架
-8. [To Go Far, Go Together: Diverse Preferences Induce a Curriculum for Reward Optimization](/202608/24/2608.18770v1-to-go-far-go-together-diverse-preferences-induce-a-curriculum-for-reward-optimization)  
+   evidence：面向LLM多任务微调的一致性驱动LoRA方法
+6. [Thinking at the Right Size: Amortized Distillation Across Post-Trained LLMs](/202608/25/2608.22854v1-thinking-at-the-right-size-amortized-distillation-across-post-trained-llms)  
    标签：评分：9.0/10、query:post-train
-   evidence：从人类反馈中学习奖励模型并据此优化策略
-9. [DeltaML-Bench: Evaluating Machine Learning Agents on Real-World Research Repositories](/202608/24/2608.19653v1-deltaml-bench-evaluating-machine-learning-agents-on-real-world-research-repositories)  
+   evidence：跨后训练LLM的摊销式蒸馏
+7. [Toward Effective and Reliable LLM Agents via Dynamic Ontology](/202608/25/2608.22974v1-toward-effective-and-reliable-llm-agents-via-dynamic-ontology)  
    标签：评分：9.0/10、query:agent
-   evidence：在真实研究代码库上评测机器学习智能体的基准
-10. [ReCache: Efficient KV Cache Reuse and Compression for Tool-Augmented LLM Agents](/202608/24/2608.19662v1-recache-efficient-kv-cache-reuse-and-compression-for-tool-augmented-llm-agents)  
-   标签：评分：9.0/10、query:llm
-   evidence：面向LLM智能体的KV缓存复用与压缩，匹配高效推理优化需求
-11. [Optimal Skill Selection for LLM Agents with Provable Bicriteria Guarantees](/202608/24/2608.19993v1-optimal-skill-selection-for-llm-agents-with-provable-bicriteria-guarantees)  
-   标签：评分：9.0/10、query:agent
-   evidence：面向LLM智能体的技能选择优化及预算约束
-12. [CAS: Conformalized Agentic Search via Adaptive Retrieval and Policy Weighting](/202608/24/2608.20771v1-cas-conformalized-agentic-search-via-adaptive-retrieval-and-policy-weighting)  
-   标签：评分：9.0/10、query:agent
-   evidence：通过保形预测提升搜索智能体的可靠性
-13. [MGAL: A Multilingual Granularity-Aware Long-Context Benchmark](/202608/24/2608.20853v1-mgal-a-multilingual-granularity-aware-long-context-benchmark)  
-   标签：评分：9.0/10、query:llm
-   evidence：面向LLM的多语言、粒度感知长上下文基准
-14. [COEC: Calibrated Orthogonal-Equivalence Compensation for Structured Pruning of Large Language Models](/202608/24/2608.21142v1-coec-calibrated-orthogonal-equivalence-compensation-for-structured-pruning-of-large-language-models)  
-   标签：评分：9.0/10、query:llm
-   evidence：通过结构化剪枝降低LLM规模与推理成本
-15. [Graph Engineering in the Era of LLM Agents: From Individual Intelligence to System Intelligence](/202608/24/2608.21156v1-graph-engineering-in-the-era-of-llm-agents-from-individual-intelligence-to-system-intelligence)  
-   标签：评分：9.0/10、query:agent
-   evidence：关于LLM智能体图工程与系统智能的综述性视角
+   evidence：提出动态本体框架以提升LLM智能体的有效性与可靠性
+8. [Language Chain in Alignment: Cross-Lingual Ranking Preference Optimization](/202608/25/2608.23149v1-language-chain-in-alignment-cross-lingual-ranking-preference-optimization)  
+   标签：评分：9.0/10、query:post-train
+   evidence：面向LLM对齐的跨语言排序偏好优化
+9. [Beyond the Stability-Exploration Dilemma: Environmental Regularization for LLM Policy Optimization](/202608/25/2608.23311v1-beyond-the-stability-exploration-dilemma-environmental-regularization-for-llm-policy-optimization)  
+   标签：评分：9.0/10、query:post-train
+   evidence：通过环境正则化与查询KL约束进行LLM策略优化
+10. [DocClaw: A Unified Agentic System for Intelligent Document Processing](/202608/25/2608.18685v1-docclaw-a-unified-agentic-system-for-intelligent-document-processing)  
+   标签：评分：8.0/10、query:agent
+   evidence：统一智能体文档处理系统
 
 ### 速读区论文标签
-1. [GraniKV: Asymmetric Granularity KV-Cache Paging for Multi-Agent Systems with Long Shared Prefix](/202608/24/2608.15584v1-granikv-asymmetric-granularity-kv-cache-paging-for-multi-agent-systems-with-long-shared-prefix)  
-   标签：评分：8.0/10、query:llm
-   evidence：针对多Agent工作负载的KV缓存分页优化，提升LLM推理效率
-2. [Walk Before You Run: The Importance of Data Exploration for Data Analysis Agents](/202608/24/2608.16045v1-walk-before-you-run-the-importance-of-data-exploration-for-data-analysis-agents)  
-   标签：评分：8.0/10、query:agent
-   evidence：关注基于LLM的数据分析智能体以及数据探索的重要性，与自主智能体系统相关
-3. [Towards Risk-free AI Agent Deployment](/202608/24/2608.16411v1-towards-risk-free-ai-agent-deployment)  
-   标签：评分：8.0/10、query:agent
-   evidence：基于LLM的智能体部署风险与测试，属于通用智能体AI核心话题
-4. [Le Critique: Privileged Value Functions for LLM Reinforcement Learning](/202608/24/2608.16739v1-le-critique-privileged-value-functions-for-llm-reinforcement-learning)  
+1. [Agent Lightning v1.0: Towards Harnessed Agentic RL](/202608/25/2608.17528v1-agent-lightning-v10-towards-harnessed-agentic-rl)  
    标签：评分：8.0/10、query:post-train
-   evidence：LLM强化学习后训练中的值函数设计，直接对应RL后训练需求
-5. [KnowSim: Evaluating Information Calibration in LLM Assistants with User Simulators that Learn](/202608/24/2608.17150v1-knowsim-evaluating-information-calibration-in-llm-assistants-with-user-simulators-that-learn)  
-   标签：评分：8.0/10、query:llm
-   evidence：提出评估LLM助手信息校准的框架，使用会学习的用户模拟器，属于LLM评测
-6. [Where Accountability Lives: Mapping Human Responsibility to Workflow Artifacts in Agentic Software Development](/202608/24/2608.15678v1-where-accountability-lives-mapping-human-responsibility-to-workflow-artifacts-in-agentic-software-development)  
+   evidence：通过LLM端点代理将智能体接入后训练的受控智能体强化学习
+2. [Artifact-centered Claim-aware Observability for Autonomous Scientific Agents](/202608/25/2608.18312v1-artifact-centered-claim-aware-observability-for-autonomous-scientific-agents)  
+   标签：评分：8.0/10、query:agent
+   evidence：自主科学智能体的可观测性与审计
+3. [Beyond LLM-Based Reasoning: Lightweight GNNs for Agent Failure Attribution](/202608/25/2608.18575v1-beyond-llm-based-reasoning-lightweight-gnns-for-agent-failure-attribution)  
+   标签：评分：8.0/10、query:agent
+   evidence：面向LLM多智能体系统的失败归因
+4. [VA-Judger: Reward Modeling from Human Preference Feedback for Joint Video-Audio Generation](/202608/25/2608.18607v2-va-judger-reward-modeling-from-human-preference-feedback-for-joint-video-audio-generation)  
+   标签：评分：8.0/10、query:post-train
+   evidence：基于人类偏好反馈的奖励建模，直接对应RLHF奖励模型训练需求
+5. [TranslatePsy-AfriSLM: High-Quality Data Scaling For Low-Resource Machine Translation](/202608/25/2608.18655v1-translatepsy-afrislm-high-quality-data-scaling-for-low-resource-machine-translation)  
+   标签：评分：8.0/10、query:llm-synth
+   evidence：低资源机器翻译中的合成数据与质量过滤
+6. [Towards Zero-Shot Task Transfer with Neurosymbolic World Models](/202608/25/2608.17959v2-towards-zero-shot-task-transfer-with-neurosymbolic-world-models)  
    标签：评分：7.0/10、query:agent
-   evidence：关于编码智能体与智能体软件开发中问责的研究
-7. [TaoLive Digital Avatar Agent Technical Report: Training Agents to Evolve with Their Harness](/202608/24/2608.15763v1-taolive-digital-avatar-agent-technical-report-training-agents-to-evolve-with-their-harness)  
-   标签：评分：7.0/10、query:agent
-   evidence：融合可演化框架的数字虚拟形象智能体
-8. [Polaris: Learning to Generate Table Descriptions from Retrieval Feedback](/202608/24/2608.17171v1-polaris-learning-to-generate-table-descriptions-from-retrieval-feedback)  
+   evidence：面向智能体零样本迁移的神经符号世界模型
+7. [From Storage to Access: Verifiable Activation of Parametric Knowledge in LLMs via Explicit Priming and Implicit Reasoning](/202608/25/2608.18581v1-from-storage-to-access-verifiable-activation-of-parametric-knowledge-in-llms-via-explicit-priming-and-implicit-reasoning)  
+   标签：评分：7.0/10、query:post-train
+   evidence：使用两阶段强化学习框架激活LLM参数化知识
+8. [Assessing Quality of Experience in Natural Language Generation of German Text](/202608/25/2608.18888v1-assessing-quality-of-experience-in-natural-language-generation-of-german-text)  
    标签：评分：7.0/10、query:llm
-   evidence：使用直接偏好优化微调LLM以提升检索效果，命中LLM微调需求
-9. [Benchmarking the Benchmarks: Evaluating Automated Safety Benchmarks for Small Language Models](/202608/24/2608.17183v1-benchmarking-the-benchmarks-evaluating-automated-safety-benchmarks-for-small-language-models)  
+   evidence：面向NLG/LLM质量的人类中心评估数据集
+9. [When Machines Speak: A Unified Generative Framework for Integrating Machine-Native Symbols into Pretrained Large Language Models](/202608/25/2608.19529v1-when-machines-speak-a-unified-generative-framework-for-integrating-machine-native-symbols-into-pretrained-large-language-models)  
    标签：评分：7.0/10、query:llm
-   evidence：对小语言模型的自动化安全基准进行元评测
-10. [ArborMem: Navigating Interaction States with Memory Forests](/202608/24/2608.17534v1-arbormem-navigating-interaction-states-with-memory-forests)  
+   evidence：扩展预训练LLM的词表与嵌入空间以处理机器原生符号
+10. [BC-Bench: Evaluating Agentic Engineering in a Domain-Specific Language for ERP](/202608/25/2608.20851v1-bc-bench-evaluating-agentic-engineering-in-a-domain-specific-language-for-erp)  
    标签：评分：7.0/10、query:agent
-   evidence：提出面向持久LLM对话助手的ArborMem记忆森林框架，与自主代理相关
-11. [Dense Expands, Sparse Anchors: Channel-Asymmetric Query Expansion for Hybrid Retrieval](/202608/24/2608.15851v1-dense-expands-sparse-anchors-channel-asymmetric-query-expansion-for-hybrid-retrieval)  
+   evidence：面向ERP领域特定语言的智能体代码工程基准，评测代码与测试生成
+11. [Efficient INT8 Inference of Small NLP Models on Server CPUs with PyTorch Native Stack](/202608/25/2608.18182v1-efficient-int8-inference-of-small-nlp-models-on-server-cpus-with-pytorch-native-stack)  
+   标签：评分：6.0/10、query:llm
+   evidence：面向CPU上小型NLP模型的高效INT8量化与图融合推理
+12. [Improved Confidence Estimates for Black-Box Large Language Models](/202608/25/2608.19323v1-improved-confidence-estimates-for-black-box-large-language-models)  
+   标签：评分：6.0/10、query:llm
+   evidence：利用简单分类器改进黑盒LLM的不确定性量化
+13. [PromptResponse: Optimizing Prompts for LLM Coding Tasks](/202608/25/2608.21074v1-promptresponse-optimizing-prompts-for-llm-coding-tasks)  
    标签：评分：6.0/10、query:agent
-   evidence：基于大模型的混合检索查询扩展，提升搜索效果
-12. [Cross-Model Memory Transfer via Target-Side Reader Adaptation](/202608/24/2608.17050v1-cross-model-memory-transfer-via-target-side-reader-adaptation)  
+   evidence：面向LLM编码任务的提示词优化研究
+14. [Rethinking Expressivity and Efficiency in Test-Time Training](/202608/25/2608.21308v1-rethinking-expressivity-and-efficiency-in-test-time-training)  
    标签：评分：6.0/10、query:llm
-   evidence：面向LLM的外部记忆架构与适配研究
-13. [Cross-Model Memory Transfer via Target-Side Reader Adaptation](/202608/24/2608.17050v2-cross-model-memory-transfer-via-target-side-reader-adaptation)  
-   标签：评分：6.0/10、query:llm
-   evidence：研究跨模型记忆迁移与外部记忆读取器适配，涉及LLM架构设计
-14. [Do Large Language Models Play Six Degrees of Separation? Measuring Topological Compression in Long-Context Manifolds](/202608/24/2608.17950v2-do-large-language-models-play-six-degrees-of-separation-measuring-topological-compression-in-long-context-manifolds)  
-   标签：评分：6.0/10、query:llm
-   evidence：基于隐藏状态流形拓扑的LLM长上下文可解释性分析
-15. [GEAR: Generative Expansion and Real Anchoring for Two-Stage Distillation of Tabular Foundation Models](/202608/24/2608.18849v1-gear-generative-expansion-and-real-anchoring-for-two-stage-distillation-of-tabular-foundation-models)  
-   标签：评分：6.0/10、query:llm-synth
-   evidence：两阶段蒸馏方法，结合合成协变量与真实锚定，用于模型压缩，与数据合成及蒸馏相关
+   evidence：兼顾表达性与效率的测试时训练方法，用于长上下文处理，与推理效率相关
+15. [Agentic AI for Safety-critical Multi-drone Systems: Challenges and Opportunities](/202608/25/2608.21444v1-agentic-ai-for-safety-critical-multi-drone-systems-challenges-and-opportunities)  
+   标签：评分：6.0/10、query:agent
+   evidence：关于安全关键多无人机系统智能体AI的立场论文
 
 
 <div class="dpr-home-promo-card">
