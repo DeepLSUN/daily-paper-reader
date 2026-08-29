@@ -1,0 +1,676 @@
+Title: CritICL: Inference-Time Weak-to-Strong Generalization from Small Language Model Failure Modes
+
+URL Source: https://arxiv.org/pdf/2608.27455v1
+
+Published Time: Fri, 28 Aug 2026 01:44:09 GMT
+
+Number of Pages: 31
+
+Markdown Content:
+Published as a conference paper at COLM 2026 
+
+# CRIT ICL: Inference-Time Weak-to-Strong Generalization from Small Language Model Failure Modes 
+
+Yufan Wu 1, Yinghui He 2, Zhengyi Hu 1, Lang Wei 1, Ruichen Li 1, Qifan Yang 1, Ting Zhu 11The Ohio State University 2Princeton University 
+
+{wu.6545, zhu.3445 }@osu.edu 
+
+## Abstract 
+
+Recent advances in inference-time scaling have significantly improved the reasoning performance of large language models (LLMs). However, these methods typically rely on repeated generation or external verification. To address this limitation, we introduce CritICL, a novel inference-time framework that improves reasoning while maintaining high efficiency. Our key insight is that LLM failure modes exhibit structured patterns across model scales within the same family. Instead of treating failures as undesirable outputs, CritICL leverages them as a source of guidance. Specifically, we utilize failure modes derived from weaker models and incorporate them into inference through critique-based in-context examples. We propose two variants: CritICL-dynamic, which adaptively predicts input-specific failure modes and retrieves critiques, and CritICL-static, which uses a global failure mode profile to provide stable guidance. Experimental results show that CritICL consistently outperforms standard in-context learning and achieves performance competitive with or superior to test-time scaling methods, while requiring significantly fewer genera-tions and lower token cost. 
+
+https://github.com/umwyf/CRITICL 
+
+## 1 Introduction 
+
+Inference-time scaling has emerged as a promising way to improve the reasoning perfor-mance of large language models (LLMs), with prior work showing gains through repeated sampling (Wang et al., 2022), iterative self-refinement (Madaan et al., 2023; Shinn et al., 2023), and external verification (Zheng et al., 2023b; Huang et al., 2024). However, these im-provements often come at a substantial inference cost, often requiring multiple generations either from the model itself or from a stronger model. A more recent line of work explores whether weaker models can provide useful inference-time guidance to stronger ones (Ding et al., 2026). Such approaches typically rely on weak models to produce online supervision or intermediate guidance for each new input, which still introduces additional inference overhead and may depend on the quality of the weaker model’s direct outputs. More importantly, they do not fully exploit a potentially richer source of transferable signal: the systematic ways in which models fail. In our work, we draw inspiration from a fundamental property of LLM reasoning: model errors are often not arbitrary, but structured and predictable (Didolkar et al., 2024). Instead of viewing weaker model failures as merely undesirable outputs, we treat them as a source of structured failure modes . In particular, our experiments in Section 4.1 show that the relative distribution of stronger models’ (Qwen, 72B) failure modes remains highly consistent with that of much weaker models (Qwen, 1.5B) from the same family. This suggests that weak and strong models share a common failure structure, even when their capabilities differ substantially. This observation motivates a key question: 1arXiv:2608.27455v1 [cs.CL] 27 Aug 2026 Published as a conference paper at COLM 2026 Stage 1: Construction of CritBank    
+
+> Dataset SLM LLM Correct Response Incorrect Answer Incorrect Reasoning CritBank Question Incorrect Response Failure Mode Label Critique
+> Test Set
+> 15K Samples from GSM8K & MATH
+> Target LLM
+> “Identify the most probable failure modes associated with this question.”
+> CritICL-dynamic CritICL-static
+
+Stage 2: LLM Inference with CritICL 
+
+> CritBank
+> Collect Model-Specific Failure Mode Statistics in CritBank
+> Failure Mode Profile
+> CritBank
+> Frequency vs. Failure Mode Labels
+> Problem Misunderstanding Incorrect Assumption Incorrect Formula Unit Error Q1 C1 Q1 C2 Q1 C1 Q2 C1 Q1 C2 Q1 C1 FM1 FM2 FM3
+> Failure Mode-Based Sample Selection
+
+Figure 1: CritICL is a two-stage, inference-time W2SG method. Stage 1: Construct CritBank. We use SLMs to generate responses and reasoning on a dataset. Then we leverage a frontier LLM to produce critiques and assigns failure mode labels. Stage 2: Perform LLM inference with CritICL. For a given query, CritICL-static constructs model-specific failure mode profiles from CritBank, while CritICL-dynamic identifies failure modes relevant to the query. We then performs failure mode-based in-context sample selection from CritBank to provide in-context examples for target LLMs. Can we leverage the structured failure modes of weaker models to improve stronger models at inference time, with minimal additional inference cost? We introduce CritICL , a framework that improves LLM reasoning by transferring structured failure modes from weaker models to stronger ones at inference time. Our method is based on the intuition that mistakes made by weaker models encode useful information about recurring reasoning pitfalls, and that this information can be reused as actionable guidance for stronger models. We first construct CritBank , a structured dataset of failure-aware critiques derived from weaker models, where each entry contains a question, an incorrect response, failure mode labels, and a natural language critique. Aggregated across multiple small models and tasks, CritBank captures failure modes shared across model scales. We then introduce two inference-time variants: CritICL-dynamic , which adaptively predicts likely failure modes for each model input and retrieves relevant critiques; and CritICL-static , which uses a model-family-specific failure mode profile to retrieve critiques associated with dominant failure modes. Both variants leverage failure-aware guidance collected offline from weaker models. We evaluate CritICL on a range of mathematical reasoning benchmarks, including GSM8K (Cobbe et al., 2021), MATH (Hendrycks et al., 2021), AMC (Mathematical Association of America, 2023) and AIME (Zhang & Math-AI, 2024; 2025). Experimental results show that CritICL consistently outperforms standard in-context learning and matches or exceeds test-time scaling methods, while requiring significantly fewer generations and lower token cost. Further analysis demonstrates that CritICL generalizes beyond mathematical reasoning and can be effectively extended to other domains. These results establish CritICL as an efficient method for improving reasoning at inference time by leveraging failure mode information from weaker models. 2Published as a conference paper at COLM 2026 
+
+## 2 Design of CritBank and CritICL 
+
+Our method builds on the observation that models within the same family exhibit similar distributions of failure modes. This shared structure enables a form of weak-to-strong generalization: failure modes identified from weaker models can effectively transfer to guide stronger models. Our empirical analysis in Section 4.1 supports this observation and demonstrates that failure modes learned from weaker models remain highly informative for improving the reasoning of more capable models. 
+
+2.1 Construction of CritBank 
+
+We now describe the construction of CritBank, a structured dataset of questions, incorrect responses, failure mode labels, and critiques (see Figure 1). 
+
+Response Generation. Let Q denote the set of input questions, and let M be a set of small language models from the same model family. For each (q, m) ∈ Q × M, we prompt model 
+
+m with question q using chain-of-thought (CoT) prompting to generate five responses: 
+
+R(q, m) = {r(i)
+
+> q,m
+
+}5
+
+> i=1
+
+,where each r(i) 
+
+> q,m
+
+contains both intermediate reasoning steps and a final answer. The full collection of responses is 
+
+R(Q, M) = [ 
+
+> q∈Q ,m∈M
+
+R(q, m).We define a correctness function ϕ(q, r) ∈ { 0, 1 } that indicates whether r correctly solves 
+
+q. Our focus is on incorrect responses, i.e., those with ϕ(q, r) = 0, as they expose the underlying reasoning failures of the model. For each (q, m), we partition the response set R(q, m) into correct and incorrect subsets: 
+
+R(q, m) = Rcorrect (q, m) ∪ Rincorrect (q, m), Rcorrect (q, m) ∩ Rincorrect (q, m) = ∅,where Rcorrect (q, m) = {r ∈ R(q, m) | ϕ(q, r) = 1} and Rincorrect (q, m) = {r ∈ R(q, m) |
+
+ϕ(q, r) = 0}.
+
+Failure Mode and Critique Generation For each incorrect response r ∈ Rincorrect (q, m), we leverage a frontier LLM to generate up to five candidate failure mode labels, each capturing a potential failure mode. As these labels may be noisy or semantically redundant, we apply a clustering procedure to group similar labels and extract a set of representative failure modes. Specifically, we adopt the clustering approach proposed by Didolkar et al. (2024). In addition, we generate a natural language critique for each (q, r) pair to provide fine-grained feedback on the reasoning process. Unless otherwise specified, all failure mode labels and critiques are generated using gpt-4o-mini (Achiam et al., 2023). Prompt templates used in this process are provided in Appendix G.1. 
+
+Final Dataset. After collecting all samples in CritBank, we define two mapping functions over (q, r) pairs. The critique function C maps each (q, r) pair to a structured critique, while the labeling function L is a set-valued function that assigns each (q, r) pair a subset of failure modes. The final dataset is defined as 
+
+CritBank (Q, M) = {(q, r, l, C(q, r)) | q ∈ Q , m ∈ M, r ∈ Rincorrect (q, m), l ∈ L (q, r)} .Based on these mappings, we further define the inverse mapping of L to retrieve all associated tuples for a given failure mode label l:
+
+L−1(l) = {(q, r) | l ∈ L (q, r)} ,3Published as a conference paper at COLM 2026 and the corresponding set of tuples with critiques: 
+
+n
+
+(q, r, C(q, r)) (q, r) ∈ L −1(l)
+
+o
+
+.This mapping is leveraged in CritICL to identify and select the most informative in-context samples. 
+
+2.2 CritICL-dynamic and CritICL-static 
+
+Given a new question q′ /∈ Q, our goal is to retrieve and utilize informative examples from CritBank to construct effective prompts for the target large language model at inference time. We propose two strategies that differ in how they select and incorporate critiques. 
+
+CritICL-dynamic Our first approach performs input-dependent critique selection. Given a query q′, we prompt the target model to predict a small set of likely failure mode labels (up to five). Conditioned on these predictions, we retrieve relevant examples from CritBank via a Failure Mode-Based Sample Selection procedure. Unless otherwise specified, we retrieve at most five examples in our experiments. The retrieved examples are then incorporated into the prompt and provide targeted critiques that steer the model away from likely mistakes. 
+
+CritICL-static Our second approach is model-family-aware and input-agnostic. We con-struct a global failure mode profile by aggregating the failure mode distributions of weaker models within the same family, which are also used to build CritBank. This profile identifies dominant and persistent failure modes shared across the family. We then retrieve corre-sponding critiques from CritBank using the same Failure Mode-Based Sample Selection procedure and incorporate them into the prompt. Further details of both methods and the Failure Mode-Based Sample Selection procedure are provided in Appendix G. 
+
+## 3 Experiment 
+
+3.1 Experimental Settings Dataset. We evaluate our method on two widely used mathematical reasoning bench-marks: GSM8K (7.4k training samples and 1.3k test samples) (Cobbe et al., 2021) and MATH (7.5k training samples and 5k test samples) (Hendrycks et al., 2021). To construct CritBank, we sample all the instances from the training split of each dataset, resulting in a combined set of 15k questions. These samples are used to elicit responses from small-scale language models, which serve as the basis for generating failure mode labels and critiques. For evaluation, we report results on the full test sets of GSM8K and MATH. In addition, to assess out-of-distribution generalization, we further evaluate on three competition-level benchmarks: AMC23 (Mathematical Association of America, 2023), AIME24 (Zhang & Math-AI, 2024), and AIME25 (Zhang & Math-AI, 2025). 
+
+Model Settings. We evaluate our method on two model families: Qwen and Llama. For the Qwen family, we construct CritBank using responses generated by weaker instruction-tuned models, including Qwen2.5-1.5B-Instruct, Qwen2.5-3B-Instruct, and Qwen2.5-7B-Instruct (Yang et al., 2024). We then evaluate performance on larger models within the same family, namely Qwen2.5-32B-Instruct and Qwen2.5-72B-Instruct. For the Llama family, we build CritBank using responses from Llama-3.2-1B-Instruct, Llama-3.2-3B-Instruct, and Llama-3.1-8B. We evaluate on Llama-3.1-70B-Instruct (Grattafiori et al., 2024). For all experiments, we adopt greedy decoding with a generation temperature of 0.0 to ensure deterministic outputs. 
+
+Baselines. We compare CritICL against a diverse set of baselines, including standard in-context learning methods and test-time scaling approaches. 4Published as a conference paper at COLM 2026 • Zero-shot : We evaluate the base model without any in-context examples. • Few-shot (random exemplars), 1/3/5-shot : We randomly select 1, 3, or 5 correct examples (question–answer pairs) from the training sets of GSM8K and MATH. • Few-shot (fixed exemplars), 1/3/5-shot : We use a fixed set of 1, 3, or 5 selected correct examples. • Self-consistency (consistency@3/5/7) (Wang et al., 2022): We sample multiple reasoning paths (3, 5, or 7 generations at temperature 1.0) and select the final answer via majority voting. Unless otherwise specified, all experiments on test-time scaling method are conducted under the 5-shot setting. • Self-reflection (Madaan et al., 2023; Shinn et al., 2023): We prompt the model to iteratively critique and refine its own outputs using self-generated feedback. • LLM-as-a-judge (Zheng et al., 2023b; Huang et al., 2024): We use a strong language model to evaluate five candidate responses and select the final prediction based on its judgments. In our experiments, we use GPT-4o-mini to judge candidate responses. 
+
+3.2 Performance of CritICL-dynamic and CritICL-static 
+
+Table 1 presents the performance of CritICL-dynamic and CritICL-static on Qwen family models. Overall, both methods consistently outperform standard in-context learning base-lines and achieve competitive performance compared to test-time scaling approaches. Due to space constraints, we present additional results on the Llama family in Appendix E.1. On Qwen2.5-32B-Instruct, CritICL-static achieves the best overall performance with 49.8% Pass@1 accuracy, surpassing the strongest test-time scaling baseline (Consistency@7) by 0.3 points while avoiding repeated inference. CritICL-dynamic also performs competi-tively, matching or exceeding most baselines across both in-distribution (ID) and out-of-distribution (OOD) benchmarks. On Qwen2.5-72B-Instruct, similar trends are observed. CritICL-static achieves the highest overall accuracy of 59.2%, outperforming all baselines, including test-time scaling methods such as Consistency@5 (59.0%). CritICL-dynamic again remains competitive, demonstrating stable improvements across tasks. These results suggest that our method scales effectively with model size and continues to provide benefits even for strong base models. 
+
+3.3 Inference Cost of CritICL-dynamic and CritICL-static 
+
+We compare the inference cost of CritICL with standard ICL and test-time scaling methods. Table 2 reports the average token cost per question on the MATH dataset using Qwen models. Overall, CritICL significantly reduces the total token usage. Due to the space limit, we provide additional results in Appendix E.2. 
+
+CritICL increases input length but reduces overall token usage. Compared to standard ICL, CritICL incurs a modest increase in input length due to the inclusion of critiques. However, this additional input does not lead to longer outputs. Instead, CritICL produces comparable or even fewer output tokens (296 vs. 308), suggesting that critique guidance enables the model to arrive at correct solutions more directly. 
+
+CritICL reduces generations and improves inference efficiency. More importantly, Crit-ICL is significantly more efficient than test-time scaling methods. Methods such as Consis-tency@k and LLM-as-Judge require multiple generations (up to 7), leading to substantially higher total token consumption. In contrast, CritICL-static requires only a single generation, and CritICL-dynamic requires two generations due to the additional failure-mode predic-tion step. Despite this, both variants achieve lower total token usage (3768–3897) compared to all test-time scaling baselines (4192–7533). 5Published as a conference paper at COLM 2026 
+
+(a) Target Model: Qwen2.5-32B-Instruct 
+
+In-distribution (ID) Out-of-distribution (OOD) Overall Method GSM8K MATH Avg. AMC23 AIME24 AIME25 Avg. Avg. 
+
+Standard ICL 
+
+Zero-shot 82.4 42.1 62.3 14.8 9.6 8.7 11.0 36.6 1-shot (Rand.) 85.6 46.3 66.0 16.5 11.2 10.1 12.6 39.3 3-shot (Rand.) 88.2 50.8 69.5 18.9 13.5 12.3 14.9 42.2 5-shot (Rand.) 90.3 54.6 72.5 22.5 15.8 14.2 17.5 45.0 1-shot (Fixed) 86.8 47.5 67.2 17.2 11.9 10.7 13.3 40.3 3-shot (Fixed) 89.4 52.1 70.8 20.1 14.3 13.0 15.8 43.3 5-shot (Fixed) 91.2 55.3 73.3 23.8 16.9 15.3 18.7 46.0 
+
+Test-Time Scaling 
+
+Consistency@3 92.1 56.9 74.5 25.2 17.9 16.3 19.8 47.9 Consistency@5 93.0 58.2 75.6 26.1 19.0 17.3 20.8 48.9 Consistency@7 93.3 58.6 76.0 26.9 19.4 17.8 21.4 49.5 Self-Reflection 92.5 57.8 75.2 25.8 18.5 16.9 20.4 48.4 LLM-as-Judge 92.9 58.8 75.9 26.4 19.3 17.7 21.1 49.0 
+
+CritICL(ours) 
+
+CritICL-dynamic 93.0 58.6 75.8 26.7 19.2 17.5 21.1 49.1 CritICL-static 93.6 59.2 76.4 26.6 19.5 17.9 21.3 49.8 
+
+(b) Target Model: Qwen2.5-72B-Instruct 
+
+In-distribution (ID) Out-of-distribution (OOD) Overall Method GSM8K MATH Avg. AMC23 AIME24 AIME25 Avg. Avg. 
+
+Standard ICL 
+
+Zero-shot 88.5 63.2 75.9 20.5 14.2 12.8 15.8 45.8 1-shot (Rand.) 90.4 68.1 79.3 22.3 15.9 14.4 17.5 48.4 3-shot (Rand.) 92.1 73.5 82.8 25.6 18.6 16.9 20.4 51.6 5-shot (Rand.) 93.2 79.2 86.2 30.5 21.7 19.8 24.0 55.1 1-shot (Fixed) 91.2 70.0 80.6 23.1 16.5 15.0 18.2 49.4 3-shot (Fixed) 92.9 75.4 84.2 27.2 19.8 18.0 21.7 52.9 5-shot (Fixed) 93.8 80.5 87.2 32.0 23.0 21.0 25.3 56.3 
+
+Test-Time Scaling 
+
+Consistency@3 94.1 81.6 87.9 33.5 24.6 22.5 26.9 57.4 Consistency@5 95.0 83.2 89.1 35.8 26.3 24.5 28.9 59.0 Consistency@7 94.0 81.0 87.5 33.1 24.3 22.2 26.5 57.0 Self-Reflection 94.6 82.5 88.6 34.4 25.4 23.3 27.7 58.2 LLM-as-Judge 94.8 82.9 88.9 34.8 25.7 23.6 28.0 58.5 
+
+CritICL(ours) 
+
+CritICL-dynamic 95.1 83.3 89.2 35.6 26.2 24.2 28.7 58.7 CritICL-static 95.4 84.0 89.7 35.4 26.5 24.6 28.8 59.2 
+
+Table 1: Performance comparison on Qwen family models. CritICL-dynamic and CritICL-static consistently outperform baselines, achieving improvements of up to 12.9% and 13.4%, respectively. Compared to test-time scaling methods, both approaches achieve competitive accuracy without requiring extensive repeated LLM inference. The evaluated models are Qwen2.5-32B-Instruct and Qwen2.5-72B-Instruct, while CritBank is constructed using Qwen2.5-1.5B-Instruct, Qwen2.5-3B-Instruct, and Qwen2.5-7B-Instruct. All results are reported as Pass@1 accuracy unless otherwise specified. 
+
+## 4 Why CritICL Work 
+
+4.1 CritICL Leverages Shared Failure Mode Distributions Across Model Scales 
+
+To better understand why CritICL is effective, we analyze the distribution of failure modes across models of different scales. During the construction of CritBank, we already collect failure mode statistics from weaker models on GSM8K and MATH. Building on this, we 6Published as a conference paper at COLM 2026                                                             
+
+> Method Generations Input Tokens Output Tokens Total Tokens Standard ICL
+> Zero-shot 1312 287 599 1-shot (Rand.) 1918 294 1212 3-shot (Rand.) 12087 306 2393 5-shot (Rand.) 13346 289 3635 1-shot (Fixed) 1905 301 1206 3-shot (Fixed) 12138 297 2435 5-shot (Fixed) 13312 308 3620
+> Test-Time Scaling
+> Consistency@3 33278 914 4192 Consistency@5 53321 1493 4814 Consistency@7 73364 2076 5440 Self-Reflection 3.7 3315 4218 7533 LLM-as-Judge 64794 1671 6465
+> CritICL (ours)
+> CritICL-dynamic 23586 311 3897 CritICL-static 13472 296 3768
+
+Table 2: Inference cost comparison across methods. We report the average inference tokens per question on the MATH dataset when conducting experiments on Qwen2.5-32B-Instruct. Generations count all model invocations required to produce the final answer, including aux-iliary steps such as failure-mode prediction or judge evaluation. CritICL slightly increases input tokens due to critique-based exemplars, but significantly reduces output tokens and avoids repeated generation. further prompt the target large models on the same datasets and extract their corresponding failure mode distributions. We then compare these distributions across model scales within each family. In particular, we construct an aggregate distribution by combining the statistics from three weaker models, and contrast it with the distributions observed from individual models as well as the target large model. Figure 2 shows the normalized frequencies of the top 20 most frequent failure modes for both Qwen (top) and Llama (bottom) families. 
+
+Models within the same family exhibit consistent failure distributions. We observe that models within the same family share highly similar failure mode distributions, despite significant differences in scale. Across both Qwen and LLaMA families, the relative ordering and magnitude of the most frequent failure modes remain largely stable as model size increases. This suggests that many reasoning failures are not random, but instead reflect persistent inductive biases or systematic weaknesses inherited within a model family. As a result, failure modes identified from smaller models can serve as reliable signals for understanding and guiding the behavior of larger models. This observation provides the foundation for both CritICL-dynamic and CritICL-static. 
+
+Aggregated failure statistics better approximate large-model behavior. Furthermore, the aggregate distribution obtained by combining multiple smaller models aligns more closely with the failure distribution of the target large model than any single small model alone. This effect is consistent across both model families. Intuitively, different smaller models capture complementary subsets of failure modes, and aggregating them provides a more comprehensive estimate of the overall error landscape. This observation directly motivates the design of CritICL-static: by leveraging aggregated failure mode statistics, we can construct a more accurate and robust profile of likely reasoning failures, which in turn enables more effective retrieval of critique examples. 
+
+4.2 CritICL Selects Samples that Precisely Address Model Failure Modes 
+
+Beyond the transferability of failure information, a key reason why CritICL is effective lies in its example selection mechanism. Unlike standard ICL methods that rely on random, 7Published as a conference paper at COLM 2026 0.0 2.5 5.0 7.5 Percentage (%) incorrect formula application problem intent misinterpretation logical step skipping simplification calculation error problem requirement misunderstanding incorrect factorization weak logical reasoning algebraic equivalence misinterpretation algebraic manipulation miscalculation incorrect equation setup incorrect independence assumption geometric relationship misinterpretation insufficient boundary condition analysis combinatorial principle misapplication insufficient constraint understanding incomplete solution consideration unit conversion error assumption overreliance overcounting in combinatorics arithmetic operation mistake 7.63 6.98 5.83 5.76 5.68 5.25 5.25 5.11 4.96 4.89 4.68 3.17 3.02 2.95 2.95 2.73 2.73 2.59 2.59 2.09 
+
+Aggregate 
+
+0.0 2.5 5.0 7.5 Percentage (%) 6.72 5.25 5.57 5.74 4.43 4.92 6.07 4.75 4.92 4.75 4.75 2.79 2.95 3.11 2.30 3.28 2.95 2.95 2.46 2.30 
+
+Qwen2.5-1.5B 
+
+0.0 2.5 5.0 7.5 Percentage (%) 6.97 6.52 6.07 5.17 4.72 5.39 5.39 4.04 4.04 4.27 4.72 3.37 3.37 2.70 2.70 2.70 2.92 2.47 2.25 2.02 
+
+Qwen2.5-3B 
+
+0.0 2.5 5.0 7.5 Percentage (%) 6.57 6.87 4.78 5.67 5.07 4.78 4.78 4.78 4.18 4.78 4.48 3.28 2.69 2.99 2.99 2.69 2.69 2.39 2.39 2.09 
+
+Qwen2.5-72B 0 5Percentage (%) incorrect formula application problem intent misinterpretation logical step skipping simplification calculation error problem requirement misunderstanding incorrect factorization weak logical reasoning algebraic equivalence misinterpretation algebraic manipulation miscalculation incorrect equation setup incorrect independence assumption geometric relationship misinterpretation insufficient boundary condition analysis combinatorial principle misapplication insufficient constraint understanding incomplete solution consideration unit conversion error assumption overreliance overcounting in combinatorics arithmetic operation mistake 3.09 2.73 2.73 4.53 4.39 5.40 4.46 4.68 2.73 4.82 4.96 5.54 5.76 5.25 2.30 2.30 2.59 2.66 5.61 2.37 
+
+Aggregate 
+
+0 5Percentage (%) 2.80 3.60 3.20 4.40 4.00 6.00 4.80 3.60 2.00 4.40 5.60 3.60 5.60 4.80 2.80 2.40 2.00 3.60 4.80 2.00 
+
+Llama-3.2-1B 
+
+0 5Percentage (%) 3.10 2.41 2.76 3.79 4.48 4.83 4.14 4.83 3.10 4.48 4.48 6.55 5.52 4.14 2.41 2.07 2.76 2.41 5.52 2.41 
+
+Llama-3.2-3B 
+
+0 5Percentage (%) 3.18 2.59 2.59 4.82 4.47 5.41 4.47 4.94 2.82 5.06 4.94 5.76 5.88 5.76 2.12 2.35 2.71 2.47 5.88 2.47 
+
+Llama-3.1-70B 
+
+Figure 2: Failure mode distributions across model scales remains highly consistent across scales within Qwen family (top) and Llama family (bottom). Each panel shows the normal-ized frequency of failure mode categories for models of different sizes. We report aggregate distribution by combining the failure statistics of the three weaker models described in Section 3.1. fixed, or surface-level similarity-based retrieval, CritICL explicitly selects examples that target the underlying failure modes of the model. In particular, CritICL-static constructs a global failure mode profile by aggregating error statistics from weaker models within the same family. It allows CritICL-static to retrieve examples that systematically cover the most frequent and persistent failure modes of the target model, rather than relying on incidental similarity. As a result, the selected in-context examples provide targeted corrective signals that directly address likely reasoning errors. We provide a concrete case study using real model failures from CritBank in Appendix G.5. 
+
+## 5 Further Analysis 
+
+5.1 Ablation Study: Effect of Failure Mode-Based Example Selection 
+
+To better understand how CritICL-dynamic and CritICL-static select informative in-context examples from CritBank, we compare our selection strategies against several alternative retrieval methods. Specifically, we replace our failure mode-based example selection with: (1) random selection , (2) fixed selection (a static set of examples shared across all inputs), 8Published as a conference paper at COLM 2026                                                                            
+
+> Method GSM8K MATH AMC23 AIME25
+> Acc Prec Rec Acc Prec Rec Acc Prec Rec Acc Prec Rec
+> w/o Failure Mode-Based Example Selection
+> Random 87.4 88.1 85.9 53.1 52.2 54.0 22.2 21.4 23.0 13.2 12.5 14.0 Fixed 88.3 87.5 89.1 52.4 53.3 51.2 21.1 20.3 22.0 13.6 14.3 12.8 Semantic 87.9 88.6 86.7 53.8 54.4 52.9 21.9 22.5 20.8 13.0 13.7 12.2
+> w/ Failure Mode-Based Example Selection
+> CritICL-dynamic 93.0 93.8 92.1 58.6 59.3 57.4 26.7 27.5 25.8 17.5 18.2 16.4 CritICL-static 93.6 92.9 94.4 59.2 60.1 58.0 26.6 25.8 27.4 17.9 17.1 18.8
+
+Table 3: Effect of different in-context example selection strategies under a 5-shot setting. We construct the example pool using CritBank generated by smaller Qwen2.5 models (1.5B, 3B, and 7B) and evaluate on Qwen2.5-72B-Instruct. and (3) semantic similarity-based retrieval , where examples are retrieved based on em-bedding similarity to the input question. We evaluate all methods on four mathematical reasoning benchmarks: GSM8K, MATH, AMC23, and AIME25. Performance is measured using accuracy, precision, and recall. Table 3 presents the results. We observe that both CritICL-dynamic and CritICL-static consistently outperform all baseline selection strategies across all datasets and metrics. The improvements are substantial, especially on more challenging benchmarks such as AMC23 and AIME, where gains of 4–6 points in accuracy are observed. This indicates that selecting examples based on failure modes is particularly beneficial for tasks requiring precise multi-step reasoning. In contrast, methods without failure mode awareness perform significantly worse. Random and fixed selection yield the weakest performance. Semantic similarity-based retrieval performs better than these naive baselines, but still lags behind our approach. This highlights a key limitation of similarity-based methods: they rely on surface-level alignment between questions, which does not necessarily reflect the underlying failure modes. 
+
+5.2 Extend to Other Domains 
+
+To evaluate the generality of CritICL, we further conduct experiments beyond mathematical reasoning tasks. As shown in Appendix E.3, CritICL continues to perform effectively on benchmarks from other domains, including chemistry and biology. These results demon-strate that the benefits of failure mode-based guidance extend beyond mathematics and generalize to diverse reasoning settings. 
+
+## 6 Conclusion 
+
+In this paper, we introduce CritICL, an efficient inference-time framework that improves LLM reasoning by leveraging structured failure modes from weaker models. We show that LLM failure modes exhibit consistent and transferable patterns across model scales, and that these patterns can be transformed into critique-based guidance. By incorporating failure-aware examples through both dynamic and static retrieval strategies, CritICL enables stronger models to avoid common reasoning pitfalls without relying on costly test-time scaling. Extensive experiments across mathematical and scientific benchmarks demonstrate that CritICL consistently outperforms standard in-context learning and achieves competitive or superior performance compared to multi-pass methods, while significantly reducing computational overhead. These results highlight a new and efficient paradigm for inference-time improvement, where structured failure knowledge serves as a reusable and scalable resource for enhancing reasoning across domains. 9Published as a conference paper at COLM 2026 
+
+## Acknowledgements 
+
+We thank the three anonymous OpenReview reviewers for their thoughtful and constructive feedback, which significantly improved the clarity and empirical evaluation of this work. Their suggestions motivated several additional analyses and experiments, including studies of failure-mode consistency, annotation reliability, transferability, taxonomy granularity, statistical uncertainty, and additional baselines. We also thank the area chairs and program committee for their careful consideration and helpful comments. This work is partially supported by NSF CAIG-2531030 and CNS-2305246. 
+
+## References 
+
+Josh Achiam, Steven Adler, Sandhini Agarwal, Lama Ahmad, Ilge Akkaya, Florencia Leoni Aleman, Diogo Almeida, Janko Altenschmidt, Sam Altman, Shyamal Anadkat, et al. Gpt-4 technical report. arXiv preprint arXiv:2303.08774 , 2023. Collin Burns, Pavel Izmailov, Jan Hendrik Kirchner, Bowen Baker, Leo Gao, Leopold As-chenbrenner, Yining Chen, Adrien Ecoffet, Manas Joglekar, Jan Leike, Ilya Sutskever, and Jeffrey Wu. Weak-to-strong generalization: Eliciting strong capabilities with weak supervision. In Proceedings of the 41st International Conference on Machine Learning , vol-ume 235 of Proceedings of Machine Learning Research , pp. 4971–5012. PMLR, 2024. URL 
+
+https://proceedings.mlr.press/v235/burns24b.html .Moses Charikar, Chirag Pabbaraju, and Kirankumar Shiragur. Quantifying the gain in weak-to-strong generalization. In Advances in Neural Information Processing Systems , 2024. doi: 10.52202/079017-4017. URL https://proceedings.neurips.cc/paper files/paper/ 2024/hash/e4a0d8aef3567f742b0794844d9b5847-Abstract-Conference.html .Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Jacob Hilton, Reiichiro Nakano, Christo-pher Hesse, and John Schulman. Training verifiers to solve math word problems, 2021. Aniket Didolkar, Anirudh Goyal, Nan R Ke, Siyuan Guo, Michal Valko, Timothy Lillicrap, Danilo Rezende, Yoshua Bengio, Michael Mozer, and Sanjeev Arora. Metacognitive capabilities of llms: An exploration in mathematical problem solving. Advances in Neural Information Processing Systems , 37:19783–19812, 2024. Zhenyu Ding, Yuhao Wang, Tengyue Xiao, Haoying Wang, Caigui Jiang, and Ning Ding. W2s-aligntree: Weak-to-strong inference-time alignment for large language models via monte carlo tree search, 2026. URL https://arxiv.org/abs/2511.11518 .Zhibin Gou, Zhihong Shao, Yeyun Gong, Yelong Shen, Yujiu Yang, Nan Duan, and Weizhu Chen. Critic: Large language models can self-correct with tool-interactive critiquing. In The Twelfth International Conference on Learning Representations , 2024. URL https:// openreview.net/forum?id=Sx038qxjek .Aaron Grattafiori, Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey, Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman, Akhil Mathur, Alan Schelten, Alex Vaughan, et al. The llama 3 herd of models. arXiv preprint arXiv:2407.21783 , 2024. Yinghui He, Abhishek Panigrahi, Yong Lin, and Sanjeev Arora. Adaptmi: Adaptive skill-based in-context math instruction for small language models. arXiv preprint arXiv:2505.00147 , 2025a. Yinghui He, Abhishek Panigrahi, Yong Lin, and Sanjeev Arora. Skill-targeted adaptive training. arXiv preprint arXiv:2510.10023 , 2025b. Dan Hendrycks, Collin Burns, Steven Basart, Andrew Critch, Jerry Li, Dawn Song, and Jacob Steinhardt. Measuring mathematical problem solving with the math dataset. NeurIPS ,2021. Huihui Huang et al. An empirical study of llm-as-a-judge for llm evaluation. arXiv preprint arXiv:2402.04752 , 2024. 10 Published as a conference paper at COLM 2026 Hunter Lang, David Sontag, and Aravindan Vijayaraghavan. Theoretical analysis of weak-to-strong generalization. In Advances in Neural Information Processing Systems , 2024. doi: 10. 52202/079017-1486. URL https://proceedings.neurips.cc/paper files/paper/2024/ hash/5358d1e6138dff5718c5e9790f5fa593-Abstract-Conference.html .Aman Madaan, Niket Tandon, Prakhar Gupta, et al. Self-refine: Iterative refinement with self-feedback. In NeurIPS , 2023. Mathematical Association of America. American mathematics competitions (amc) 2023, 2023. Competition problems. David Rein, Betty Li Hou, Asa Cooper Stickland, Jackson Petty, Richard Yuanzhe Pang, Julien Dirani, Julian Michael, and Samuel R Bowman. Gpqa: A graduate-level google-proof q&a benchmark. In First conference on language modeling , 2024. Rulin Shao, Rui Qiao, Varsha Kishore, Niklas Muennighoff, Xi Victoria Lin, Daniela Rus, Bryan Kian Hsiang Low, Sewon Min, Wen-tau Yih, Pang Wei Koh, and Luke Zettlemoyer. Reasonir: Training retrievers for reasoning tasks. In Conference on Language Modeling , 2025. URL https://openreview.net/forum?id=kkBCNLMbGj .Noah Shinn, Federico Cassano, Ashwin Gopinath, et al. Reflexion: Language agents with verbal reinforcement learning. In NeurIPS , 2023. Zhengyang Tang, Ziniu Li, Zhenyang Xiao, Tian Ding, Ruoyu Sun, Benyou Wang, Dayiheng Liu, Fei Huang, Tianyu Liu, Bowen Yu, and Junyang Lin. Self-evolving critique abilities in large language models. In Conference on Language Modeling , 2025. URL https:// openreview.net/forum?id=TA6azZKWJq .Gladys Tyen, Hassan Mansoor, Victor Carbune, Peter Chen, and Tony Mak. LLMs cannot find reasoning errors, but can correct them given the error location. In Findings of the Asso-ciation for Computational Linguistics: ACL 2024 , Bangkok, Thailand, 2024. Association for Computational Linguistics. URL https://aclanthology.org/2024.findings-acl.826/ .Liang Wang, Nan Yang, and Furu Wei. Learning to retrieve in-context examples for large language models. In Proceedings of the 18th Conference of the European Chapter of the Association for Computational Linguistics (Volume 1: Long Papers) , pp. 1752–1767, St. Julian’s, Malta, 2024. Association for Computational Linguistics. doi: 10.18653/v1/2024.eacl-long. 105. URL https://aclanthology.org/2024.eacl-long.105/ .Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc Le, Ed Chi, Sharan Narang, Aakanksha Chowdhery, and Denny Zhou. Self-consistency improves chain of thought reasoning in language models. arXiv preprint arXiv:2203.11171 , 2022. Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc V. Le, Ed H. Chi, Sharan Narang, Aakanksha Chowdhery, and Denny Zhou. Self-consistency improves chain of thought reasoning in language models. In The Eleventh International Conference on Learning Repre-sentations , 2023. URL https://openreview.net/forum?id=1PL1NIMMrw .Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Brian Ichter, Fei Xia, Ed H. Chi, Quoc V. Le, and Denny Zhou. Chain-of-thought prompting elicits reasoning in large language models. In Advances in Neural Information Processing Systems , 2022. URL 
+
+https://openreview.net/forum?id= VjQlMeSB J .An Yang, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chengyuan Li, Dayiheng Liu, Fei Huang, Haoran Wei, Huan Lin, Jian Yang, Jianhong Tu, Jianwei Zhang, Jianxin Yang, Jiaxi Yang, Jingren Zhou, Junyang Lin, Kai Dang, Keming Lu, Keqin Bao, Kexin Yang, Le Yu, Mei Li, Mingfeng Xue, Pei Zhang, Qin Zhu, Rui Men, Runji Lin, Tianhao Li, Tingyu Xia, Xingzhang Ren, Xuancheng Ren, Yang Fan, Yang Su, Yichang Zhang, Yu Wan, Yuqiong Liu, Zeyu Cui, Zhenru Zhang, and Zihan Qiu. Qwen2.5 technical report. arXiv preprint arXiv:2412.15115 , 2024. Yifan Zhang and Team Math-AI. American invitational mathematics examination (aime) 2024, 2024. 11 Published as a conference paper at COLM 2026 Yifan Zhang and Team Math-AI. American invitational mathematics examination (aime) 2025, 2025. Yunxiang Zhang, Muhammad Khalifa, Lajanugen Logeswaran, Jaekyeom Kim, Moontae Lee, Honglak Lee, and Lu Wang. Small language models need strong verifiers to self-correct reasoning. In Findings of the Association for Computational Linguistics: ACL 2024 ,Bangkok, Thailand, 2024. Association for Computational Linguistics. URL https:// aclanthology.org/2024.findings-acl.924/ .Lianmin Zheng, Wei-Lin Chiang, Ying Sheng, Siyuan Zhuang, Zhanghao Wu, Yonghao Zhuang, Zi Lin, Zhuohan Li, Dacheng Li, Eric P. Xing, Hao Zhang, Joseph E. Gonzalez, and Ion Stoica. Judging LLM-as-a-judge with MT-bench and chatbot arena. In Advances in Neural Information Processing Systems , 2023a. URL https://openreview.net/forum?id= uccHPGDlao .Lianmin Zheng, Wei-Lin Chiang, Ying Sheng, et al. Judging llm-as-a-judge with mt-bench and chatbot arena. In NeurIPS , 2023b. 12 Published as a conference paper at COLM 2026 
+
+# Table of Contents 
+
+A Related Works . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 15 B Additional Analysis of Failure Modes . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 15 B.1 Quantitative Analysis of Failure-Mode Consistency . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 15 B.2 Why Can Failure Modes Transfer Across Model Scales? . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 16 B.3 Validation of Failure-Mode Annotations . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 16 B.4 Effect of Failure-Mode Taxonomy Granularity . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 17 C Additional Baselines and Ablations . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 17 C.1 Source-of-Gain Ablation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 17 C.2 Comparison with Inference-Time Weak-to-Strong Baselines . . . . . . . . . . . . . . . . . . . . . . . . . . . . 18 C.3 Statistical Uncertainty and Significance Tests . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 18 D Transferability Analysis . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 18 D.1 Cross-Family Transfer . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 18 D.2 Cross-Domain Transfer . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 19 E Additional Experiment Results . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 20 E.1 Performance on LLaMA Family . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 20 E.2 Inference Cost Analysis . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 21 E.3 Performance in Other Domains . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 22 F Additional Discussion . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 23 F.1 Offline Construction Cost and Reusability of CritBank . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 23 G Experiment Details . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 24 G.1 Prompt Templates . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 24 G.2 Failure Mode-Based Sample Selection . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 26 G.3 Workflow of CritICL-dynamic . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 27 
+
+13 Published as a conference paper at COLM 2026 
+
+G.4 Workflow of CritICL-static . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 27 G.5 Case Study: Failure Mode-Aligned Retrieval . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 28 H Failure Mode Taxonomy . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 29 
+
+14 Published as a conference paper at COLM 2026 
+
+## A Related Works 
+
+Inference-time reasoning and test-time scaling. Recent work has improved LLM reasoning by allocating more computation at inference time. Wei et al. (2022) introduce Chain-of-Thought (CoT) prompting to elicit intermediate reasoning steps, while Wang et al. (2023) propose self-consistency to aggregate multiple sampled solutions. Subsequent approaches further enhance reasoning through iterative refinement, critique, or verification. For ex-ample, Madaan et al. (2023) and Shinn et al. (2023) explore self-improvement via iterative feedback, while Gou et al. (2024) and Zheng et al. (2023a) leverage external critics or judge models for reranking and validation. However, these methods typically rely on repeated generation or auxiliary evaluation, leading to increased inference cost. In contrast, Crit-ICL leverages precomputed failure knowledge from weaker models and injects it through retrieved critiques, enabling improved reasoning with substantially fewer generations. 
+
+Weak-to-strong generalization. Weak-to-strong generalization studies whether stronger models can benefit from weak supervision. Burns et al. (2024) demonstrate that weak supervision can improve strong models under certain conditions, while subsequent work analyzes when such gains arise and how they depend on the gap between weak and strong models (Lang et al., 2024; Charikar et al., 2024). In contrast to this line of work, our setting focuses on inference-time improvement rather than training-time adaptation. CritICL does not fine-tune the target model using weak labels or preferences. Instead, it converts failure patterns observed in weaker models into reusable critiques, which are then used to guide stronger models during inference. 
+
+Mistake-aware critique and self-correction. A growing body of work investigates whether model errors are structured enough to support critique and correction. Didolkar et al. (2024) show that reasoning errors can be grouped into recurring categories and that mistake-aware feedback improves mathematical reasoning. Tyen et al. (2024) demonstrate that models are significantly better at correcting errors when their locations are identified, compared to discovering errors independently. Similarly, Zhang et al. (2024) improve self-correction by pairing weaker generators with stronger verification signals. More recent work, such as Tang et al. (2025), focuses on improving the quality of critique itself. Our method is complementary to these approaches: rather than training a stronger critic for online revision, CritICL constructs an offline repository of failure labels and critiques, and retrieves them as targeted guidance at inference time. 
+
+Retrieval for reasoning and in-context learning. The effectiveness of in-context learning heavily depends on demonstration selection (He et al., 2025a;b). Wang et al. (2024) show that learned retrievers can outperform random or fixed example selection, while Shao et al. (2025) demonstrate that retrieval tailored to reasoning tasks yields further gains. Our method extends this line of work by shifting the retrieval objective from semantic relevance to failure relevance. Instead of retrieving examples that are merely similar to the input, CritICL retrieves critiques associated with likely or persistent failure modes, thereby providing context that directly targets the model’s most probable reasoning errors. 
+
+## B Additional Analysis of Failure Modes 
+
+B.1 Quantitative Analysis of Failure-Mode Consistency 
+
+Our main experiments suggest that failure modes exhibit consistent patterns across model scales within the same model family. To quantify this observation, we compare the failure-mode distributions of weak and strong models using four complementary metrics: Spear-man rank correlation, Kendall’s τ, Top-10 overlap, and Jensen–Shannon (JS) distance. The rank-based metrics measure whether dominant failure modes preserve their relative order-ing across model scales, while JS distance measures the similarity between the complete failure-mode distributions. As shown in Table 4, failure-mode profiles exhibit strong within-family consistency. In particular, the aggregate weak-model profiles achieve Spearman correlations of 0.91 and 0.88 for Qwen and Llama, respectively, while also yielding the lowest JS distances. Moreover, 15 Published as a conference paper at COLM 2026 Table 4: Quantitative similarity between weak- and strong-model failure-mode distributions. Higher Spearman correlation, Kendall’s τ, and Top-10 overlap indicate stronger agreement, while lower Jensen–Shannon distance indicates greater distributional similarity.                                                                                 
+
+> Family / Transfer Weak Profile Spearman ↑Kendall τ↑Top-10 ↑JS Dist. ↓
+> Qwen →Qwen2.5-72B Qwen2.5-1.5B 0.79 0.61 7/10 0.083 Qwen →Qwen2.5-72B Qwen2.5-3B 0.82 0.65 8/10 0.071 Qwen →Qwen2.5-72B Qwen2.5-7B 0.84 0.67 8/10 0.068 Qwen →Qwen2.5-72B Qwen Aggregate 0.91 0.76 9/10 0.041
+> Llama →Llama-3.1-70B Llama-3.2-1B 0.74 0.56 7/10 0.091 Llama →Llama-3.1-70B Llama-3.2-3B 0.78 0.60 7/10 0.079 Llama →Llama-3.1-70B Llama-3.1-8B 0.81 0.63 8/10 0.073 Llama →Llama-3.1-70B Llama Aggregate 0.88 0.72 9/10 0.047
+> Llama →Qwen2.5-72B Llama Aggregate 0.46 0.32 4/10 0.132 Qwen →Llama-3.1-70B Qwen Aggregate 0.43 0.29 4/10 0.146
+
+the aggregate weak-model profiles consistently match the strong models better than any individual weak model. Cross-family correlations are substantially weaker than within-family correlations, sug-gesting that failure-mode distributions contain both general reasoning tendencies and family-specific structure. Overall, these results support our central observation that, al-though exact failure frequencies vary with model scale, the dominant failure modes and their relative ordering remain sufficiently stable within a model family to support weak-to-strong retrieval. 
+
+B.2 Why Can Failure Modes Transfer Across Model Scales? 
+
+We hypothesize that the observed consistency of failure modes across model scales is partly attributable to shared inductive biases among models from the same family. Models at different scales typically share many design and training choices, including architectural components, tokenizers, pretraining pipelines, and instruction-tuning procedures. Increas-ing model scale can therefore improve overall capability without necessarily eliminating systematic reasoning tendencies induced by these shared components. This interpretation is consistent with prior evidence that model behavior can change pre-dictably with scale and that functional mechanisms can remain similar across training stages and model sizes. Related reliability studies also suggest that increasing model capability does not necessarily eliminate systematic error patterns. We emphasize that this discussion provides a plausible explanation for our empirical observations rather than a complete mechanistic account. Establishing a causal connection between shared internal mechanisms and the observed failure-mode consistency remains an interesting direction for future work. 
+
+B.3 Validation of Failure-Mode Annotations 
+
+CritBank relies on automatically generated failure-mode annotations. To evaluate whether these annotations are robust to the choice of annotator, we conduct an annotation validation study on a randomly sampled subset of CritBank. Specifically, 300 examples are indepen-dently re-annotated using GPT-4.1 and Claude-3.5-Sonnet, and a subset of 100 examples is additionally annotated by human annotators. Table 5 shows substantial agreement between GPT-4o-mini and both independent LLM and human annotations. The agreement between GPT-4o-mini and human annotators is also reasonably close to the observed human–human agreement. These results suggest that the failure-mode taxonomy captures relatively stable reasoning-error categories rather than artifacts specific to a single annotation model. 16 Published as a conference paper at COLM 2026 Table 5: Agreement between GPT-4o-mini annotations used to construct CritBank and independent LLM or human annotations.                   
+
+> Comparison Samples F1 ↑Cohen’s κ↑
+> GPT-4o-mini vs. GPT-4.1 300 0.84 0.77 GPT-4o-mini vs. Claude-3.5-Sonnet 300 0.81 0.73 GPT-4o-mini vs. Human 100 0.82 0.74 Human vs. Human 100 0.86 0.80
+
+Table 6: Effect of failure-mode taxonomy granularity on CritICL performance.                         
+
+> Taxonomy # Groups GSM8K MATH AMC23 AIME25 Avg. Coarse-grained 894.8 82.7 34.1 23.2 58.7 Fine-grained 20 95.4 84.0 35.4 24.6 59.9
+> Very fine-grained 45 95.0 83.3 34.8 23.9 59.3
+
+B.4 Effect of Failure-Mode Taxonomy Granularity 
+
+The granularity of the failure-mode taxonomy determines the trade-off between the speci-ficity of retrieved critiques and the number of available examples associated with each failure category. We therefore evaluate three taxonomy granularities: a coarse-grained tax-onomy that merges related error types, the default fine-grained taxonomy used by CritICL, and a very fine-grained taxonomy that further subdivides failure categories. As shown in Table 6, the fine-grained taxonomy achieves the strongest overall perfor-mance. Coarser categories provide larger retrieval pools but lose failure-specific information, whereas overly fine-grained categories fragment the retrieval pool, making matching sparser and potentially noisier. These results suggest that CritICL benefits from an intermediate level of abstraction that preserves failure-specific information while maintaining sufficient retrieval coverage. 
+
+## C Additional Baselines and Ablations 
+
+C.1 Source-of-Gain Ablation 
+
+An important question is whether CritICL improves reasoning because of failure-mode-aligned retrieval, or simply because it introduces additional retrieved context or knowledge from the model used to generate critiques. We therefore construct several controlled variants to isolate the source of the improvement. Dense correct-exemplar retrieval uses the same number of demonstrations and the same retrieval mechanism as CritICL, but retrieves correct training examples rather than failure-mode-aligned critiques. Generic GPT critique provides critique information without failure-mode-specific alignment. Weak incorrect response only uses the weak model’s incorrect response without the associated critique. Finally, shuffled failure labels break the correspon-dence between failure modes and retrieved critiques. As shown in Table 7, dense retrieval of correct examples improves over standard ICL, indi-cating that retrieval itself is beneficial. However, it remains substantially below full CritICL. Generic critiques, weak incorrect responses, and shuffled-label retrieval also underperform CritICL-static. These results indicate that the improvement cannot be explained solely by adding more retrieved context or injecting critique-model knowledge offline. Instead, an important component of CritICL is the alignment between weak-model failure modes and the critiques retrieved for the target query. 17 Published as a conference paper at COLM 2026 Table 7: Source-of-gain ablation. Full CritICL consistently outperforms variants that remove or disrupt failure-mode alignment. 
+
+Method GSM8K MATH AMC23 AIME25 Avg. 5-shot ICL 93.8 80.5 32.0 21.0 56.8 Dense correct-exemplar retrieval 94.2 81.1 32.7 21.6 57.4 Generic GPT critique 94.4 81.4 33.1 22.0 57.7 Weak incorrect response only 94.3 81.0 32.5 21.4 57.3 Shuffled failure labels 94.5 81.6 33.0 22.1 57.8 CritICL-static 95.4 84.0 35.4 24.6 59.9 
+
+Table 8: Comparison with inference-time weak-to-strong and test-time scaling baselines. CritICL requires only one target-model generation.                         
+
+> Method Generations MATH AMC23 Avg. 5-shot ICL 180.5 32.0 56.3 Consistency@5 583.2 35.8 59.5 W2S-AlignTree 583.5 35.6 59.6 AdaptMI-style retrieval 182.1 33.4 57.8 CritICL-static 184.0 35.4 59.7
+
+C.2 Comparison with Inference-Time Weak-to-Strong Baselines 
+
+CritICL differs from conventional post-training weak-to-strong generalization methods because it does not update the parameters of the target model. We therefore focus on com-parison with inference-time weak-to-strong and test-time scaling methods under matched inference settings. Table 8 shows that CritICL-static achieves the highest average accuracy among the evaluated methods while requiring only one target-model generation. In comparison, Consistency@5 and W2S-AlignTree require five generations. These results highlight that the primary advantage of CritICL is not parameter-level post-training, but rather an efficient plug-in mechanism for weak-to-strong guidance at inference time. 
+
+C.3 Statistical Uncertainty and Significance Tests 
+
+All main experiments use greedy decoding with temperature 0. Consequently, repeated decoding with the same input and model does not provide a meaningful estimate of run-to-run stochastic variation. Instead, we estimate statistical uncertainty over evaluation examples using bootstrap resampling. We report 95% bootstrap confidence intervals and paired significance tests against the strongest baseline for each benchmark. As shown in Table 9, the improvement on MATH is statistically significant at the conven-tional p < 0.05 threshold, as is the improvement in the macro-average evaluation. The improvement on GSM8K is positive but does not reach this threshold. Differences on AMC23 and the substantially smaller AIME benchmarks are also not statistically significant. The relatively wide confidence intervals on AIME24 and AIME25 reflect their small evalua-tion sets. We therefore interpret differences of only a few tenths of a percentage point on these benchmarks cautiously. 
+
+## D Transferability Analysis 
+
+D.1 Cross-Family Transfer 
+
+Our primary setting considers weak-to-strong transfer within the same model family. To investigate whether CritBank also captures reasoning patterns that generalize across model 18 Published as a conference paper at COLM 2026 Table 9: Bootstrap confidence intervals and paired significance tests against the strongest baseline. Values after ± denote 95% bootstrap confidence intervals over evaluation exam-ples.                                                     
+
+> Dataset Best Baseline CritICL-static ∆p-value GSM8K 95.0 ±1.1 95.4 ±1.0 +0.4 0.083 MATH 83.2 ±1.0 84.0 ±0.9 +0.8 0.018 AMC23 35.8 ±4.7 35.4 ±4.6 −0.4 0.641 AIME24 26.3 ±7.8 26.5 ±7.9 +0.2 0.812 AIME25 24.5 ±7.5 24.6 ±7.6 +0.1 0.871 Macro Avg. 52.9 ±1.6 53.2 ±1.5 +0.3 0.041
+
+Table 10: Cross-family transfer between Qwen and Llama. Cross-family CritBank transfer improves over standard ICL and dense correct-exemplar retrieval, while same-family trans-fer remains stronger. 
+
+Target Model CritBank Source GSM8K MATH AMC23 Avg. Qwen2.5-72B 5-shot ICL 93.8 80.5 32.0 68.8 Qwen2.5-72B Dense correct-exemplar retrieval 94.2 81.1 32.7 69.3 Qwen2.5-72B Llama CritBank, cross-family 94.7 82.3 33.8 70.3 Qwen2.5-72B Qwen CritBank, same-family 95.4 84.0 35.4 71.6 
+
+Llama-3.1-70B 5-shot ICL 89.6 72.8 27.5 63.3 Llama-3.1-70B Dense correct-exemplar retrieval 90.1 73.5 28.2 63.9 Llama-3.1-70B Qwen CritBank, cross-family 90.8 74.6 29.3 64.9 Llama-3.1-70B Llama CritBank, same-family 91.7 76.1 30.8 66.2 
+
+families, we conduct preliminary cross-family experiments between Qwen and Llama. Specifically, we use a CritBank constructed from weak Llama models to guide Qwen2.5-72B and a CritBank constructed from weak Qwen models to guide Llama-3.1-70B. As shown in Table 10, cross-family CritBank transfer consistently improves over both stan-dard ICL and dense correct-exemplar retrieval. However, same-family CritBanks provide substantially larger improvements. This pattern is also consistent with the distributional analysis in Table 4, where failure-mode profiles exhibit considerably stronger agreement within a model family than across families. These results suggest that CritICL captures a mixture of general reasoning pitfalls shared across model families and family-specific failure tendencies. We therefore consider same-family weak-to-strong generalization the primary setting of CritICL, while cross-family transfer represents a promising direction for extending the framework. 
+
+D.2 Cross-Domain Transfer 
+
+We further investigate whether failure-mode critiques transfer across reasoning domains. In addition to mathematical reasoning benchmarks, we construct a CritBank from GPQA examples and evaluate cross-domain transfer between mathematical reasoning and GPQA. We compare domain-specific CritBanks with cross-domain and mixed-domain CritBanks. Table 11 shows that domain-specific CritBanks achieve the strongest performance in both directions. Mixed-domain CritBanks, however, remain close to the corresponding in-domain variants. Cross-domain CritBanks also retain useful transfer, although they are weaker than their in-domain counterparts. This pattern suggests that some failure modes—such as incorrect assumptions, missing constraints, or skipped logical steps—can be shared across reasoning domains. In contrast, more domain-specific failures, such as incorrect formula application or confusion between scientific concepts, benefit more from in-domain failure information. 19 Published as a conference paper at COLM 2026 Table 11: Cross-domain transfer between mathematical reasoning benchmarks and GPQA. Domain-specific CritBanks perform best, while mixed-domain CritBanks remain competi-tive. 
+
+Target Domain CritBank Source Target Benchmarks Avg. Math Math CritBank MATH + AMC23 59.7 
+
+Math GPQA CritBank MATH + AMC23 58.4 Math Mixed CritBank MATH + AMC23 59.5 GPQA Math CritBank Chem. + Bio. + Phys. + Quantum 72.6 GPQA GPQA CritBank Chem. + Bio. + Phys. + Quantum 74.4 
+
+GPQA Mixed CritBank Chem. + Bio. + Phys. + Quantum 74.1 
+
+## E Additional Experiment Results 
+
+E.1 Performance on LLaMA Family 
+
+We further evaluate CritICL on the Llama family to examine whether the observed gains generalize beyond the Qwen series. Specifically, we use Llama-3.1-70B-Instruct as the target model, while constructing CritBank using weaker models from the same family (Llama-3.2-1B, 3B, and Llama-3.1-8B). This setting allows us to directly test whether error signals derived from smaller Llama models can effectively transfer to a stronger counterpart. As shown in Table 12, CritICL consistently outperforms all baselines across both in-distribution (ID) and out-of-distribution (OOD) benchmarks. Compared to standard ICL, increasing the number of demonstrations improves performance, but the gains quickly saturate, especially on OOD datasets. Test-time scaling methods such as Consistency decod-ing, Self-Reflection, and LLM-as-Judge provide additional improvements, yet they require multiple generations and still struggle to significantly boost OOD generalization. In contrast, CritICL achieves the best overall performance while using a single generation. Notably, CritICL-static improves the overall accuracy to 53.1, outperforming the strongest baseline (Consistency@5 at 51.3) by a clear margin. The improvements are particularly pronounced on OOD benchmarks (e.g., AIME24 and AIME25), suggesting that critique-based exemplars help the model better capture transferable reasoning patterns rather than overfitting to in-distribution examples. These results demonstrate that the effectiveness of CritICL is not tied to a specific model family. Instead, the ability to extract and transfer structured error information from weaker models generalizes well across architectures, further supporting our hypothesis that failure signals provide valuable guidance for improving reasoning at inference time. 20 Published as a conference paper at COLM 2026 
+
+In-distribution (ID)) Out-of-distribution (OOD)) Overall Method GSM8K MATH Avg. AMC23 AIME24 AIME25 Avg. Avg. 
+
+Standard ICL 
+
+Zero-shot 78.5 45.2 61.9 18.4 12.5 11.2 14.0 38.0 1-shot (Rand.) 82.1 48.0 65.1 19.6 13.4 12.1 15.0 40.1 3-shot (Rand.) 86.3 52.5 69.4 21.5 14.9 13.5 16.6 43.0 5-shot (Rand.) 90.8 58.7 74.8 24.3 16.8 15.2 18.8 46.8 1-shot (Fixed) 83.5 49.6 66.6 20.1 13.8 12.5 15.5 41.0 3-shot (Fixed) 88.9 55.4 72.2 22.8 15.9 14.4 17.7 44.9 5-shot (Fixed) 92.4 60.8 76.6 25.7 17.9 16.2 19.9 48.3 
+
+Test-Time Scaling 
+
+Consistency@3 93.2 62.1 77.7 27.0 18.8 17.2 21.0 49.3 Consistency@5 95.0 64.8 79.9 28.8 20.5 18.7 22.7 51.3 Consistency@7 93.5 62.5 78.0 27.6 19.4 17.8 21.6 50.0 Self-Reflection 94.2 63.7 79.0 28.1 20.0 18.3 22.1 50.6 LLM-as-Judge 94.6 64.2 79.4 28.5 20.2 18.5 22.4 50.9 
+
+CritICL(ours) 
+
+CritICL-dynamic 95.3 65.6 80.5 29.6 21.3 19.6 23.5 52.0 CritICL-static 95.9 67.2 81.6 30.8 22.4 20.7 24.6 53.1 
+
+Table 12: Performance comparison of Llama family models. The evaluated model is Llama-3.1-70B-Instruct, while the models used to contribute to CritBank include Llama-3.2-1B-Instruct and Llama-3.2-3B-Instruct and Llama-3.1-8B. 
+
+E.2 Inference Cost Analysis 
+
+We further report inference cost comparisons across additional model scales and datasets, including Qwen2.5-72B-Instruct and LLaMA-3.1-70B-Instruct on both MATH and GSM8K. The results consistently demonstrate that CritICL achieves substantially lower total token consumption compared to test-time scaling methods, while maintaining competitive or superior performance. These findings highlight that the efficiency advantage of CritICL is robust across different model families and task domains. 
+
+Method Generations Input Tokens Output Tokens Total Tokens Standard ICL 
+
+Zero-shot 1 331 292 623 1-shot (Rand.) 1 947 307 1254 3-shot (Rand.) 1 2176 319 2495 5-shot (Rand.) 1 3518 304 3822 1-shot (Fixed) 1 934 312 1246 3-shot (Fixed) 1 2231 308 2539 5-shot (Fixed) 1 3472 316 3788 
+
+Test-Time Scaling 
+
+Consistency@3 3 3436 973 4409 Consistency@5 5 3492 1567 5059 Consistency@7 7 3551 2138 5689 Self-Reflection 3.8 3479 4412 7891 LLM-as-Judge 6 5036 1784 6820 
+
+CritICL (ours) 
+
+CritICL-dynamic 2 3742 323 4065 CritICL-static 1 3621 307 3928 
+
+Table 13: Inference cost comparison on MATH using Qwen2.5-72B-Instruct. 21 Published as a conference paper at COLM 2026                                                             
+
+> Method Generations Input Tokens Output Tokens Total Tokens Standard ICL
+> Zero-shot 1298 274 572 1-shot (Rand.) 1882 281 1163 3-shot (Rand.) 11997 294 2291 5-shot (Rand.) 13226 279 3505 1-shot (Fixed) 1867 288 1155 3-shot (Fixed) 12042 283 2325 5-shot (Fixed) 13194 296 3490
+> Test-Time Scaling
+> Consistency@3 33145 864 4009 Consistency@5 53212 1438 4650 Consistency@7 73278 1996 5274 Self-Reflection 3.6 3198 4026 7224 LLM-as-Judge 64725 1543 6268
+> CritICL (ours)
+> CritICL-dynamic 23386 301 3687 CritICL-static 13264 287 3551
+
+Table 14: Inference cost comparison on MATH using LLaMA-3.1-70B-Instruct.                                                             
+
+> Method Generations Input Tokens Output Tokens Total Tokens Standard ICL
+> Zero-shot 1276 214 490 1-shot (Rand.) 1731 228 959 3-shot (Rand.) 11604 241 1845 5-shot (Rand.) 12612 223 2835 1-shot (Fixed) 1718 235 953 3-shot (Fixed) 11651 231 1882 5-shot (Fixed) 12578 238 2816
+> Test-Time Scaling
+> Consistency@3 32527 633 3160 Consistency@5 52584 1062 3646 Consistency@7 72639 1496 4135 Self-Reflection 3.5 2556 2893 5449 LLM-as-Judge 63854 1007 4861
+> CritICL (ours)
+> CritICL-dynamic 22789 247 3036 CritICL-static 12657 231 2888
+
+Table 15: Inference cost comparison on GSM8K using LLaMA-3.1-70B-Instruct. 
+
+E.3 Performance in Other Domains 
+
+We further evaluate CritICL beyond mathematical reasoning by conducting experiments on the GPQA benchmark (Rein et al., 2024). GPQA consists of graduate-level questions across multiple scientific domains, including Chemistry , Biology , Physics , and Quantum Mechanics .Compared to MATH-style problems, GPQA emphasizes domain knowledge and conceptual reasoning, making it a strong testbed for cross-domain generalization. We use the LLaMA family for this study, with Llama-3.1-70B-Instruct as the target model. Following the same protocol as in our main experiments, critique-based exemplars are constructed using weaker models from the same family. This setup allows us to directly examine whether error signals derived from weaker models can transfer effectively to a stronger model across different scientific domains. 22 Published as a conference paper at COLM 2026 As shown in Table 16, CritICL consistently outperforms standard in-context learning (ICL) baselines across all domains. While increasing the number of demonstrations improves performance, the gains gradually saturate. Test-time scaling methods such as consistency decoding and self-reflection provide additional improvements but require multiple genera-tions. In contrast, CritICL achieves the best overall performance with a single generation. Notably, CritICL-static shows consistent gains across all domains, indicating that critique-based exemplars provide a robust and transferable signal beyond domain-specific patterns. These results further support our hypothesis that structured error information can guide reasoning improvement even in knowledge-intensive and non-mathematical settings. Overall, this experiment demonstrates that the effectiveness of CritICL generalizes across diverse domains, reinforcing its applicability beyond mathematical reasoning tasks.                                                                            
+
+> Method Chemistry Biology Physics Quantum Avg. Standard ICL
+> Zero-shot 60.8 62.5 58.9 55.2 59.4 1-shot (Rand.) 63.4 65.1 61.2 57.6 61.8 3-shot (Rand.) 66.9 68.7 64.5 60.8 65.2 5-shot (Rand.) 69.5 71.0 67.1 63.2 67.7 1-shot (Fixed) 64.1 65.9 61.8 58.3 62.5 3-shot (Fixed) 67.8 69.9 65.3 61.5 66.1 5-shot (Fixed) 70.4 72.3 67.9 63.9 68.6
+> Test-Time Scaling
+> Consistency@3 71.8 73.5 69.2 65.8 70.1 Consistency@5 73.6 75.1 71.0 67.4 71.8 Consistency@7 72.5 74.2 70.1 66.5 70.8 Self-Reflection 73.0 74.6 70.5 66.9 71.3 LLM-as-Judge 73.3 74.9 70.8 67.1 71.5
+> CritICL (ours)
+> CritICL-dynamic 74.5 76.2 72.0 68.5 72.8 CritICL-static 76.0 77.8 73.6 70.2 74.4
+
+Table 16: Performance comparison on the GPQA benchmark across different scientific domains, including Chemistry, Biology, Physics, and Quantum Mechanics. The target model is Llama-3.1-70B-Instruct, and CritBank is constructed using weaker LLaMA models. Results show that CritICL consistently improves performance across all domains. 
+
+## F Additional Discussion 
+
+F.1 Offline Construction Cost and Reusability of CritBank 
+
+CritBank introduces an offline construction cost because weak-model errors must first be collected and subsequently annotated with failure modes and critiques. Importantly, however, this cost is incurred during preprocessing rather than repeatedly at inference time. Once constructed, the resulting CritBank can be reused across test queries and target models in the corresponding model-family setting. CritICL therefore shifts part of the repeated inference-time computation required by test-time scaling methods into a reusable offline resource. This distinction becomes increasingly important when a target model is queried repeatedly: the one-time construction cost of Crit-Bank can be amortized over a large number of downstream queries, while each individual query still requires only a single target-model generation. This efficiency–accuracy trade-off is complementary to approaches that allocate additional computation to repeated generation or verification at test time. Rather than maximizing inference-time compute for each individual query, CritICL exploits recurring failure struc-23 Published as a conference paper at COLM 2026 ture learned from inexpensive weak models and reuses this information to guide stronger models. 
+
+## G Experiment Details 
+
+G.1 Prompt Templates 
+
+We provide the exact prompt templates used in our framework for reproducibility. All prompts follow a structured instruction format to ensure consistent behavior across different models. In particular, we explicitly specify the task, input fields, and output format, which helps reduce ambiguity and improves the reliability of model responses. Our design focuses on two key aspects. First, for CritBank construction, we use prompts that explicitly guide the model to identify failure modes and generate concise critiques for incorrect solutions. Second, for inference-time methods, we design prompts that incorporate retrieved critique examples as guidance, encouraging the model to avoid common reasoning errors. For CritICL-dynamic, the prompt is input-adaptive: it first predicts likely failure modes for each query and retrieves corresponding critique examples. For CritICL-static, the prompt is based on a global failure mode profile and emphasizes recurring mistake patterns shared within a model family. Despite this difference, both methods share a unified prompting structure that augments standard in-context learning with failure-aware guidance. We present the full prompt templates below. 
+
+Failure Mode Annotation Prompt Instruction: You are an expert at analyzing errors in mathematical reasoning. Given a math question and an incorrect solution, identify the main failure modes that explain why the solution is incorrect. Select up to five failure modes from the predefined list, and briefly explain your reasoning. If the solution is correct, output “None”. The failure modes must be chosen only from the following list: 
+
+incorrect_formula_application problem_misinterpretation logical_step_skipping arithmetic_sign_error insufficient constraint understanding overcounting_in_combinatorics geometric_relationship_misinterpretation algebraic manipulation miscalculation 
+
+Output Format: 
+
+Failure Modes: label_1 label_2 ... Reason: <brief explanation> 
+
+Question: {question }
+
+Incorrect Solution: {incorrect response }
+
+24 Published as a conference paper at COLM 2026 
+
+Critique Generation Prompt Instruction: You are an expert at reviewing mathematical solutions. Given a math question and an incorrect solution, write a concise critique that identifies the key mistake, explains why it is incorrect, and describes how to fix it. Do not directly provide the full correct solution. 
+
+Output Format: 
+
+Critique: <concise critique> 
+
+Question: {question }
+
+Incorrect Solution: {incorrect response }
+
+Failure Mode Prediction Prompt for CritICL-dynamic Instruction: You are an expert at anticipating reasoning failures in mathematical problem solving. Given a math question, predict up to five likely failure modes and briefly explain why. The failure modes must be chosen only from the following list: 
+
+incorrect_formula_application problem_misinterpretation logical_step_skipping arithmetic_sign_error insufficient constraint understanding overcounting_in_combinatorics geometric_relationship_misinterpretation algebraic manipulation miscalculation 
+
+Output Format: 
+
+Failure Modes: label_1 label_2 ... Reason: <brief explanation> 
+
+Question: {question }
+
+Final Answer Prompt for CritICL-dynamic Instruction: You are solving a math problem. Below are examples of incorrect solutions and critiques describing common mistakes. Use these critiques to avoid similar errors. 
+
+Example 1 
+
+Question: {q1 }
+
+Incorrect Solution: {r1 }
+
+Critique: {c1 }
+
+Example 2 
+
+Question: {q2 }
+
+Incorrect Solution: {r2 }
+
+Critique: {c2 }
+
+25 Published as a conference paper at COLM 2026 ... 
+
+Question: {question }
+
+Provide the final answer in the form: 
+
+\boxed{answer} 
+
+Final Answer Prompt for CritICL-static Instruction: You are solving a math problem. Below are examples of common mistakes frequently observed. Use these critiques as general guidance to avoid recurring errors. 
+
+Example 1 
+
+Question: {q1 }
+
+Incorrect Solution: {r1 }
+
+Critique: {c1 }
+
+... 
+
+Question: {question }
+
+Provide the final answer in the form: 
+
+\boxed{answer} 
+
+G.2 Failure Mode-Based Sample Selection 
+
+Given a target set of failure modes S ⊆ F , our goal is to retrieve a small set of informative critique examples from CritBank for in-context prompting. Using the labeling function L
+
+and its inverse L−1, we first construct the candidate set of all incorrect responses whose assigned failure modes overlap with S:
+
+D(S) = {(q, r, C(q, r)) | q ∈ Q , r ∈ Rincorrect (q, m) for some m ∈ M, L(q, r) ∩ S̸ = ∅} .Equivalently, this set can be written as 
+
+D(S) = [
+
+> l∈S
+
+n
+
+(q, r, C(q, r)) (q, r) ∈ L −1(l)
+
+o
+
+.For each candidate pair (q, r), we compute a matching score based on the overlap between its assigned failure modes and the target set: score (q, r; S) = ∑
+
+> l∈L (q,r)∩S
+
+w(l),where w(l) is an optional weight for failure mode l. In the unweighted case, we set w(l) = 1, so the score reduces to score (q, r; S) = |L (q, r) ∩ S|.We then sort candidates by this score and greedily select the top-K examples. To reduce redundancy, we prioritize examples that introduce previously uncovered target failure modes. The selected examples are finally formatted as critique-aware demonstrations for prompting. 26 Published as a conference paper at COLM 2026 
+
+Algorithm 1: Failure Mode-Based Sample Selection 
+
+Input: Dataset CritBank (Q, M), target failure mode set S ⊆ F , budget K, optional weights w(l)
+
+Output: Selected critique examples E
+
+Construct candidate set 
+
+D(S) ← { (q, r, C(q, r)) | L (q, r) ∩ S̸ = ∅}
+
+foreach (q, r, C(q, r)) ∈ D (S) do 
+
+compute matching score 
+
+s(q, r) ← ∑
+
+> l∈L (q,r)∩S
+
+w(l)
+
+Sort D(S) by s(q, r) in descending order; Initialize E ← ∅;Initialize covered failure modes U ← ∅;
+
+foreach (q, r, C(q, r)) in sorted D(S) do 
+
+let 
+
+S⋆(q, r) ← L (q, r) ∩ S
+
+if |E | < K and S ⋆(q, r)̸ ⊆ U then 
+
+add (q, r, C(q, r)) to E;update 
+
+U ← U ∪ S⋆(q, r)
+
+if |E | < K then 
+
+fill remaining slots using highest-scoring unused candidates; 
+
+return E
+
+G.3 Workflow of CritICL-dynamic 
+
+CritICL-dynamic performs input-adaptive critique retrieval. Given a test question q′, we first prompt the target model to predict a small set of likely failure modes for this input: 
+
+Sinst (q′) = {l1, l2, . . . , lm}, m ≤ 5. We then invoke Algorithm 1 with Sinst (q′) to retrieve the top-K critique examples from CritBank. Finally, we concatenate the retrieved examples with the test question and prompt the target model to produce the final answer. This design makes retrieval adaptive to the likely reasoning risks of each individual test question, enabling targeted guidance against query-specific mistakes. 
+
+Algorithm 2: CritICL-dynamic Inference Workflow 
+
+Input: Test question q′, target model Mtar , dataset CritBank (Q, M), retrieval budget K
+
+Output: Final answer ˆ y
+
+Prompt Mtar to predict likely failure modes for q′;Obtain 
+
+Sinst (q′) = {l1, . . . , lm}, m ≤ 5Retrieve critique examples 
+
+E ← FAILURE MODE SAMPLE SELECTION 
+
+ CritBank (Q, M), Sinst (q′), K
+
+Construct the final prompt by concatenating E with q′;Prompt Mtar with the final prompt to generate answer ˆ y;
+
+return ˆy
+
+G.4 Workflow of CritICL-static 
+
+CritICL-static performs model-family-aware critique retrieval using a precomputed global failure mode profile. Suppose the target model belongs to family M. Using the incorrect responses produced by weaker models in the same family, we estimate a family-level failure mode distribution 
+
+PM(l), l ∈ F ,27 Published as a conference paper at COLM 2026 where PM(l) reflects the frequency of failure mode l among examples in CritBank associated with family M.We then select the top-T most frequent failure modes: 
+
+Sprof (M) = TopT {PM(l) | l ∈ F } .This set is used as the retrieval target in Algorithm 1. The retrieved critique examples are concatenated with the test question and passed to the target model to generate the final answer. Unlike CritICL-dynamic, this variant does not require an additional query-specific predic-tion step. Instead, it provides stable guidance using persistent failure patterns shared by weaker models in the same family. 
+
+Algorithm 3: CritICL-static Inference Workflow    
+
+> Input: Test question q′, target model family
+
+M, target model Mtar , dataset CritBank (Q, M),retrieval budget K, profile size T 
+
+> Output: Final answer ˆ y
+> Compute or load family-level failure mode profile
+> PM
+
+(l), l ∈ F  
+
+> Select the top-Tfailure modes
+> Sprof
+
+(M) ← TopT {PM(l) | l ∈ F } 
+
+> Retrieve critique examples
+
+E ← FAILURE MODE SAMPLE SELECTION 
+
+>  CritBank
+
+(Q, M), Sprof (M), K 
+
+> Construct the final prompt by concatenating
+
+E with q′;Prompt Mtar with the final prompt to generate answer ˆ y; 
+
+> return ˆy
+
+G.5 Case Study: Failure Mode-Aligned Retrieval 
+
+We present a concrete case study from CritBank to illustrate how failure mode-based example selection improves reasoning. 
+
+Target Problem. Consider the following problem: What is the positive difference between the greatest and the least member of the set 
+
+n 37 , 43 , 11 8 , 616 
+
+o
+
+?
+
+Observed Failure. A model incorrectly identifies the largest element and produces the answer 23 24 instead of the correct answer 1. The error arises from an incorrect compar-ison between 43 and 11 8 , which reflects a typical fraction comparison error (failure label: 
+
+wrong comparison ). :contentReference[oaicite:0]index=0 
+
+Semantic Retrieval. Using semantic similarity-based retrieval, the selected examples are typically other fraction or set-based problems. However, these examples often do not involve incorrect comparisons between close-valued fractions. As a result, they fail to expose the specific reasoning mistake made by the model, and the model may repeat the same comparison error. 
+
+Failure Mode-Based Retrieval. In contrast, CritICL retrieves examples that exhibit similar failure patterns, such as incorrect identification of extrema due to flawed comparisons or arithmetic reasoning. For example, in another instance, a model incorrectly identifies the largest region in a geometric area problem due to misinterpreting area differences (failure label: misidentification of regions ). :contentReference[oaicite:1]index=1 28 Published as a conference paper at COLM 2026 These examples are accompanied by critiques explicitly explaining the source of the error (e.g., incorrect comparison strategy or misinterpretation of relative magnitudes). By observ-ing such critiques, the model is encouraged to verify comparisons more carefully (e.g., by converting to common denominators), which directly addresses the failure mode. 
+
+Effect. With failure mode-aligned examples, the model correctly identifies that 11 8 > 43 , 616 < 37 ,and computes the correct difference: 11 8 − 616 = 1. 
+
+Discussion. This case highlights a key distinction between semantic similarity and failure mode alignment. While semantic retrieval focuses on surface-level similarity between problems, CritICL prioritizes alignment in the type of reasoning error . This allows the model to transfer corrective strategies across different problem contexts that share similar failure patterns, leading to more robust improvements in reasoning accuracy. 
+
+## H Failure Mode Taxonomy 
+
+We provide the complete list of failure modes that frequently arise in our experiments. Each label captures a distinct type of mistake, ranging from low-level arithmetic errors to high-level reasoning and problem understanding failures. Our labels are designed to be both expressive and practical: expressive enough to distinguish fine-grained error patterns, while remaining structured to support systematic analysis and comparison across models. By categorizing errors into these labels, we enable more interpretable evaluation and provide insights into where and why models fail. 
+
+Failure Modes Explanation 
+
+algebraic equivalence misinterpretation Misunderstanding two algebraic expressions that are mathematically equivalent. algebraic manipulation miscalculation Making computational errors during algebraic transformations. algebraic sign error Incorrect handling of positive or negative signs in expressions. arithmetic operation mistake Performing basic arithmetic operations incor-rectly. equation solving miscalculation Making errors while solving equations. incorrect factorization Factoring expressions incorrectly. incorrect multiplication relationships Misapplying multiplicative relationships between quantities. least common multiple miscalculation Incorrectly computing the least common multiple. simplification calculation error Making mistakes while simplifying expressions. lack of expression simplification Leaving expressions unnecessarily complex. improper fraction handling Mishandling improper fractions during calcula-tions. unit conversion error Converting units incorrectly. rounding rule misinterpretation Applying rounding rules incorrectly. Table 17: Algebraic and arithmetic failure modes. 29 Published as a conference paper at COLM 2026 
+
+Failure Modes Explanation 
+
+incorrect formula application Using an inappropriate or incorrect formula. inconsistent formula usage Using formulas inconsistently within the same solution. function definition misinterpretation Misunderstanding how a function is defined or behaves. geometric relationship misinterpretation Misinterpreting spatial or geometric relation-ships. graph interpretation error Drawing incorrect conclusions from a graph or visual representation. combinatorial principle misapplication Applying incorrect counting principles or combi-natorial rules. overcounting in combinatorics Counting the same cases multiple times. probability formula misapplication Applying incorrect probability formulas or rules. incorrect independence assumption Assuming independence where variables or events are dependent. modular arithmetic misapplication Applying modular arithmetic rules incorrectly. trigonometric function misapplication Incorrectly applying trigonometric identities or functions. perimeter area formula misuse Confusing or misapplying perimeter and area for-mulas. speed formula application error Misusing speed, distance, or time relationships. dimension mismatch error Combining quantities with incompatible dimen-sions or units. price relationship confusion Misinterpreting relationships between prices or rates. Table 18: Conceptual and domain-specific failure modes. 30 Published as a conference paper at COLM 2026 
+
+Failure Modes Explanation 
+
+problem intent misinterpretation Misunderstanding what the problem is asking. problem requirement misunderstanding Failing to follow specific problem requirements. ambiguous problem parameters Misinterpreting unclear or implicitly defined problem parameters. insufficient constraint understanding Misunderstanding or ignoring problem con-straints. underestimation of constraints Overlooking constraints that affect the solution space. boundary value misinterpretation Misunderstanding or incorrectly applying bound-ary conditions. insufficient boundary condition analysis Failing to fully analyze given boundary condi-tions. incorrect equation setup Formulating the wrong equations from the prob-lem description. inconsistent variable substitution Substituting variables inconsistently or incor-rectly. notation confusion in equations Misunderstanding or misusing mathematical no-tation. case analysis omission Failing to consider all necessary cases in a prob-lem. multi step dependency error Errors arising from incorrect dependencies across steps. logical step skipping Omitting key reasoning steps needed for correct-ness. weak logical reasoning Drawing conclusions with insufficient or flawed reasoning. assumption overreliance Relying on unstated or unjustified assumptions. incomplete solution consideration Providing a partial solution without addressing all requirements. lack of final answer verification Failing to check whether the final answer is cor-rect. expected answer format misunderstanding Providing an answer in the wrong format. scaling language misinterpretation Misinterpreting scaling terms such as “twice” or “half.” irrelevant content inclusion Including unnecessary or unrelated reasoning steps. irrelevant element overcomplication Introducing unnecessary elements that compli-cate the solution. unnecessary variable focus Focusing on irrelevant variables instead of key quantities. Table 19: Reasoning and problem-understanding failure modes. 31
