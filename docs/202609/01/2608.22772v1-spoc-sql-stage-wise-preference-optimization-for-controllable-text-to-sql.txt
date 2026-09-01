@@ -1,0 +1,494 @@
+Title: SPOC-SQL: Stage-wise Preference Optimization for Controllable Text-to-SQL
+
+URL Source: https://arxiv.org/pdf/2608.22772v1
+
+Published Time: Tue, 25 Aug 2026 01:33:48 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+# SPOC-SQL: Stage-wise Preference Optimization for Controllable Text-to-SQL 
+
+Yingnan Chen †, Chun Ding †, Tianshi Xu, Xu Yang *, and Si Wu 
+
+South China University of Technology, Guangzhou, Guangdong 510006, P.R. China 
+
+chen.m0rem@gmail.com, csdingchun@mail.scut.edu.cn, {xtshi,yxu8}@grgbanking.com, cswusi@scut.edu.cn  
+
+> †
+
+Joint first authors. * Corresponding author. 
+
+Abstract. Text-to-SQL aims to translate natural language questions into executable SQL queries over relational databases, requiring multi-stage structured reasoning over database schemas and query constraints. However, existing methods treat this task as single-step generation, where models optimize entire SQL sequences without targeted feedback at key decision points and lack support for interacting with and controlling the intermediate generation process. To address this issue, we propose SPOC-SQL, which decomposes Text-to-SQL into four sequential sub-tasks following standard SQL execution logic and designs stage-specific optimization strategies for the model to learn key decisions. Specifically, we propose the implementation of fine-grained preference optimisation at key decision points across SQL stages, with the objective of enhancing structured decision-making during query construction. Furthermore, a structured decomposition strategy is designed, facilitating stage-wise in-tervention and correction through explicit intermediate representations. This results in more controllable and reliable SQL generation. Experi-ments demonstrate that incorporating stage-wise human knowledge con-sistently improves performance, validating the effectiveness of stage per-ception controllable generation. 
+
+Keywords: Text-to-SQL · Interactive Querying · Preference Learning 
+
+1 Introduction 
+
+Text-to-SQL (T2S) is the process of translating natural language questions into SQL queries that function on relational databases. T2S tasks frequently re-quire handling multi-table joins, nested subqueries, and complex conditions [17], thereby forming a multi-step decision-making process similar to multi-turn QA scenarios [3]. Modeling this process accurately is challenging due to the complex relationships in the database schema and the semantic complexities involved. Existing methods generate SQL sequences by jointly encoding questions and database schemas. Examples include RAT-SQL[15], which employs relation-aware attention, BRIDGE[11], which utilizes tagged sequence encoding, and RESDSQL[10], which applies decoupled schema linking. However, these methods typically treat the entire SQL sequence as the optimization objective and learn it holistically without stage-level modeling, due to the scarcity of high-quality multi-turn T2S data. Specifically, when the model assigns equal importance to both key interaction steps that drive task progress and irrelevant conversational arXiv:2608.22772v1 [cs.CL] 24 Aug 2026 2 Y. Chen et al. 
+
+Fig. 1: The workflow of SPOC-SQL. (1) The task parsing function F decom-poses single-turn queries into multi-turn sequences with stage-specific sub-requirements. (2) LoRA fine-tuning combined with preference-based optimiza-tion to enhance decision capability through fine-grained policy optimization. (3) Evaluation of multi-turn QA capabilities. (4) At inference, F decomposes user requirements into sub-tasks for iterative confirmation, generating the final SQL. content, the signals required for effective decision-making are diluted. This ap-proach hinders the model’s ability to master core decisions that advance the task and restricts its capacity to develop essential interaction strategies [2]. Fur-thermore, the absence of structured modeling impedes interpretability, making it harder to trace errors to specific reasoning stages. Limited interpretability also constrains user engagement with intermediate query components, result-ing in a reliance on either complete acceptance of the generated SQL or only coarse-grained modifications. To address this issue, we propose SPOC-SQL, which decomposes T2S into four sequential subtasks aligned with standard SQL execution logic and employs stage-wise optimization strategies to enable the model to learn key decisions. Specifically, SPOC-SQL decomposes T2S into structured subtasks correspond-ing to SQL execution stages, enabling progressive decision-making rather than single-step generation. Single-turn instances are decomposed into sequential sub-stages to construct multi-turn QA samples. Based on this dataset, we propose Preference-based Multi-turn QA Decision Optimization (PMDO), which builds preference pairs at key decision points across subtasks. Preferred samples corre-spond to correct intermediate decisions derived from the gold SQL execution pro-cess, while non-preferred samples are automatically generated through prompt-guided controlled perturbations using the LLM [5]. Specifically, the model is prompted to intentionally modify critical intermediate reasoning elements, in-cluding selecting irrelevant columns, introducing incorrect filtering conditions [21], mismatching aggregation operations, and applying improper sorting con-straints, while preserving the overall query context and linguistic plausibility. Additionally, PMDO integrates LoRA [8] with DPO [14], enabling efficient stage-level preference learning and improving decision discrimination. We further de-sign a Requirement Decomposition and Interaction Module (RDIM), which de-composes queries into stage-specific subtasks. Intermediate results are exposed SPOC-SQL 3
+
+for verification or correction, and the final SQL is synthesized from validated outputs, thereby improving interpretability and controllability. The primary con-tributions of our work are summarized as follows: • Different from existing methods that approach Text-to-SQL as a single-step sequence generation task, we propose SPOC-SQL, a framework that models the task as a stage-wise structured decision process. Stage perception strate-gies are integrated into both training and inference, which facilitates unified fine-grained preference optimization and controllable generation. • To enhance decision accuracy on core subtasks, we design a stage-level pref-erence optimization strategy, PMDO, which extends DPO supervision from the sequence level to key decision points across distinct SQL logical stages. • We propose RDIM to enable stage-wise verification and correction during inference, endowing the SQL generation process with explicit interpretability and user-driven intervention capabilities. 
+
+2 Methodology 
+
+2.1 Overview 
+
+The workflow of SPOC-SQL is outlined in Fig. 1. Multi-turn Data Construc-tion uses a task-parsing function F(·) to decompose natural language queries into stage-specific subtasks, such as table and column selection, condition fil-tering, group aggregation, and ordering or limiting. This approach transforms single-turn queries into multi-turn interaction sequences that capture incremen-tal user intent expression, supplementation, and correction. Model Optimization, based on the constructed dataset Dm, incorporates preference constraints at key decision-making nodes in each interaction turn. The model is updated through a policy optimization paradigm that integrates LoRA-based efficient fine-tuning with DPO. This process enhances decision-making capability at key interactive steps and improves SQL generation accuracy in multi-turn scenarios. Evaluation assesses model performance across multi-turn dialogue completion, single-turn reasoning, and error correction, thereby capturing both global consistency and local decision accuracy. Finally, Requirement Decomposition and Interaction is designed for inference, where user queries are decomposed into structured sub-tasks and intermediate results are iteratively refined through user feedback, en-abling a controllable and correctable SQL generation process for complex queries. 
+
+2.2 Multi-turn Data Construction and Evaluation Module Multi-turn data construction. T2S queries expressed in natural language often correspond to multiple stage-specific sub-tasks aligned with SQL execution logic. To explicitly model stage-wise structure, we define a task parsing function 
+
+F(·) that decomposes a QA sample into several predefined stages following the canonical SQL execution pipeline, namely SELECT-FROM, WHERE, GROUP-HAVING, and ORDER-LIMIT. Given a single-turn QA sample (x, y ), where 
+
+x denotes a natural language query and y represents the corresponding SQL statement, the decomposition is expressed as: 
+
+(sSF , s WH , s GH , s OL ) = F(x), (1) 4 Y. Chen et al. 
+
+where sSF represents table and column selection (SELECT-FROM), sWH rep-resents condition filtering (WHERE), sGH represents grouping and aggregation (GROUP-HAVING), and sOL represents ordering and limits (ORDER-LIMIT). Sub-tasks absent in a query may be left empty or skipped during dataset con-struction. The single-turn query is transformed into a multi-turn interaction sequence. At turn t, user input focuses on the current stage sub-task while main-taining overall semantic consistency with the complete query and standard SQL. The model generates the intermediate result conditioned on previous context: 
+
+u(t) = ( s(t), x, y ),r(t) = M(u(t), h(t−1) ), (2) where M(·) denotes the large language model (LLM) that produces r(t) con-ditioned on the previous context h(t−1) . The final turn T directly adopts the original standard SQL as the output, r(T ) ≡ y, ensuring consistency between multi-turn generated results and the original annotations. Different query types are simulated to reflect realistic user behavior. Explicit-demand queries pro-vide complete conditions in the initial turn, resulting in fewer dialogue turns. Ambiguous-demand queries involve stage-wise supplementation of filter condi-tions or aggregation requirements, forming an iterative refinement process. Error-correction queries introduce inconsistent or erroneous conditions in some turns, corrected in subsequent turns to enhance the model’s capability for intention correction. The multi-turn dataset is formally defined as: 
+
+Dm = {C i}Ni=1 , Ci = {(u(t) 
+
+> i
+
+, y (t) 
+
+> i
+
+)}Ti
+
+> t=1
+
+, (3) where each Ci represents a complete multi-turn query process. The conversion transforms static single-turn T2S data into dynamic multi-turn interaction se-quences, preserving original semantics while explicitly modeling incremental user expression, supplementation, and correction. The constructed dataset contains three types of multi-turn interactions: explicit requests, where the full user re-quirement is provided in the first turn; vague requests, where the complete requirement is gradually revealed across multiple turns; and revised requests, where partial or incorrect sub-requirements are corrected in subsequent turns. 
+
+Multi-turn QA evaluation. The evaluation framework assesses model per-formance across three sub-tasks: multi-turn QA, single-turn QA, and error-correction tasks. Evaluation captures overall dialogue consistency, local context comprehension, and response to user correction instructions. The multi-turn QA sub-task requires completion of a full dialogue. At each turn t, the model gener-ates a response based on current input and accumulated dialogue state: 
+
+r(t) 
+
+> i
+
+= M(u(t) 
+
+> i
+
+, h (t−1)  
+
+> i
+
+),h(t) 
+
+> i
+
+= h(t−1)  
+
+> i
+
+∪ { u(t) 
+
+> i
+
+, r (t) 
+
+> i
+
+}, (4) where t = 1 , . . . , T i denotes the turn index within the i-th dialogue consisting of 
+
+Ti turns, and h(0)  
+
+> i
+
+= ∅ indicates that the dialogue history is initially empty. u(t) 
+
+> iSPOC-SQL 5
+
+and r(t) 
+
+> i
+
+denote the user input and model response at turn t, respectively, and 
+
+h(t) 
+
+> i
+
+represents the accumulated dialogue history up to turn t. Evaluation relies on the final turn output r(Ti) 
+
+> i
+
+compared to the standard SQL y(Ti) 
+
+> i
+
+, emphasizing global consistency in extended dialogues. The single-turn QA sub-task treats each turn independently to prevent error accumulation across turns. Historical context h(t−1)  
+
+> i
+
+is provided directly from the dataset and remains unchanged. Evaluation across all turns measures the model’s comprehension of local context and the execution of stage-specific sub-tasks. The error-correction QA sub-task focuses on turns containing explicit user corrections. Responses are generated based on corrected input ˜u(t) 
+
+> i
+
+and preceding context: 
+
+r(t) 
+
+> i
+
+= M(˜ u(t) 
+
+> i
+
+, h (t−1)  
+
+> i
+
+), (5) where t ∈ T err  
+
+> i
+
+denotes the set of turns that involve explicit correction instruc-tions from the user. The evaluation setting measures the model’s ability to iden-tify and revise previously generated erroneous conditions based on user feedback. The three-tier evaluation framework offers a comprehensive assessment of multi-turn T2S capability. 
+
+2.3 Requirement Decomposition and Interaction Module Requirement decomposition and extraction. During inference, user queries expressed in natural language are mapped to SQL statements with explicit log-ical structure. The initial task information set is defined as: 
+
+I(0)  
+
+> i
+
+= ( sSF  
+
+> i
+
+, r SF  
+
+> i
+
+), (sWH  
+
+> i
+
+, r WH  
+
+> i
+
+), (sGH  
+
+> i
+
+, r GH  
+
+> i
+
+), (sOL  
+
+> i
+
+, r OL  
+
+> i
+
+), (6) where stage-wise decomposition using F(·) generates four sub-tasks, and the model produces the corresponding initial stage responses r(k) 
+
+> i
+
+. Stage responses enables stage-level interaction with the user for confirmation and correction, ensuring accurate and controllable task information. 
+
+Interactive knowledge. User confirmation or correction at each stage serves to refine the model’s understanding of the task requirements. At turn t, the user reviews the intermediate outputs produced for each sub-task and provides feedback, which may include confirming correct predictions or correcting errors. The feedback updates the stage-specific sub-tasks ˜s(k) 
+
+> i
+
+and their corresponding responses ˜r(k) 
+
+> i
+
+, resulting in the aggregated set of updated interactions: 
+
+I(t) 
+
+> i
+
+= {(˜ sSF  
+
+> i
+
+, ˜rSF  
+
+> i
+
+), (˜ sWH  
+
+> i
+
+, ˜rWH  
+
+> i
+
+), (˜ sGH  
+
+> i
+
+, ˜rGH  
+
+> i
+
+), (˜ sOL  
+
+> i
+
+, ˜rOL  
+
+> i
+
+)}, (7) where each pair (˜ s(k) 
+
+> i
+
+, ˜r(k) 
+
+> i
+
+) captures the corrected sub-task state and the corre-sponding model output for the k-th stage, enabling a precise and user-aligned representation of the task at that point in the dialogue. The model subsequently leverages the complete task query xi, together with the updated stage-specific information I(t) 
+
+> i
+
+, to generate the final SQL statement: 
+
+yi = M(xi, I(t) 
+
+> i
+
+), (8) 6 Y. Chen et al. 
+
+where the integration of xi with I(t) 
+
+> i
+
+allows the model to account for both the original user intent and the refinements provided through user interaction. The stage-wise guidance ensures that the generated SQL query faithfully reflects the user’s intentions while maintaining syntactic correctness, logical consistency, and adherence to the specific requirements of each sub-task. The interaction strategy establishes a controllable inference path, providing opportunities for user intervention and iterative correction throughout the generation process. 
+
+2.4 Model Optimization 
+
+Following the construction of Dm, the model undergoes task-specific optimiza-tion for stable execution of stage-wise decisions and generation of accurate SQL queries. The proposed PMDO approach combines LoRA for efficient fine-tuning with DPO. Each multi-turn sample xi ∈ D m is parsed into ordered stage sub-tasks (sSF  
+
+> i
+
+, s WH  
+
+> i
+
+, s GH  
+
+> i
+
+, s OL  
+
+> i
+
+), where each stage contains a set of key decision ele-ments U(k) 
+
+> i
+
+, including table and column selection, condition constraints, aggre-gation/grouping, and ordering/limiting rules. The decision elements define the core decision space affecting semantic correctness of SQL generation. LoRA fine-tuning updates linear layer weights W0 with low-rank increments 
+
+∆W = αBA , freezing original parameters to preserve general model capabili-ties while adapting to stage-wise decision characteristics. Preference signals are constructed for each decision element u ∈ U (k) 
+
+> i
+
+, forming pairs (r+
+
+> i,u
+
+, r −
+
+> i,u
+
+), where positive samples r+ 
+
+> i,u
+
+correspond to correct outputs and negative samples r− 
+
+> i,u
+
+in-troduce controlled perturbations, such as incorrect tables, columns, conditions, aggregations, groupings, or ordering rules. Unlike standard preference optimiza-tion methods that operate at the sequence level, we perform preference learning at the stage-specific decision level. For each stage k, preference signals are condi-tioned on the corresponding sub-task context, enabling the model to distinguish fine-grained decision errors and learn stage perception decision boundaries. The optimization objective is formulated as: 
+
+LDPO = − X
+
+> i,k
+
+X
+
+> u∈U (k)
+> i
+
+log σ log πθ (r+ 
+
+> i,u
+
+| s(k) 
+
+> i
+
+)
+
+πref (r+ 
+
+> i,u
+
+| s(k) 
+
+> i
+
+) − log πθ (r− 
+
+> i,u
+
+| s(k) 
+
+> i
+
+)
+
+πref (r− 
+
+> i,u
+
+| s(k) 
+
+> i
+
+)
+
+!
+
+, (9) where πθ denotes the policy model under optimization, πref denotes the frozen reference model, and s(k) 
+
+> i
+
+represents the context for stage k of sample i, including both the user query and any outputs from previous SQL generation stages. Preference signals are introduced sequentially according to the SQL generation stage, with outputs from previous stages serving as context for subsequent stages. Stage-specific preference losses are accumulated to update LoRA parameters, establishing a generation bias aligned with task logic and ensuring coherence across multi-turn decision sequences. 
+
+3 Experiments 
+
+In this section, SPOC-SQL is evaluated on multiple Text-to-SQL benchmarks and a multi-turn dataset, analyzing its effectiveness in both single-turn and SPOC-SQL 7
+
+Table 1: Comparative performance on Spider benchmarks.                                                                                                    
+
+> Method Model Venue SF WH GH OL Dev Real.
+> ACT-SQL [20] ChatGPT EMNLP’23 ––––80.4 75.8 C3 [6] ChatGPT arXiv’23 ––––81.8 75.4 DIN-SQL [13] GPT-4 NeurIPS’23 ––––82.8 78.1 ACT-SQL [20] GPT-4 EMNLP’23 ––––82.9 –DAIL-SQL [7] DS-V3 VLDB’24 ––––83.2 77.2 DAIL-SQL [7] GPT-4 VLDB’24 ––––84.4 75.6 MAC-SQL [16] GPT-4 COLING’25 ––––86.8 –MCS-SQL [9] GPT-4 COLING’25 ––––89.5 –
+> SPOC-SQL DS-V3 –––––85.5 79.5
+> ✓–––89.7 82.3
+> ✓✓––92.7 91.3
+> ✓✓✓–95.4 91.5
+> ✓✓✓✓95.6 93.1
+
+multi-turn scenarios. Dataset details, and implementation settings are presented, followed by comprehensive comparison with state-of-the-art methods, perfor-mance assessments across models and difficulty levels, ablation study, case study, user study, providing a thorough evaluation of the proposed method. 
+
+3.1 Settings Datasets. The Spider-Dev dataset [19] has 8,659 training instances across 200 databases. Spider-Realistic [4] removes explicit column references to test seman-tic understanding. In addition, we construct a multi-turn T2S dataset, T2S-MTD, consisting of 71,772 instances categorized into explicit, vague, and revised request interactions to simulate progressive user requirements in real business scenarios. Explicit requests provide sufficient information for direct SQL gener-ation, vague requests require progressive supplementation across multiple turns, and revised requests involve modifying previous requirements during interaction. Evaluation uses execution accuracy (EX) and error correction (EC), measuring result equivalence and correction ability across turns. 
+
+Implementation details. The LoRA uses a rank of r = 8 and a scaling factor 
+
+α = 16 , and is injected into the self-attention layers and the linear projection layers of the feed-forward network. During fine-tuning, the original model is frozen, and only the LoRA parameters A and B are updated. The optimizer is AdamW with a learning rate of η = 2 × 10 −4 and weight decay wdecay = 0 .01 .The single-device batch size is Bsingle = 2 , with gradient accumulation resulting in an effective batch size of Beff = 32 . The maximum input length is Lmax =4096 , and training is conducted for E = 5 epochs. Competing methods include GPT-4 [1], DeepSeek-V3 [12], Qwen3 [18], C3 [6], ACT-SQL [20], DIN-SQL [13], DAIL-SQL [7], MAC-SQL [16], and MCS-SQL [9], with 4,096 context length. We adopt a simulated human–computer interaction setting, where stage-wise intervention signals are constructed offline and progressively injected to simulate user corrections on intermediate representations, ensuring reproducibility. 
+
+3.2 Comparison with State-of-the-Arts 
+
+We evaluate the performance of the proposed SPOC-SQL method on the Spider-Dev and Spider-Realistic benchmark datasets against competing Text-to-SQL methods. In Table 1, “ −” in the columns SF, WH, GH, or OL indicates that human knowledge was not incorporated at the corresponding stage, while “ ✓”8 Y. Chen et al. 
+
+Table 2: Performance by difficulty on Spider-Dev and Spider-Realistic.                                                                                                                                 
+
+> Method Data Model SF WH GH OL Easy Med. Hard X-Hard All
+> MCS-SQL [9] Dev GPT-4 ––––94.0 93.5 88.5 72.9 89.5 DAIL-SQL [7] Dev DS-V3 ––––93.5 83.0 83.9 67.5 83.2
+> SPOC-SQL Dev DS-V3 ––––95.2 84.3 85.6 74.1 85.5
+> ✓–––96.0 90.1 89.1 79.5 89.7
+> ✓✓––97.2 91.9 97.1 83.7 92.7
+> ✓✓✓–97.6 96.6 96.6 87.5 95.4
+> ✓✓✓✓97.6 96.6 96.6 88.6 95.6
+> DAIL-SQL [7] Real. DS-V3 ––––87.2 81.8 74.7 58.8 77.2
+> SPOC-SQL Real. DS-V3 ––––92.7 82.8 74.7 62.9 79.5
+> ✓–––89.0 86.2 79.8 69.1 82.3
+> ✓✓––98.2 93.1 91.9 79.4 91.3
+> ✓✓✓–96.8 95.5 91.9 81.5 92.4
+> ✓✓✓✓97.2 96.0 92.1 83.5 93.1
+
+indicates that human knowledge was progressively introduced at that stage. With incremental intervention of human knowledge, performance improves con-sistently and substantially. Introducing knowledge at the schema-focused stage (SF) raises EX to 89.7%, exceeding MCS-SQL (89.5%), a Competing method. Further incorporation of additional components leads to continued gains, ulti-mately reaching 95.6% on Spider-Dev and 93.1% on Spider-Realistic with full-component integration. The results demonstrate that SPOC-SQL provides a competitive performance without external knowledge and achieves significant improvements through human knowledge intervention. The proposed method decomposes complex Text-to-SQL generation tasks into multiple structured sub-tasks, reducing overall task complexity while enabling precise human knowledge intervention at different stages. Such a design not only improves controllability and interpretability but also allows targeted correction of intermediate errors. Consistent and substantial performance gains across both benchmark datasets clearly highlight the effectiveness, scalability, and overall robustness of the pro-posed method in improving Text-to-SQL generation performance. Spider-Dev and Spider-Realistic are further divided into four difficulty levels, namely Easy, Medium, Hard, and Extra Hard, to provide a more fine-grained evaluation of model performance. Table 2 presents the detailed results under dif-ferent difficulty settings. On the Extra Hard subset of Spider-Dev, SPOC-SQL achieves 74.1% EX even without human knowledge intervention, surpassing the current best method, MCS-SQL (72.9%). Such improvement can be attributed to the decomposition of complex Text-to-SQL tasks into multiple structured sub-tasks, which reduces task complexity and enables more accurate intermediate reasoning. With human knowledge intervention, performance improves across all difficulty levels. On Spider-Realistic, performance on the Extra Hard sub-set increases from 62.9% to 83.5%, demonstrating consistent gains under more challenging and realistic conditions [22]. Results show that the proposed require-ment decomposition and interaction module effectively simplify complex queries and support targeted human intervention, leading to consistent performance im-provements on complex Text-to-SQL tasks. 
+
+3.3 Performance of SPOC-SQL Across Models and Datasets 
+
+To evaluate the performance of SPOC-SQL with different large language models on different datasets, we present an experiment in Fig. 2, where the method SPOC-SQL 9SPOC M1 M2 M3 M4             
+
+> 70 80 90 100
+> EX (%)  4.7% 3.4% 2.7% 0.2% 5.3% 6.2% 3.1% 0.5%
+> DSV3-Dev
+> SPOC M1 M2 M3 M4
+> 60 70 80 90 100
+> 2.4% 7.6% 4.4% 1.0% 3.3% 12.8% 4.5% 2.2%
+> QW3-Dev
+> SPOC M1 M2 M3 M4
+> 60 70 80 90 100
+> 3.1% 11.0% 0.2% 1.5% 8.0% 14.8% 0.6% 1.7%
+> DSV3-Real
+> SPOC M1 M2 M3 M4
+> 60 80 100
+> 5.4% 14.7% 3.4% 1.7% 7.8% 23.2% 5.3% 1.9%
+> QW3-Real
+> All Levels(+SPOC) Hard&ExtraHard(+SPOC) All Levels Hard&ExtraHard
+
+Fig. 2: Performance of SPOC-SQL across different datasets and models: Eval-uations on DeepSeekV3(DSV3) and Qwen3-72B(QW3) across Spider-Dev(Dev) and Spider-Realistic(Real) Datasets. Vague Explicit          
+
+> 30 40 50 60 70 80 90 100
+> EX (%)
+> 41.1 54.4 55.6 66.1 68.6 78.1 48.5 61.3 61.9 72.4 71.2 83.5
+> Multi-turn QA Vague Explicit
+> 50 60 70 80 90 100
+> EX (%)
+> 68.6 60.8 76.0 74.1 82.8 87.2 74.3 69.5 81.2 78.6 88.7 90.4
+> Single-turn QA Revised
+> 65 70 75 80 85 90 95 100
+> EC (%)
+> 72.5 79.2 85.6 77.8 83.1 89.3
+> Error-correction QA Qwen-Base Qwen-LoRA Qwen-T2S DS-Base DS-LoRA DS-T2S
+
+Fig. 3: Comparison of models on multi-turn QA, single-turn QA, and error-correction QA tasks. is tested with DeepSeek-V3 and Qwen3-72B models on Spider-Dev and Spider-Realistic datasets. We compare the base SPOC (without human intervention) and four progressively enhanced configurations: M1 with human intervention in the SF stage, M2 adding WH stage, M3 further incorporating GH stage, and M4 with intervention in all four stages (SF, WH, GH, and OL). Performance improvements are consistently observed across all model-dataset combinations when incorporating interactive components, with the magnitude of improvement on the Hard & Extra Hard subsets exceeding that on all levels. The results indi-cate that SPOC-SQL effectively improved performance on complex queries and demonstrate the method’s generalizability across different models and datasets. We further evaluate SPOC-SQL on the multi-turn T2S dataset T2S-MTD using Qwen3-72B and DeepSeek-V3. Base models without fine-tuning are Qwen-Base and DS-Base. Fine-tuning is done either with LoRA on single-turn Spi-der dataset (-LoRA) or with LoRA combined with the proposed optimization method on T2S-MTD (-T2S), enabling fair comparison and isolating the effect of multi-turn reinforcement. Evaluation follows the multi-turn QA, single-turn QA, and error-correction QA tasks designed in the prior work. As shown in Fig. 3, Qwen-T2S outperforms Qwen-Base and Qwen-LoRA on multi-turn QA, single-turn QA, and error-correction QA tasks, while DS-T2S further surpasses Qwen-T2S under the same training strategy. The results confirm that SPOC-SQL’s task-decomposition and stage-wise optimization consistently improve per-formance and generalize across models. 
+
+3.4 Ablation Study 
+
+To evaluate the contributions of SPOC-SQL, we conduct an ablation study based on DeepSeek-V3 on Spider-Dev, Spider-Realistic, and the proposed multi-turn 10 Y. Chen et al. 
+
+Table 3: Ablation study of SPOC-SQL. 
+
+Model Spider-Dev Spider-Real. T2S-MTD SPOC-SQL 95.6 93.1 84.6 
+
+w/o PMDO 93.2 90.1 80.7 w/o RDIM 87.5 84.6 78.4 LoRA-only 83.7 79.8 75.4 Base 80.1 74.5 66.3 Question: List the name and year of the expedition that included both the explorer named 'John Cabot' and the explorer named 'Amerigo' .[{"Subquestion": "List the name and year of expeditions.", "Parameter": " expedition as T1, explorer as T2; T1.name, T1.year ."} { "Subquestion": "Filter expeditions to those involved the explorer named 'John Cabot' ; Filter expeditions to those involved the explorer named 'Amerigo' .", "Parameter": " T2.name = 'John Cabot' ;            
+
+> INTERSECT ;T2.name = 'Amerigo' ."}, {"Subquestion": "", "Parameter": ""}, {"Subquestion": "", "Parameter": ""}]
+> SELECT T1.name ,T1.year FROM expedition AS T1 JOIN explorer AS T2 ON T1.id = T2.expedition WHERE T2.name = 'John Cabot' INTERSECT
+> SELECT T1.name ,T1.year FROM expedition AS T1 JOIN explorer AS T2 ON T1.id = T2.expedition WHERE T2.name = 'Amerigo'
+
+(a) Question: Return the title of the books published in 2015 with the                   
+
+> highest number of reviews .[{"Subquestion": "List the title of the books.", "Parameter": " Book AS T1, Review AS T2; T1.title ."}, {"Subquestion": "Filter out only books published in 2015 .", "Parameter": " T1.year = 2015 ."}, {"Subquestion": "Group by book ID to count reviews per book .", "Parameter": " T2.book_id ."}, {"Subquestion": "Order by review count in descending order and return the top result .", "Parameter": " count(*) DESC ;LIMIT 1 ."}] SELECT T1.title FROM Book AS T1 JOIN Review AS T2 ON T1.id = T2.book_id WHERE T1.year = 2015 GROUP BY T2.book_id
+> ORDER BY count(*) DESC LIMIT 1 .
+
+(b) 
+
+Fig. 4: Case Study: (a) Decomposition of complex nested queries and set opera-tions; (b) Modular parsing of multi-component SQL queries. T2S-MTD dataset. The evaluated modules include: (1) Preference-driven Multi-turn QA Decision Optimization (PMDO), which introduces stage-wise prefer-ence optimization during training; and (2) Requirement Decomposition and In-teraction Module (RDIM), which decomposes SQL generation into stage-wise sub-tasks during inference. We consider the following variants: SPOC-SQL 
+
+employs both PMDO and RDIM; w/o PMDO denotes SPOC-SQL without PMDO while keeping RDIM; w/o RDIM denotes SPOC-SQL without RDIM while keeping PMDO; LoRA-only applies LoRA on the single-turn dataset Spider without proposed modules; and Base represents the base model without fine-tuning or proposed modules. As shown in Table 3, removing either PMDO or RDIM degrades performance on both Spider benchmarks and T2S-MTD. Full SPOC-SQL achieves the best overall results, while LoRA-only improves over the base model but remains inferior to SPOC-SQL. These results demonstrate the effectiveness of stage-wise decomposition and preference-driven optimization. 
+
+3.5 Case Study 
+
+We further illustrate the structure and workflow of SPOC-SQL by designing a case study shown in Fig. 4, where SQL generation is decomposed into struc-tured components with detailed sub-questions and corresponding parameters. Fig. 4 (a) illustrates Case 1, which involves complex nested subqueries and set operations, while Fig. 4 (b) presents Case 2, showing multi-component queries including joins, filtering, and grouping. In both cases, queries are split into sub-questions with corresponding SQL parameters, greatly reducing the complexity of generating accurate SQL and also helping users better understand the basis for the final SQL generation process. 
+
+3.6 User Study 
+
+To validate whether the human intervention design in SPOC-SQL can effec-tively simulate real human intervention, we conducted a large-scale user study SPOC-SQL 11 0.6 0.7 0.8 0.9 1.0 Semantic Fidelity Logical Completeness Linguistic Naturalness & Professionalism Structural Rationality & Contextual Fit Error & Unnatural Expression Detection Jaccard Similarity vs Human 
+
+> LLM SPOC Human
+
+Fig. 5: Comparison of SQL Info versions across subjective and objective metrics. comparing three SQL Info versions: LLM, SPOC, and Human. Over 100 partic-ipants evaluated multiple subjective metrics on ten-point scales using samples from Spider-Dev and Spider-Realistic. As shown in Fig. 5, SPOC achieved scores close to Human and consistently outperformed LLM across all metrics. The cor-relation between subjective improvement and SQL accuracy gain was significant (ρ = 0 .6699 , p < 0.01 ), and the Jaccard Similarity vs Human metric further showed that SPOC outputs closely resemble human-authored content. These re-sults demonstrate that the proposed intervention design can effectively simulate real human intervention. 
+
+4 Conclusion 
+
+In this paper, we propose SPOC-SQL, which effectively integrates multi-turn alignment procedures with preference optimization strategies for Text-to-SQL tasks. SPOC-SQL systematically decomposes single-turn queries into structured multi-turn supervision signals and incorporates PMDO to impose fine-grained preference constraints at key decision points across various SQL logical stages. Additionally, RDIM facilitates stage-wise decomposition and interactive verifica-tion, transforming SQL generation into a transparent, controllable, and collab-orative process with correction capabilities at each generation phase. Extensive experimental results across multiple models and datasets demonstrate the effec-tiveness, robustness, and generalizability of the proposed method, underscoring its capacity to enhance both accuracy and interpretability in complex T2S tasks. 
+
+References 
+
+1. Achiam, J., Adler, S., Agarwal, S., et al.: GPT-4 technical report. arXiv preprint arXiv:2303.08774 (2023) 2. Cai, J., Xie, L., Xue, W., Wu, S.: Text-vision guided latent prediction for high-fidelity blind face restoration. IEEE MultiMedia (2026) 12 Y. Chen et al. 3. Dai, Z., Ding, C., Chen, T., et al.: IP-KGQA: Intent-aware prompt learning for knowledge graph question answering. In: Proc. IEEE ICME. pp. 1–6 (2025) 4. Deng, X., Hassan, A., Meek, C., et al.: Structure-grounded pretraining for Text-to-SQL. In: Proc. NAACL-HLT. pp. 1337–1350 (2021) 5. Ding, C., Xue, W., Fan, X., et al.: LLM-Inpainter: LLM-adapted feature prediction with fine-grained mask-aware reinforcement for high-fidelity face image inpainting. IEEE Trans. Multimedia (2026) 6. Dong, X., Zhang, C., Ge, Y., et al.: C3: Zero-shot Text-to-SQL with ChatGPT. arXiv preprint arXiv:2307.07306 (2023) 7. Gao, D., Wang, H., Li, Y., et al.: Text-to-SQL empowered by large language models: A benchmark evaluation. Proc. VLDB Endow. 17 (5), 1132–1145 (2024) 8. Hu, E.J., Shen, Y., Wallis, P., et al.: LoRA: Low-rank adaptation of large language models. In: Proc. ICLR (2022) 9. Lee, D., Park, C., Kim, J., Park, H.: MCS-SQL: Leveraging multiple prompts and multiple-choice selection for Text-to-SQL generation. In: Proc. COLING. pp. 337– 353 (2025) 10. Li, H., Zhang, J., Li, C., Chen, H.: RESDSQL: Decoupling schema linking and skeleton parsing for Text-to-SQL. In: Proc. AAAI. vol. 37, pp. 13067–13075 (2023) 11. Lin, X.V., Socher, R., Xiong, C.: Bridging textual and tabular data for cross-domain Text-to-SQL semantic parsing. In: Findings of EMNLP. pp. 4870–4888 (2020) 12. Liu, A., Feng, B., Xue, B., et al.: DeepSeek-V3 technical report. arXiv preprint arXiv:2412.19437 (2024) 13. Pourreza, M., Rafiei, D.: DIN-SQL: Decomposed in-context learning of Text-to-SQL with self-correction. In: Proc. NeurIPS (2023) 14. Rafailov, R., Sharma, A., Mitchell, E., et al.: Direct preference optimization: Your language model is secretly a reward model. In: ICML Workshop on Preference-Based Learning (2023) 15. Wang, B., Shin, R., Liu, X., Polozov, O., Richardson, M.: RAT-SQL: Relation-aware schema encoding and linking for Text-to-SQL parsers. In: Proc. ACL. pp. 7567–7578 (2020) 16. Wang, B., Ren, C., Yang, J., et al.: MAC-SQL: A multi-agent collaborative frame-work for Text-to-SQL. In: Proc. COLING. pp. 540–557 (2025) 17. Xie, L., Xu, Z., Wu, S.: Fine-grained conditional inpainting diffusion for component-aware face makeup rendering. Pattern Recognit. 179 , 113609 (2026) 18. Yang, A., Li, A., Yang, B., et al.: Qwen3 technical report. arXiv preprint arXiv:2505.09388 (2025) 19. Yu, T., Zhang, R., Yang, K., et al.: Spider: A large-scale human-labeled dataset for complex and cross-domain semantic parsing and Text-to-SQL. In: Proc. EMNLP. pp. 3911–3921 (2018) 20. Zhang, H., Cao, R., Chen, L., Xu, H., Yu, K.: ACT-SQL: In-context learning for Text-to-SQL with automatically generated chain-of-thought. In: Findings of EMNLP. pp. 3501–3532 (2023) 21. Zhang, Y., Huo, X., Chen, T., et al.: Class-conditional image synthesis with intra-class relation preservation. Knowl.-Based Syst. p. 114487 (2025) 22. Zhang, Y., Wang, J., Huang, Y., et al.: Classbooth: Boost class semantics with bidi-rectional feature fusion in text-to-image diffusion models. IEEE Trans. Multimedia (2026)
