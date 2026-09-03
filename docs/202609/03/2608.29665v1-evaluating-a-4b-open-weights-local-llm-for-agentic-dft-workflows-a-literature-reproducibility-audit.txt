@@ -1,0 +1,365 @@
+Title: Evaluating a 4B open-weights local LLM for agentic DFT workflows: a literature reproducibility audit
+
+URL Source: https://arxiv.org/pdf/2608.29665v1
+
+Published Time: Tue, 01 Sep 2026 01:14:48 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+# Evaluating a 4B open-weights local LLM for agentic DFT workflows: a literature reproducibility audit 
+
+## Shambhu Bhandari Sharma ∗1 1University College London, Department of Earth Sciences, London WC1E 6BT, United Kingdom September 1, 2026 
+
+Abstract 
+
+Agentic workflows in materials science relying on hosted commercial models face severe reproducibility, economic, and data-privacy constraints. To explore fully local agentic science, this work evaluates an open-weights qwen3:4b model executing an autonomous scientific pipeline across varying hardware constraints. Applied to pentagonal two-dimensional materials, the system extracts parameters from unstructured text, translates them into density functional theory (DFT) inputs, and drives simulations to convergence under a strict neurosymbolic architecture where agents propose and deterministic code disposes. The workflow is guarded by verbatim text grounding and multi-pass inference unions to counteract hardware-induced structural collapse. Evaluated against 201 expert judgements, the extractor achieves 95.7 % precision (95% CI 90.3–98.1 %) and 67.3 % recall (59.8–74.0 %), ensuring extracted parameters are strictly factual. However, precision identifying absent parameters does not exceed 47.0 %, establishing that the measured omission rate constitutes a loose upper bound on true literature incompleteness. Across three hardware configurations, complete GPU residency governs extraction quality more fundamentally than weight or cache precision, raising Matthews’ correlation from 0.414 to 0.530 at fixed quantisation, and to 0.560 with an unquantised cache. A corpus-scale audit indicates only 19 (33.3 %) of the 57 studies are reproducible in principle, reporting every method parameter needed to re-initialise the calculation. Driven to convergence, the workflow reproduces published lattice constants with a mean absolute relative error of 2.3 % where the relaxed structure retains its prototype, establishing that lightweight open-weights models can reliably drive autonomous agentic workflows when bounded by deterministic code gates. 
+
+Keywords: agentic workflows; open-weights LLM; local inference; neurosymbolic architecture; repro-ducibility auditing; density functional theory; information extraction; penta-monolayers; two-dimensional materials 
+
+# 1 Introduction 
+
+Large language model (LLM) agents are already driving autonomous workflows across computational chemistry and materials science. Recent pipelines span the entire research lifecycle, from coupling expert tools for chemical planning and executing robotic synthesis [1–3], to orchestrating density func-tional theory (DFT) calculations through hierarchi-cal multi-agent frameworks [4, 5]. Within mate-rials informatics, transformer-based architectures have firmly established the viability of extracting composition-property records at corpus scale [6, 7]. These systems depend on grammar-constrained de-coding to ensure parseable output and strict ground-ing techniques to verify generated statements against source texts [8], and must confront known repro-ducibility issues with non-deterministic floating-point math during inference [9]. However, almost all of these agentic systems share a critical dependency: they are driven by hosted, closed-weight frontier models. This reliance on com-mercial APIs introduces significant operational and epistemological vulnerabilities. A workflow tied to a commercial key ceases to run when the endpoint is repriced, the model is reversioned, or the key expires, meaning long-term reproducibility is never guaran-teed. Furthermore, metered inference is billed per token, making iterative debugging prohibitively ex-pensive. Frontier inference also carries a measurable energy cost per query [10]. Crucially, much com-putational chemistry operates on isolated networks where proprietary data cannot be sent to third-party endpoints, rendering cloud-hosted models unusable. Fortunately, capability on agentic tasks appears to depend more on interface design than raw param-1arXiv:2608.29665v1 [cond-mat.mtrl-sci] 30 Aug 2026 eter count. Recent studies demonstrate that tool-augmented smaller models can outperform larger unconstrained baselines [11]. A 4B retrosynthesis planner surpasses a 7B reasoning baseline given a constrained tool interface [12], and 7-8B chemistry agents on a consumer GPU have matched datacentre-hosted equivalents [13]. While the ∆-project established that independent DFT codes agree closely given identical inputs [14], it presupposed that methodological parameters are completely and transparently reported in the source text. Whether computational literature, spanning both peer-reviewed articles and preprints, provides sufficient methodological transparency to enable au-tonomous simulation recomputation across an entire corpus remains completely untested in density func-tional theory. This work applies a fully open-source, local agen-tic workflow to address this critical gap: how of-ten does a first-principles study report sufficient pa-rameters to permit independent replication? Every component runs locally and unmetered, on an open-weights qwen3:4b model [15] on a single local GPU via Ollama [16] and the SIESTA electronic structure package [17]. Bounding the model’s autonomy is the central architectural constraint: agents select among named options rather than free-form argu-ments, and every proposal passes a deterministic code gate before reaching a calculation or tally [18]. The contributions are threefold: a neurosymbolic architecture spanning extraction, input translation, and autonomous execution; a taxonomy of silent failure modes including head-truncated prompts and structural collapse under incomplete GPU res-idency [19]; and a case study auditing 57 first-principles studies of pentagonal lattice-based [20] two-dimensional materials, recomputing published lattice constants against fresh SIESTA calculations. 
+
+# 2 Methods 
+
+This section details the system architecture and hard-ware constraints governing an automated workflow that spans four sequential phases, from document acquisition to physical simulation (Figure 1). 
+
+## 2.1 System architecture and con-straints 
+
+Hardware constraints and model quantisa-tion. All extraction and translation agents run 
+
+qwen3:4b locally via the Ollama inference server [16] (backed by llama.cpp [21]) on a NVIDIA RTX 3050 Laptop (4 GiB), the constrained deployment target the method is designed for. To execute the model within the strict VRAM capacity of this hardware class, both weights and the attention key/value (KV) cache are quantised. Weights are statically quan-tised to Q4_K_M , and, on the 4 GiB GPU, the KV cache is additionally quantised to 4-bit ( q4_0 ) to accommodate the sequence length. Residency is not guaranteed on a GPU of this capacity: the place-ment of individual layers between device and host is determined by the inference server at load time and is not fixed by configuration. To decouple the two quantisation axes from this uncontrolled residency condition, the pipeline is additionally evaluated on a Tesla T4 (15 GiB), which accommodates the model in full and permits weight and cache precision to be varied independently (Section 3.2). 
+
+Inference parameters and grammar con-straints. Operating within these physical con-straints, all agent generations use greedy decoding (T = 0) with a generation limit of 2048 tokens, a cap on output; internal reasoning (‘thinking’) is ex-plicitly disabled to prevent models from expending token budgets on chain-of-thought sequences that the grammar discards. The context window dynami-cally accommodates the document length; truncated prompts are retried at double capacity, and those exceeding the 32,768-token ceiling are recorded as failures. Output is strictly constrained at the logits level using a grammar compiled directly from the target JSON schema (GBNF). Two schema prop-erties are lost during compilation and require ex-plicit programmatic compensation. First, semantic field descriptions are stripped, necessitating their re-injection into the zero-shot prompts. Second, fields carrying default values are not inherently marked as required. All schema fields are explicitly declared as required prior to compilation; for the extraction schema, where this forced the model to emit a null object for every parameter, only the fields determin-ing reproducibility are required. String length and pattern constraints, which the grammar compiler rejects, are removed from the compiled schema and enforced on the returned object instead. 
+
+Neurosymbolic architecture: agents propose, code disposes. Because syntactic schema com-pliance does not guarantee factual correctness, the pipeline enforces a strict neurosymbolic hierarchy: agents propose, and deterministic code disposes. To prevent arbitrary code execution, each agent is re-stricted to a named allow-list of read-only tools, and tool arguments are programmatically bound. The agent selects a routine by name, arguments are pop-ulated from the current verification state, and tool execution rounds are strictly capped. Every returned object passes a deterministic gate: Pydantic [22] vali-dation of the schema and length constraints withheld from the grammar, followed by explicit range and vocabulary checks in Python. Agent proposals fail-ing these checks are corrected or refused, and the 2Translation 
+
+> Prototype
+> Translator Agent
+> Format Gate
+> Convergence Agent
+> Critic Agent
+
+## Recomputation 
+
+> OpenAlex
+> Full-text Fetch
+> Format Gate
+
+## Retrieval  Extraction 
+
+> LLM Parser
+> Multi-Pass
+> Grounding Gate
+
+Diagnostician Agent Parity Check Figure 1: The autonomous audit pipeline. Retrieval fetches and screens OpenAlex full texts. Extraction parses and deterministically grounds parameters across three passes. Translation maps extracted claims and topological prototypes to SIESTA inputs. Recomputation drives physical simulations to convergence, monitored by diagnostician and critic agents. The workflow concludes with a parity check against the literature. Yellow boxes denote LLM agents; every other box is a deterministic code step. Red crosses indicate discarded records. intervention is logged; values extracted from a paper are instead flagged and recorded unaltered, since an out-of-range value may be an extraction error or the paper’s reported choice, and the two are separate findings. Each agent call is written to a JSONL audit log recording what the agent proposed, what was finally applied, and which gate fired on any dif-ference, from which override counts per agent are tallied. 
+
+## 2.2 Phase 1: Literature retrieval 
+
+Metadata retrieval. The corpus is constructed via a three-stage pipeline, beginning with the Ope-nAlex API [23], selected over proprietary databases such as Scopus for its keyless, freely redistributable access and its indexing of preprints alongside pub-lisher records. A curated set of 16 seed terms is applied to titles and abstracts: nine structural terms targeting topological families (e.g., “Cairo tiling”) and seven heavily studied compositions (e.g., 
+
+penta-SiC2 ), retrieving records whose abstracts des-ignate solely the chemical formula. 
+
+Filtration and deduplication. Each record passes four deterministic filters. It must be an article or preprint, and its DOI must not match patterns indicating supplementary information. Furthermore, it must contain a first-principles indicator in its title or abstract (e.g., “first-principles”, “density functional”, or a named DFT code), and match a pentagonal structural pattern. Surviving records are deduplicated (grouped by arXiv identifier, other-wise by normalised title), preferring non-arXiv DOIs and higher citation counts. The published DOI is retained as the primary key, with the OpenAlex iden-tifier as fallback; arXiv identifiers and open-access URIs are preserved to facilitate access to paywalled full text. 
+
+Full-text acquisition and lexical validation. 
+
+Full-text acquisition prioritises institutional repos-itories and arXiv. Documents are parsed natively (PDFs via PyMuPDF [24], HTML via Beautiful-Soup [25]) into raw text arrays. To ensure only verified, full-length manuscripts proceed, a docu-ment is accepted if at least four of nine structural markers (e.g., “abstract”, “conclusion”) are present; a document shorter than 12,000 characters must additionally contain at least three methodological markers (e.g., “cutoff”, “pseudopotential”), and doc-uments yielding fewer than 2,000 characters are dis-carded. Supplementary information is never fetched; a parameter documented solely in the supplementary material is recorded as absent (Section 4). 
+
+Deterministic subsampling. Where a subset is necessary for evaluation, it is drawn deterministi-cally via a SHA-256 hash of each paper’s identifier. 3This mechanism yields a strictly reproducible sample uncorrelated with year, venue, or citation count. 
+
+## 2.3 Phase 2: Parameter extraction 
+
+For each retrieved manuscript, the extraction agent evaluates a schema of twenty distinct computational method parameters, returning for each a boolean indicating presence, the extracted numerical value or string, and the verbatim sentence supporting the extraction. A paper is defined as reproducible in principle if it reports every parameter required to re-initialise the calculation. Because the required parameter set is code-dependent (e.g., a plane-wave cutoff and a real-space mesh cutoff are not inter-changeable), these specific requirements are defined deterministically in the pipeline’s configuration. For-mally, for a paper p reporting code c(p), the scored set is 
+
+S(p) = Runiv ∪ R2D ∪ B(c(p)) ∪ { code }, (1) where Runiv denotes universal DFT settings (functional , pseudopotential , k_mesh ,
+
+force_threshold , energy_threshold ), R2D 
+
+denotes two-dimensional monolayer con-straints (vacuum_spacing ), B(c) = RPW 
+
+(plane_wave_cutoff ) for plane-wave codes, 
+
+RNAO (mesh_cutoff , basis_size ) for numerical-atomic-orbital codes, and ∅ where no code is stated. The reported fraction is 
+
+f (p) = 
+
+∣∣{ s ∈ S(p) : rep s(p) }∣∣
+
+|S(p)| , (2) where rep s(p) ∈ { 0, 1} indicates whether parameter 
+
+s is reported in paper p, and p is reproducible in principle exactly when f (p) = 1. 
+
+Full-context information extraction. To pre-serve global context for parameter disambiguation, the full text (excluding the bibliography and trun-cated to a 120,000-character limit) is supplied to the language model in a single prompt context, strictly circumventing retrieval-augmented generation. 
+
+Multi-pass extraction and grounded union. 
+
+Given the variance of greedy decoding, full-context inference is executed in three independent passes. Outputs are combined via a grounded union rather than a majority vote to mitigate whole-paper col-lapse. Writing Sk for fields asserted in pass k, ex
+
+for the supporting textual evidence quoted for field 
+
+x, d for the source document text, and G for the evidence gate, the validated set of a pass ( Vk) and the shipped record ( E) are: 
+
+Vk = { x ∈ Sk : G(ex, d ) = 1 }, E =
+
+> K
+
+⋃
+
+> k=1
+
+Vk,
+
+(3) with K = 3. This monotonic union ensures a col-lapsed pass ( Vk = ∅) withholds evidence rather than falsely voting for absence, and ensures widening cov-erage cannot admit ungrounded claims. What the union cannot repair is misattribution, since a cor-rectly quoted sentence assigned to the wrong field satisfies G in every pass. 
+
+The deterministic grounding gate. Extraction is governed by a strict, one-directional evidence gate: asserted parameters must supply verbatim textual evidence; absent claims are never challenged. Prior to verification, quotes are normalised ( N ) by strip-ping model framing, lowercasing, and converting hyphens to spaces. Writing w for the words of the normalised quote and n = 6, evidence e is accepted against document d when: 
+
+G(e, d ) = 
+
+
+
+1, N (e) ⊆ N (d),
+
+1, |w| ≥ n ∧ ∃ i : wi:i+n−1 ⊆ N (d),
+
+0, otherwise. (4) If G(e, d ) = 0, the boolean is reset (rep s ← 0) and the override logged. 
+
+Unit-aware value support. Where the ground-ing gate verifies the existence of the quoted sen-tence, a secondary value-support diagnostic evalu-ates whether any reported numerical value mathe-matically follows from that text within a relative tolerance. Operating strictly as an observational diagnostic, this unit-aware check does not override the primary boolean extraction; the value-grounding gate described below does. To correctly evaluate standardized numerical values, the algorithm applies deterministic, unit-aware conversions (e.g., Ry → eV) via a predefined unit conversion mapping, decoupling semantic accuracy from syntactic formatting. 
+
+Numeric value grounding. A second gate gov-erns the numerical content of a claim. Where the evidence gate establishes that a quoted sentence occurs in the source, the value gate requires that the asserted magnitude itself occur verbatim within the document. A value that cannot be so located is cleared while the surrounding claim is retained, so that an ungrounded magnitude is removed without discarding the evidence that the parameter was dis-cussed. The gate is deterministic, and consequently reproducible without re-invoking the model; it is applied at extraction time and, for corpora predat-ing its introduction, retrospectively under identical criteria. 
+
+Quantifying systematic error: precision ver-sus recall. Finally, to evaluate the extractor’s baseline recall rate against these automated gates, 4an expert annotator produced hand-labelled ground truth for a targeted subset of core schema fields across a subset drawn from the hash-sampled evalu-ation set (retaining only viable manuscripts and ap-plicable judgements). The annotator labelled from the published PDFs rather than from the converted text, so that a parameter lost in conversion could be separated from one the authors never reported; the labels are a single expert’s judgements, and no second-rater agreement statistic is claimed. A sec-ond batch of papers was labelled from the retrieved text itself, recording only the reported/not-reported decision, which is the sole input to precision and recall. 
+
+## 2.4 Phase 3: Input translation 
+
+Initialisation and topological prototypes. Be-cause author-provided coordinates are universally absent, structures are generated exclusively from recorded topological prototypes and scaled via em-pirical covalent radii. Compositions lacking a known pentagonal prototype are skipped. These unrelaxed geometries are passed directly to SIESTA 5.4.2, en-forcing a 20 Å out-of-plane vacuum. The calcula-tions employ scalar-relativistic norm-conserving ON-CVPSP pseudopotentials in PSML format along-side a baseline double-ζ polarised (DZP) numerical atomic orbital basis. 
+
+The Translator agent and override guardrails. 
+
+The DFT calculation is configured by the Transla-tor agent, which maps extracted parameters onto SIESTA input directives. Consistent with the neu-rosymbolic architecture, the agent’s proposals are strictly governed by thirteen deterministic gates. Rather than halting execution or prompting the agent, these gates programmatically override mal-formed proposals with physically consistent fallback parameters and log the intervention. For example, the gates force the out-of-plane k-grid component to unity for a 2D monolayer, enforce a minimum 9 ×9×1mesh for sub-unity grids, balance in-plane grid com-ponents differing by more than a factor of two, and reset mesh cutoffs outside the physical bounds of 50–2000 Ry to a default of 350 Ry. Furthermore, the gates enforce semantic boundaries on simulation capability: parameters that SIESTA cannot natively reproduce (such as hybrid functionals (e.g., HSE, PBE0), plane-wave cutoffs, or specific dispersion corrections) are intercepted and explicitly recorded as unmappable methodological divergences. 
+
+## 2.5 Phase 4: Recomputation 
+
+Candidate materials are prioritized by reporting completeness. Because relaxed coordinates are rarely deposited, initial structures are constructed from topological prototype geometries parameter-ized with published lattice constants, and executed with standard SIESTA configurations. 
+
+Automated convergence and diagnosis. Con-vergence testing is an autonomous loop whose length is decided at runtime. Following each variable-cell relaxation (target force tolerance 0 .02 eV Å −1), the Convergence agent reads the output and selects from four actions (increasing the mesh cutoff, expanding the basis set, densifying the in-plane k-grid, or ter-minating execution), advancing monotonically along predefined parameter progressions (e.g., mesh cut-offs step along 200–900 Ry and bases along SZ, SZP, DZ, DZP, TZP). Termination requires successive completed steps i − 1 and i of a cell of N atoms with total energy Ei and in-plane lattice constant ai to satisfy: 
+
+∣∣∣∣
+
+Ei − Ei−1
+
+N
+
+∣∣∣∣ ≤ εE , |ai − ai−1|
+
+ai−1
+
+≤ εa, (5) where εE = 5 meV and εa = 0 .5 %. Convergence is never the agent’s to declare: it is evaluated arith-metically in code before the agent is consulted, and any proposal that would make the calculation com-putationally cheaper is programmatically refused. The relaxation loop is constrained to a maximum of six iterations and a four-hour wall-clock budget per target. Non-converged calculations trigger an au-tomated Diagnostician agent that parses error logs and extracts supporting failure lines; in the present campaign, all simulated targets achieved SCF con-vergence nominally without activating diagnostic recovery. 
+
+The Critic agent and epistemic verdicts. Be-fore a final verdict is issued, the Critic agent selects verification checks to run from a vocabulary of eight options (symmetry, expected symmetry, calibration, convergence, units, structure file, literature claims, and literature methods). The agent chooses which 
+
+checks are warranted; the underlying code strictly controls what data they run on. Compiling the valid check names directly into the GBNF decod-ing grammar structurally prevents the model from hallucinating non-existent tests. The pipeline issues no categorical verdicts. Be-cause starting from prototype geometries and us-ing independent basis sets conflates methodological differences with reporting divergence, the system reports only raw physical deviations. When cal-culations fail convergence or leave their prototype symmetry, the Critic marks them as inconclusive 
+
+and withholds the comparison. 
+
+Axis-matched comparison. An in-plane cell is unordered, and publications do not agree on which 5axis is a: comparing label to label rather than mag-nitude to magnitude manufactured deviations of several per cent where the axis-matched agreement was sub-percent. Published and recomputed cells are therefore both sorted before comparison, and a comparison is formed only where the paper reports 
+
+both in-plane constants. A single reported constant cannot be assigned to an axis; pairing it with the nearer recomputed axis would select the smaller of two residuals by construction, so such targets are reported as raw deviations in the text and never plotted. 
+
+# 3 Results 
+
+## 3.1 Retrieval yield and corpus com-position 
+
+Execution of the retrieval pipeline (16 August 2026) returned an initial candidate set, yielding a baseline corpus of 298 unique papers. Of the 135 manuscripts with an open-access location, automated retrieval returned 403 Forbidden errors for 36 records, and validation stripped the remainder: 21 failed the minimum length threshold (Section 2.2), 7 were non-article-like landing pages, and 2 returned other HTTP errors. This yielded 69 full-text manuscripts, of which 41 were sourced via arXiv. During Phase 2, 62 of these full texts were success-fully processed by the extraction agent. However, the agent subsequently classified 5 records as lacking a genuine pentagonal structural motif, representing a model-dependent classification rather than a de-terministic filter. Excluding these non-pentagonal structures defines the final audited population of 57 papers. Because a paper’s arXiv copy and its journal ver-sion may report differently, the audited set was partitioned by publication status (17 preprints with arXiv DOIs versus 40 journal articles with publisher DOIs) and compared against the strict reproducibil-ity criterion. The analysis demonstrates significantly higher reporting completeness in preprints: 10 of 17 (59 %) preprints state every required parameter, compared to 9 of 40 (22 %) publisher versions (dif-ference of 36 percentage points, 95% CI 10–63 pp, Fisher’s exact test, p = 0 .013). The mean parameter reporting rate is 84 % for preprints versus 62 % for journal articles. This divergence is consistent with structural pub-lishing constraints rather than disparities in scientific diligence. Journal formatting limits routinely dis-place methodological parameters into Supporting Information files, which the retrieval architecture deliberately excludes (Section 2.2). Consequently, the measured disparity likely reflects where parame-ters are physically located rather than whether they are entirely omitted by the authors, and the same Table 1: Corpus-scale effect of combining passes on the 4 GiB GPU over 69 documents.             
+
+> Papers Fields reported Papers reporting none Pass 1 69 435 18 Pass 2 69 440 20 Pass 3 69 439 20 Grounded union 69 475 17
+
+caution applies to the extraction channel, since both proportions are measured through a pipeline whose misses are not known to be distributed evenly across the two publication routes. 
+
+## 3.2 Local inference stability 
+
+To quantify the stability of locally quantised infer-ence, the pipeline was executed multiple times over the corpus. Field-level decisions remained highly stable across passes (Figure 2). This instability manifests as an abrupt structural collapse rather than gradual semantic drift (Fig-ure 2): a flipped boolean token forces the constrained grammar down an empty generation path. Instabil-ity results from incomplete GPU residency rather than cache precision. On a 4 GiB GPU, the server placed between 23 and 37 layers on the GPU. This split varied between loads due to the uncontrolled residency condition (Section 2.1). On a GPU that holds the model, three passes with an identical q4_0 
+
+cache are byte-identical. Consequently, a collapsed pass records zero parameters, falsely inflating the non-reporting rate. To mitigate this hardware-induced variance, the fi-nal dataset was constructed via a grounded union of three independent passes (Table 1). This approach leverages the monotonic union defined in Section 2.3 to inherently recover false negatives without adjudi-cation. Across three passes, 21 of 69 papers suffered total extraction collapse at least once. The union recov-ered parameters for 4 of them, while the remaining 17 failed in every pass (Table 1), which the pipeline records as complete non-reporting; the labelled sub-set does not permit these to be separated from con-sistent extraction failure. Overall, the union yielded 475 supported fields, recovering 35 fields over the best individual pass (440 fields). The merge is not a plain superset: resolving plane-wave and real-space mesh cutoff collisions removes nine of the 484 fields a naive union would carry (Section 2.3). At a 24,576-token context window, an f16 cache requires 3 .38 GiB of VRAM, forcing severe memory offloading on a 4 GiB GPU. On hardware that holds both (the 15 GiB Tesla T4), the f16 configuration is 27 % faster than q4_0 . However, because f16 
+
+cannot fit on the 4 GiB GPU, the q4_0 baseline was maintained for consumer-hardware metrics. 60 2 4 6 8 10 12 14 16 18             
+
+> Parameters reported (pass A)
+> 0246810 12 14 16 18
+> Parameters reported (pass B)
+> n= 69 identical: 56/69
+> y = x
+> 0246810 12 14 16 18
+> Mean parameters reported
+> −6
+> −4
+> −20246
+> Difference (pass A  − pass B)
+> +1.96 SD (+5.1)
+> −1.96 SD (-5.2) bias (-0.07)
+
+Figure 2: Repeatability of extraction over two identical passes on the 4 GiB GPU. Left: paired per-paper counts against the identity line. Right: Bland–Altman plot showing disagreement is independent of parameter count. Table 2: Hardware constraints and execution pro-files. Minimum VRAM includes the weight buffer, the key/value cache at the corpus’s widest window (28,672 tokens), and the compute buffer. “Layers” records how many of the 37 model layers fit on the GPU. 
+
+GPU W / KV VRAM (GiB) Time (s) Layers RTX 3050 (4 GiB) Q4_K_M /q4_0 3.61 120 23–37 Tesla T4 (15 GiB) Q4_K_M /q4_0 3.61 58 37 Tesla T4 (15 GiB) Q4_K_M /f16 6.44 43 37 Tesla T4 (15 GiB) Q8_0 /f16 8.10 50 37 
+
+Hardware holding the full model separates the two quantisation axes (Table 2). Doubling weight precision from Q4_K_M to Q8_0 costs 1 .7 GiB and 17 % more time. (The effect of cache quantisation on extraction accuracy is evaluated in Section 3.3.) 
+
+## 3.3 Extraction accuracy and report-ing completeness 
+
+Precision, recall, and grounding taxonomy 
+
+An expert annotated 25 papers against the nine re-quired parameters, yielding 201 independent judge-ments blind to the pipeline’s output. 2 abstract-only records were excluded. Basis size applies only to numerical-orbital codes; recall over the eight univer-sal fields is 69.8 %, versus 67.3 % across all nine. Two limits of presence-based metrics emerge. First, precision records presence, not correctness: of 10 labelled packages, the extractor named 8 cor-rectly. Remaining errors are consequential, as pack-age identity governs the physical meaning of ambigu-ous numeric cutoffs (discussed below). Second, 6 parameters (6.7 %) found in the PDF were destroyed in PDF-to-text conversion, which PDF-based recall would wrongly charge to the extractor. Scored conventionally (presence as positive), ev-ery configuration exhibits high nominal performance. When evaluated against parameter absence (the pri-mary quantity measured in this audit), precision does not exceed 47.0 %, indicating that the majority of parameters flagged as unreported are present in the source text. Full GPU residency, not cache precision, produces the larger effect: holding the cache at q4_0 on a fully-resident GPU raises recall and MCC (Table 3). Unquantising the cache then trades presence recall for conservatism, rendering it the configuration least prone to asserting ungrounded parameters. The pipeline’s baseline performance (precision, recall, and F1) is detailed in Figure 3. The near-perfect precision confirms the structural ef-ficacy of the grounding gate. In the final union dataset, 473 of 475 asserted fields carry correctly matching textual evidence. The five false positives behind the precision score were tightly localized (pseudopotential_type 2, energy_threshold 2, 
+
+k_mesh 1). Mathematically, the measured non-reporting rate is defined as the sum of genuine author omissions and the extractor’s false negative rate. Writing T
+
+and O for the parameters genuinely reported and genuinely omitted across the labelled judgements, and ρ and π for recall and precision, the measured non-reporting count is 
+
+M = O + (1 − ρ) T
+
+︸ ︷︷ ︸
+
+> missed
+
+− 1 − ππ ρ T 
+
+︸ ︷︷ ︸
+
+> false positives
+
+, (6) so M ≥ O whenever 1 − ρ ≥ ρ (1 − π)/π , which holds here by a factor of eleven: recall error dom-inates precision error by an order of magnitude. Extrapolated from the labelled subset to the full 7Table 3: Extraction accuracy scored against expert hand labels. Accuracy is reported under both decision orientations due to extreme label skew (only 18 % of judgements are not reported ) and because parameter 
+
+absence is the primary quantity this work measures. Matthews’ correlation coefficient [26] is included because a constant “reported” baseline scores zero. 
+
+Reported Not reported Configuration P R F1 P R F1 MCC RTX 3050 4 GiB, q4_0 95.7 67.3 79.0 36.5 86.1 51.2 0.414 Tesla T4 15 GiB, q4_0 96.3 78.8 86.7 47.0 86.1 60.8 0.530 Tesla T4 15 GiB, f16 99.2 73.9 84.7 44.9 97.2 61.4 0.560 20 40 60 80 100              
+
+> Recall (%)
+> basis size ( n=6) force threshold ( n=17) energy threshold ( n=15) cutoff ( n=19) code ( n=25) XC functional ( n=25) k-mesh ( n=22) pseudopotential ( n=19) vacuum spacing ( n=17)
+> RTX 4 GB, q4_0 T4, q4_0 T4, f16
+> reported not reported
+> Pipeline prediction
+> stated in paper not stated in paper
+> Hand label
+> 111 130 122 54 35 43 55131 31 35
+
+Figure 3: Extractor accuracy against hand labels. Recall is shown with its 95% CI; basis size is marked because it lacks sufficient positive support to state a rate. Dashed vertical lines mark overall recall for each configuration. The confusion matrix gives the counts from which the rates derive. 20-field schema, this performance is of the same order as figures reported for established literature extractors such as ComProScanner [7], Cac-tus [13], MiniCheck [8], and ChemDataExtrac-tor [6], though on different corpora and extraction schemas. Per-field recall varies significantly: no-tably, basis_size was never recovered (Figure 3). As a strictly required field for that methodology, this represents a structural omission in extraction capability rather than an isolated variance. Prior to the grounding gate, 93.3 % of supporting sentences across the multi-pass union were accu-rately located in the raw text. Across the 169 ex-tracted numeric values in the union dataset, 95.3 % were correctly derived from their quotes. The pipeline actively intercepts a specific taxonomy of five silent failure modes inherent to open-weights LLM extraction: 1. Head-truncated prompts: The inference server silently discards the prompt head to retain the tail under constrained context (ob-served in 9 of 69 manuscripts). 2. Default-value schema hallucinations: The model satisfies the forced schema type con-straints (Section 2.1) by inserting canonical placeholder literals (e.g., 0 .0 or 1 .0) when pa-rameters are unstated. 3. Hardware-induced structural collapse: 
+
+Partial GPU residency perturbs logits under greedy decoding, forcing the constrained gram-mar to silently collapse into empty JSON out-puts (Section 3.2). 4. Self-negating evidence: The model sets 
+
+reported=true while generating an evidence quote explicitly stating that the authors did not report the value (observed in 30 instances, 5.7 %). 5. Memorised-value substitution and plau-sible sweeps: The model bypasses document retrieval by emitting canonical literature con-stants memorised during pretraining (e.g., sub-stituting the ideal penta-graphene lattice con-stant a = 3.64 Å or penta-PdSe 2 constant 
+
+b = 5 .92 Å into manuscripts describing unre-lated compositions), or synthesising plausible smooth numerical sweeps (e.g., stepping cohe-sive energies from −7.1 eV to −7.7 eV). The secondary value-grounding gate (Section 2.3) successfully intercepted this behaviour, automat-8ically stripping 51 ungrounded values (16.4 % of testable valued claims) across the corpus and pre-venting ungrounded physical parameters from prop-agating into downstream simulation workflows. The two fields lacking evidence strings entirely represent a distinct, uncaught failure mode. Testing a deterministic localiser against known ev-idence sentences confirms why full-context inference is required (Section 2.3): keyword retrieval recov-ered only 58 .2 % of the necessary context; doubling the retrieval window recovered 71 .1 %, yet every pa-rameter field continued to fail to capture critical context. The failure is fundamental to the physics text: parameters such as “40 Ry” ambiguously map to specific cutoffs depending entirely on the under-lying software code. Supplying a localized context window structurally severs this dependency. Across the 57 papers, only 19 (33.3 %) are repro-ducible in principle in the main text, with a mean parameter reporting rate of 68.3 %. These omissions are heavily skewed toward convergence controls (Fig-ure 4); notably, 21 .1 % of the audited papers are recorded as not naming the specific software pack-age used for the calculations. In accordance with Equation 6, this reflects both author omission and extractor failure: on the hand-labelled subset ev-ery paper names both its software package and its exchange–correlation functional, each of which the extractor records as missing in roughly one paper in seven. A third channel is methodological: ten of the twelve records naming no package also report no functional, pseudopotential or cutoff, a pattern absent from every paper that does name one. Such records are consistent with studies that are compu-tational but not first-principles, and are therefore scored against parameters their methodology never defines. Paper-level completeness represents the most statistically volatile metric reported: the strict 
+
+f (p) = 1 criterion (Equation 2) is acutely sensitive to single-field errors, since a single false negative records a paper as incomplete and a false positive as complete, so the two error channels partly cancel. On the labelled subset the pipeline and the annota-tor disagreed on five of twenty-five papers, in both directions, with a net difference of one. 
+
+## 3.4 Agent activity and the effect of cache quantisation 
+
+The activity and stability of the four execution agents (Table 4) were evaluated to track cache quan-tisation instability across roles. 
+
+Translator. The agent mapped parameters from 12 verification records into 11 distinct sets. The code-gate intercepted all 17 invocations because the agent emitted standard literature notation (e.g., GGA/PBE )rather than strict parser syntax. Across a single input over ten passes, the Translator produced iden-0 10 20 30 40 50 
+
+> Papers not reporting the parameter (%)
+> mesh cutoff plane-wave cutoff XC functional k-mesh code pseudopotential vacuum spacing energy threshold force threshold
+> RTX 3050 4 GB, q4_0 Tesla T4, q4_0 Tesla T4, f16
+
+Figure 4: Parameters absent from the retrieved full text, n = 57. These rates are upper bounds on non-reporting: at 67.3 % recall a fraction of these absences are extraction failures rather than omis-sions by the authors. tical configurations nine times; the sole discrepancy (a mesh cutoff) was corrected deterministically by the convergence routine. 
+
+Convergence. Across 24 invocations, the agent uniformly selected increase_mesh ; because it never exercised alternative discretion, it did not alter any physical outcomes. Because loop termination is de-terministically orchestrated (Section 2.1), agent col-lapse cannot falsely declare convergence; it can only halt execution. Convergence typically required two to four steps, never reaching the imposed iteration or wall-clock limits. 
+
+Diagnostician. The agent was not invoked; no calculation suffered self-consistent field (SCF) or structural failure. 
+
+Critic. It raised 18 concerns across seven physi-cal categories (six blocking errors, 12 warnings) over nine verification records, downgrading 4 verdicts to inconclusive and identifying geometric symmetry breaks. In one instance, failing to select checks trig-gered a deterministic override that substituted the complete set. The Critic occasionally failed to return a schema-valid object, leaving those verdicts unre-viewed. Because the verification rule set enforces an asymmetric hierarchy (Section 2.1), it cannot over-ride its own contrary evidence, and a collapse safely defaults the pipeline to the unadjusted numerical conclusion. 
+
+Instability scales with context injection, not output length. Collapse correlates with injected tool context rather than generation volume. The Translator safely emits a median of ∼2400 charac-ters; the Critic emits ∼1400. However, the Critic is uniquely injected with the full JSON output of executed checks before issuing its verdict. Repeat-ing the campaign on fully-resident hardware isolates 9Table 4: Agent activity across the recomputation campaign. The multi-agent system was evaluated in three configurations differing only in GPU and KV-cache precision: the original RTX 3050 4 GiB with 
+
+q4_0 cache (12 targets), and two fully-resident Tesla T4 15 GiB runs over 9 targets: one with a q4_0 cache, and one with an unquantised f16 cache (pooling 17 total invocations across a repeated run). For a given target, the extraction and prompts remain identical. Only the Critic operates over multiple tool-calling rounds, and it alone collapsed in every configuration.                                                         
+
+> RTX 3050 ( q4_0 )Tesla T4 ( q4_0 )Tesla T4 ( f16 )Agent Calls Collapsed Tool calls Calls Collapsed Tool calls Calls Collapsed Tool calls Translator 17 0—90117 01Convergence 24 0—15 0—26 1—Diagnostician 0——0——0——Critic 13 348 9316 17 152 All agents 54 3—33 3—60 2—
+
+the cause (Table 4). The Critic collapsed in 3 of 13 and 3 of 9 invocations on a quantised cache (eval-uated across two GPUs at indistinguishable rates, 
+
+p = 0 .66), compared to 1 of 17 on an unquantised cache. Unlike the extraction phase, the Critic’s col-lapse thus survives full residency. It falls roughly fivefold under unquantised cache precision, though this lacks significance either on identical targets (3 of 9 vs 1 of 9, p = 0 .58) or pooled (6 of 22 vs 1 of 17, 
+
+p = 0 .11). The effect remains non-uniform: Conver-gence collapsed once in 26 f16 invocations and never in 39 q4_0 invocations, while the Translator never collapsed. Consistent with context-injection fragility, the Critic issued 1.8 tool calls per invocation on the quantised run versus 3.1 unquantised, failing early in its tool loop rather than after extended gener-ation. Cache precision, operating on dynamically injected tool context, remains the primary explana-tion for Critic instability, despite lacking statistical significance when pooled across roles. Its effect is confined to the agents: across the 8 targets run un-der both cache precisions, the recomputed cells differ by at most 0 .0052 Å, so the electronic structure is untouched. 
+
+## 3.5 Recomputation of published lat-tice constants 
+
+Complete reporting is a necessary condition for re-production, not a sufficient one: a methods section may state every parameter and still not determine the calculation, because the relaxed coordinates are almost never deposited. Recomputation directly assesses what textual auditing cannot: whether complete methodological reporting enables success-ful physical simulation execution. The execution pipeline ran the top-ranked materials possessing the most complete sets of reported computational fields. Standard SIESTA input configurations, alongside the published lattice parameters and atomic coordi-nates, were used to start the calculations. Figure 5 reports 8 matched comparisons from 4 papers [30–33] across 3 compositions, and addition-4 5 6  
+
+> Published lattice constant ( Å)
+> 456
+> This work, SIESTA/DZP ( Å)
+> y = x
+> BN 2
+> CC2Si NiP 2
+> PdSe 2
+> aaxis
+> baxis Critic held (not scored)
+
+Figure 5: Published versus recomputed in-plane lattice constants ( y = x dashed line; shaded band 
+
+±2 %) across 8 comparisons. Circles and triangles denote the shorter lattice parameter a and longer lattice parameter b, respectively; open markers indi-cate unverified targets withheld by the Critic agent due to symmetry departure [27–29]. ally shows, faded, the targets whose relaxed cell left its prototype. The mean absolute error (MAE) is 0 .110 Å (mean absolute relative error (MARE) 2.3 %), median absolute deviation is 1.1 %, and 6 of the 8 comparisons fall within 2 %. The signed bias is 0 .090 Å: the recomputation is systematically larger than the published cell rather than centred on it. All four reference calculations are plane-wave (VASP, Quantum ESPRESSO), against which a DZP numerical-orbital basis is expected to overestimate, so the offset is a basis-set difference rather than a dis-agreement about the material. Physical agreement nonetheless varies by composition: penta-PdSe 2
+
+matches closely, spanning 0 .08–1 .73 % across four comparisons, penta-NiP 2 yields sub-percent devia-tion (0 .46–0 .61 % across two comparisons), whereas penta-C 2Si deviates by ∼6.9 %. Two further targets are withheld because their papers report only one in-plane constant [34] (Section 2.5). One of them 10 exposed a compositional misattribution (substitut-ing elemental Si for a p-SiS 2 claim), satisfying the textual evidence gate while specifying an incorrect material. The Critic correctly withheld verdicts when re-computed structures left their prototype, exclud-ing them from every deviation reported above; Fig-ure 5 retains them as open markers. For penta-BN 2,the cell broke symmetry to b/a = 1 .058 against a tetragonal prototype; for a carbon paper, it reached 
+
+b/a = 1 .1857 (a 18 .6 % departure). Both triggered symmetry concerns, placing the structures on hold rather than plotting invalid comparisons. The dominant residual error is structural rather than electronic. Because relaxed CIF (Crystallo-graphic Information File) coordinates are rarely de-posited, structures are rebuilt from topological pro-totypes, and a relaxation that settles into a differ-ent local minimum measures the starting geometry rather than the published physics; the two symme-try holds above exemplify this exact failure mode (Figure 6). A perfectly reported methods section can therefore remain irreproducible when the geometry is withheld. Calibration against public reference geometries yielded only four usable points across two distinct pentagonal structures, falling short of the required threshold of six. No categorical verdict is therefore issued (Section 2.5). Because recomputations em-ploy independent basis sets and pseudopotentials, the raw physical deviations shown in Figure 5, rather than categorical pass/fail verdicts, constitute the primary reported measurement. 
+
+# 4 Discussion 
+
+The capability audit demonstrates a 4 GiB qwen3:4b 
+
+possesses usable semantic competence but severe structural fragility, necessitating rigid programmatic gates for transcription and data provenance. Ex-traction recall dominates systematic error: since the pipeline measures reporting absence , extraction failures (false negatives) artificially inflate apparent omission rates. The 67.3% recall ensures reported per-parameter omission rates are conservative upper bounds, measured on nine parameters at 95.7 % pre-cision (95% CI 90.3–98.1 %; five false positives per 116 asserted presences). Incomplete GPU residency compounds this, precluding single-pass reproducibil-ity on 4 GiB hardware and mandating the three-pass grounded union as a methodological necessity. 
+
+Defining omission within the corpus The pipeline strictly targets direct arXiv or open-access text, excluding separately indexed DOIs and sup-plementary files. Consequently, all reported rates reflect full-text presence alone. This contextualises the preprint–publisher gap (Section 3.1): journal conventions displace parameters into inaccessible supplementary files, meaning the gap likely mea-sures parameter localisation rather than absolute presence. Resolving this requires dedicated per-publisher supplementary retrieval. 
+
+Methodological limitations Evidence ground-ing bounds fabrication but permits misattribution. For example, a p-MS 2 (M = Si, Ge, Pb) paper’s lattice claim was stored solely under the metal, so a p-SiS 2 constant was attributed to elemental Si. That target was excluded from Figure 5 because the source reported only a single in-plane constant; con-sequently, the misattribution was identified solely through manual inspection rather than automated filtering. The pipeline cannot detect such compo-sition mismatches; they remain identifiable solely through expert manual annotation. These labels cover nine fields across 25 papers (201 judgements) by a single expert annotator, yielding a wide 59.8– 74.0 % recall interval. Additionally, the basis_size 
+
+parameter’s extreme rarity precluded statistically meaningful evaluation of its extraction recall. A re-lated limitation attaches to corpus definition rather than to extraction: the screening flag distinguishes computational from non-computational work, not density functional theory from other computational methods. Studies employing tight-binding, classical dynamics or continuum models therefore remain in the audited population, where their absent fields are recorded as omissions rather than as evidence of a different methodology. 
+
+Implications for materials science reporting 
+
+Methodological completeness does not guarantee structural reproducibility: where relaxed geome-tries are withheld, the rebuilt prototype rather than the published structure determines the result (Sec-tion 3.5). With mature deposition infrastructure (AiiDA [35], NOMAD [36]), this barrier remains strictly conventional. Threshold-based calibration encounters similar data scarcity: the calibration set yielded only two of the six distinct structures required before a threshold is defined, so no comparison in this campaign rests on a calibrated tolerance and no categorical verdict is issued. Moreover, independent basis sets and pseudopotentials conflate methodological divergence with basis-set incompleteness and starting-geometry entrapment. Decoupling these requires the authors’ original structures. Consequently, the pipeline issues no refuted verdicts, reporting only the raw physical deviation between published claims and independent recomputations. 
+
+Provenance of the reported campaign Two artefacts remain intentionally unreconciled: 3 un-reviewed verdicts from Critic collapses, and 12 ver-11 b/a = 1.025 Δz = 1.46 Å b/a = 1.047 Δz = 1.63 Å b/a = 1.186 Δz = 0.05 ÅFigure 6: Visualizing conformational entrapment during variable-cell relaxation. (Left) The ideal pen-tagonal starting prototype. (Middle) Relaxed penta-PdSe 2 retains its pentagonal symmetry and proper out-of-plane buckling (∆ z = 1 .63 Å). (Right) The carbon target exemplifies a failure mode: the structure is trapped in a different local minimum where the b/a ratio expands to 1.186, flattening the lattice (∆ z = 0 .05 Å) and stretching the bonds. ification records spanning three distinct configura-tion fingerprints. These surface solely because out-puts are stamped with their generative configuration. The capacity to detect its own systemic drift is a precondition for evaluating external literature re-producibility. The reported campaign is itself one of ten: each defect the gates exposed invalidated every extraction that preceded its correction, and the retained logs record at least 509 extractions, approximately 4.7 million input tokens, before the corpus reported here was produced. It is that iter-ation, rather than the final run, which unmetered local execution makes practicable. 
+
+# 5 Conclusions 
+
+This work presents an autonomous, local framework for reproducibility auditing in computational ma-terials science. It demonstrates an open-weights 
+
+qwen3:4b model on consumer hardware can drive an end-to-end first-principles workflow. Despite se-vere structural fragility, such models exhibit suffi-cient semantic competence for complex extraction when strictly constrained by deterministic code gates. Such a model can be trusted in what it asserts, but not in what it fails to find; and that reliability de-pends on the conditions of its deployment, complete residency on the accelerator above all. Trust is conferred not by the model but by the constraints imposed upon it: every assertion must quote its source verbatim, and every magnitude must be lo-cated within the document before it may inform a calculation. Neither constraint is negotiable by the agent, and neither depends upon a network, a subscription, or a service that may be withdrawn. The automated audit reveals incomplete textual reporting is not the binding reproducibility con-straint. Successful parameter extraction does not guarantee structural reproducibility. Physical recom-putations indicate the primary barrier to data-driven discovery is absent structural data, not omitted pa-rameters. With relaxed coordinates rarely deposited, workflows must rely on topological prototypes. This forces conformational entrapment, conflating true methodological divergence with starting-geometry sensitivity. Definitively adjudicating published claims re-quires addressing these systemic data gaps. Future pipelines must parse publisher-specific supplemen-tary materials housing siloed structural files and build community-driven reference geometry datasets. Finally, while this implementation orchestrates den-sity functional theory relaxations, the underlying framework remains property-agnostic. Expanding verification workflows to derived physical proper-ties (such as elastic constants, formation energies, and electronic band gaps) will establish local open-weights agentic systems as viable instruments for continuous verification of the scientific record. 
+
+# Data and code availability 
+
+The complete pipeline source code and config-uration files are available at https://github. com/shambhubhandari/Agentic-Workflow (MIT license). Raw full-text manuscripts are omitted for copyright compliance; the retrieval module pro-vides the OpenAlex queries and repository-fallback routines to regenerate the corpus from public end-points. The repository provides the agent-extracted records, the hand-labelled ground-truth dataset, and all SIESTA input/output files. Every output file is cryptographically stamped with its generative con-figuration to guarantee auditability. 
+
+# Conflicts of interest 
+
+There are no conflicts to declare. 12 CRediT authorship contribution statement 
+
+Shambhu Bhandari Sharma (S.B.S): Concep-tualization, Methodology, Software, Formal analysis, Investigation, Data Curation, Validation, Visualiza-tion, Writing – original draft, Writing – review & editing. 
+
+# Acknowledgements 
+
+The author acknowledges Alibaba Cloud ( Qwen ), 
+
+llama.cpp , and Ollama for enabling local, grammar-constrained execution. Bibliographic retrieval used OpenAlex (OurResearch); recomputations used SIESTA. The author thanks the developers of PyMuPDF, BeautifulSoup, and the Python ecosys-tem. 
+
+# References 
+
+[1] A. M. Bran, S. Cox, O. Schilter, C. Baldassari, A. D. White and P. Schwaller, Nature machine intelligence , 2024, 6, 525–535. [2] D. A. Boiko, R. MacKnight, B. Kline and G. Gomes, Nature , 2023, 624 , 570–578. [3] N. J. Szymanski, B. Rendy, Y. Fei, R. E. Kumar, T. He, D. Milsted, M. J. McDermott, M. Gal-lant, E. D. Cubuk, A. Merchant et al. , Nature ,2023, 624 , 86–91. [4] Z. Wang, H. Huang, H. Zhao, C. Xu, S. Zhu, J. Janssen and V. Viswanathan, arXiv preprint arXiv:2507.14267 , 2025. [5] P. Yang, Z. Zhang, Y. Li, X. Wang, Y. Deng, Y. Lu, B. Tang, Z. Liu and B. An, arXiv preprint arXiv:2605.26179 , 2026. [6] M. C. Swain and J. M. Cole, Journal of chemi-cal information and modeling , 2016, 56 , 1894– 1904. [7] A. Roy, E. Grisan, J. Buckeridge and C. Gatti-noni, Digital Discovery , 2026, 5, 1794–1808. [8] L. Tang, P. Laban and G. Durrett, Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing, 2024, pp. 8818– 8847. [9] J. Yuan, H. Li, X. Ding, W. Xie, Y.-J. Li, W. Zhao, K. Wan, J. Shi, X. Hu and Z. Liu, 
+
+arXiv preprint arXiv:2506.09501 , 2025. [10] N. Jegham, M. Abdelatti, C. Y. Koh, L. El-moubarki and A. Hendawi, arXiv preprint arXiv:2505.09598 , 2025. [11] A. Zywot, X. Chen and M. de Rijke, arXiv preprint arXiv:2601.11327 , 2026. [12] Y. Zhu, J. Gan, X. Sun, F. Sun, Y. Shi, M. M. Islam, C. Shang, W. Gao, C. W. Coley, Y. Sun 
+
+et al. , arXiv preprint arXiv:2607.14512 , 2026. [13] A. D. McNaughton, G. K. Sankar Ramalaxmi, A. Kruel, C. R. Knutson, R. A. Varikoti and N. Kumar, ACS omega , 2024, 9, 46563–46573. [14] K. Lejaeghere, G. Bihlmayer, T. Björkman, P. Blaha, S. Blügel, V. Blum, D. Caliste, I. E. Castelli, S. J. Clark, A. Dal Corso et al. , Sci-ence , 2016, 351 , aad3000. [15] A. Yang, A. Li, B. Yang, B. Zhang, B. Hui, B. Zheng, B. Yu, C. Gao, C. Huang, C. Lv 
+
+et al. , arXiv preprint arXiv:2505.09388 , 2025. [16] Ollama contributors, Ollama: get up and run-ning with large language models locally , Soft-ware, 2023, https://github.com/ollama/ ollama , Version 0.32.11 used in this work. [17] J. M. Soler, E. Artacho, J. D. Gale, A. García, J. Junquera, P. Ordejón and D. Sánchez-Portal, 
+
+Journal of physics: Condensed matter , 2002, 
+
+14 , 2745–2779. [18] A. Doshi, Y. Hong, C. Xu, E. Kang, A. Kaprav-elos and C. Kästner, Proceedings of the IEEE/ACM 48th International Conference on Software Engineering, 2026, pp. 201–205. [19] S. Barnett, S. Kurniawan, S. Thudumu, Z. Brannelly and M. Abdelrazek, Proceedings of the IEEE/ACM 3rd International Confer-ence on AI Engineering-Software Engineering for AI, 2024, pp. 194–199. [20] S. Zhang, J. Zhou, Q. Wang, X. Chen, Y. Kawa-zoe and P. Jena, Proceedings of the National Academy of Sciences , 2015, 112 , 2372–2377. [21] G. Gerganov and llama.cpp contributors, 
+
+llama.cpp: LLM inference in C/C++ , Software, 2023, https://github.com/ggml-org/llama. cpp .[22] S. Colvin and Pydantic contributors, Pydantic: data validation using Python type hints , Soft-ware, 2017, https://github.com/pydantic/ pydantic .[23] J. Priem, H. Piwowar and R. Orr, arXiv preprint arXiv:2205.01833 , 2022. [24] Artifex Software, PyMuPDF: a Python binding for MuPDF , Software, 2024, https://github. com/pymupdf/PyMuPDF .[25] L. Richardson, Beautiful Soup: a Python li-brary for pulling data out of HTML and XML files , Software, 2004, https://www.crummy. com/software/BeautifulSoup/ .[26] B. W. Matthews, Biochimica et Biophysica Acta (BBA)-Protein Structure , 1975, 405 , 442–451. [27] J. Li, X. Fan, Y. Wei and G. Chen, Scientific reports , 2016, 6, 31840. [28] Y. Xu, Z. Ning, H. Zhang, G. Ni, H. Shao, B. Peng, X. Zhang, X. He, Y. Zhu and H. Zhu, 
+
+arXiv preprint arXiv:1701.03715 , 2017. [29] C. Zhou, R. Huo, B. Situ, Z. Yan, Y. Tu and Z. Zhang, Physical Chemistry Chemical Physics ,2025, 27 , 11056–11065. 13 [30] A. Lopez-Bezanilla and P. B. Littlewood, The Journal of Physical Chemistry C , 2015, 119 ,19469–19474. [31] X. Shao, X. Liu, X. Zhao, J. Wang, X. Zhang and M. Zhao, Physical Review B , 2018, 98 ,085437. [32] K. Nandan, A. Agarwal, S. Bhowmick and Y. S. Chauhan, IEEE Transactions on Electron De-vices , 2021, 68 , 6551–6557. [33] S. Bravo, M. Pacheco, J. Correa and L. Chico, 
+
+Physical Chemistry Chemical Physics , 2022, 24 ,15749–15755. [34] L. Li, Z. Huang, J. Xu and H. Huang, Frontiers in Chemistry , 2022, 10 , 1061703. [35] S. P. Huber, S. Zoupanos, M. Uhrin, L. Talirz, L. Kahle, R. Häuselmann, D. Gresch, T. Müller, A. V. Yakutovich, C. W. Andersen et al. , Sci-entific Data , 2020, 7, 300. [36] L. M. Ghiringhelli, C. Baldauf, T. Bereau, S. Brockhauser, C. Carbogno, J. Chamanara, S. Cozzini, S. Curtarolo, C. Draxl, S. Dwarak-nath et al. , Scientific Data , 2023, 10 , 626. 14

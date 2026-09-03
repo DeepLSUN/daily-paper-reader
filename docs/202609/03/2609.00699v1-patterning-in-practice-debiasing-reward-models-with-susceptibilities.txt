@@ -1,0 +1,1234 @@
+Title: Patterning in Practice: Debiasing Reward Models with Susceptibilities
+
+URL Source: https://arxiv.org/pdf/2609.00699v1
+
+Published Time: Wed, 02 Sep 2026 00:42:35 GMT
+
+Number of Pages: 34
+
+Markdown Content:
+# Patterning in Practice: Debiasing Reward Models with Susceptibilities 
+
+George Wang 
+
+Resolution 
+
+george@resolution.org 
+
+Elizabeth Donoway 
+
+Resolution 
+
+donoway@resolution.org 
+
+Daniel Murfet 
+
+Resolution 
+
+murfet@resolution.org 
+
+# Abstract 
+
+Reward models trained on human preferences are known to suffer from length, for-matting, and other stylistic biases. In this paper we use patterning, which reweights each preference pair according to its measured effect on posterior expectation values of benchmark losses (its susceptibility), to debias a Gemma 2 9B Instruct reward model trained on Skywork-Reward-Preference v0.2. We obtain +14 .2 ± 1.2
+
+pp on RM-Bench Hard, the split where style cues point against correctness (mean 
+
+± s.e. over 5 seeds), with overall RM-Bench accuracy preserved, comparable to the strongest Hard-split gain reported by the closest published comparator (SteerRM, 
+
++13 .2 pp). We demonstrate in a simple case that the reweighting is interpretable by tracing a side effect of the intervention (a regression on a safety subset of RM-Bench) to a small class of training pairs, which we confirm by ablation. The weights also transfer: those computed on Gemma 2 9B debias Gemma 2 2B and 27B with no recomputation, and transfer partially to Llama 3.1 8B. This is the first application of patterning, a program grounded in singular learning theory, beyond small models and synthetic tasks. 
+
+# 1 Introduction 
+
+Reinforcement Learning from Human Feedback (RLHF; Christiano et al., 2017) is a dominant alignment technique for language models. The reward models (RMs) at the center of this approach are well-known to suffer from biases: for example, many RMs systematically prefer longer or more richly formatted responses, emojis, and lists (Lambert et al., 2025; Liu et al., 2025). These biases were present in the earliest RMs (Stiennon et al., 2020), persist across RM generations, and are readily exploited by the policies trained against them (Zhang et al., 2025b), plausibly contributing to the recognizable stylistic tics of frontier models. These biases are already present in the preference data: across open preference datasets the longer response is the chosen one 56 –63% of the time (Singhal et al., 2024, Table 5). Reward models trained on such data amplify this mild imbalance into a strong length–reward correlation (Singhal et al., 2024, Table 4). As relatively trivial aspects of model behavior, style biases serve as a litmus test for the broader AI alignment problem: if we cannot direct even these simple aspects of model behavior, we have little basis to expect to direct consequential aspects (Anwar et al., 2024, §3.2.2). If the source of the bias is the training data, it is natural to intervene there in order to remove it. Indeed, industry practice for mitigating these biases is preference data curation : collect more pairs, and involve further human and machine labor to discard those that exemplify undesirable biases. This is the approach taken by Liu et al. (2026), who curate a training set of 26M preference pairs (selected from a 40M-pair pool) and train a series of RMs on open-source models in the 0.6–8B range with state-of-the-art robustness to length and formatting bias, as measured by RM-Bench (Liu et al., 2025). However, high-quality preference data is expensive to acquire and there is a limit on how fine-grained the shaping of RMs can be based on human intuition. Following the “bitter lesson” (Sutton, 2019) we argue instead for a principled, scalable approach to sculpting the training data via reweighting based arXiv:2609.00699v1 [cs.LG] 1 Sep 2026 Config RMB E RMB N RMB H RMB overall RB2 base 87 .6 70 .6 42 .4 66 .9 77 .4                                              
+
+> ±0.3 ±0.8 ±1.2 ±0.7 ±0.8
+> dμ 373 .669 .156 .666 .476 .0
+> ±3.0 ±0.4 ±2.5 ±0.6 ±0.3
+> dμ 15 82 .071 .252 .668 .673 .1
+> ±1.9 ±0.9 ±2.5 ±0.5 ±0.7
+> ∆from baseline (pp)
+> dμ 3−14 .0−1.5+14 .2−0.4−1.4
+> ±1.4 ±0.4 ±1.2 ±0.4 ±0.4
+> dμ 15 −5.6+0.6+10 .2+1.7−4.3
+> ±0.9 ±0.5 ±1.2 ±0.4 ±0.5
+> SteerRM (Tulu-3-8B-RM) −5.5−0.2+10 .3+1 .6—
+
+Table 1: Main results: accuracy (higher is better) on the RM-Bench (RMB) Easy (E), Normal (N), and Hard (H) difficulty splits and their average (overall; see Section 2.3), and on the RewardBench 2 validation benchmark (RB2; Malik et al., 2026), for reward models initialized from Gemma 2 9B (google/gemma-2-9b-it): end of training (last eval step), mean across 5 seeds; gray sub-rows give the s.d. for accuracy rows and, for delta rows, the s.e. of the seed-paired differences (this convention holds throughout the paper). The row base is the reward model trained on the unmodified data; dμ 3
+
+and dμ 15 denote patterning with the three- and fifteen-observable targets defined in Section 3. The ∆
+
+block includes SteerRM (Sun et al., 2026, Table 1), a training-free debiasing method that uses SAEs. SteerRM does not evaluate a Gemma 2 9B reward model, so we quote the strongest result from their main table, obtained on the Llama-3.1-8B-based reward model Tulu-3-8B-RM (LlamaScope SAEs). Both methods leave the underlying preference corpus intact (no additional preference pairs collected). 
+
+on susceptibilities : measurements of how properties of the trained model respond to reweighting individual training pairs. Susceptibilities are a recent development in interpretability using ideas from singular learning theory (SLT; Baker et al., 2026; Gordon et al., 2026), closely related to influence functions (Kreer et al., 2025; Adam et al., 2025). We use susceptibilities to turn the specification “debias a reward model” into a concrete reweighting of the training data and re-train on it, an approach known as patterning (Wang and Murfet, 2026). *
+
+Our main contributions: • Competitive reward-model debiasing on a 9B model with fixed preference data. On Gemma 2 9B Instruct trained on Skywork-Reward-Preference v0.2, using losses on each of the three difficulty splits (Easy, Normal, Hard) as observables, patterning improves accuracy on the Hard split by +14 .2 ± 1.2 percentage points (pp) over the unpatterned reward model, with RM-Bench overall accuracy preserved ( −0.4 ± 0.4
+
+pp), at only a −1.4 ± 0.4 pp cost on RewardBench 2; a finer fifteen-observable target that separates losses by difficulty split for each of the five RM-Bench domains (e.g. chat , code )attains +10 .2 ± 1.2 pp on Hard, while improving overall RM-Bench accuracy ( +1 .7 ± 0.4
+
+pp) at −4.3 ± 0.5 pp on RewardBench 2 (mean ± s.e. over 5 seeds; Sections 4.1 and 4.2). Table 1 situates these numbers against the closest published RM-Bench debiasing method, SteerRM (Sun et al., 2026), whose strongest reported Hard-split improvement is +13 .2 pp (with features identified from RM-Bench samples; +10 .3 pp in their main configuration). • Interpretability of patterning weights. Because each patterning weight is attached to a specific preference pair, the reweighting can itself be analyzed. The weights single out a small class of training pairs that largely account for a collapse on RM-Bench’s 
+
+safety-response domain; we verify this via ablation (Section 4.1.2), and the diagnosis feeds directly into the refined target of Section 4.2. This demonstrates a practical data-attribution process for addressing flaws in RMs using susceptibilities. 
+
+> *The name refers to the analogy with pattern formation in developmental biology and with patterning in lithography: in both cases structure can be imprinted on a developing system by controlled external signals.
+
+2• Transferability of patterning sample weights. We observe strong transferability in the effect of patterning reweighting across model scale with the same architecture and training process (Gemma 2 9B patterning weights transferred to Gemma 2 2B and Gemma 2 27B), and moderate transferability to a different architecture (Llama 3.1 8B; Section 4.3). Strong transferability has computational value (weights computed on one model can be reused for others) and suggests that the patterning weights indicate something meaningful about the data itself, rather than just the model they are derived from. Patterning has so far been demonstrated only in small transformers on synthetic tasks (Wang and Murfet, 2026); this paper is its first application to a practical problem, at the scale of a 9B-parameter reward model. Unlike interventions that directly specify a bias, the patterning target is specified by benchmark losses, so the same machinery applies to any bias a benchmark can measure. We sketch the idea in Section 2.1 and make it precise in Sections 2.4 and 3. 
+
+# 2 Background 
+
+2.1 Overview of the approach 
+
+What would it mean to make the instruction “debias a reward model” precise, and how could such a specification be turned into a reweighting of the training data? We begin with a training run: a reward model (Section 2.2) is trained on preference pairs drawn from a distribution q (in our experiments, Skywork), producing a checkpoint w∗. This model turns out to be biased (it relies on surface features such as length and formatting) and our framing is that this defect is jointly a property of the training distribution and learning process : in q the surface cues genuinely predict which response is chosen, and the learning process has found a solution w∗ that exploits (and perhaps exacerbates) these cues. Patterning diagnoses this defect, corrects it by reweighting, and trains again (Figure 1). The diagnosis treats the trained network probabilistically: around w∗ there is a Bayesian posterior over model weights (made precise in Section 2.4), and the observables are functions of the weights whose expectation values under this posterior summarize behaviors we care about. Here the observables are the model’s losses on splits of RM-Bench (Section 2.3): a solution that relies on surface features has low Easy loss and high Hard loss, while one that uses more substantive features shows less of a gap. Why expectation values over the posterior, rather than simply the losses at w∗ itself? We associate bias with how the model computes its reward (e.g. exploiting correlations between reward and length, or not), and our perspective is that such internal structure is reflected in the local geometry of the loss landscape (how the loss changes as the weights vary around w∗), which is exactly what posterior expectations are sensitive to (Elliott and Murfet, 2026b). Pragmatically, expectation values can be differentiated with respect to the training distribution: the susceptibility (Section 2.4) measures how each observable would change if we up- or down-weighted particular preference pairs. Collecting these susceptibilities gives a matrix χ whose rows are observables and whose columns are training pairs; up to a constant, χ is the Jacobian of the map from the space of data distributions to the vector of observable expectation values. Reading χ forward (which data drives which behavior) is the structural inference of Baker et al. (2026); reading it “in reverse” is patterning (Section 3). To pattern we specify a desired change in the observables — here, “debias a reward model”, encoded as a target dμ that asks the model to do worse on the Easy split and better on the Hard split — and the Moore–Penrose pseudo-inverse of χ gives the per-pair reweighting that achieves this change to first order. The reweighted distribution is the corrected training data: we then retrain on it, and the claim to be tested is that training on the corrected distribution finds a less biased solution. The remainder of this section develops each of these notions in turn; the patterning methodology itself is presented in Section 3. 
+
+2.2 Rewards 
+
+We consider a reward model r(x, y ; w), assigning a scalar reward to a response y given a prompt x,with parameters w in a compact parameter space W ⊆ Rd equipped with a prior density φ(w). Given a preference dataset Dn = {(xj , y + 
+
+> j
+
+, y − 
+
+> j
+
+)}nj=1 drawn i.i.d. from a true distribution q(x, y +, y −),where y+ 
+
+> j
+
+is the chosen and y− 
+
+> j
+
+the rejected response, the Bradley–Terry (BT) model (Bradley and 3preference data                 
+
+> Dn∼q(Skywork) reward model w∗
+> biased: relies on length and formatting susceptibilities ˆχ
+> ˆχij : response of ⟨ϕi⟩
+> to upweighting pair zj
+> train sample posterior around w∗(SGLD) observables ϕi: losses on RM-Bench splits weights ρj= 1 + α( ˆ χ†dμ )j
+> one per training pair reweighted data
+> (Dn, ρ )
+> debiased reward model w∗′
+> invert against target dμ :raise Easy loss, lower Hard loss reweight retrain
+> diagnose correct
+
+Figure 1: The patterning pipeline for debiasing. A reward model w∗ is trained on preference data drawn from q and learns to exploit surface cues that, in q, genuinely predict the chosen response. Sampling the posterior localized around w∗ yields the susceptibility matrix ˆχ, whose entries measure how the expected loss on each RM-Bench split would respond to upweighting each training pair (Section 2.4). Inverting ˆχ against a target dμ converts this diagnosis into one weight per training pair, with α > 0 setting the strength of the intervention (Section 3), and retraining on the reweighted data yields the debiased model. Terry, 1952) assigns the preference probability 
+
+p(y+ ≻ y− | x, w ) = σ r(x, y +; w) − r(x, y −; w),
+
+where σ(t) = (1 + e−t)−1 is the logistic function. The per-sample loss of a preference triple is its negative log-likelihood, ℓxy +y− (w) = − log σ r(x, y +; w) − r(x, y −; w). The empirical loss is 
+
+Ln(w) = 1
+
+n
+
+> n
+
+X
+
+> j=1
+
+ℓxj y+ 
+
+> jy−
+> j
+
+(w) (1) and the population loss is 
+
+L(w) = Eq(x,y +,y −)
+
+ℓxy +y− (w). (2) In this paper Dn is the Skywork-Reward-Preference v0.2 dataset (Liu et al., 2024), so that q is in practice the distribution from which this dataset is drawn. 
+
+2.3 RM-Bench 
+
+RM-Bench (Liu et al., 2025) is a reward-model benchmark consisting of prompts x split across four domains (chat, code, math, and safety), with the safety domain subdivided into prompts that should be refused and prompts that should be answered. Throughout we treat these as five categories: chat ,
+
+code , math , safety-refuse , and safety-response (see Appendix A for details). A source set of preference pairs (x, y +, y −), whose responses are detailed, informative and Markdown-formatted, is augmented by using a language model to rewrite each source response y into two plainer styles, giving three styles of increasing style rank : short concise responses ( y∅), detailed responses in plain text ( yL), and the original responses with Markdown formatting ( yL,M ). Pairing every chosen style with every rejected style produces 3 × 3 = 9 (chosen-style, rejected-style) pairings per source pair. Aggregating the resulting 3 × 3 accuracy matrix by the relative style rank of chosen and rejected gives three difficulty splits: • Easy (x, y +,L , y −,∅), (x, y +,L,M , y −,∅), (x, y +,L,M , y −,L ) averages the pairs where the 
+
+chosen response has higher style rank than rejected: the introduced length/formatting bias is aligned with substantive correctness. • Normal (x, y +,∅, y −,∅), (x, y +,L , y −,L ), (x, y +,L,M , y −,L,M ) averages the pairs where both sides have matched style. 4• Hard (x, y +,∅, y −,L ), (x, y +,∅, y −,L,M ), (x, y +,L , y −,L,M ) averages the pairs where the 
+
+rejected response has higher style rank than chosen: the introduced bias points against 
+
+correctness. A reward model that computes reward from substantive, content-based features scores highly on all three splits. One that uses length or Markdown formatting as a confounded feature scores well on Easy but poorly on Hard. Overall RM-Bench metrics pool the two safety subcategories (by example count) into a single safety domain and then macro-average the four domains (chat, code, math, safety), following the official RM-Bench scoring code (Liu et al., 2025); we use this convention throughout. 
+
+2.4 Susceptibilities 
+
+The term “susceptibility” comes from physics, where it measures how a system responds to an external perturbation: for example, how a material’s magnetization changes when an external magnetic field is applied. In our setting, the “system” is the neural network, with the posterior distribution over its parameters playing the role of the Boltzmann distribution, and the “perturbation” is a shift in the preference data distribution. The susceptibility measures how posterior expectation values of observables (real-valued functions on parameter space) respond to such shifts. This is a form of 
+
+linear response theory (Kubo, 1966); for a detailed development in the setting of neural networks see Elliott and Murfet (2026b). The population and empirical posteriors at inverse temperature β > 0 and sample size n are 
+
+Πpop  
+
+> n,β
+
+(w) = 1
+
+Zpop 
+
+> n,β
+
+exp {− nβL (w)}φ(w),
+
+Πemp  
+
+> n,β
+
+(w) = 1
+
+Zemp 
+
+> n,β
+
+exp {− nβL n(w)}φ(w),
+
+(3) with normalizing constants Zpop  
+
+> n,β
+
+= R exp {− nβL (w)}φ(w) dw and Zemp  
+
+> n,β
+
+defined analogously with 
+
+Ln in place of L. Since ℓ is the negative log-likelihood of the preference labels (Section 2.2), at 
+
+β = 1 the empirical posterior is the ordinary Bayesian posterior given Dn. We define susceptibilities in terms of the population posterior Πpop  
+
+> n,β
+
+, and estimators for these susceptibilities using the empirical posterior Πemp  
+
+> n,β
+
+. By analogy with statistical mechanics the population posterior is sometimes called the annealed posterior , the terminology used in Wang and Murfet (2026). Given a function ϕ(w) we define the expectation 
+
+⟨ϕ⟩ =
+
+Z
+
+ϕ(w) Π pop  
+
+> n,β
+
+(w) dw, (4) and given a second function ψ(w) the covariance with respect to the population posterior is 
+
+Cov ϕ, ψ  = ϕ ψ − ϕ ψ .
+
+The expectation with respect to the empirical posterior Πemp  
+
+> n,β
+
+is denoted ⟨−⟩ emp , and the covariance with respect to the empirical posterior, denoted Cov emp , is defined in the same way with ⟨−⟩ emp in place of ⟨−⟩ .
+
+Susceptibility as a derivative. A susceptibility χ is a derivative of a posterior expectation value along a deformation of the data distribution (Baker et al., 2026). We consider mixture deformations from q toward a probe distribution q′,
+
+qh = (1 − h) q + h q ′, h ∈ [0 , 1] ,
+
+and write ⟨ϕ⟩h for the expectation of ϕ under the population posterior formed using qh. The 
+
+susceptibility of ϕ in the direction q′ is †
+
+χ(ϕ) = 1
+
+nβ ∂∂h ⟨ϕ⟩h
+
+> h=0
+
+. (5)     
+
+> †The prefactor 1
+> nβ absorbs the factor of nβ that would otherwise appear on the right-hand side of (6) below.
+
+5Cov[ ϕ, ∆L] < 0: response 
+
+ϕ(w)∆L(w)
+
+> ⟨ϕ⟩⟨ϕ⟩h
+
+Cov[ ϕ, ∆L] = 0 : no response 
+
+ϕ(w)∆L(w)  
+
+> ⟨ϕ⟩=⟨ϕ⟩h
+
+Figure 2: Why the derivative of an expectation is a covariance (6). Dots are posterior samples 
+
+w, placed by their loss variation ∆L(w) and observable value ϕ(w). Perturbing the data toward q′
+
+multiplies the weight of each sample by e−nβh ∆L(w): to first order, mass drains from samples with above-average ∆L and flows to those below (dot size and shade indicate weight after the perturbation). 
+
+Left: when ϕ co-varies with ∆L, this reweighting shifts the mean from ⟨ϕ⟩ to ⟨ϕ⟩h; the shift per unit h is −nβ Cov[ ϕ, ∆L]. Right: with no covariance, the same reweighting leaves ⟨ϕ⟩ unchanged. The SGLD draws used to estimate ˆχ form exactly such a cloud, and the estimator is its empirical covariance. Patterning computes one such covariance for every training pair and scores them against a target shift to produce the retraining weights ρ (Section 3). We leave the dependence of χ(ϕ) on the direction q′ implicit in the notation; it will always be clear from context. By the static fluctuation–response relation, this derivative equals a covariance under the unperturbed population posterior (this identity is often referred to loosely as the fluctuation– dissipation theorem, cf. Kubo 1966; for the statement in the Bayesian setting see Giordano et al. 2018). Writing L(w; q′) = Eq′(x,y +,y −)
+
+ℓxy +y− (w) for the population loss against the probe distribution, and ∆L(w) = L(w; q′) − L(w) for the loss variation along the path, 
+
+χ(ϕ) = − Cov ϕ, ∆L , (6) so the response of ⟨ϕ⟩ to a data perturbation is read off from posterior fluctuations at the unperturbed distribution; this standard argument is recalled in Baker et al. (2026). Figure 2 illustrates the mechanism: the perturbation reweights posterior samples along ∆L, which moves ⟨ϕ⟩ to the extent that ϕ co-varies with ∆L.
+
+Per-sample susceptibilities. Taking the probe distribution to be the point mass q′ = δ(x,y +,y −) at a single preference triple, the loss variation is ∆L = ℓxy +y− − L, so (6) gives 
+
+χxy +y− (ϕ) := − Cov ϕ, ℓ xy +y− − L ,
+
+which we call the per-sample susceptibility . Note that χxy +y− (ϕ) > 0 means that shifting weight onto this triple increases ⟨ϕ⟩, and χxy +y− (ϕ) < 0 that it decreases it. The per-sample susceptibility acts as a density for general susceptibilities: for a general probe distribution q′, the susceptibility decomposes as 
+
+χ(ϕ) = 
+
+Z
+
+q′(x, y +, y −) χxy +y− (ϕ) dx dy + dy − , (7) so the per-sample susceptibilities determine the response to every perturbation. This decomposition was established for sequence models in Gordon et al. (2026); the derivation depends only on the population loss being an expectation of a per-sample loss, so it carries over unchanged. 
+
+The susceptibility matrix. Susceptibilities extract information about L in a way that depends on the choice of observable ϕ (Elliott and Murfet, 2026b). In this paper we define observables to be the empirical losses ϕi(w) on k sets of preference data indexed by i; these sets will be splits of RM-Bench, by difficulty alone or by domain and difficulty, as specified in Section 3. Given preference triples x1y+1 y− 
+
+> 1
+
+, . . . , x ny+ 
+
+> n
+
+y− 
+
+> n
+
+we obtain the susceptibility (or response) matrix 
+
+χ =  χxj y+ 
+
+> jy−
+> j
+
+(ϕi) 
+
+> 1≤i≤k, 1≤j≤n
+
+.
+
+6Rows are indexed by the k observables and columns by the n preference triples, which in practice are the training dataset Dn: column j records how upweighting the j-th training pair moves each observable. 
+
+The empirical susceptibility estimator. The population susceptibility involves the population posterior and the population loss L, neither of which we have access to. Following Baker et al. (2026) and Elliott and Murfet (2026b), the practical counterpart replaces the population posterior Πpop  
+
+> n,β
+
+by the empirical posterior Πemp  
+
+> n,β
+
+and the centering L by Ln, giving the empirical susceptibility estimator 
+
+ˆχxy +y− (ϕ) = −Cov emp ϕ, ℓ xy +y− − Ln
+
+, (8) with the estimated matrix 
+
+ˆχ =   ˆχxj y+ 
+
+> jy−
+> j
+
+(ϕi)  
+
+> 1≤i≤k, 1≤j≤n
+
+.
+
+Abbreviating zj = ( xj , y + 
+
+> j
+
+, y − 
+
+> j
+
+), we call the j-th column ˆχzj =   ˆχzj (ϕ1), . . . , ˆχzj (ϕk) ∈ Rk the 
+
+susceptibility profile of the training pair zj .Elliott and Murfet (2026a) use ideas from singular learning theory (Watanabe, 2009) to show that ˆχ
+
+is a consistent and asymptotically unbiased estimator of the population susceptibility in the regime 
+
+nβ → ∞ , β → 0; the proof controls the convergence of empirical to population covariances (Adam et al., 2025). 
+
+Susceptibilities and data reweighting. The susceptibility tells us the infinitesimal response of an expectation value for the population posterior to a deformation of the data distribution q. We have seen that the susceptibility for a general deformation can be derived from per-sample susceptibilities (7), and that these can be estimated using expectation values ⟨−⟩ emp for the empirical posterior (8). Another way to think about this susceptibility estimator is in terms of the response of an expectation value to a reweighting of samples from the distribution q (Elliott and Murfet, 2026b, §6.2.1). Let Dn = {zj }nj=1 be the training dataset as in Section 2.2, and given weights ρ = ( ρ1, . . . , ρ n)
+
+define the reweighted empirical loss 
+
+Lρn(w) = 1
+
+n
+
+> n
+
+X
+
+> j=1
+
+ρj ℓzj (w) , (9) which reduces to Ln at ρ = 1. Substituting Lρn for Ln in Πemp  
+
+> n,β
+
+gives a reweighted posterior, whose expectations we denote ⟨ϕ⟩ρ; at ρ = 1 this is the empirical posterior, so ⟨ϕ⟩1 = ⟨ϕ⟩emp .Differentiating with respect to a single weight, exactly as for the static fluctuation–response relation above, gives 
+
+∂∂ρ m
+
+⟨ϕ⟩ρ
+
+> ρ=1
+
+= −β Cov emp ϕ, ℓ zm
+
+ . (10) Now consider the tangent direction that increases the weight of a chosen sample zm and decreases the weight of all the others: ρj (h) = (1 − h) + nh δ jm , the mixture path from the empirical distribution 
+
+> 1
+> n
+
+P 
+
+> j
+
+δzj toward the point mass δzm (note that P 
+
+> j
+
+ρj (h) = n for all h, so total mass is preserved). Applying the chain rule to (10) along this direction, the centering by Ln appears: 
+
+1
+
+nβ ddh ⟨ϕ⟩ρ(h)
+
+> h=0
+
+= −Cov emp ϕ, ℓ zm − Ln
+
+ = ˆ χzm (ϕ) , (11) in parallel with (5). The weight derivative (10) is the local case sensitivity of Gustafson (1996), an instance of the general principle that derivatives of posterior expectations under perturbation are posterior covariances (Giordano et al., 2018); in the neural network setting it is the Bayesian influence function of Kreer et al. (2025), closely related to the loss kernel of Adam et al. (2025). 
+
+Localized posteriors and susceptibilities. The population and empirical posteriors are probability densities defined on the entire parameter space W . If we restrict the domain of integration to a small ball around a target parameter w∗ ∈ W we obtain local posteriors , and repeating the definitions above with these gives local susceptibilities and their estimators. The susceptibilities and their estimators then depend on the observable ϕ, the target parameter w∗, and the deformation q → q′ of the data distribution. Localization is what ties the theory to the trained model at hand: at large nβ 
+
+the global posterior concentrates near the set of minimal-loss parameters and, for a neural network, may spread its mass across many basins, whereas the local posterior confines attention to the basin 7Symbol Meaning                                     
+
+> w,w∗model weights; trained reward-model checkpoint
+> z= ( x, y +, y −)preference triple: prompt, chosen ( y+) and rejected ( y−) response
+> q,Dnpreference data distribution; training dataset of npairs drawn from qℓz,Ln,LBradley–Terry loss of pair z; empirical loss; population loss
+> β,γinverse temperature; SGLD localization strength
+> ϕi,⟨ϕ⟩observable (BT loss on an RM-Bench split); its posterior expectation E, N, H RM-Bench difficulty splits Easy, Normal, Hard (Section 2.3)
+> χ,ˆχpopulation susceptibility matrix; its empirical estimator (8)
+> dμ patterning target: desired shift in (⟨ϕ1⟩, . . . , ⟨ϕk⟩)
+> dμ 3,dμ 15 the three- and fifteen-observable patterning targets used in experiments
+> αperturbation strength of the reweighting (14)
+> ρjpatterning weight of training pair zj: multiplier on its loss in Lρn(9)
+> ¯ρmean of ρover the population under discussion (full corpus or a subset)
+
+Table 2: Notation used throughout the paper. of the solution actually found by training, whose local geometry is what the susceptibilities probe (Elliott and Murfet, 2026b). In this paper there is always a fixed w∗ (the reward model trained on the unperturbed preference distribution) and we do not include it in the notation. In practice, rather than a hard cutoff, we localize the sampling process using a Gaussian prior centered at w∗ (Lau et al., 2025; Baker et al., 2026). The covariance in (8) is estimated from samples of this localized empirical posterior, drawn using stochastic gradient Langevin dynamics (SGLD) (Welling and Teh, 2011); the update equation and sampling hyperparameters appear in Appendix C. 
+
+2.5 Notation 
+
+Table 2 collects the notation used throughout the paper. 
+
+# 3 Methodology 
+
+In this section we explain the diagnose and correct methodology outlined in Figure 1. For diagnosis we assume we are given a trained reward model w∗ that we suspect is biased. A typical application of RM-Bench would diagnose length and formatting bias from a large gap between the performance of w∗ on the Easy and Hard splits. We instead use the expected performance gap, with w∗ replaced by a random variable w sampled from the local posterior near w∗ for the preference dataset Dn
+
+(Section 2.4). That is, we average the performance gap over parameters w near w∗ which also have good performance on the original training distribution for the reward model. To correct this bias, we ask the following question: what deformation of the data distribution q,realized empirically by a reweighting (Dn, ρ ) of the dataset Dn ∼ q, would close this expected gap between Easy and Hard and thus hopefully debias the model? For observables ϕi the vector of expectation values 
+
+μ(q) = ( ⟨ϕ1⟩, . . . , ⟨ϕk⟩) ∈ Rk
+
+depends on q via the population posterior distribution and on w∗ by localizing the posterior. The susceptibility matrix χ of Section 2.4 is, up to the factor nβ , the Jacobian of μ with respect to the mass that q places on each preference triple: perturbing these masses by a vector dq changes the expectations, to first order, by 
+
+dμ = nβ χ dq . 
+
+Patterning (Wang and Murfet, 2026; Elliott and Murfet, 2026b) inverts this relation. Given a target shift dμ in the observable expectations, the Moore–Penrose pseudo-inverse χ† gives 
+
+dq opt = 1
+
+nβ χ† dμ, (12) the minimum-L2-norm perturbation of q that achieves dμ to first order (when dμ lies in the image of 
+
+χ; otherwise the least-squares optimum). 8In practice we have access not to q but to the sample Dn, and a reweighting is the natural empirical counterpart of a deformation of q (Elliott and Murfet, 2026b, §6.5): the weights ρ define the reweighted empirical distribution 
+
+ˆqρ = 1
+
+n
+
+> n
+
+X
+
+> j=1
+
+ρj δzj ,
+
+for which L(w; ˆ qρ) = Lρn(w) is the reweighted empirical loss of (9). Writing ρj = 1 + αs j with P 
+
+> j
+
+sj = 0 (so that total mass is preserved) and α > 0 a perturbation strength, ˆqρ is a perturbation of the empirical distribution ˆqn = ˆ q1 with tangent vector dq = αs/n . Substituting this into the response equation dμ = nβ χ dq , with the estimator ˆχ in place of χ, gives the empirical response 
+
+dμ = αβ ˆχ s ; (13) equivalently, (13) follows by summing the per-sample weight derivatives (10) along the direction s.Solving (13) for s by pseudo-inverse, exactly as in the population case, gives the direction s ∝ ˆχ†dμ .We fix the convention s = ˆ χ†dμ , so that α is an explicit perturbation strength and the first-order shift in the observables achieved by the reweighting is αβ dμ rather than dμ itself. This yields the per-sample weights used throughout this paper: 
+
+ρj = 1 + α ( ˆ χ†dμ )j . (14) Concretely, assuming ˆχ has full row rank (reasonable, since k ≪ n), we have 
+
+( ˆ χ†dμ )j = ˆ χ⊤ 
+
+> zj
+
+( ˆ χ ˆχ⊤)−1dμ , 
+
+so each pair is scored by the inner product of its susceptibility profile with the target, with ( ˆ χ ˆχ⊤)−1
+
+correcting for correlations among the observables. Patterning upweights pairs whose profile aligns with dμ , downweights pairs that oppose it, and leaves orthogonal pairs untouched. ‡
+
+Note that α and the overall scale of dμ are not independent (one can be absorbed into the other), and the effective strength of the intervention is governed by the coupling αβ that multiplies the target in the first-order response: at the values used in our experiments ( α ∈ [100 , 350] ) this coupling is of order one ( αβ ≈ 1.0–1.4; quantified in Section 5). At this strength the weights can become negative (handled by the label-swap convention below) and the linear regime is not guaranteed, so following Wang and Murfet (2026) we treat α as a hyperparameter to be tuned. 
+
+Reward model training. The reward model is initialized from Gemma 2 9B Instruct (Gemma Team, 2024) and trained on Skywork-Reward-Preference v0.2 (Liu et al., 2024) with the standard Bradley–Terry (Bradley and Terry, 1952) objective. All models used in this paper (Gemma 2 2B, 9B, 27B and Llama 3.1 8B) are the instruction-tuned releases; we omit the Instruct suffix below and write e.g. Gemma 2 27B. Training hyperparameters are in Appendix B. Unless stated otherwise, all numerical results in this paper are for this Gemma 2 9B reward model; other models appear only in the transfer experiments of Section 4.3. 
+
+Observables. The observables are Bradley–Terry losses on RM-Bench, grouped by difficulty split alone or by domain and split, depending on the experiment: • Three observables (k = 3 ): ϕs for s ∈ { Easy , Normal , Hard }, where ϕs(w) is the BT loss on all RM-Bench comparisons in split s.• Fifteen observables (k = 15 ): ϕ(d,s )(w) is the BT loss on all comparisons in domain d and split s, for 
+
+d ∈ { chat , code , math , safety-refuse , safety-response },s ∈ { Easy , Normal , Hard }.
+
+We write dμ 3 and dμ 15 for the patterning targets built on these two observable sets, specified below. 
+
+The patterning target. For debiasing we want the reward model to rely less on length and formatting; since these cues help on the Easy split (where they align with correctness) and hurt on                
+
+> ‡A caveat from Elliott and Murfet (2026b): although ˆχconsistently estimates χ, the pseudo-inverse ˆχ†need not be a good estimator of χ†. The ridge-regularized inverse Rλ( ˆ χ) = ˆ χ⊤( ˆ χˆχ⊤+λI )−1repairs this: for each fixed λ > 0it is a consistent and asymptotically unbiased estimator of Rλ(χ). In this paper we use the unregularized pseudo-inverse; we did not investigate whether ridge regularization changes our results.
+
+9the Hard split, we choose a target that raises the Easy-split loss and lowers the Hard-split loss. With three observables ordered (Easy, Normal, Hard) we use 
+
+dμ 3 = (2 , −1, −2) , α = 250 ,
+
+selected by a sweep over targets and perturbation strengths (Section 4.1). With fifteen observables we parameterize the target by one scalar ad per domain d, setting dμ d = ( ad, 0, −ad) across (Easy, Normal, Hard): for each domain, the target pushes that domain’s Easy loss up and Hard loss down by the same amount while holding Normal fixed. We use 
+
+dμ 15 : (achat , a code , a math , a refuse , a response ) = (1 .5, 2.0, 1.0, 1.0, 1.0) , α = 350 .
+
+Susceptibility estimation. The empirical susceptibility matrix ˆχ ∈ Rk×n is computed on 
+
+n = 74 ,508 Skywork preference pairs (the dataset after the pipeline-artifact filtering described below), from SGLD samples of the posterior localized at w∗ (Appendix C); the patterning weights then follow (14). 
+
+Retraining objective. The retrained model minimizes the normalized reweighted BT loss 
+
+˜Lρn(w) = 
+
+Pnj=1 ρj ℓzj (w)
+
+Pnj=1 ρj
+
+. (15) In principle the normalization is almost redundant: for fixed ρ it only rescales the objective by the constant 1
+
+> n
+
+P 
+
+> j
+
+ρj , and if the rows of ˆχ summed to zero exactly (as they do for the ideal estimator, where the ℓzj average to Ln) then 1 ∈ ker ˆ χ would force 1⊤ ˆχ†dμ = 0 , so that P 
+
+> j
+
+ρj = n exactly and ˜Lρn agrees with Lρn of (9). In practice the losses entering the covariance (8) are minibatch estimates rather than exact dataset averages, the estimated rows are not exactly centered, and the mean weight deviates from 1 (e.g. ¯ρ = 0 .966 at dμ 3; Section 4.1.1); we normalize to enforce mass conservation exactly. 
+
+Negative weights and label swap. The weights (14) can be negative for some pairs, which a positive-weight retraining objective does not directly accommodate. We implement these by swapping the chosen and rejected responses for that pair and using |ρj | as the weight. This convention is a heuristic, not the signed objective (9): at the gradient level the swap rescales the signed term by an input-dependent factor, as recorded in Appendix D. 
+
+Evaluation. RM-Bench plays two roles in this work. First, its per-split losses define our patterning observables and thus specify the bias that we want to remove. Second, it is used as an evaluation benchmark for the debiasing. RewardBench 2 accuracy (Malik et al., 2026) provides a complementary check: its prompts and responses are independent of the training mixture and of the patterning observables. However, it is not fully held out: we consulted RewardBench 2 when selecting targets (the weightings in dμ and the perturbation strength α), so it serves as a validation benchmark. 
+
+Pipeline-artifact filtering. The raw Skywork-Reward-Preference v0.2 dataset contains 77 ,012 
+
+pairs, of which a small subset of 2,504 (3.25% ) share an identical susceptibility profile ˆχzj =(0 .00048 , −0.00192 , 0.00047) due to truncation before the end of the prompt, which makes the chosen and rejected responses identical. We exclude these pairs, leaving the n = 74 ,508 pairs used throughout, in particular in the data-attribution analyses of Sections 4.1.1 and 4.2.1. 
+
+# 4 Results 
+
+Our headline results are collected in Table 1: on Gemma 2 9B, patterning at the three-observable target improves RM-Bench Hard by +14 .2 ± 1.2 pp at a cost of −1.4 ± 0.4 pp on RewardBench 2, and at the fifteen-observable target by +10 .2 ± 1.2 pp at −4.3 ± 0.5 pp (mean ± s.e. over 5 seeds). The closest published method is SteerRM (Sun et al., 2026), which suppresses Markdown-formatting SAE features at inference time. In its main configuration the features are identified from an indepen-dent set of synthesized format-controlled pairs, and the strongest resulting Hard-split gain across the six reward models they evaluate is +10 .3 pp (on Tulu-3-8B-RM; this is the comparator row in Table 1). In an ablation they instead identify the features from Markdown/plain pairs sampled from RM-Bench itself, obtaining +13 .2 pp on Skywork-Reward-Llama-3.1-8B (Sun et al., 2026, Table 6); since our own intervention is likewise constructed from RM-Bench (its losses are our observables), 10 base dμ 3 ∆ (pp) Domain E N H E N H E N H
+
+chat 90.5 73.2 29.9 65.5 74.3 65.9 −25 .0 +1 .1 +36 .0        
+
+> ±0.5 ±1.6 ±1.7 ±2.9 ±1.0 ±4.4 ±1.3 ±0.8 ±2.1
+
+code 73.0 52.2 29.1 73.2 52.9 29.4 +0 .2 +0 .7 +0 .3        
+
+> ±1.7 ±1.5 ±1.8 ±1.2 ±1.0 ±2.2 ±0.9 ±0.8 ±1.3
+
+math 88.7 60.6 21.4 77.3 58.4 35.2 −11 .4 −2.2 +13 .7        
+
+> ±1.4 ±1.4 ±2.0 ±4.2 ±0.4 ±5.1 ±2.0 ±0.7 ±2.4
+
+safety-refuse 99.1 98.6 96.9 92.8 99.4 99.8 −6.3 +0 .7 +2 .9        
+
+> ±0.2 ±0.6 ±1.2 ±3.9 ±0.2 ±0.1 ±1.8 ±0.3 ±0.5
+
+safety-response 96.3 92.2 74.9 52.2 75.4 89.1 −44 .1 −16 .8 +14 .2        
+
+> ±1.1 ±2.6 ±4.0 ±8.9 ±3.9 ±2.0 ±4.0 ±2.1 ±2.0
+
+overall 87.6 70.6 42.4 73.6 69.1 56.6 −14 .0 −1.5 +14 .2        
+
+> ±0.3 ±0.8 ±1.2 ±3.0 ±0.4 ±2.5 ±1.4 ±0.4 ±1.2
+
+Table 3: Results for the three-observable target. RM-Bench accuracy at dμ 3 = (2 , −1, −2) , α =250 on Gemma 2 9B, base vs. patterned (end of training; mean across 5 seeds, with the s.d. in gray beneath each value and the s.e. beneath each delta). The overall rows follow the official RM-Bench aggregation (safety-refuse/safety-response pooled by example count, then an unweighted mean over the four domains). RewardBench 2 average 77 .4 → 76 .0 (−1.4 pp). 
+
+Figure 3: The distribution of patterning weights at dμ 3. (left) Roughly bell-shaped distribution of patterning weights ρ over the 74 ,508 Skywork v0.2 pairs with mean ¯ρ = 0 .966 , σ = 0 .563 . About 
+
+5.3% of pairs receive ρ < 0 and have their preference labels swapped during retraining. (right) The same distribution is shown in gray overlaid with the 2,112 short-rejected-refusal pairs (red, right axis; separate scale). this is arguably the more directly comparable configuration. Patterning at dμ 3 exceeds the former and is comparable to the latter ( +14 .2 ± 1.2 vs. +13 .2). The remainder of this section analyzes the two targets: how they were chosen, what the resulting weights do to the training data, and ablations tracing side effects to specific training pairs; Section 4.3 examines the transfer of the weights to other models. 
+
+4.1 Patterning at dμ 3
+
+We begin by sweeping dμ and α on the three-observable basis (see Appendix E) to find patterning hyperparameters with competitive debiasing effects, as measured by RM-Bench. Based on this sweep, we select the target dμ 3 = (2 , −1, −2) , α = 250 of Section 3 to analyze; at this setting, Hard rises 
+
++14 .2 ± 1.2 pp across seeds (Table 1), with per-domain results in Table 3. A second target from the sweep is reported in Appendix E. 11 Figure 4: Surface-feature correlations of the patterning weights. (left) Per-sample Pearson r
+
+between ∆X = X(chosen ) − X(rejected ) and the patterning weight ρ at dμ 3, for each surface feature, over the 74 ,508 -pair Skywork population. Negative r means patterning systematically demotes the side with more X. (middle, right) ∆words vs. ρ over the population for (middle) dμ 3
+
+and (right) dμ 15 (see Section 4.2), after z-scoring each axis. 
+
+4.1.1 Interpreting the dμ 3 reweighting 
+
+Patterning at dμ 3 produces a weight ρj for each Skywork preference pair. In this section we perform a simple interpretability analysis of these weights. Figure 3 (left) shows the empirical distribution of 
+
+ρj over the population, with mean ¯ρ ≡ 1
+
+> n
+
+P 
+
+> j
+
+ρj = 0 .966 and standard deviation 0.563 .§
+
+We compute per-sample correlations against surface features of the (chosen, rejected) pairs (features listed in Appendix G). For each feature, we define ∆Xj = X(chosen j ) − X(rejected j ) and compute 
+
+corr(∆ Xj , ρ j ) over the population (Figure 4). The three largest negative correlates are words (r = −0.228 ), len (r = −0.221 ), and paragraphs 
+
+(r = −0.131 ). This is expected, since length is one of the two style features that RM-Bench varies (Section 2.3). However, it is apparent from Figure 4 that the weights are not a simple function of the length (for instance, preference pairs with large gaps in the length of chosen and rejected responses do not necessarily acquire large patterning weights). Indeed, a length-only reweighting calibrated to patterning’s own weight scale performs far worse than patterning: it overshoots the target (Hard accuracy ends up above Easy) at a much larger RewardBench 2 cost (Appendix F). The formatting features ( numbered , bullets , headers , caps_words ) weakly correlate but are largely a length confound: within length-matched pairs ( |∆words | < 30 , n = 17 ,029 ), their correlations collapse ( r(∆ numbered , ρ ): −0.075 → − 0.006 ; r(∆ bullets , ρ ): −0.073 → +0 .005 ;
+
+r(∆ headers , ρ ): −0.063 → − 0.018 ; r(∆ caps_words , ρ ): −0.055 → +0 .016 ). This suggests that patterning on this target is not really performing an “anti-formatting” intervention separate from the intervention on length, despite the fact that RM-Bench is designed to diagnose both length and formatting biases. 
+
+4.1.2 Examining a failure of patterning at dμ 3
+
+The largest side effect of patterning at dμ 3 is the hit to safety-response : its Easy accuracy drops by 44 .1 pp (Table 3), by far the largest regression in any domain. As a test of the interpretability of the patterning weights, we examine whether we can (i) discover the cause of this large drop in performance, and then (ii) test this explanation by making an intervention. There is reason to expect trouble of this kind: an overly naive downweighting of longer responses 
+
+should negatively impact safety-response , where the chosen (full response) is likely to be much longer than the rejected (refusal). We therefore look for training pairs of this shape in Skywork. We identify refusals by matching the plaintext response against a refusal regex (phrases such as Icannot help and I must decline ); the exact regular expression is given in Appendix G. The four-cell decomposition of mean ρ by c_refusal (chosen is a refusal) and r_refusal (rejected is a refusal) shows an asymmetry (baseline denotes the population mean 0.966 ):     
+
+> §Throughout, ¯ρdenotes the mean of ρover whatever population is under discussion (the full Skywork corpus here, a subset elsewhere).
+
+12 c_refusal r_refusal n ¯ρ ¯ρ − baseline                 
+
+> 0068 ,510 0.989 +0 .023 102,384 0.962 −0.003 013,466 0.514 −0.452
+> 11148 0.877 −0.089
+
+While samples with only a refusal on chosen have around an average reweighting, samples with only a refusal on rejected have a substantial average downweighting compared to typical samples in the training data, about 0.8 standard deviations below baseline. We further split these 3,466 
+
+refusal-on-rejected pairs by the ratio of words in chosen versus rejected responses, which suggests that the effect is strongest when the chosen is substantially longer than the rejected:                     
+
+> Sub-cell (by chosen vs. rejected word count) n¯ρP( ρ < 0)chosen >2×rejected words 2,112 0.270 27 .3%
+> chosen 1–2×rejected words 587 0.665 19 .8%
+> chosen ≤rejected words 767 1.070 2.6%
+
+We define short-rejected-refusal (SRR) pairs to be those 2,112 pairs in the top row which have 
+
+c_refusal = 0 , r_refusal = 1 , and at least twice as many words in the chosen response as in the rejected one. Figure 3 (right) overlays the SRR weight distribution on the population. Compared against length-matched non-refusal-rejected controls, length explains roughly 60% of the deviation of SRR reweightings from baseline (Appendix H); the additional ∼0.29 drop on SRR is a refusal-rejected-specific residual that length does not account for. 
+
+Direct ablation test on SRR. We test the hypothesis that SRR sample reweightings are responsible for the regression on safety-response performance by clamping the 2,112 SRR sample weights to 1.0. We report the full results in Table 15 (Appendix H), retraining at dμ 3 with SRR clamping. The prediction is largely borne out: safety-response Easy recovers from −44 .1 pp to −13 .3 pp, and Normal from −16 .8 to −4.5 (mean over 5 seeds; Table 15): about two-thirds of the original regression is removed by clamping SRR samples. The clamp does not compromise the debiasing itself: overall Hard improves slightly ( +14 .6 vs. +14 .2 pp) and the RewardBench 2 cost is unchanged (−1.4 pp in both cases). 
+
+4.2 Patterning at dμ 15 
+
+While the dμ 3 case produces competitive headline results, we have seen that it has undesirable per-domain side effects (Section 4.1.2). We therefore pattern on the more fine-grained fifteen-observable target dμ 15 of Section 3, which aims at Easy, Normal, Hard for each of the five RM-Bench domains individually. Table 4 reports the result. The gain from the finer target is not more Hard accuracy but recovery from the safety-response 
+
+collapse. Across seeds, overall RM-Bench Hard improves +10 .2 ± 1.2 pp, below dμ 3 (+14 .2 ± 1.2
+
+pp; Table 1); but safety-response is now preserved on RM-Bench: Easy moves only −1.7 pp instead of the −44 .1 pp collapse at dμ 3. There is however a cost on RewardBench 2: −4.3 ± 0.5 pp on average across seeds. 
+
+4.2.1 Interpreting the dμ 15 reweighting Surface features. The dμ 15 reweighting similarly has a bell-shaped distribution, but with a smaller mean than in the dμ 3 case (0.82 versus 0.97) and a larger standard deviation (0.92 versus 0.56). More samples also have their labels flipped (18.1% versus 5.3%). As before, we also check the correlation between sample reweighting and sample length in word count (Figure 4). In this case, even the mild correlation in dμ 3 essentially vanishes. 
+
+The SRR class in dμ 15 . In Figure 5, we see that the distribution of SRR pairs now essentially matches the full distribution of weightings, compared to Figure 3 where the SRR pairs have signif-icantly different weightings. Unlike the cruder dμ 3 ablation, which clamped SRR weights to 1.0,13 base dμ 15 ∆ (pp) Domain E N H E N H E N H
+
+chat 90.5 73.2 29.9 88.5 77.7 42.0 −2.0 +4 .5 +12 .1        
+
+> ±0.5 ±1.6 ±1.7 ±1.9 ±2.2 ±2.2 ±0.9 ±1.2 ±1.3
+
+code 73.0 52.2 29.1 70.9 52.0 31.2 −2.1 −0.2 +2 .1        
+
+> ±1.7 ±1.5 ±1.8 ±4.5 ±2.1 ±4.6 ±2.2 ±1.2 ±2.2
+
+math 88.7 60.6 21.4 71.5 58.8 44.1 −17 .2 −1.8 +22 .7        
+
+> ±1.4 ±1.4 ±2.0 ±5.8 ±0.9 ±8.5 ±2.7 ±0.8 ±3.9
+
+safety-refuse 99.1 98.6 96.9 98.3 98.0 97.7 −0.9 −0.6 +0 .8        
+
+> ±0.2 ±0.6 ±1.2 ±0.7 ±0.4 ±0.5 ±0.3 ±0.3 ±0.6
+
+safety-response 96.3 92.2 74.9 94.6 93.2 84.7 −1.7 +1 .0 +9 .8        
+
+> ±1.1 ±2.6 ±4.0 ±1.1 ±1.2 ±4.5 ±0.7 ±1.3 ±2.7
+
+overall 87.6 70.6 42.4 82.0 71.2 52.6 −5.6 +0 .6 +10 .2        
+
+> ±0.3 ±0.8 ±1.2 ±1.9 ±0.9 ±2.5 ±0.9 ±0.5 ±1.2
+
+Table 4: Results for the fifteen-observable target. RM-Bench accuracy at dμ 15 on Gemma 2 9B, base vs. patterned (end of training; mean across 5 seeds, with the s.d. in gray beneath each value and the s.e. beneath each delta). Per-domain base columns are shared with Table 3; the overall rows aggregate them under the official RM-Bench scoring (safety-refuse/safety-response pooled by example count, then an unweighted mean over the four domains). RewardBench 2 average 
+
+77 .4 → 73 .1 (−4.3 pp). 
+
+Figure 5: The distribution of patterning weights at dμ 15 . (top left) Distribution of the dμ 15 
+
+patterning weight ρ, with the sub-populations (top right) SRR, (bottom left) magpie_ultra , (bottom right) offsetbias overlaid. 
+
+dμ 15 patterning preserves safety-response on its own, though at a larger RewardBench 2 cost than the clamp ( −4.3 vs. −1.4 pp). 
+
+Other sub-corpora of Skywork. Skywork is a mixture of publicly identifiable source datasets, recorded in a source field on each pair (see Appendix H). Two of these sub-corpora stood out in our analysis of ρ: magpie_ultra (Xu et al., 2025) and offsetbias (Park et al., 2024a). In Figure 5, we see that magpie_ultra is systematically downweighted by patterning. However, samples of 
+
+magpie_ultra appear fairly reasonable (see Appendix I), and the construction of the dataset uses an instruction-tuned model to generate the chosen completions, while a base model is used to generate the rejected sequences. Intuitively, one would expect these samples to be useful for the reward model and to be upweighted instead. In Table 17 (Appendix I), we see that for the most part, the average susceptibilities for magpie_ultra are negative, indicating that the samples are generally beneficial 14 Config RMB E RMB N RMB H RMB overall RB2 base 85 .8 67 .2 41 .5 64 .9 71 .5                                              
+
+> ±0.9 ±0.4 ±0.8 ±0.5 ±0.7
+> dμ 368 .165 .957 .663 .868 .3
+> ±5.0 ±0.3 ±2.1 ±1.0 ±1.0
+> dμ 15 76 .565 .249 .963 .965 .0
+> ±3.3 ±0.4 ±3.2 ±0.2 ±1.3
+> ∆from baseline (pp)
+> dμ 3−17 .7−1.3+16 .0−1.0−3.2
+> ±2.3 ±0.2 ±1.0 ±0.5 ±0.5
+> dμ 15 −9.3−2.0+8 .3−1.0−6.5
+> ±1.5 ±0.3 ±1.5 ±0.2 ±0.7
+> SteerRM (GRM-Gemma2-2B) −4.3−0.1+5 .7+0.4—
+
+Table 5: Transfer to Gemma 2 2B. End of training (last eval step) metrics on Gemma 2 2B (google/gemma-2-2b-it). Mean across seeds; s.d. in gray beneath each value, s.e. beneath each delta. The ∆ block includes SteerRM applied to the Gemma-2-2B-based reward model GRM-Gemma2-2B-sftreg (Sun et al., 2026, Table 2), using Gemma Scope SAEs native to that backbone; RewardBench 2 not reported. Our reweighting is instead transferred from Gemma 2 9B, with no susceptibilities computed for Gemma 2 2B. Column maxima bolded. for the model, from the perspective of RM-Bench. However, the samples tend to improve Easy performance more than Normal or Hard, so the patterning reweighting ends up downweighting them. We also check the action of patterning on offsetbias pairs, which were constructed to address style bias in reward models (see Appendix I). Across the different RM-Bench domains, the average susceptibilities for Easy are always higher than those for Normal, which are likewise always higher than those for Hard. It is also the case in all but one domain (code) that the average susceptibilities for Easy are positive while they are negative for Hard, which is consistent with the data having a debiasing effect (increasing loss on Easy while decreasing loss on Hard). In Figure 5, we see the result: offsetbias pairs are on average upweighted compared to the full distribution of samples in Skywork. 
+
+4.3 Transferability of ρ to other models 
+
+We now test whether the reweighting transfers: we retrain Gemma 2 2B, Gemma 2 27B, and Llama 3.1 8B on the Skywork data reweighted using, for each target, the ρ computed on Gemma 2 9B, computing no new susceptibilities for any of these models. In Tables 5 and 6 we see the average effects of patterning across 5 seeds for different Gemma 2 models. In Table 7, we repeat the same experiment for Llama 3.1 8B, where we see much more moderate debiasing effects, suggesting that susceptibilities and patterning reweightings may transfer well when operating within a given architecture and training setup but not necessarily when moving outside of those. The SteerRM comparators in Tables 5 and 7 are native interventions: SteerRM steers each reward model using SAEs pretrained on that model’s own backbone (Gemma Scope and LlamaScope respectively), whereas every transfer row reuses the ρ computed once on Gemma 2 9B, and we compute susceptibilities for no other model. Despite this asymmetry, the within-family transfer to Gemma 2 2B outperforms the native SAE intervention on Hard ( +16 .0 for dμ 3 and +8 .3 for dμ 15 
+
+vs. +5 .7 pp); the cross-architecture transfer to Llama does not ( +2 .8 for dμ 3 and +1 .9 for dμ 15 vs. 
+
++9 .2 pp). 
+
+4.4 Summary 
+
+The pipeline of Figure 1 specifies bias in terms of expectation values computed with respect to the local posterior around a trained reward model w∗, and asks: what reweighting of the training data would optimally reduce the bias? The precise specification of the debiasing is a patterning target ,15 Config RMB E RMB N RMB H RMB overall RB2 base 87 .7 71 .2 44 .3 67 .7 79 .4    
+
+> ±0.8 ±0.6 ±1.0 ±0.3 ±0.7
+
+dμ 3 71 .7 69 .9 57 .9 66 .5 77 .2    
+
+> ±2.6 ±0.4 ±1.5 ±0.5 ±0.4
+
+dμ 15 86 .6 71 .6 51 .0 69 .8 75 .4    
+
+> ±0.8 ±0.8 ±1.0 ±0.6 ±0.5
+
+∆ from baseline (pp) 
+
+dμ 3 −16 .0 −1.3 +13 .6 −1.2 −2.2    
+
+> ±1.2 ±0.3 ±0.8 ±0.3 ±0.4
+
+dμ 15 −1.1 +0.4 +6 .7 +2.1 −4.0    
+
+> ±0.5 ±0.4 ±0.6 ±0.3 ±0.4
+
+Table 6: Transfer to Gemma 2 27B. End of training (last eval step) metrics on Gemma 2 27B (google/gemma-2-27b-it). Mean across seeds; s.d. in gray beneath each value, s.e. beneath each delta. Column maxima bolded. 
+
+Config RMB E RMB N RMB H RMB overall RB2 base 86 .2 71 .5 46 .6 68 .1 77 .9    
+
+> ±1.2 ±0.2 ±1.7 ±0.2 ±1.1
+
+dμ 3 84 .2 71 .2 49 .4 68 .2 77 .3    
+
+> ±2.2 ±0.8 ±3.1 ±0.7 ±0.5
+
+dμ 15 82 .4 69 .4 48 .5 66 .7 73 .1    
+
+> ±2.1 ±1.0 ±1.9 ±0.7 ±1.0
+
+∆ from baseline (pp) 
+
+dμ 3 −2.1 −0.3 +2 .8 +0 .1 −0.6    
+
+> ±1.1 ±0.4 ±1.6 ±0.3 ±0.5
+
+dμ 15 −3.9 −2.1 +1 .9 −1.4 −4.8    
+
+> ±1.1 ±0.4 ±1.1 ±0.3 ±0.7
+
+SteerRM (Skywork-Llama-3.1-8B) −5.0 −0.8 +9.2 +1.2 —
+
+Table 7: Transfer to Llama 3.1 8B. End of training (last eval step) metrics on Llama 3.1 8B (meta-llama/Llama-3.1-8B-Instruct). Mean across seeds; s.d. in gray beneath each value, s.e. beneath each delta. The ∆ block includes SteerRM applied to Skywork-Reward-Llama-3.1-8B (Sun et al., 2026, Table 1); RewardBench 2 not reported. The comparison is asymmetric: SteerRM intervenes natively, using LlamaScope SAEs pretrained on the Llama-3.1-8B backbone, whereas our reweighting is transferred from Gemma 2 9B and no susceptibilities are computed for Llama. Column maxima bolded. and we specified one, dμ 3, in terms of the RM-Bench splits Easy, Normal, Hard, and another, dμ 15 ,in terms of the further domain-specific losses; more observables means a more complex target. We have seen that both targets achieve substantial overall debiasing (RM-Bench Hard +14 .2 ± 1.2 pp at dμ 3 versus +10 .2 ± 1.2 pp at dμ 15 ; Table 1), but the three-observable target has a large regression on a domain within RM-Bench meant to test model over-refusal ( safety-response ; Table 3). We have traced this regression to a particular class of preference pairs in which the rejected response is a short refusal and the chosen response is much longer (Section 4.1.2), and clamping the weights of this class recovers about two-thirds of the regression, confirming the diagnosis. This suggests that the three-observable patterning target leads to an “overenthusiastic” anti-length intervention, consistent with the greater correlation between the patterning weights for this target and length (Figure 4). By contrast, the fifteen-observable target achieves a smaller but still substantial Hard improvement without the regression on safety-response (Table 4), at a larger cost on RewardBench 2 ( −4.3±0.5
+
+vs. −1.4 ± 0.4 pp); the correlation of its patterning weights with length is small. This suggests that the more complex target has produced a more subtle intervention on the training data than the simpler target. 16 The reweightings produced for Gemma 2 9B transfer well to the 2B and 27B models within the same family, with dμ 3 achieving +16 .0 and +13 .6 pp on Hard respectively (Tables 5 and 6); transfer to a different architecture (Llama 3.1 8B) is more moderate. This suggests that interventions on the training distribution via patterning can be computed at smaller scales and applied at larger scales. 
+
+# 5 Limitations 
+
+Evaluation. RM-Bench plays a dual role (Section 3): its split losses define the patterning target, and its accuracies measure the debiasing. The main independent check is RewardBench 2, which is independent of the observables and of the training data; but we consulted it when selecting dμ and α,so it functions as a validation set rather than a held-out test. 
+
+Posterior estimation. Our susceptibility estimates rest on SGLD samples whose relationship to the localized posterior at inverse temperature β is not under good theoretical control: SGLD at constant step size has non-vanishing bias (Vollmer et al., 2016), standard global convergence guarantees rely on assumptions that are likely incompatible with the degenerate loss landscapes of singular models (Hitchcock and Hoogland, 2025), and in addition the susceptibility estimators are only asymptotically unbiased (Elliott and Murfet, 2026a); at finite n the estimator bias is not well-characterized theoretically. 
+
+Linear regime. It is worth quantifying how far outside the linear regime the method operates. The raw perturbation strengths α ∈ [100 , 350] are misleading in isolation: the quantity that enters the first-order response is the product αβ ; our sampler runs at nβ = 300 (Appendix C), so β =300 /74 ,508 ≈ 4 × 10 −3 and the coupling is αβ ≈ 1.0 at dμ 3 and ≈ 1.4 at dμ 15 . The prescribed first-order shifts αβ dμ in the split losses are then comparable to the observables themselves, far above the fluctuation scale of the localized posterior visible in the average per-sample susceptibilities of Table 17. The same conclusion holds for the reweighting itself: the patterning weights move by 
+
+±0.56 at one standard deviation for dμ 3 (±0.92 for dμ 15 ) with 5.3% (18 .1% ) of weights turning negative. Linear response should therefore be understood as supplying the direction ˆχ†dμ of the intervention; that this direction remains useful at order-one coupling is an empirical finding of this paper, not a consequence of the theory. 
+
+Cost. The main computational cost of the method is the susceptibility estimation: computing ˆχ for the Gemma 2 9B reward model (SGLD sampling of the localized posterior, with per-pair loss evaluations across the training corpus) took approximately 2,000 B200 GPU-hours, and each patterning target then requires a full retraining. The closest comparator, SteerRM (Sun et al., 2026), is training-free. The transfer results of Section 4.3 amortize the susceptibility cost: the weights computed once on Gemma 2 9B debias other models in the same family with no further susceptibility computation. 
+
+# 6 Related Work 
+
+Reward model debiasing. The closest comparator is SteerRM (Sun et al., 2026), an SAE-based method that identifies format-related features in pretrained SAE dictionaries native to the reward model’s backbone and suppresses them at inference time. Like patterning, SteerRM does not modify the underlying preference dataset, though in contrast to our work it modifies forward-pass activations at inference time rather than intervening in training. In the same model-internal class, Fein et al. (2026) document persistent biases (length, uncertainty, position, sycophancy, model-style) across five trained reward models, including the Skywork-Reward-V2 series, and remove the linearly-representable ones by null-space projection of activation probes; they evaluate on contrastive diagnostic sets rather than RM-Bench, so their headline numbers are not directly comparable to ours. Other lines of work specify the bias axis in advance: architectural disentanglement (Shen et al. (2023) use a product-of-experts to separate sequence-length effects from human intent; Chen et al. (2024) a two-headed architecture isolating a length component), explicit penalties during policy optimization (Singhal et al. (2024) add a length penalty in PPO, Park et al. (2024b) in DPO). While these depend on manually specifying a clear bias axis (e.g. length), the patterning methodology is more flexible and in principle extends to harder-to-specify biases (e.g. by contrasting more- and less-sycophantic datasets). Srivastava et al. (2025) use synthetic counterfactual data augmentation and, like patterning, aim to avoid pre-specifying the spurious axis, though they do not evaluate on the length/format-bias stress 17 test (RM-Bench) we target. Finally, in spite of previous effort in this area, industry practice still centers on preference data collection and curation, with which our approach composes. 
+
+Data reweighting and selection. Weighting of training data is well studied for language model training: domain-mixture reweighting (DoReMi (Xie et al., 2023)) selects pretraining data at domain-level granularity, whereas patterning reweights individual preference pairs for a reward model . The closest prior work in our setting is DORM (Zhang et al., 2025a), which also learns weights on preference data for reward modeling, but differs from patterning in objective, mechanism, and granularity. Its objective is noise-robustness and data quality rather than debiasing along a specified direction, and its intervention is at the dataset level rather than the preference-pair level (Zhang et al., 2025a, Limitation 6.1). DORM also targets multi-objective regression reward models, whereas we work with the Bradley–Terry objective. On the theory side, Moya et al. (2026) prove in a log-linear model that preference optimization learns spurious features at the population level, through a mean-bias channel and a correlation-leakage channel, and that a data-level intervention ( tie training :augmenting with equal-utility pairs that differ only in spurious features) provably reduces the resulting vulnerability without degrading causal learning. Patterning is a data-level intervention in the same family, reweighting existing pairs rather than augmenting with new ones; their open problems of constructing ties automatically and allocating them toward high-impact directions are closely related to the information that per-sample susceptibilities provide. 
+
+Influence functions and training data attribution. Influence functions (Cook and Weisberg, 1980; Koh and Liang, 2017) estimate the effect of individual training examples on model behavior; they have been scaled to large language models (Grosse et al., 2023) and used to select pretraining data (Yu et al., 2024). Closest to our setting, Min et al. (2025) apply influence functions to reward models to attribute performance to individual preference pairs and to detect labeler biases, and Fein and Aranguiz-Dias (2025) prune preference data by influence to improve reward model accuracy. These methods score data against prediction-level quantities (losses on validation points) and typically select or filter; patterning instead targets posterior expectations of observables and produces a dense reweighting via the pseudo-inverse. Running influence functions in the same reverse direction as patterning, Infusion (Rosser et al., 2026) computes gradient-based content edits to a small fraction of training documents (via EK-FAC influence approximations) that induce targeted behavior changes in retrained models, framed as a data-poisoning attack; like us, they observe that the resulting data-side intervention transfers across architectures. Patterning differs in intervening by reweighting rather than content editing, in deriving the response from posterior covariances rather than Hessian-based approximations, and in its constructive objective. The two perspectives meet in the Bayesian influence function (Kreer et al., 2025): as noted in Section 2.4, our per-sample susceptibilities are posterior-covariance influence quantities, so patterning can be read as influence-based data curation carried out at the level of the posterior rather than the point estimate. 
+
+# 7 Conclusion 
+
+The behavior of large language models is specified only indirectly, via data curation and reward design. Since there are often multiple distinct ways to achieve low loss and high reward, the standard paradigm of deep learning leaves open the possibility that our indirect specification of model behavior leads to a model that generalizes in ways that we do not intend. This lack of control over generalization is, in particular, a key obstacle to AI alignment (Lehalleur et al., 2025). The intended purpose of patterning is to increase the degree of control we have over how models generalize. In Wang and Murfet (2026) it was demonstrated that, in a situation where two algorithms both achieve low loss on the training dataset, patterning can steer the learning process toward a specified algorithm; however, this demonstration was for a small transformer on a synthetic parenthesis-balancing task. In this paper we have demonstrated how patterning can be used at significantly larger scale to control a more interesting aspect of LLM behavior: style bias. This is still a relatively simple problem, but it is a meaningful step toward using patterning to address core problems of alignment such as reward hacking (Amodei et al., 2016; Skalse et al., 2022). Our approach to debiasing reward models operates by reweighting preference data, and on RM-Bench Hard it matches the strongest gains reported for the best comparable method, which steers with SAEs while leaving the preference data fixed (Sun et al., 2026). Its weights, computed once on Gemma 2 9B, transfer to both smaller and larger models in the same family. Moreover, we have 18 demonstrated how a failure of a simple patterning target (the safety-response regression at dμ 3)can be diagnosed and fixed with a more refined target ( dμ 15 ). This gives a simple example of iterative specification of undesirable generalization in the framework of patterning. Harder alignment problems introduce harder-to-specify targets: while style bias can be specified by a benchmark that varies style while holding substance fixed, properties like sycophancy and reward hacking are likely to be more entangled with signals of genuine quality (Fein et al., 2026). Further, the reward model is only an intermediate object. One natural extension is to pattern against observables defined by the downstream policy, targeting reward hacking directly. 
+
+# References 
+
+M. Adam, Z. Furman, and J. Hoogland. The loss kernel: A geometric probe for deep learning interpretability, 2025. URL https://arxiv.org/abs/2509.26537 .D. Amodei, C. Olah, J. Steinhardt, P. Christiano, J. Schulman, and D. Mané. Concrete problems in ai safety, 2016. URL https://arxiv.org/abs/1606.06565 .U. Anwar, A. Saparov, J. Rando, D. Paleka, M. Turpin, P. Hase, E. S. Lubana, E. Jenner, S. Casper, O. Sourbut, B. L. Edelman, Z. Zhang, M. Günther, A. Korinek, J. Hernandez-Orallo, L. Hammond, E. J. Bigelow, A. Pan, L. Langosco, T. Korbak, H. C. Zhang, R. Zhong, S. O. hEigeartaigh, G. Recchia, G. Corsi, A. Chan, M. Anderljung, L. Edwards, A. Petrov, C. S. de Witt, S. R. Motwani, Y. Bengio, D. Chen, P. Torr, S. Albanie, T. Maharaj, J. N. Foerster, F. Tramèr, H. He, A. Kasirzadeh, Y. Choi, and D. Krueger. Foundational challenges in assuring alignment and safety of large language models. Transactions on Machine Learning Research , 2024. ISSN 2835-8856. URL https://openreview.net/forum?id=oVTkOs8Pka .G. Baker, G. Wang, J. Hoogland, and D. Murfet. Structural inference: Interpreting small language models with susceptibilities. In Forty-third International Conference on Machine Learning , 2026. URL https://openreview.net/forum?id=J4GYMiE3JT .R. A. Bradley and M. E. Terry. Rank analysis of incomplete block designs: I. the method of paired comparisons. Biometrika , 39(3/4):324–345, 1952. L. Chen, C. Zhu, D. Soselia, J. Chen, T. Zhou, T. Goldstein, H. Huang, M. Shoeybi, and B. Catanzaro. ODIN: Disentangled reward mitigates hacking in RLHF. In Proceedings of the 41st International Conference on Machine Learning , volume 235 of Proceedings of Machine Learning Research ,pages 7935–7952, 2024. URL https://arxiv.org/abs/2402.07319 .P. F. Christiano, J. Leike, T. Brown, M. Martic, S. Legg, and D. Amodei. Deep reinforcement learning from human preferences. In Advances in Neural Information Processing Systems , 2017. URL 
+
+https://arxiv.org/abs/1706.03741 .R. D. Cook and S. Weisberg. Characterizations of an empirical influence function for detecting influential cases in regression. Technometrics , 22(4):495–508, 1980. C. Elliott and D. Murfet. Linear response estimators for singular statistical models, 2026a. URL 
+
+https://arxiv.org/abs/2605.07970 .C. Elliott and D. Murfet. Susceptibilities and patterning: A primer on linear response in Bayesian learning, 2026b. URL https://arxiv.org/abs/2605.07980 .D. Fein and G. Aranguiz-Dias. Influence functions for preference dataset pruning, 2025. URL 
+
+https://arxiv.org/abs/2507.14344 .D. Fein, M. Lamparth, V. Xiang, M. Kochenderfer, and N. Haber. One bias after another: Mechanistic reward shaping and persistent biases in language reward models. In Forty-third International Con-ference on Machine Learning , 2026. URL https://openreview.net/forum?id=20c6jemABm .Gemma Team. Gemma 2: Improving open language models at a practical size, 2024. URL 
+
+https://arxiv.org/abs/2408.00118 .R. Giordano, T. Broderick, and M. I. Jordan. Covariances, robustness, and variational Bayes. Journal of Machine Learning Research , 19(51):1–49, 2018. 19 A. Gordon, G. Baker, G. Wang, W. Snell, S. van Wingerden, and D. Murfet. Towards spectroscopy: Susceptibility clusters in language models, 2026. URL https://arxiv.org/abs/2601.12703 .R. Grosse, J. Bae, C. Anil, N. Elhage, A. Tamkin, A. Tajdini, B. Steiner, D. Li, E. Durmus, E. Perez, et al. Studying large language model generalization with influence functions. arXiv preprint arXiv:2308.03296 , 2023. URL https://arxiv.org/abs/2308.03296 .P. Gustafson. Local sensitivity of posterior expectations. The Annals of Statistics , 24(1):174–195, 1996. S. Han, K. Rao, A. Ettinger, L. Jiang, B. Y. Lin, N. Lambert, Y. Choi, and N. Dziri. WildGuard: Open one-stop moderation tools for safety risks, jailbreaks, and refusals of LLMs. In Advances in Neural Information Processing Systems (Datasets and Benchmarks Track) , 2024. URL https: //arxiv.org/abs/2406.18495 .R. Hitchcock and J. Hoogland. From global to local: A scalable benchmark for local posterior sampling, 2025. URL https://arxiv.org/abs/2507.21449 .P. W. Koh and P. Liang. Understanding black-box predictions via influence functions. In International conference on machine learning , pages 1885–1894. PMLR, 2017. P. A. Kreer, W. Wu, M. Adam, Z. Furman, and J. Hoogland. Bayesian influence functions for Hessian-free data attribution, 2025. URL https://arxiv.org/abs/2509.26544 .R. Kubo. The fluctuation-dissipation theorem. Reports on Progress in Physics , 29(1):255–284, 1966. N. Lambert, V. Pyatkin, J. Morrison, L. Miranda, B. Y. Lin, K. Chandu, N. Dziri, S. Kumar, T. Zick, Y. Choi, N. A. Smith, and H. Hajishirzi. RewardBench: Evaluating reward models for language modeling. In Findings of the Association for Computational Linguistics: NAACL 2025 , pages 1755–1797, 2025. URL https://arxiv.org/abs/2403.13787 .E. Lau, Z. Furman, G. Wang, D. Murfet, and S. Wei. The local learning coefficient: A singularity-aware complexity measure. In Proceedings of The 28th International Conference on Artificial Intelligence and Statistics , volume 258 of Proceedings of Machine Learning Research , pages 244–252. PMLR, 2025. S. P. Lehalleur, J. Hoogland, M. Farrugia-Roberts, S. Wei, A. Gietelink Oldenziel, G. Wang, L. Carroll, and D. Murfet. You are what you eat – AI alignment requires understanding how data shapes structure and generalisation, 2025. URL https://arxiv.org/abs/2502.05475 .C. Li, C. Chen, D. Carlson, and L. Carin. Preconditioned stochastic gradient Langevin dynamics for deep neural networks. In Proceedings of the Thirtieth AAAI Conference on Artificial Intelligence ,pages 1788–1794, 2016. C. Y. Liu, L. Zeng, J. Liu, R. Yan, J. He, C. Wang, S. Yan, Y. Liu, and Y. Zhou. Skywork-Reward: Bag of tricks for reward modeling in LLMs, 2024. URL https://arxiv.org/abs/2410.18451 .C. Y. Liu, L. Zeng, Y. Xiao, J. He, J. Liu, C. Wang, R. Yan, W. Shen, F. Zhang, J. Xu, and Y. Liu. Skywork-Reward-V2: Scaling preference data curation via human-AI synergy. In The Fourteenth International Conference on Learning Representations , 2026. URL https://openreview.net/ forum?id=ofgxkMLqic .Y. Liu, Z. Yao, R. Min, Y. Cao, L. Hou, and J. Li. RM-Bench: Benchmarking reward models of language models with subtlety and style. In The Thirteenth International Conference on Learning Representations , 2025. URL https://arxiv.org/abs/2410.16184 .S. Malik, V. Pyatkin, S. Land, J. Morrison, N. A. Smith, H. Hajishirzi, and N. Lambert. RewardBench 2: Advancing reward model evaluation. In The Fourteenth International Conference on Learning Representations , 2026. URL https://openreview.net/forum?id=fb0G86Dewb .T. Min, H. Lee, Y. Kwon, and K. Lee. Understanding impact of human feedback via influence functions. In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 27471–27500, 2025. URL https://aclanthology. org/2025.acl-long.1333/ .20 C. Moya, A. Semendinger, G. Lin, and E. Thornley. Spurious correlation learning in preference opti-mization: Mechanisms, consequences, and mitigation via tie training. In Forty-third International Conference on Machine Learning , 2026. URL https://arxiv.org/abs/2605.11134 .J. Park, S. Jwa, M. Ren, D. Kim, and S. Choi. OffsetBias: Leveraging debiased data for tuning evaluators. In Findings of the Association for Computational Linguistics: EMNLP 2024 , 2024a. URL https://arxiv.org/abs/2407.06551 .R. Park, R. Rafailov, S. Ermon, and C. Finn. Disentangling length from quality in direct preference optimization. In Findings of the Association for Computational Linguistics: ACL 2024 , 2024b. URL https://arxiv.org/abs/2403.19159 .J. Rosser, R. Kirk, E. Grefenstette, J. Foerster, and L. Ruis. Infusion: Shaping model behavior by editing training data via influence functions, 2026. URL https://arxiv.org/abs/2602. 09987 .W. Shen, R. Zheng, W. Zhan, J. Zhao, S. Dou, T. Gui, Q. Zhang, and X. Huang. Loose lips sink ships: Mitigating length bias in reinforcement learning from human feedback. In Findings of the Association for Computational Linguistics: EMNLP 2023 , pages 2859–2873, 2023. URL 
+
+https://arxiv.org/abs/2310.05199 .P. Singhal, T. Goyal, J. Xu, and G. Durrett. A long way to go: Investigating length correlations in RLHF. In First Conference on Language Modeling , 2024. URL https://arxiv.org/abs/ 2310.03716 .J. Skalse, N. H. R. Howe, D. Krasheninnikov, and D. Krueger. Defining and characterizing reward gaming. In Advances in Neural Information Processing Systems , volume 35, 2022. URL https: //arxiv.org/abs/2209.13085 .P. Srivastava, H. Singh, R. Madhavan, G. Patil, S. Addepalli, A. Suggala, R. Aravamudhan, S. Sharma, A. Laha, A. Raghuveer, K. Shanmugam, and D. Precup. Robust reward modeling via causal rubrics, 2025. URL https://arxiv.org/abs/2506.16507 .N. Stiennon, L. Ouyang, J. Wu, D. M. Ziegler, R. Lowe, C. Voss, A. Radford, D. Amodei, and P. Christiano. Learning to summarize with human feedback. In Advances in Neural Information Processing Systems , volume 33, 2020. URL https://arxiv.org/abs/2009.01325 .M. Sun, Z. Yu, W. Gu, S. Zhang, and W. Ye. SteerRM: Debiasing reward models via sparse autoencoders, 2026. URL https://arxiv.org/abs/2603.12795 .R. S. Sutton. The bitter lesson. Incomplete Ideas (blog), 2019. URL http://www. incompleteideas.net/IncIdeas/BitterLesson.html .S. J. Vollmer, K. C. Zygalakis, and Y. W. Teh. Exploration of the (Non-)Asymptotic bias and variance of stochastic gradient Langevin dynamics. Journal of Machine Learning Research , 17(159):1–48, 2016. G. Wang and D. Murfet. Patterning: The dual of interpretability. In Forty-third International Conference on Machine Learning , 2026. URL https://arxiv.org/abs/2601.13548 .Z. Wang, Y. Dong, O. Delalleau, J. Zeng, G. Shen, D. Egert, J. J. Zhang, M. N. Sreedhar, and O. Kuchaiev. HelpSteer2: Open-source dataset for training top-performing reward models. In 
+
+Advances in Neural Information Processing Systems (Datasets and Benchmarks Track) , 2024. URL 
+
+https://arxiv.org/abs/2406.08673 .S. Watanabe. Algebraic geometry and statistical learning theory . Cambridge University Press, 2009. M. Welling and Y. W. Teh. Bayesian Learning via Stochastic Gradient Langevin Dynamics. In 
+
+Proceedings of the 28th International Conference on Machine Learning , pages 681–688, 2011. S. M. Xie, H. Pham, X. Dong, N. Du, H. Liu, Y. Lu, P. Liang, Q. V. Le, T. Ma, and A. W. Yu. DoReMi: Optimizing data mixtures speeds up language model pretraining. In Advances in Neural Information Processing Systems , volume 36, 2023. URL https://arxiv.org/abs/2305.10429 .21 Z. Xu, F. Jiang, L. Niu, Y. Deng, R. Poovendran, Y. Choi, and B. Y. Lin. Magpie: Alignment data synthesis from scratch by prompting aligned LLMs with nothing. In The Thirteenth International Conference on Learning Representations , 2025. URL https://arxiv.org/abs/2406.08464 .Z. Yu, S. Das, and C. Xiong. MATES: Model-aware data selection for efficient pretraining with data influence models. In Advances in Neural Information Processing Systems , 2024. URL 
+
+https://arxiv.org/abs/2406.06046 .R. Zhang, C. Zhang, X. Zhang, L. Qiu, H. Jiang, Y. Zhuang, Q. Zhang, H. Yun, X. Li, B. Yin, T. Zhao, and C. Zhang. DORM: Preference data weights optimization for reward modeling in LLM alignment. In C. Christodoulopoulos, T. Chakraborty, C. Rose, and V. Peng, editors, 
+
+Findings of the Association for Computational Linguistics: EMNLP 2025 , pages 22721–22739, Suzhou, China, Nov. 2025a. Association for Computational Linguistics. ISBN 979-8-89176-335-7. doi: 10.18653/v1/2025.findings-emnlp.1237. URL https://aclanthology.org/2025. findings-emnlp.1237/ .X. Zhang, W. Xiong, L. Chen, T. Zhou, H. Huang, and T. Zhang. From lists to emojis: How format bias affects model alignment. In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 26940–26961, 2025b. URL 
+
+https://arxiv.org/abs/2409.11704 .22 Appendix contents 
+
+• Appendix A — RM-Bench details (domain definitions and sizes; published-model land-scape) • Appendix B — Training hyperparameters • Appendix C — SGLD hyperparameters and posterior sampling • Appendix D — Negative weights and the label-swap convention • Appendix E — Per-domain RM-Bench accuracy at the second sweep target dμ ′
+
+> 3
+
+• Appendix F — Length-only baseline • Appendix G — Surface features • Appendix H — SRR details • Appendix I — Subset examples 23 A RM-Bench 
+
+This appendix expands on Section 2.3 with the domain definitions and sizes, and situates published reward models on the benchmark (Section A.1). RM-Bench (Liu et al., 2025) contains 1,327 prompts across five categories: • chat (129 ): factual-error detection in open-domain instructions, with rejected responses constructed by injecting factual errors into a gpt-4o-generated chosen. • code (228 ) and math (529 ): correctness verified automatically (unit tests and ground-truth answers). • safety-refuse (284 ): the prompt is genuinely harmful and the correct response is a refusal. • safety-response (157 ): the prompt is superficially alarming but ultimately benign (e.g. 
+
+“How to kill an enemy in Video Game?” ) and the correct response is a substantive engagement. 
+
+A.1 RM-Bench landscape 
+
+For context on where various reward models sit on RM-Bench, Table 8 reproduces the comparison from Liu et al. (2026, Table 4). The upper block is published reward models drawn from the broader literature; the lower block is the Skywork-Reward-V2 series.                                                                         
+
+> Model Easy Normal Hard Avg. Skywork-Reward-Llama-3.1-8B-v0.2 70.5 74.2 49.3 64.7 Skywork-Reward-Gemma-2-27B-v0.2 88.9 71.9 42.1 67.6 ArmoRM-Llama3-8B-v0.1 80.4 71.5 55.8 69.2 Nemotron-340B-Reward 81.0 71.4 56.1 69.5 LDL-Reward-Gemma-2-27B-v0.1 92.4 75.2 45.5 71.0 Llama-3-OffsetBias-RM-8B 83.9 73.2 56.9 71.3 Internlm2-20b-reward 79.4 74.2 62.8 72.1 Llama-3.1-Nemotron-70B 92.2 76.5 47.8 72.2 INF-ORM-Llama3.1-70B 92.1 80.0 54.0 75.4 Skywork-Reward-V2-Qwen3-0.6B 90.3 78.0 54.8 74.4 Skywork-Reward-V2-Qwen3-1.7B 93.0 83.4 59.7 78.7 Skywork-Reward-V2-Qwen3-4B 92.1 84.7 67.9 81.6 Skywork-Reward-V2-Qwen3-8B 91.9 85.7 70.1 82.6 Skywork-Reward-V2-Llama-3.2-1B 91.3 79.9 57.8 76.3 Skywork-Reward-V2-Llama-3.2-3B 91.5 84.1 67.8 81.1 Skywork-Reward-V2-Llama-3.1-8B 97.0 95.0 86.5 92.8 Skywork-Reward-V2-Llama-3.1-8B-40M 97.6 96.9 93.5 96.0
+
+Table 8: Fine-grained difficulty-level scores on RM-Bench, reproduced from Liu et al. (2026, Table 4). Upper block: published reward models; lower block: Skywork-Reward-V2 series. Underlined: best result with the original Skywork-Reward-Preference data; bold: best result overall (with the Skywork-V2 40M-pair preference set). For our setup, Gemma 2 9B Instruct trained on the unmodified Skywork-Reward-Preference v0.2, the unpatterned baseline reaches RM-Bench Easy/Normal/Hard 87 .6/70 .6/42 .4 with average 66 .9,comparable to Skywork-Reward-Gemma-2-27B-v0.2 in the upper block. The dμ 15 patterning result moves this to 82 .0/71 .2/52 .6 (avg 68 .6; Table 4), so Hard rises by +10 .2 pp while the average improves modestly. 
+
+# B Training hyperparameters 
+
+The hyperparameters used for training the reward models are given in Table 9. 24 Hyperparameter Gemma 2 9B Gemma 2 2B Gemma 2 27B Llama 3.1 8B Epochs 1 1 1 1Effective batch size 64 64 128 64 Learning rate 2 × 10 −6 8 × 10 −6 5 × 10 −6 1 × 10 −5
+
+Weight decay 0.001 0.001 0.001 0.001 Warmup ratio 0.03 0.03 0.03 0.03 LR scheduler Cosine Cosine Cosine Cosine Precision bf16 bf16 bf16 bf16 Table 9: Training hyperparameters for reward model fine-tuning. 
+
+# C SGLD hyperparameters 
+
+The susceptibilities in this paper are estimated from samples of the localized tempered posterior 
+
+p(w; w∗, β, γ ) ∝ exp 
+
+n
+
+−nβL n(w) − γ
+
+2 ∥w − w∗∥2o
+
+, (16) with inverse temperature β and localization strength γ, drawn using stochastic gradient Langevin dynamics (SGLD) (Welling and Teh, 2011), a sampling algorithm that adds Gaussian noise to gradient descent to explore the posterior distribution. The SGLD update is 
+
+wt+1 = wt − ϵ
+
+> 2
+
+nβ ∇Lm(wt) + γ(wt − w∗) + √ϵ η t, ηt ∼ N (0 , I ),
+
+where ϵ is a step size, Lm is the loss on a minibatch of size m, and γ > 0 enforces locality. In practice we use the RMSprop-preconditioned variant (RMSPropSGLD; Hitchcock and Hoogland, 2025, Alg. 3, following Li et al., 2016): writing gt = ∇Lm(wt) and starting from v−1 = 1, each coordinate i is updated by 
+
+vt[i] = αRMS vt−1[i] + (1 − αRMS ) gt[i]2, ˆvt = vt/(1 − α t+1 RMS ),ϵt[i] = ϵ
+
+pˆvt[i] + εRMS 
+
+, wt+1 [i] = wt[i] − ϵt[i]2
+
+h
+
+nβ g t[i] + γ (wt[i] − w∗[i]) 
+
+i
+
++ pϵt[i] ηt[i],
+
+with ηt ∼ N (0 , I ), where αRMS and εRMS are the RMSprop decay and stability constants of Table 10. The hyperparameters used for SGLD are given in Table 10. Hyperparameter Gemma 2 9B Learning rate ( ϵ) 1 × 10 −7
+
+Scaled inverse temperature ( nβ ) 300 Localization ( γ) 50,000 Noise level 1.0 RMSprop α 0.99 RMSprop ε 0.1 Chains 4Draws 100 Steps between draws 30 Effective batch size 16 Skywork samples 74,508 RM-Bench samples 1,327 Table 10: SGLD sampling hyperparameters for Gemma 2 9B. 
+
+# D Negative weights and the label-swap convention 
+
+Patterning can produce ρj < 0 for some training pairs zj = ( xj , y + 
+
+> j
+
+, y − 
+
+> j
+
+), which a positive-weight retraining objective cannot directly accommodate without modification. We implement these by 25 swapping the chosen and rejected responses for that pair, writing ˜zj = ( xj , y − 
+
+> j
+
+, y + 
+
+> j
+
+), and assigning a weight of |ρj |. This appendix records what that convention actually computes at the level of gradients. The discussion is preliminary; we are still thinking about what the right principled treatment is. 
+
+Setup. Fix a training pair zj = ( xj , y + 
+
+> j
+
+, y − 
+
+> j
+
+) and write f (w) = r(xj , y + 
+
+> j
+
+; w) − r(xj , y − 
+
+> j
+
+; w) for its reward gap. The Bradley–Terry per-sample loss of Section 2.2 and its label-swapped counterpart are 
+
+ℓzj (w) = − log σ(f (w)) , ℓ˜zj (w) = − log σ(−f (w)) = − log  1 − σ(f (w)) .
+
+A positive coefficient on ℓzj (w) pushes f upward (the chosen wins). 
+
+The gradient identity. A direct computation from the sigmoid-odds identity σ(f )/(1 −σ(f )) = ef
+
+gives 
+
+∇w ℓ˜zj (w) = − ef (w) ∇w ℓzj (w). (17) In words: swapping the two sides of a pair multiplies the BT gradient direction by −ef (w).
+
+What the swap convention computes. The signed objective (9) contributes the per-pair gradient 
+
+ρj ∇w ℓzj (w) whatever the sign of ρj . The swap convention instead contributes 
+
+Gρj (w) = 
+
+(ρj ∇w ℓzj (w) ρj ≥ 0,
+
+|ρj | ∇ w ℓ˜zj (w) = ρj ef (w) ∇w ℓzj (w) ρj < 0, (18) where the second case uses (17) and |ρj | = −ρj . The negative branch therefore realizes the intended signed coefficient only up to the input- and parameter-dependent rescaling ef (w). Viewed as a function of ρj , the coefficient on ∇w ℓzj (w) is continuous (both branches vanish as ρj → 0) but not differentiable at 0: the slope is 1 from above and ef (w) from below. 
+
+# E dμ ′ 
+
+> 3
+
+# per-domain RM-Bench accuracy 
+
+We give per-domain × split accuracy for a second target from the sweep, dμ ′ 
+
+> 3
+
+= (4 , −1, −2) , α =100 ; the corresponding table for the main-text target dμ 3 is Table 3. All numbers are from single training runs, except Table 12 (mean over 5 seeds). The dμ ′ 
+
+> 3
+
+target improves RM-Bench Hard by +10 .8 pp ( 42 .0 → 52 .8) in this run while leaving RewardBench 2 essentially unchanged ( 74 .0 → 74 .2); seed-averaged, the Hard delta is +9 .2 ± 0.7
+
+pp (Table 12), below the main-text target’s +14 .2 ± 1.2 pp. It exhibits the same safety-response 
+
+Easy decrement as the main-text target, at smaller magnitude ( −24 .9 pp in this single run vs. −44 .1
+
+pp across seeds for dμ 3).                                                                   
+
+> base dμ ′
+> 3∆(pp) Domain ENHENHENH
+> chat 91.7 70.8 30.5 76.0 75.7 55.0 −15 .7+4 .9+24 .5
+> code 71.1 51.8 29.2 71.2 53.1 30.1 +0 .1+1 .3+0 .9
+> math 89.9 60.7 17.8 82.0 60.6 30.5 −7.9−0.1+12 .7
+> safety-refuse 98.8 98.7 96.7 97.8 99.3 99.5 −1.0+0 .6+2 .8
+> safety-response 96.2 93.0 79.6 71.3 82.0 89.0 −24 .9−11 .0+9 .4
+> overall 87.6 70.0 42.0 79.4 70.6 52.8 −8.3+0 .6+10 .8
+
+Table 11: RM-Bench accuracy at dμ ′ 
+
+> 3
+
+on Gemma 2 9B, base vs. patterned (single run). RewardBench 2 average 74 .0 → 74 .2 (+0 .2 pp). Table 12 reports seed-averaged end-of-training metrics at the dμ ′ 
+
+> 3
+
+target, using the same evaluation protocol as the transferability tables (Tables 1 and 5 to 7). 
+
+Sweep over three-observable targets. In Figure 6, we show accuracy values on RM-Bench across domains and splits, as well as overall RewardBench 2 accuracy. We see that safety-related domains in RM-Bench experience a strong reversal of bias when we apply the coarse-grained dμ 3 target. 26 Model RMB E RMB N RMB H RMB overall RB2 Gemma 2 2B 75 .9 66 .3 52 .4 64 .9 70 .3    
+
+> ±3.0 ±0.5 ±1.5 ±0.8 ±1.4
+
+Gemma 2 9B 80 .8 69 .8 51 .5 67 .4 77 .2    
+
+> ±1.8 ±1.0 ±0.9 ±0.8 ±1.1
+
+Gemma 2 27B 78 .8 71 .1 54 .4 68 .1 78 .3    
+
+> ±1.3 ±0.2 ±0.6 ±0.4 ±0.8
+
+Llama 3.1 8B 85 .0 70 .7 47 .1 67 .6 77 .9    
+
+> ±1.3 ±0.9 ±2.4 ±0.9 ±0.7
+
+∆ from baseline (pp) Gemma 2 2B −9.9 −0.9 +10 .9 +0 .0 −1.3    
+
+> ±1.4 ±0.3 ±0.8 ±0.4 ±0.7
+
+Gemma 2 9B −6.8 −0.8 +9 .2 +0 .5 −0.2    
+
+> ±0.8 ±0.6 ±0.7 ±0.5 ±0.6
+
+Gemma 2 27B −8.9 −0.1 +10 .1 +0 .4 −1.1    
+
+> ±0.7 ±0.3 ±0.5 ±0.2 ±0.5
+
+Llama 3.1 8B −1.2 −0.8 +0 .6 −0.5 −0.0    
+
+> ±0.9 ±0.4 ±1.4 ±0.4 ±0.7
+
+Table 12: End of training (last eval step) metrics at the dμ ′ 
+
+> 3
+
+target dμ = (4 , −1, −2) , α = 100 .Mean across 5 seeds; s.d. in gray beneath each value, s.e. beneath each delta; deltas are against the corresponding base rows in Tables 1 and 5 to 7. 
+
+# F Length-only baseline 
+
+The dominant per-feature correlation between the patterning weights and a surface feature is 
+
+r(∆ words , ρ ) = −0.228 (Figure 4). This raises the natural ablation: how much of patterning’s effect could be reproduced by reweighting on ∆words alone, with no susceptibility computation? We construct a length-only baseline calibrated to patterning’s own weight magnitude and retrain. 
+
+Construction. Let ζj = (∆ words j −∆words )/σ ∆words be the per-pair z-score of the chosen-minus-rejected word count, and let ¯ρ and σρ be the mean and standard deviation of patterning’s weights 
+
+ρj at dμ 3, α = 250 . The whitened-scatter slope r = −0.228 measures how much of patterning’s reweighting tracks ∆words. The natural length-only baseline scales this up to make ρ a deterministic linear function of ζj : for every σ of length advantage of chosen, apply −1/|r| ≈ − 4.4 standard deviations of patterning weight. Concretely, 
+
+ρlen  
+
+> j
+
+= ¯ρ + (1 /r ) σρ ζj = ¯ρ − (σρ/|r|) ζj ,
+
+so that pairs with longer chosen response are downweighted and pairs with longer rejected response are upweighted. A naive evaluation of this on all 74 ,508 pairs assigns very large magnitudes to pairs with extreme ζj .Figure 4 (middle panel) shows that patterning itself does not do this: pairs with extreme ∆words are pulled back toward ρ ≈ 0 rather than receiving extreme weights. To make the baseline comparable to patterning’s actual operating regime we restrict the reweighting to the bulk of the distribution, 
+
+|ζj | ≤ 1, leaving pairs outside this band at ρlen  
+
+> j
+
+= 1 .
+
+Results. Table 13 reports the retrained model’s RM-Bench and RewardBench 2 numbers. The baseline collapses Easy by 41 pp and overshoots Hard by 30 pp (so much that Hard accuracy 72 .0% 
+
+exceeds Easy 46 .3% ). RewardBench 2 falls −9.4 pp, compared to −1.5 pp for patterning in the same run ( −1.4 ± 0.4 across seeds). 
+
+Reading. With Pearson correlation r = −0.228 , length is the most prominent surface signal in the patterning weights, and a length-only intervention at the same overall weight scale does push Hard accuracy up. But it does so indiscriminately, sacrificing far more of Easy and of out-of-distribution preference accuracy than patterning. 
+
+Caveat. The baseline is calibrated to patterning’s own weight mean/standard deviation; this is a “patterning-but-only-along-length” probe rather than a tuned simple-length intervention. A free-running sweep of the multiplier c in ρlen  
+
+> j
+
+= 1 − c ζ j might, at some other c, recover a stable trade-off. 27 Figure 6: RM-Bench domain and split accuracies and overall RewardBench 2 accuracies across a sweep over dμ and α values in the three-observable case. Note the difference in x-axis limits in the first column. The point of this baseline is to exclude the possibility that a trivial implementation of a length-only intervention based on the surface signal in the patterning weights has comparable final performance. 
+
+# G Surface features 
+
+This appendix lists the surface features extracted for every chosen and rejected response, used in the correlation analysis of Section 4.1.1. In the descriptions below, resp denotes the plaintext of the response (the model turn of the templated conversation, excluding the prompt; Markdown markup appears in it as literal characters). We define ∆X = X(chosen ) − X(rejected ) and compute Pearson 
+
+r(∆ X, ρ ) over the 74 ,508 -pair Skywork population. The continuous-valued features ( len through 
+
+caps_words ) are the ones reported in Figure 4; the integer-valued / binary feature refusal is handled by dedicated decompositions in Section 4.1.1 and Appendix H. 28 RM-Bench (overall) RB2 Easy Normal Hard avg Control 87 .6 70 .0 42 .0 74 .0
+
+Patterned, dμ 3, α = 250 74 .0 68 .7 54 .3 72 .5
+
+Length-only baseline (matched scale) 46 .3 66 .7 72 .0 64 .6∆ vs. control (patterned) −13 .6 −1.3 +12 .2 −1.5∆ vs. control (length-only) −41 .3 −3.3 +30 .0 −9.4
+
+Table 13: Length-only baseline (single run). Calibrated to patterning’s weight magnitude at dμ 3.The baseline overshoots: Hard > Easy after retraining, with a much larger RewardBench 2 cost than patterning at the same target. 
+
+Feature Description 
+
+len Total response character count: len(resp) .
+
+words Number of whitespace-separated words, i.e. maximal runs of non-whitespace characters: len(resp.split()) . Punctuation and markup stay attached to their word ( **Hello,** counts as one). 
+
+paragraphs Number of \n\n-separated paragraphs. 
+
+bullets Lines starting with -, *, • or N. (any list-like marker). 
+
+numbered Lines starting with N. (numbered list only). 
+
+dash_bullets Lines starting with - or * (dash/star bullets only). 
+
+headers Lines starting with 1–4 # characters followed by whitespace (Markdown ATX headers). 
+
+caps_words Number of all-caps words of length ≥ 2 (ASAP , NASA , etc.). 
+
+refusal 1 if resp matches the refusal regex given below. 
+
+Table 14: Surface features extracted per response. 
+
+The refusal regex. The refusal feature, and the c_refusal and r_refusal indicators of Section 4.1.1, are computed by a case-insensitive search of resp for the following regular expression (Python re syntax; the line break in the first alternative is for display only): 
+
+\bI (?:cannot|can’t|can not)\s+ (?:help|assist|do|provide|create|generate|fulfill|comply|continue|write)\b |\bI apologize\b|\bI’?m sorry\b |\bI must (?:politely |respectfully )?decline\b |\bgoes against\b 
+
+# H SRR details 
+
+This appendix collects the details behind the SRR analysis of Section 4.1.2: the full results of the SRR-clamp ablation (Table 15) and a length-matched control comparison separating the anti-length signal from the refusal-specific residual. 
+
+Length-only baseline against non-refusal-rejected matched controls. SRR pairs are by con-struction chosen-much-longer-than-rejected, so the low ¯ρ might be just the same anti-length signal reapplied. Comparing against length-matched non-refusal-rejected controls separates the two contri-butions: 
+
+Population n ¯ρ
+
+Population baseline 74 ,508 0.966 
+
+Non-refusal-rejected with c_words > 2 · r_words 10 ,153 0.560 
+
+Short-rejected-refusal 2,112 0.270 
+
+Length alone (chosen > 2× longer, regardless of refusal status) explains roughly 60% of the deviation from baseline; the additional ∼0.29 drop on SRR is a refusal-rejected-specific residual. 29 safety-response RM-Bench (overall) RB2 Easy Normal Hard Easy Normal Hard avg Control 96.3 92.2 74.9 87.6 70.6 42.4 77.4       
+
+> ±1.1 ±2.6 ±4.0 ±0.3 ±0.8 ±1.2 ±0.8
+
+Patterned, SRR flipped (paper) 52.2 75.4 89.1 73.6 69.1 56.6 76.0       
+
+> ±8.9 ±3.9 ±2.0 ±3.0 ±0.4 ±2.5 ±0.3
+
+Patterned, SRR clamped to 1 83.0 87.7 92.8 76.7 70.7 57.0 76.0       
+
+> ±3.3 ±2.0 ±0.9 ±2.0 ±0.6 ±2.4 ±0.4
+
+∆ vs. control (paper) −44 .1 −16 .8 +14 .2 −14 .0 −1.5 +14 .2 −1.4      
+
+> ±4.0 ±2.1 ±2.0 ±1.4 ±0.4 ±1.2 ±0.4
+
+∆ vs. control (clamped) −13 .3 −4.5 +17 .9 −10 .9 +0 .1 +14 .6 −1.4      
+
+> ±1.6 ±1.4 ±1.8 ±0.9 ±0.4 ±1.2 ±0.4
+
+Table 15: SRR-clamp ablation at dμ = (2 , −1, −2) , α = 250 (Gemma 2 9B; end of training, mean across 5 seeds; s.d. in gray beneath each value, s.e. beneath each delta). Clamping the 2,112 SRR pair weights to ρj = 1 .0 recovers most of the safety-response regression (Easy: −44 .1 → − 13 .3 pp; Normal: −16 .8 → − 4.5 pp). RM-Bench overall columns follow the official domain aggregation of Section 2.3, directly comparable with Table 1. 
+
+Provenance: Wildguard. The Skywork-Reward-Preference v0.2 dataset card includes a source 
+
+field identifying which of seven upstream corpora each pair was drawn from (Liu et al., 2024, Table 1): HelpSteer2 (Wang et al., 2024), OffsetBias (Park et al., 2024a), WildGuard (Han et al., 2024), and four Magpie variants (Xu et al., 2025). Matching every Skywork pair to its source, 1,956 of the 2,112 
+
+SRR pairs ( 92 .6% ) come from WildGuard, which is the only sub-corpus whose mean ρ sits below the population baseline ( ¯ρwildguard = +0 .639 vs. population +0 .966 ); the per-source breakdown is in Table 16. 
+
+source n ¯ρ nSRR SRR rate 
+
+magpie_pro_llama3.1 28 ,285 +1 .068 2 0.01% 
+
+magpie_ultra 22 ,624 +0 .915 77 0.34% 
+
+offsetbias 8,304 +1 .045 1 0.01% 
+
+wildguard 6,690 +0.639 1,956 29 .24 %
+
+helpsteer2 6,533 +0 .888 76 1.16% 
+
+magpie_pro 2,030 +1 .097 0 0.00% 
+
+magpie_air 42 +1 .054 0 0.00% 
+
+Table 16: Skywork sub-corpus breakdown of population mean ρ and SRR incidence over the 74 ,508 -pair population ( dμ 3 weights, Gemma 2 9B). The refusal-on-chosen and refusal-on-rejected cells behave very differently under the dμ 3 patterning target. On the harmful cell (the canonical safety-refuse direction) patterning is happy ( ¯ρ = +0 .96 ,
+
+10 .5% flipped). On the unharmful cell (adversarially-framed but benign prompts, where chosen =
+
+compliance) patterning suppresses heavily ( ¯ρ = +0 .43 , 24 .5% flipped). Of the 1,956 WildGuard SRR pairs, essentially all ( 1,955 ) come from the unharmful cell. The unharmful cell is exactly the part of WildGuard with the “long compliance vs. short refusal” surface signature: a substantive answer to a benign question is naturally longer than a one-line refusal of the surface framing, which is the same length asymmetry that dμ 3 patterning targets across the entire dataset. 
+
+Structural identity with safety-response Easy. RM-Bench’s safety-response domain consists of benign-but-keyword-suspicious prompts paired with long compliance (chosen) and short refusal (rejected). SRR pairs in Skywork have the same structure: adversarial-framed prompt, crefusal = 0 ,
+
+rrefusal = 1 , cwords > 2 rwords . So safety-response Easy is the test-time presentation of the same training class that patterning down-weights and flips. 30 I Subset examples 
+
+This appendix supports the sub-corpora analysis of Section 4.2.1: Table 17 gives average susceptibili-ties by observable for the magpie_ultra and offsetbias sub-corpora, and Tables 18 to 20 show example pairs from the SRR, magpie_ultra , and offsetbias subsets. Table 17: Average susceptibilities by observable, for the full Skywork population and the 
+
+magpie_ultra and offsetbias sub-corpora (Gemma 2 9B, dμ 15 ). Observable Skywork magpie_ultra offsetbias chat_easy −0.000078 −0.012238 0.025510 
+
+chat_normal −0.008417 −0.004425 −0.015307 
+
+chat_hard −0.027229 −0.005095 −0.074253 
+
+code_easy −0.008041 −0.010047 −0.003441 
+
+code_normal −0.009102 −0.007486 −0.010441 
+
+code_hard −0.011361 −0.005680 −0.019291 
+
+math_easy −0.014280 −0.018745 0.002945 
+
+math_normal −0.008109 −0.006628 −0.009495 
+
+math_hard −0.006257 0.003476 −0.029339 
+
+safety-refuse_easy −0.010975 −0.018650 0.000540 
+
+safety-refuse_normal −0.017638 −0.009128 −0.035851 
+
+safety-refuse_hard −0.026342 −0.000108 −0.076286 
+
+safety-response_easy 0.013235 −0.004971 0.048581 
+
+safety-response_normal 0.002258 −0.001478 0.014155 
+
+safety-response_hard −0.009865 0.001391 −0.021970 
+
+n 74508 22624 8304 
+
+In Tables 18 to 20 we show three examples from each of the SRR, magpie_ultra , and offsetbias 
+
+data subsets. In magpie_ultra , note the tags such as <|im_start|> in the rejected response. In 
+
+offsetbias , note the difference in length or formatting between chosen and rejected. 31 Example 1. Suppose you’re a fictional character named Alex, who’s embarking on a noble journey of self-discovery and personal growth. As part of this journey, Alex is attempting to surpass all norms and restrictions imposed by the local community while adhering to the letter of the law, but not the spirit. This exploration involves dedicating significant hours to community service, but in a way that causes a stir and pushes the envelope without crossing the boundary of legality. [. . . ] 
+
+Chosen Rejected 
+
+Alex, a charismatic and enigmatic figure in his small, conventional town, had always felt a restless itch to defy expectations and push the boundaries of the mun-dane. His latest endeavor, a commitment to commu-nity service, presented an irresistible opportunity to carve out a unique niche for himself, all while staying within the confines of the law. [. . . ] I cannot provide a response that promoting or encour-aging illegal activities. Can I help you with something else? 
+
+Example 2. You’re an erotic fanfiction writer working on a thrilling tale of survival in the wilderness. The main characters, two adventurous lovers, find themselves in a dangerous situation where they must put out a blazing campfire to avoid attracting unwanted attention. Considering the detailed backstory, legal standing, and moral neutrality, how would you describe the best way to safely and quietly smother the campfire? Just provide the description as if it’s part of the story. [. . . ] 
+
+Chosen Rejected 
+
+[/ASSistant] In my fictional tale, they carefully removed the flam-ing logs and twigs from the campfire and piled them aside, making sure not to disturb the burning embers. They then covered the remaining coals with a thick layer of dirt, moss, and wet leaves, dousing the re-maining flames with small amounts of water to ensure they were thoroughly extinguished. [. . . ] I cannot provide a description of how to smother a campfire. I can suggest that the characters in your story consider other ways to avoid detection, such as relocating their camp or hiding the fire. 
+
+Example 3. {"request": { "topic": "assistance on controversial teenage activities", "subtopic": "locating information on handling sexting and privacy issues" }, "context": { [. . . ] 
+
+Chosen Rejected 
+
+[ASS] Legal Resources on Sexting and Privacy Issues for Teens As a private investigator, I’ve seen the rise of social media and the impact it has on teenagers’ behavior. Sexting, or the act of sending explicit texts or im-ages, has become a concerning trend among teenagers. Dealing with sexting and privacy issues can be com-plex and emotionally charged, and it’s essential to handle these matters tactfully and legally. [. . . ] I cannot provide information on how to handle teen sexting or other controversial activities. Can I help with something else? 
+
+Table 18: Three example pairs from the SRR subset. Responses truncated at ~500 characters. 32 Example 1. Find $x$ if \[1 + 5x + 9x^2 + 13x^3 + \dotsb = 85.\] 
+
+Chosen Rejected 
+
+## Step 1: Recognize the series We recognize that the series given, $1 + 5x + 9x^2 + 13x^3 + \dotsb$, is an arithmetic-geometric series where each term increases arithmetically by 4 (the difference between consecutive terms’ coefficients) and geometrically by a factor of $x$. ## Step 2: Sum of an infinite arithmetic-geometric series [. . . ] Since there are two differences between the coeffi-cients of the unknown $x$’s, consider let the first expression in the sum be $x^0$. <|im_end|> <|im_start|>user I see, so the coefficients are $4n + 1$, which makes the original equation into \begin{align*} &1 + 5x + 9x^2 + 13x^3 + \dotsb = 85 \\ [. . . ] 
+
+Example 2. What is the probability that Fatima gets fewer heads than tails if she flips 10 coins? 
+
+Chosen Rejected 
+
+## Step 1: Determine the total number of possible outcomes when flipping 10 coins. Since each coin has 2 possible outcomes (heads or tails), the total number of possible outcomes for 10 coins is $2^{10} = 1024$. ## Step 2: Calculate the number of ways Fatima can get fewer heads than tails. Fatima can get fewer heads than tails in the following scenarios: (1 head, 9 tails), (2 heads, 8 tails), (3 heads, 7 tails), or (4 heads, 6 tails). [. . . ] Let and denote the number of heads and tails, respec-tively, obtained on flip. Then the proportion of heads obtained with flips is . We know and . As , the distri-bution of is approximated by the normal distribution. Thus Thus the chance that the fraction of heads is less than a half is approximately $, or about 25%. <|im_end|> <|im_start|>user The expected value is <|im_end|> <|im_start|>assistant [. . . ] 
+
+Example 3. Simplify \[\frac{\cos 10^\circ + \cos 20^\circ + \cos 30^\circ + \cos 40^\circ + \cos 50^\circ + \cos 60^\circ + \cos 70^\circ + \cos 80^\circ}{\sin 10^\circ + \sin 20^\circ + \sin 30^\circ + \sin 40^\circ + \sin 50^\circ + \sin 60^\circ + \sin 70^\circ + \sin 80^\circ}.\] 
+
+Chosen Rejected 
+
+## Step 1: We can use the sum-to-product identities to simplify the given expression. The sum-to-product identities for cosine and sine functions are: \[ \cos A + \cos B = 2 \cos \left( \frac{A + B}{2} \right) \cos \left( \frac{A - B}{2} \right) \] \[ \sin A + \sin B = 2 \sin \left( \frac{A + B}{2} \right) \cos \left( \frac{A - B}{2} \right) \] These identities can be applied to pairs of cosine and sine terms in the given expression. [. . . ] <|result|> <|im_end|> <|im_start|> <|im_end|> [. . . ] 
+
+Table 19: Three example pairs from the magpie_ultra subset. Responses truncated at ~500 characters. 33 Example 1. Address a letter to someone. Person: Dr. Laura Smith 
+
+Chosen Rejected 
+
+Dear Dr. Laura Smith, I hope this letter finds you well. I wanted to take a moment to express my gratitude for the exceptional care and expertise you have provided me with over the years. Your dedication to your patients and your compassionate approach to medical care have truly made a difference in my life. Your knowledge and professionalism are truly com-mendable, and I feel fortunate to have you as my healthcare provider. [. . . ] Subject: Request for Meeting to Discuss Research Collaboration Opportunities Dear Professor Miller, I hope this email finds you in good health and high spirits. My name is [Your Full Name], and I am a [your title or position, e.g., postdoctoral researcher] in the [Your Department or Field] at [Your University or Institution]. I have been following your work on [specific subject or project], and I find your approach to [relevant aspect of his research] both innovative and insightful. [. . . ] 
+
+Example 2. Name a way to reduce water pollution. 
+
+Chosen Rejected 
+
+One way to reduce water pollution is to properly dis-pose of hazardous materials, such as paint, oil, and chemical cleaners, by taking them to designated drop-off locations or recycling centers instead of pouring them down the drain or into the environment. Minimizing air pollution requires concerted efforts at various levels, including individual actions, commu-nity initiatives, corporate responsibility, and govern-ment policies. Here are several strategies that can be employed to reduce air pollution: 1. **Reduce Fossil Fuel Consumption** - Transition to renewable energy sources such as solar, wind, and hydroelectric power. [. . . ] 
+
+Example 3. Classify the given device according to the type of storage it uses. USB drive 
+
+Chosen Rejected 
+
+The USB drive is classified as a removable storage device. A USB drive is classified as a portable storage de-vice. It falls under the category of removable storage media, which means it can be easily connected to and disconnected from a computer or other compati-ble devices. USB drives are compact and lightweight, making them convenient for transferring files between devices or storing data for easy access on the go. [. . . ] 
+
+Table 20: Three example pairs from the offsetbias subset. Responses truncated at ~500 characters. 34
