@@ -1,0 +1,799 @@
+Title: Spurious Advantage Hidden in GRPO
+
+URL Source: https://arxiv.org/pdf/2609.04063v1
+
+Published Time: Fri, 04 Sep 2026 01:20:17 GMT
+
+Number of Pages: 16
+
+Markdown Content:
+# Spurious Advantage Hidden in GRPO 
+
+Jiamian Wang 1, Samyadeep Basu 2, Koustava Goswami 2, Tong Yu 2, Zhiqiang Tao 1
+
+> 1
+
+Rochester Institute of Technology, 2Adobe Research 
+
+Abstract 
+
+Group Relative Policy Optimization (GRPO) is widely studied for reinforcement learning with verifiable rewards, where its advantage es-timator assigns each rollout a magnitude from within-group reward statistics. In the common case, this magnitude rewards rollouts that reach the correct answer through reasoning. Yet, an overlooked case shares the same surface: a roll-out may land on it by guessing, and the for-mula still assigns a high magnitude, which we identify as the spurious advantage . This arises in three cases: bounded-answer tasks with a small candidate set; open-answer sets hosting bounded sub-cases; and search agents whose budget opens many paths to the same answer. In all three, this misleads the policy toward guess-like behaviors. We propose S IGN BAL -
+
+> ANCE
+
+, whose magnitude is composition-free: it keeps the verifier sign, uses a global scale, and restores zero-mean balance via a stop-gradient per-class rescaling. Across math and search-agent benchmarks at different scales, S IGN -BALANCE matches GRPO on open-answer math and improves on bounded-answer math and search agents. Code will be released. 
+
+1 Introduction 
+
+Reinforcement learning with verifiable rewards (RLVR) has become the standard recipe for post-training large language models on reasoning tasks, and Group Relative Policy Optimization (GRPO) (Shao et al., 2024) is widely studied in this line, where a group of rollouts is sampled per prompt, each rollout is scored by a binary verifier, and the per-rollout advantage is constructed from within-group reward statistics (Shao et al., 2024; Guo et al., 2025). Recent improvements operate around this estimator, e.g. , refining the clip range, replacing or removing the normalization term, re-shaping the sampling strategy, etc. (Yu et al., 2026; Liu et al., 2025; Xiao et al., 2025; Wu et al., 2025a). The GRPO advantage estimator applies the same within-group normalization formula on every task, where the magnitude assigned to each rollout is determined by the in-group correct/wrong com-position, regardless of whether the prompt is an open-answer math problem or a multi-choice ques-tion, and whether the rollout is a single answer or a multi-turn search trajectory. In the common case, a correct rollout earns its magnitude because the policy reasoned through the problem, which serves as an effective weight for the gradient. Yet, an overlooked case shares the same surface : a roll-out can land on the correct answer by guessing one candidate answer rather than by reasoning, still at-taining it a high magnitude. The estimator does not distinguish the two. The per-rollout gradient weight then contains a component that comes from guessing, misleading the policy toward learning lucky-guess trajectories instead of reasoning. We call this component the spurious advantage .The spurious advantage shows up most directly on bounded-answer tasks. Consider a multi-choice prompt with k options (e.g., k = 4 ): even without any reasoning, a policy that randomly picks one option still hits the gold answer with probability 
+
+1/k . Within a group of G rollouts, a rollout that arrives at the correct option by guessing and an-other that arrives at it by reasoning receive the very same per-rollout magnitude from the within-group formula, and therefore feed the policy update with the same gradient weight. The guessing one is a noisy signal that latently encourages the policy to imitate lucky guesses rather than to reason. Interestingly, this phenomenon is not exclusive to bounded-answer benchmarks; it can quietly ex-tend to other settings whose effective answer sur-face remains finite. On the training-data side, even a nominally open-answer math corpus can be far from uniformly open: in MATH-7.5K, 55 .95% of problems admit short numeric or categorical an-swers, so the corpus is in fact a mixture of many arXiv:2609.04063v1 [cs.AI] 3 Sep 2026 small bounded sub-cases (Table 1), leaving the pol-icy a non-negligible probability of guessing into the gold answer. On the search-agent side, a multi-turn rollout with a larger action budget explores a wider set of possible paths to the final answer, and many of these paths involve redundant or invalid searches yet still cash out as correct via outcome-only reward. The estimator assigns those guessed or detoured rollouts the same high magnitude as the genuinely reasoned ones, so the spurious advantage enters the gradient weight in both settings. This motivates an advantage estimator that separates the guessing component from the reasoning one. To this end, we propose an advantage estima-tor, S IGN BALANCE , whose per-rollout magnitude does not depend on the within-group composition, 
+
+i.e. , (n+, n −). The spurious component no longer enters the per-rollout gradient weight. S IGN BAL - 
+
+> ANCE
+
+keeps the verifier sign of each rollout, re-places the composition-dependent magnitude with a global scale, and restores the batch-level zero-mean force balance through a stop-gradient per-class rescaling. It is parameter-free, leaves the PPO-style surrogate unchanged, and adds no exter-nal model or inference-time cost. We summarize the contributions as follows: • This work isolates a spurious advantage phe-nomenon in GRPO advantage estimator, which can mislead the policy toward learning guess-like behaviors rather than effective reasoning. • This work identifies three cases where this component becomes large: bounded-answer tasks, bounded cases hidden in open-answer training sets, and multi-turn search agents with outcome-only reward, providing a unified lens to revisit GRPO’s learning signal. • This work proposes S IGN BALANCE , an ad-vantage estimator whose magnitude does not depend on within-group composition, is parameter-free, keeps the PPO-style surrogate unchanged, and introduces no external model or inference-time cost. • Experiments across math reasoning and search-agent tasks, and across different model scales, show consistent gains. We hope this work may invite further attention to how GRPO interacts with the structure of specific tasks. 
+
+2 Related Work 
+
+GRPO and Its Variants. GRPO (Shao et al., 2024) estimates per-rollout advantage from the in-group reward distribution and removes the PPO value net-work, and has driven strong results on open-answer math reasoning at scale (Shao et al., 2024; Guo et al., 2025). A rich body of follow-up work has refined the surrounding mechanics on clipping and sampling (Yu et al., 2026; Xiong et al., 2025), on normalization and aggregation (Liu et al., 2025; Xiao et al., 2025; Wu et al., 2025a; Zhao et al., 2025b; He et al., 2025b; Pang et al., 2025), on advantage shaping (Wang et al., 2025a; Huang et al., 2025; Chen et al., 2025a; Zhang et al., 2025), on the treatment of wrong rollouts and all-wrong groups (Zhu et al., 2026; Nan et al., 2025; Feng et al., 2025; Li et al., 2025a), and on multi-objective composite rewards (Ichihara et al., 2025). These efforts achieve strong empirical results within their respective scopes; their evaluations and design choices center on open-answer math, where the GRPO magnitude assignment can be treated as a universally applicable credit signal. 
+
+Advantage Estimators. A complementary line of work analyzes the GRPO advantage estimator itself. Mroueh (Mroueh, 2025) derives the closed-form weighting that GRPO implicitly applies un-der binary rewards, ω+(p) = p(1 − p)/p and 
+
+ω−(p) = −pp/ (1 − p), and shows that GRPO is equivalent to an adaptive weighted contrastive loss in which rare-success rollouts receive large positive weight; this adaptive weighting is a feature 
+
+on open-answer math, where rare success corre-sponds to a rare reasoning trajectory. Other analy-ses give complementary characterizations of the es-timator from cross-prompt expectation (Yang et al., 2026), rank-bias (He et al., 2025a), KL-constrained closed-form (Zhang et al., 2026), group-size scal-ing (Wu et al., 2025b), supervised-learning refram-ings (Li et al., 2025b, 2026) angles. We adopt Mroueh’s closed-form as the starting point of our analysis. While the works above develop theory of the estimator within the regime where the within-group composition reflects reasoning, our analysis focuses on the complementary regime: we identify three structural cases in which this composition acquires a reasoning-independent component, and design an advantage variant whose magnitude is independent of this composition. 
+
+3 Method 
+
+Section 3.1 introduces the preliminaries of GRPO. Section 3.2 examines the learning signal within GRPO, and introduces the spurious advantage phe-nomenon that has been overlooked. Section 3.3 di-agnoses the effect of this phenomenon. Section 3.4 presents the proposed method. 
+
+3.1 Preliminary 
+
+Given a question q and a current policy πθ,GRPO (Shao et al., 2024) samples a group of 
+
+G rollouts {τ1, . . . , τ G} from the old policy πθold 
+
+and assigns each rollout a binary verifier reward 
+
+ri ∈ { +1 , −1}. We write n+ and n− = G−n+ for the in-group counts of correct and wrong rollouts, and refer to (n+, n −) as the within-group compo-sition. The per-rollout advantage is computed by within-group standardization, 
+
+ˆAi = ri − μσ + ε , (1) where μ = 1
+
+> G
+
+P 
+
+> j
+
+rj , σ2 = 1
+
+> G
+
+P 
+
+> j
+
+(rj − μ)2, and ε
+
+is a numerical stabilizer. The policy is then updated with a PPO-style clipped surrogate, 
+
+LGRPO (θ) = − 1
+
+G
+
+> G
+
+X
+
+> i=1
+
+1
+
+|τi|
+
+> |τi|
+
+X
+
+> t=1
+
+min  wi,t (θ) ˆAi,
+
+clip( wi,t (θ), 1−ϵ, 1+ ϵ) ˆAi
+
+ + β KL πθ ∥ πref 
+
+,
+
+(2) where wi,t (θ) = πθ(τi,t | q, τ i,<t )
+
+πθold (τi,t | q, τ i,<t ) is the per-token importance ratio. The advantage ˆAi enters Eq. (2) as a scalar multiplier on the token-level log-likelihood ratio. Taking the gradient with respect to θ (and ignoring the KL term in the unclipped regime where wi,t ≈1) gives 
+
+∇θLi(θ) = − ˆAi· 1
+
+|τi|
+
+> |τi|
+
+X
+
+> t=1
+
+∇θ log πθ(τi,t | q, τ i,<t ),
+
+(3) where | ˆAi| is the per-rollout scalar weight on roll-out i’s gradient contribution to the policy update (see Appendix B for further discussion). Substituting ri ∈ { +1 , −1} into the definitions of μ and σ and grouping by reward class, the group reward statistics can be simplified to 
+
+μ = n+ − n−
+
+G , σ = 2√n+ n−
+
+G , (4) and substituting into Eq. (1) gives 
+
+ˆA+ = pn−/n +, ˆA− = −pn+/n −, (5) which has also been derived in concurrent work (Mroueh, 2025). The magnitude assigned to any rollout is thus a function of (n+, n −) alone (Figure 1). The content of the rollout and the pol-icy’s confidence on the prompt do not enter. 0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0                  
+
+> In-group correct ratio n+/G
+> 0.0 0.5 1.0 1.5 2.0 2.5 3.0 3.5 4.0
+> Advantage magnitude  |A + |
+> Case A: n+=1 ,|A+|= 15 3.87
+> Case B: n+=8 ,|A+|=1
+
+Figure 1: Illustration of GRPO’s advantage estimator. Per-rollout magnitude | ˆA+| = pn−/n + is a function of the within-group correct ratio n+/G under binary rewards. The smaller n+ is, the larger | ˆA+| becomes: 
+
+when a policy happens to obtain a rare correct rollout (small n+) by chance rather than by reasoning, the es-timator nevertheless assigns it a large | ˆA+|, which by Eq. (3) translates into a disproportionately high gradient weight on that rollout. We examine this effect on the learning signal in Section 3.2. 
+
+3.2 Impact of the GRPO advantage estimator 
+
+The magnitude in Eq. (5) is largest in imbalanced groups. For G = 16 , a rare-correct group ( n+ = 1 )gives | ˆA+| = √15 ≈ 3.87 , while a balanced group (n+ = 8 ) gives | ˆA+| = 1 . The estimator amplifies the gradient on the rare-correct rollout by a factor of roughly 3.87 over the rollout in a balanced group, even though the verifier reward is the same. Notably, the PPO-style clip in Eq. (2) bounds the importance ratio wi,t but not | ˆAi|: in the common case where wi,t ≈ 1 (e.g., the first inner update before the policy drifts), the full | ˆAi| enters the gradient through Eq. (3). The clip therefore hardly removes the per-rollout amplification we describe, and our experiments in Section 4 show that the am-plification leads to measurable performance gaps rather than being absorbed. To examine what learning signal this amplifica-tion carries, we decompose the per-prompt success probability pq by the source of the +1 outcome: 
+
+pq
+
+|{z}  
+
+> prob. of r=+1
+
+= pr
+
+|{z} 
+
+> from reasoning
+
++ (1 − pr) · pg
+
+| {z }
+
+> from non-reasoning
+
+,
+
+(6) where pr is the probability that the policy obtains the correct answer through reasoning, and pg is the probability of obtaining the correct answer in any other way (for example, by emitting one of a small set of candidate answers without reasoning). The within-group count n+ ∼ Binomial( G, p q) then has a contribution from each source. Substituting Eq. (6) into Eq. (5), the magnitude pn−/n + acts on a count n+ whose expectation Gp q inherits both components; the rare-correct push the estimator de-livers in an imbalanced group therefore consists of a learning signal driven by reasoning and a compo-nent driven by the second term of Eq. (6). We refer to the latter component as the spurious advantage 
+
+in the GRPO learning signal. When pg ≈ 0, the second term of Eq. (6) van-ishes and the spurious advantage is small. This is the case for open-answer mathematical reason-ing (Mroueh, 2025; Shao et al., 2024; Guo et al., 2025) (See more in Appendix A). The spurious advantage becomes sizeable when pg is not small; the next subsection works out two such cases. 
+
+3.3 Cases with a sizeable spurious advantage Bounded answer sets. When the task admits only a small set of candidate answers (e.g., multi-choice with k options), a policy that emits one candidate at random hits the correct answer with probability 
+
+pg ≈ 1/k . For 4-choice with G = 16 , Eq. (6) gives a baseline expectation of G · pg = 4 correct rollouts from non-reasoning alone. An observed group with n+ = 1 sits below this baseline; yet the estimator assigns the lone correct rollout magnitude 
+
+| ˆA+| = √15 ≈ 3.87 . By Eq. (6), the expected fraction of this magnitude is 
+
+pr
+
+pq
+
+= pr
+
+pr + (1 − pr)/k , (7) which is small whenever pr is comparable to or below 1/k . The same form applies to any task with a finite candidate set, e.g. , bounded-output classification and QA over a closed vocabulary. A nominally open-answer training set can also exhibit the bounded case on a sizeable subset of its problems. We analyze MATH-7.5K by the syn-tactic shape of the gold answer, and group them into 11 shape categories (Table 1; see Appendix C for per-quantity derivations). Five of the 11 cate-gories are flagged as bounded , together covering 
+
+55 .95% of MATH-7.5K, indicating that even an open-answer benchmark can contain a sizeable sub-set with closed answer form. Section 4.3 returns to this point with the per-string empirical baseline and the per-level breakdown. 
+
+Multi-turn search agents. Consider a search agent (e.g., Search-R1) that, on a prompt q, samples G
+
+trajectories with up to B search invocations per trajectory. Let Ti ∈ { 1, . . . , B } denote the actual number of turns at which trajectory i terminates, and let ai = ( ai, 1, . . . , a i,T i ) denote its turn-level Category # / Share (%) Guess hit rate ( pg) Bounded                                    
+
+> int_small [-10,10] 1806 / 24.41 4.76% ✓
+> int_medium [-100,100] 1701 / 22.99 0.50% ✓
+> expression 1544 / 20.87 0.00% –
+> int_large 1206 / 16.30 0.00% –
+> simple_fraction 556 / 7.51 1.00% ✓
+> tuple_or_list 270 / 3.65 0.00% –
+> other 121 / 1.64 0.00% –
+> decimal_short 116 / 1.57 0.00% –
+> finite_set_listed 46 / 0.62 20.00% ✓
+> percent 31 / 0.42 0.99% ✓
+> empty 2 / 0.03 0.00% –
+
+Table 1: Answer-shape distribution of MATH-7.5K. # / Share (%) reports the problem count in each shape cat-egory and its percent over the 7,399 parsable problems. 
+
+Guess hit rate is the probability that a random answer exactly matches the gold answer, i.e., 1/S for a category with a finite answer surface of size S and 0 when the surface is open-ended. The bounded categories cover 
+
+55 .95% of MATH-7.5K. 
+
+decision sequence (when to search, what query to issue, when to answer). The reward is computed at the trajectory endpoint upon the exact-match score, 
+
+ri = 1ˆy(ai) = y∗, ri ⊥ Ti, r i ⊥ ai, (8) in the sense that ri depends on the trajectory only through its final answer ˆy(ai). Trajectories with very different (Ti, a i) can yield ri = 1 . For two tra-jectories i, j on the same prompt with ri = rj = 1 
+
+but (Ti, a i)̸ = ( Tj , a j ), Eq. (5) assigns the identi-cal magnitude ˆAi = ˆAj = pn−/n +. Splitting pq
+
+as in Eq. (6), pg now includes the probability that the policy terminates with a correct final answer through any trajectory. This contribution can be sizeable when B is not small, since the space of 
+
+(Ti, a i) that can land on the correct ˆy is large. 
+
+3.4 Proposed method: S IGN BALANCE 
+
+We construct an advantage whose magnitude does not depend on (n+, n −) and which therefore does not carry the spurious component identified in Sec-tion 3.2. We refer to the resulting variant as S IGN -BALANCE and present it in three steps. Each step removes one dependence of Eq. (5) on (n+, n −).
+
+Step 1: per-class normalization. Normalize cor-rect and wrong rollouts separately, 
+
+ˆA(1)  
+
+> i
+
+= ri − μc(i)
+
+σc(i) + ε , (9) where c(i) ∈ { +, −} and (μc(i), σ c(i)) are statistics inside the correct or wrong subgroup. Given such a design, a correct rollout in an imbalanced group is no longer rescaled against many wrong rollouts. However, σ+ still depends on n+ alone and σ−on n− alone; the per-class magnitude remains a function of within-group counts. 
+
+Step 2: sign-only magnitude. Collapse the mag-nitude to a global scale, 
+
+ˆA(2)  
+
+> i
+
+= sign( ri) · c. (10) Such a design fully decouples the per-rollout mag-nitude from (n+, n −) and the magnitude no longer depends on within-group composition. However, the total correct-side force P 
+
+> i∈+
+
+| ˆA(2)  
+
+> i
+
+| = n+ ·c no longer matches the wrong-side force n− · c when-ever n+̸ = n−, so the batch-level zero-mean prop-erty of the GRPO advantage is broken. 
+
+Step 3: sign with per-class force balance. The proposed main variant restores batch-level zero-mean without reintroducing a count-dependent per-rollout magnitude: 
+
+ˆA+ = c, ˆA− = − c · sg 
+
+h n+
+
+> n−
+
+i
+
+, (11) where sg[ ·] is the stop-gradient operator. The rescal-ing enforces P 
+
+> i∈+
+
+| ˆA(3)  
+
+> i
+
+| = P 
+
+> i∈−
+
+| ˆA(3)  
+
+> i
+
+|, while the per-rollout magnitude c remains constant. 
+
+Summary. The proposed Eq. (11) is a drop-in re-placement for Eq. (1) inside the GRPO loss Eq. (2). It is parameter-free apart from the global scale c, in-troduces no external model, and adds no inference cost. Since the per-rollout magnitude does not read from (n+, n −), the spurious advantage isolated in Section 3.2 does not enter the gradient assignment. 
+
+4 Experiments 
+
+4.1 Experimental Settings Backbone and training data. We adopt Qwen2.5-0.5B-Instruct as the primary policy and Qwen2.5-3B-Base for scale generalization, training on the MATH dataset (Hendrycks et al., 2021) ( ∼ 7,500 
+
+problems) with G = 16 rollouts per question (max response length 8,192 ). Optimization uses learning rate 1 × 10 −6, KL coefficient β = 1 × 10 −3, up to 1000 steps; the reward is binary, from a rule-based verifier matching the ground-truth answer. For the search-agent setting, we adopt Qwen2.5-7B-Instruct as the policy. 
+
+Evaluation. We evaluate across three set-tings tailored to the model capacity. (a) 0.5B math reasoning. We use 8 math benchmarks, split by answer space into the open-answer 
+
+group (free-form numeric or symbolic answer: 0 100 200 300 400 500 600 700  
+
+> Training step
+> 32 33 34 35 36 37
+> Avg-8 accuracy (\%)
+> Untrained (33.02) GRPO SignBalance (ours)
+> 34.24 36.61
+
+Figure 2: SignBalance’s Avg-8 advantage over GRPO is sustained across the entire training trajectory, not just at the best checkpoint reported in Table 2. 
+
+GSM8K (Cobbe et al., 2021), MATH-500 (Light-man et al., 2024), Minerva-Math (Lewkowycz et al., 2022), OlympiadBench (He et al., 2024)) and the bounded-answer group (correct answer drawn from a small set: MMLU-math (Hendrycks et al., 2020), SAT-Math (Zhong et al., 2024), AQuA (Ling et al., 2017), AMC (Jia et al., 2024)). We report per-benchmark accuracy and the overall mean Avg-8. (b) 3B math reasoning. Follow-ing (Wang et al., 2025a), we use a more difficult 
+
+8-benchmark suite (GSM8K (Cobbe et al., 2021), MATH-500 (Lightman et al., 2024), Minerva-Math (Lewkowycz et al., 2022), Gaokao (Zhang et al., 2024), OlympiadBench (He et al., 2024), College Math (Tang et al., 2024), AIME24 (Jia et al., 2024), AMC23 (Jia et al., 2024)) covering both standard and competition-grade math, and re-port Avg-8. (c) Search-agent QA. We use the 
+
+6-benchmark text-QA following Search-R1 (Jin et al., 2025): NQ (Kwiatkowski et al., 2019), TriviaQA (Joshi et al., 2017), PopQA (Mallen et al., 2023) (single-hop) and HotpotQA (Yang et al., 2018), 2WikiMultiHopQA (Ho et al., 2020), MuSiQue (Trivedi et al., 2022) (multi-hop). We report the mean Avg-6 upon exact match score. 
+
+Baselines. The 0.5B and 3B comparisons both cover: the untrained backbone; the classical critic-based actor-critic method PPO (Schulman et al., 2017); the modernized REINFORCE-style baseline REINFORCE++ (Hu, 2026); the group-relative baseline RLOO (Ahmadian et al., 2024); standard GRPO (Shao et al., 2024) and its recent variants Dr.GRPO (Liu et al., 2025), DAPO (Yu et al., 2026), and BNPO (Xiao et al., 2025). All methods share the same backbone, training data, optimiza-tion, and evaluation pipeline; the advantage estima-tion mechanism is the sole controlled variable. 
+
+Agent setting. We further evaluate on Search-R1 (Jin et al., 2025), which trains a search agent Methods Open-answer Bounded-answer Avg-8 GSM8K MATH-500 Min.-M Olymp. MMLU-m SAT-M AQuA AMC Untrained Qwen2.5-0.5B-IT 47.23 48.40 8.46 10.25 52.54 59.38 31.89 6.02 33.02 PPO 47.50 54.20 6.62 7.23 52.81 67.19 30.71 6.02 34.04 REINFORCE++ 48.83 55.20 6.99 7.95 53.61 64.06 29.92 7.23 34.22 Dr.GRPO 48.90 55.60 6.99 8.13 52.27 68.75 25.98 7.23 34.23 GRPO 49.89 56.60 6.25 7.07 52.94 65.62 29.53 6.02 34.24 RLOO 49.20 55.80 7.35 7.60 52.94 67.19 30.71 7.23 34.75 BNPO 49.51 56.20 7.35 8.13 53.61 68.75 33.46 8.43 35.68 DAPO 48.82 55.40 6.25 8.48 55.88 71.88 36.22 7.23 36.27 
+
+Ours 49.66 53.60 8.46 8.83 54.14 71.88 35.43 10.84 36.61 
+
+Table 2: Main results on 8 math benchmarks (Qwen2.5-0.5B-Instruct, MATH-7.5K training). Benchmarks are split into open-answer (GSM8K, MATH-500, Minerva-Math, Olympiad) and bounded-answer (MMLU-math, SAT-Math, AQuA, AMC). All methods share the same backbone, training data, and evaluation protocol; the advantage construction is the sole controlled variable. Bold : best per column among the RL methods (the Untrained row is a reference and is excluded from the comparison). 
+
+with outcome-only reward (exact-match on the fi-nal answer) under a multi-turn search protocol with up to B = 4 search invocations per trajectory. Fol-lowing Search-R1, we use Qwen2.5-7B-Instruct as the policy, adopt the same training corpus, and re-port exact-match accuracy at evaluation. See more implementation details, in Appendix D. 
+
+4.2 Main Results 
+
+Table 2 reports the per-benchmark accuracy of GRPO, the GRPO variants, and S IGN BALANCE .We observe two main patterns. On bounded-answer benchmarks, S IGN BALANCE attains the large im-provements, e.g. , SAT-Math 71 .88 vs. GRPO 65 .62 
+
+(+6 .26 ) and AQuA 35 .43 vs. 29 .53 (+5 .90 ). Aplausible explanation is that when the within-group composition contains a sizeable random-guess com-ponent, the count-dependent magnitude in Eq. (5) amplifies that component, while the constant mag-nitude of S IGN BALANCE does not. Appendix G provides side-by-side reasoning traces in which the GRPO-trained policy produces a correct derivation but selects a wrong letter, while the S IGN BAL -
+
+ANCE -trained policy maps the same derivation to the correct letter. Second, on open-answer bench-marks, S IGN BALANCE brings clear improvements over the untrained baseline. 
+
+Scale generalization to 3B. We reproduce the same setup on Qwen2.5-3B-Base using the bench-marks introduced in Section 4.1. As shown in Table 3, S IGN BALANCE again attains the high-est Avg-8 ( 43 .78 ), with the largest per-bench mar-gins on the competition and bounded-answer cases (Gaokao +1 .2, AMC +1 .7, AIME +0 .8). The per-bench leader count grows from 4/8 at 0.5B to 7/8
+
+at 3B, so the advantage of S IGN BALANCE broad-ens across benchmarks at the larger scale rather '2' '1' '6' '3' '5' '4' '8' '10' '12' '0'    
+
+> Single answer string (top-10)
+> 0.0 0.5 1.0 1.5 2.0 2.5 3.0
+> Accuracy on MATH-7.5K (\%)
+> 2.69 2.51 2.49 2.49 2.34 2.16 1.74 1.39 1.39 1.37
+> 10 010 110 2
+> Top-kanswer pool size
+> 010 20 30 40 50 60
+> Cumulative accuracy (\%)
+> k=1 2.7% k=5 12.5% k=10 20.6% k=20 29.4% k=50 41.0% k=100 49.3%
+
+Figure 3: A policy that does no reasoning at all can still score on MATH-7.5K just by guessing popular answer strings. Left : per-string accuracy of a constant policy that always emits one fixed string from the top-10 list (emitting “ 2” alone scores 2.69% ). Right : cumulative accuracy under uniform sampling over the top-k strings (20 .6% at k=10 , ∼50% at k=100 ). Even on a free-form math benchmark, there is a measurable lower-bound score from guessing, amplifying the gradient-scalar weight defined in Eq. (3). 
+
+than washing out, even as the absolute Avg-8 gap over GRPO narrows from +2 .37 to +0 .98 .
+
+4.3 Empirical Analysis and Discussion 
+
+We analyze where the spurious advantage compo-nent is large and how it affects the GRPO estima-tor’s training behavior, on the 0.5B setting. 1
+
+Figure 3 shows that a policy that emits no rea-soning at all can score on MATH-7.5K by guessing popular answers: constantly outputting the single string “ 2” scores 2.69% , and uniformly sampling from the top-10 strings reaches 20 .6% . Figure 4 shows the bounded-answer fraction is highest on easy problems (Level 1: 69 .2% → Level 5: 45 .9% ), so the spurious advantage component is largest on exactly the problems an early-stage policy is 
+
+> 1
+
+We further quantify three additional diagnostics — the random-guess share of correct rollouts, the checkpoint-to-checkpoint stability of GRPO’s evaluation, and the perfor-mance gain split by answer-space regime — in Appendix E. Methods GSM8K MATH-500 Min.-M Gaokao Olymp. C. Math AIME AMC Avg-8 Untrained Qwen2.5-3B-Base 81.6 58.8 25.0 47.0 24.1 32.8 6.5 35.8 38.90 PPO 84.8 62.5 30.0 51.4 26.5 36.0 6.2 35.3 41.59 REINFORCE++ 85.3 63.5 30.6 52.4 27.2 36.5 7.2 35.7 42.30 Dr.GRPO 85.5 63.6 30.8 52.6 27.4 36.7 7.5 36.0 42.51 DAPO 85.1 65.4 31.2 53.0 27.6 36.6 6.2 35.9 42.60 GRPO 85.7 64.0 31.2 53.0 27.9 37.0 7.7 36.5 42.80 RLOO 85.9 64.3 31.4 53.2 28.0 37.1 7.8 36.7 43.05 BNPO 86.0 64.4 31.4 53.4 28.0 37.2 8.0 37.0 43.18 
+
+Ours 86.4 64.8 32.0 54.2 28.6 37.5 8.5 38.2 43.78 
+
+Table 3: Scale generalization on Qwen2.5-3B-Base across an 8-benchmark math suite tailored to the 3B scale (following (Wang et al., 2025a)); see Section 4.1 for the bench list and the rationale for the bench-set change relative to Table 2. Bold : best per column among the RL methods (the Untrained row is a reference). 
+
+Methods Single-hop Multi-hop Avg-6 NQ TriviaQA PopQA HotpotQA 2Wiki MuSiQue R-Search (Zhao et al., 2025a) 34.71 58.85 36.17 32.59 29.76 12.83 34.15 ZeroSearch (Sun et al., 2025) 36.29 57.09 35.79 32.11 34.90 10.88 34.51 DeepResearcher (Zheng et al., 2025) 35.60 58.44 37.06 34.85 31.39 14.40 35.29 ReSearch (Chen et al., 2025b) 36.40 58.71 38.87 34.88 27.97 17.09 35.65 Search-R1 (Jin et al., 2025) 39.20 59.22 38.91 36.16 27.58 14.94 36.00 StepSearch (Wang et al., 2025b) 36.84 57.51 36.41 36.31 32.05 19.53 36.44 
+
+Ours 39.25 59.30 39.00 36.55 35.20 17.50 37.80 
+
+Table 4: Exact-match accuracy on six text-based QA benchmarks under the search-agent scenario (Qwen2.5-7B-Instruct, Section 4.1). All methods use E5-base-v2 with Wikipedia-18 as the retriever and identical inference parameters; the advantage estimation mechanism within the GRPO outer loop is the sole controlled variable. algebra counting geometry intermediate number theory prealgebra precalculus          
+
+> Subject
+> 020 40 60 80 100
+> Bounded fraction (\%)
+> 67.8 49.5 44.8 48.9 64.6 63.1 36.9
+> MATH-7.5K overall: 56.0%
+> L1 L2 L3 L4 L5
+> MATH difficulty level
+> 020 40 60 80 100
+> Bounded fraction (\%)
+> 69.2 64.3 60.6 54.0 45.9
+> MATH-7.5K overall: 56.0%
+
+Figure 4: The bounded-answer fraction concentrates on the easy subset of MATH-7.5K. Left : bounded-answer fraction by subject. Right : bounded-answer fraction by MATH difficulty level. The fraction drops monotoni-cally from 69 .2% at Level 1 to 45 .9% at Level 5; easier problems tend to have small answer surfaces (e.g., 0–10 
+
+integers), which are exactly the problems an early-stage policy is most likely to solve, amplifying the spurious advantage during early training. 
+
+most likely to solve. Together with Table 1 in Section 3.3, these observations confirm that the bounded-answer case is not specific to MCQ bench-marks: it shows up inside what is widely treated as a free-form math training set. 
+
+4.4 Multi-Turn Agent Training 
+
+Table 4 reports exact-match accuracy under the search-agent scenario described in Section 4.1, where the multi-turn trajectory structure of Sec-tion 3.3 applies. We compare S IGN BALANCE 
+
+against six representative search-agent methods: Search-R1 (Jin et al., 2025), StepSearch (Wang et al., 2025b), ZeroSearch (Sun et al., 2025), R-Search (Zhao et al., 2025a), ReSearch (Chen et al., 2025b), and DeepResearcher (Zheng et al., 2025). SIGN BALANCE attains the highest Avg-6 ( 37 .80 ,
+
++1 .36 over StepSearch and +1 .80 over Search-R1) and is the per-bench leader on 5 of the 6
+
+benchmarks. The largest single-bench gain over Search-R1 appears on 2WikiMultiHopQA ( 35 .20 
+
+vs. 27 .58 , +7 .62 ), the most multi-hop-intensive bench in the suite. The one bench where S IGN -BALANCE is not the per-bench leader is MuSiQue, where StepSearch’s step-level reward shaping (a procedure-level addition orthogonal to advantage-estimator design) holds the top spot. The advan-tage estimator in vanilla GRPO can encourage the policy to guess the correct answer, fitting the un-derlying statistics and lacks generalization ability. The proposed method enhances the generalization, benefiting the broader scenarios, when there are same outer GRPO loop, same training corpus, and only the per-rollout advantage differs. 
+
+4.5 Ablation on the Advantage Estimation 
+
+We compare the three steps of S IGN BALANCE 
+
+(Section 3.4) against the GRPO baseline and 0 200 400 600        
+
+> Training step
+> 28 30 32 34 36 38
+> Accuracy (\%)
+> AQuA
+> GRPO SignBalance (ours)
+> 0200 400 600
+> Training step
+> 60 65 70
+> SAT-Math
+> 0200 400 600
+> Training step
+> 50 51 52 53 54 55 56 MMLU-math
+
+Figure 5: The per-bench gains of S IGN BALANCE over GRPO on bounded-answer benchmarks are sustained across the training trajectory, not concentrated at a single checkpoint. Per-checkpoint accuracy on AQuA, SAT-Math, and MMLU-math; best-checkpoint values match the corresponding columns of Table 2. 
+
+Variants Open-answer Bounded-answer Avg-8 GSM8K MATH-500 Min.-M Olymp. MMLU-m SAT-M AQuA AMC GRPO baseline 49.89 56.60 6.25 7.07 52.94 65.62 29.53 6.02 34.24 Sep. norm (Step 1) 48.50 55.80 6.80 7.60 53.61 62.50 31.10 9.20 34.39 Asym. boost 46.93 53.40 6.99 7.95 52.94 71.88 31.89 8.43 35.05 Sign-only (Step 2) 47.99 51.80 7.72 8.13 53.61 71.88 29.92 9.64 35.09 
+
+Ours (Step 3) 49.66 53.60 8.46 8.83 54.14 71.88 35.43 10.84 36.61 
+
+Table 5: Ablation on the advantage estimation. “Sep. norm” is Step 1 of S IGN BALANCE (class-separate normal-ization, Section 3.4); “Sign-only” is Step 2 ( ˆA+ = ˆA− = c, no force balance); “Asym. boost” is a fixed-factor variant ( ˆA+ = 2 .5, ˆA− = −1) included to isolate the role of force balance: it also removes the per-rollout count dependence, but with a hand-coded asymmetry that breaks the batch-level zero-mean property; “Ours” is the full SIGN BALANCE (Step 3, sign + per-class force balance). 
+
+against a fixed asymmetric boost following Table 2. Step 1 improves AQuA a bit and brings a marginal gain over GRPO, contributing to the cross-class scale interaction. Step 2 removes the per-rollout count dependence and improves SAT-Math by +6 .26 over GRPO and AMC by +3 .62 , but re-duces MATH-500 by 4.80 due to the loss of batch-level force balance. This matches the intuition in Section 3.3 where the spurious advantage peaks on bounded-answer tasks. The asymmetric boost is an additional factor that also removes the per-rollout count dependence by replacing the matched force balance with a hand-coded asymmetry. We hypoth-esis that the 1.56 gap between Asym. ( 35 .05 ) and Ours ( 36 .61 ) could be caused by the hand-coded asymmetry, indicating that force balance should be data-adaptive but not fixed. SIGN BALANCE 
+
+(Step 3) combines sign with per-class force bal-ance, achieving more gains on the bounded-answer benchmarks (AQuA, AMC). The averaged gain can stems from bounded-answer benchmarks. Besides, MATH-500 is the only trade-off due to the negligi-ble effect of the spurious advantage. 
+
+4.6 Stability Analysis 
+
+Figure 5 shows the per-checkpoint accuracy of GRPO and S IGN BALANCE on the three bounded-answer benchmarks (AQuA, SAT-Math, MMLU-math). The two trajectories separate early (within 
+
+∼100 steps) and S IGN BALANCE stays above GRPO for the rest of training on all three. This rules out the alternative reading that the per-bench gaps reported in Table 2 come from a single lucky checkpoint: the gap is sustained across hundreds of training steps, supporting the picture in Sec-tion 3.3 that the per-rollout count dependence of GRPO consistently injects a spurious component on bounded-answer benchmarks, which the pro-posed method S IGN BALANCE removes. 
+
+5 Conclusion 
+
+We identified a spurious advantage component in the GRPO advantage estimator: whenever a task admits a non-zero probability of producing the correct answer without reasoning, GRPO’s count-dependent magnitude amplifies that component. We worked out the two cases where it becomes size-able (bounded answer sets and multi-turn search agents) and proposed S IGN BALANCE , a one-line advantage variant that decouples the per-rollout magnitude from within-group composition. S IGN -BALANCE matches GRPO on open-answer math, beats it on bounded-answer math at both 0.5B and 
+
+3B, and gives the best Avg on multi-turn QA. Limitations 
+
+Although we have validated S IGN BALANCE on math reasoning and the multi-turn search-agent set-ting, the validation does not yet extend to more general settings. For instance, when an agent must select the most suitable tool from a finite tool li-brary at every action, the setting closely resem-bles the multi-choice case in math reasoning; by our analysis, canonical GRPO may likewise suffer from the spurious advantage there, and our method is therefore expected to bring consistent gains in such a setting as well. While we have validated S IGN BALANCE across settings (math reasoning and search-agent) and across model scales (0.5B, 3B, and 7B), and we empirically observe that our method drives the pol-icy toward more effective reasoning strategies, we have not yet quantitatively measured the resulting growth in reasoning ability, such as the policy’s reasoning confidence and its uncertainty behavior across problem difficulty levels. 
+
+References 
+
+Arash Ahmadian, Chris Cremer, Matthias Gallé, Marzieh Fadaee, Julia Kreutzer, Olivier Pietquin, Ah-met Üstün, and Sara Hooker. 2024. Back to basics: Revisiting reinforce-style optimization for learning from human feedback in llms. In ACL .Guanxu Chen, Yafu Li, Yuxian Jiang, Chen Qian, Qihan Ren, Jingyi Yang, Yu Cheng, Dongrui Liu, and Jing Shao. 2025a. Conditional advantage estimation for reinforcement learning in large reasoning models. 
+
+arXiv preprint arXiv:2509.23962 .Mingyang Chen, Linzhuang Sun, Tianpeng Li, Haoze Sun, Yijie Zhou, Chenzheng Zhu, Haofen Wang, Jeff Z Pan, Wen Zhang, Huajun Chen, and 1 oth-ers. 2025b. Learning to reason with search for llms via reinforcement learning. In NeurIPS .Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, and 1 others. 2021. Training verifiers to solve math word problems. arXiv preprint arXiv:2110.14168 .Yunzhen Feng, Parag Jain, Anthony Hartshorn, Yaqi Duan, and Julia Kempe. 2025. Don’t waste mis-takes: Leveraging negative rl-groups via confidence reweighting. arXiv preprint arXiv:2510.08696 .Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Ruoyu Zhang, Runxin Xu, Qihao Zhu, Shi-rong Ma, Peiyi Wang, Xiao Bi, and 1 others. 2025. Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning. In arXiv preprint arXiv:2501.12948 .Andre Wang He, Daniel Fried, and Sean Welleck. 2025a. Rewarding the unlikely: Lifting grpo beyond distri-bution sharpening. In EMNLP .Chaoqun He, Renjie Luo, Yuzhuo Bai, Shengding Hu, Zhen Thai, Junhao Shen, Jinyi Hu, Xu Han, Yujie Huang, Yuxiang Zhang, and 1 others. 2024. Olympiadbench: A challenging benchmark for pro-moting agi with olympiad-level bilingual multimodal scientific problems. In ACL .Zhiyuan He, Xufang Luo, Yike Zhang, Yuqing Yang, and Lili Qiu. 2025b. δl normalization: Rethink loss aggregation in rlvr. arXiv e-prints .Dan Hendrycks, Collin Burns, Steven Basart, Andy Zou, Mantas Mazeika, Dawn Song, and Jacob Steinhardt. 2020. Measuring massive multitask language under-standing. arXiv preprint arXiv:2009.03300 .Dan Hendrycks, Collin Burns, Saurav Kadavath, Akul Arora, Steven Basart, Eric Tang, Dawn Song, and Ja-cob Steinhardt. 2021. Measuring mathematical prob-lem solving with the math dataset. arXiv preprint arXiv:2103.03874 .Xanh Ho, Anh-Khoa Duong Nguyen, Saku Sugawara, and Akiko Aizawa. 2020. Constructing a multi-hop qa dataset for comprehensive evaluation of reasoning steps. In COLING .Jian Hu. 2026. Reinforce++: A simple and efficient approach for aligning large language models. arXiv preprint arXiv:2501.03262 .Wenke Huang, Quan Zhang, Yiyang Fang, Jian Liang, Xuankun Rong, Huanjin Yao, Guancheng Wan, Ke Liang, Wenwen He, Mingjun Li, and 1 others. 2025. Mapo: Mixed advantage policy optimization. 
+
+arXiv preprint arXiv:2509.18849 .Yuki Ichihara, Yuu Jinnai, Tetsuro Morimura, Mitsuki Sakamoto, Ryota Mitsuhashi, and Eiji Uchibe. 2025. Mo-grpo: Mitigating reward hacking of group rela-tive policy optimization on multi-objective problems. 
+
+arXiv preprint arXiv:2509.22047 .LI Jia, Beeching Edward, Tunstall Lewis, Lipkin Ben, Soletskyi Roman, Huang Shengyi Costa, Rasul Kashif, Yu Longhui, Jiang Albert, Shen Ziju, Qin Zihan, Dong Bin, Zhou Li, Fleureau Yann, Lample Guillaume, and Polu Stanislas. 2024. Numinamath. Bowen Jin, Hansi Zeng, Zhenrui Yue, Jinsung Yoon, Sercan Arik, Dong Wang, Hamed Zamani, and Jiawei Han. 2025. Search-r1: Training llms to reason and leverage search engines with reinforcement learning. In COLM .Mandar Joshi, Eunsol Choi, Daniel S Weld, and Luke Zettlemoyer. 2017. Triviaqa: A large scale distantly supervised challenge dataset for reading comprehen-sion. In ACL .Tom Kwiatkowski, Jennimaria Palomaki, Olivia Red-field, Michael Collins, Ankur Parikh, Chris Alberti, Danielle Epstein, Illia Polosukhin, Jacob Devlin, Ken-ton Lee, and 1 others. 2019. Natural questions: a benchmark for question answering research. In 
+
+TACL .Aitor Lewkowycz, Anders Andreassen, David Dohan, Ethan Dyer, Henryk Michalewski, Vinay Ramasesh, Ambrose Slone, Cem Anil, Imanol Schlag, Theo Gutman-Solo, and 1 others. 2022. Solving quan-titative reasoning problems with language models. In 
+
+NeurIPS .Gang Li, Yan Chen, Ming Lin, and Tianbao Yang. 2025a. Drpo: Efficient reasoning via decoupled reward pol-icy optimization. arXiv preprint arXiv:2510.04474 .Gang Li, Ming Lin, Tomer Galanti, Zhengzhong Tu, and Tianbao Yang. 2026. Disco: Reinforcing large reasoning models with discriminative constrained optimization. In NeurIPS .Jiaming Li, Longze Chen, Ze Gong, Yukun Chen, Lu Wang, Wanwei He, Run Luo, and Min Yang. 2025b. Implicit actor critic coupling via a super-vised learning framework for rlvr. arXiv preprint arXiv:2509.02522 .Hunter Lightman, Vineet Kosaraju, Yuri Burda, Harri-son Edwards, Bowen Baker, Teddy Lee, Jan Leike, John Schulman, Ilya Sutskever, and Karl Cobbe. 2024. Let’s verify step by step. In ICLR .Wang Ling, Dani Yogatama, Chris Dyer, and Phil Blun-som. 2017. Program induction by rationale genera-tion: Learning to solve and explain algebraic word problems. In ACL .Zichen Liu, Changyu Chen, Wenjun Li, Penghui Qi, Tianyu Pang, Chao Du, Wee Sun Lee, and Min Lin. 2025. Understanding r1-zero-like training: A critical perspective. arXiv preprint arXiv:2503.20783 .Alex Mallen, Akari Asai, Victor Zhong, Rajarshi Das, Daniel Khashabi, and Hannaneh Hajishirzi. 2023. When not to trust language models: Investigating effectiveness of parametric and non-parametric mem-ories. In ACL .Youssef Mroueh. 2025. Reinforcement learning with verifiable rewards: Grpo’s effective loss, dynam-ics, and success amplification. arXiv preprint arXiv:2503.06639 .Gongrui Nan, Siye Chen, Jing Huang, Mengyu Lu, Dexun Wang, Chunmei Xie, Weiqi Xiong, Xianzhou Zeng, Qixuan Zhou, Yadong Li, and 1 others. 2025. Ngrpo: Negative-enhanced group relative policy op-timization. arXiv preprint arXiv:2509.18851 .Lei Pang, Jun Luo, and Ruinan Jin. 2025. Tic-grpo: Provable and efficient optimization for reinforce-ment learning from human feedback. arXiv preprint arXiv:2508.02833 .John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. 2017. Proximal pol-icy optimization algorithms. In arXiv preprint arXiv:1707.06347 .Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, YK Li, Yang Wu, and 1 others. 2024. Deepseekmath: Pushing the limits of mathematical reasoning in open language models. In arXiv preprint arXiv:2402.03300 .Hao Sun, Zile Qiao, Jiayan Guo, Xuanbo Fan, Yingyan Hou, Yong Jiang, Pengjun Xie, Yan Zhang, Fei Huang, and Jingren Zhou. 2025. Zerosearch: Incen-tivize the search capability of llms without searching. In arXiv preprint arXiv:2505.04588 .Zhengyang Tang, Xingxing Zhang, Benyou Wang, and Furu Wei. 2024. Mathscale: Scaling instruction tuning for mathematical reasoning. arXiv preprint arXiv:2403.02884 .Harsh Trivedi, Niranjan Balasubramanian, Tushar Khot, and Ashish Sabharwal. 2022. Musique: Multihop questions via single-hop question composition. In 
+
+TACL .Yining Wang, Jinman Zhao, Chuangxin Zhao, Shuhao Guan, Gerald Penn, and Shinan Liu. 2025a. lambda -grpo: Unifying the grpo frameworks with learnable token preferences. arXiv preprint arXiv:2510.06870 .Ziliang Wang, Xuhui Zheng, Kang An, Cijun Ouyang, Jialu Cai, Yuhang Wang, and Yichao Wu. 2025b. Stepsearch: Igniting llms search ability via step-wise proximal policy optimization. In EMNLP .Junkang Wu, Kexin Huang, Jiancan Wu, An Zhang, Xiang Wang, and Xiangnan He. 2025a. Quantile ad-vantage estimation for entropy-safe reasoning. arXiv preprint arXiv:2509.22611 .Yihong Wu, Liheng Ma, Lei Ding, Muzhi Li, Xinyu Wang, Kejia Chen, Zhan Su, Zhanguang Zhang, Chenyang Huang, Yingxue Zhang, and 1 others. 2025b. It takes two: Your grpo is secretly dpo. arXiv preprint arXiv:2510.00977 .Changyi Xiao, Mengdi Zhang, and Yixin Cao. 2025. Bnpo: Beta normalization policy optimization. arXiv preprint arXiv:2506.02864 .Wei Xiong, Chenlu Ye, Baohao Liao, Hanze Dong, Xinxing Xu, Christof Monz, Jiang Bian, Nan Jiang, and Tong Zhang. 2025. Reinforce-ada: An adaptive sampling framework under non-linear rl objectives. 
+
+arXiv preprint arXiv:2510.04996 .Fengkai Yang, Zherui Chen, Xiaohan Wang, Xiaodong Lu, Jiajun Chai, Guojun Yin, Wei Lin, Shuai Ma, Fuzhen Zhuang, Deqing Wang, and 1 others. 2026. Your group-relative advantage is biased. arXiv preprint arXiv:2601.08521 .Zhilin Yang, Peng Qi, Saizheng Zhang, Yoshua Ben-gio, William W Cohen, Ruslan Salakhutdinov, and Christopher D Manning. 2018. Hotpotqa: A dataset for diverse, explainable multi-hop question answer-ing. In EMNLP .Qiying Yu, Zheng Zhang, Ruofei Zhu, Yufeng Yuan, Xiaochen Zuo, Yu Yue, Weinan Dai, Tiantian Fan, Gaohong Liu, Lingjun Liu, and 1 others. 2026. Dapo: An open-source llm reinforcement learning system at scale. In NeurIPS .Boning Zhang, Chengxi Li, and Kai Fan. 2024. Mario eval: Evaluate your math llm with your math llm– a mathematical dataset evaluation toolkit. arXiv preprint arXiv:2404.13925 .Kaichen Zhang, Yuzhong Hong, Junwei Bao, Hongfei Jiang, Yang Song, Hong Dingqian, and Hui Xiong. 2026. Gvpo: Group variance policy optimization for large language model post-training. In NeurIPS .Xingjian Zhang, Siwei Wen, Wenjun Wu, and Lei Huang. 2025. Edge-grpo: Entropy-driven grpo with guided error correction for advantage diversity. arXiv preprint arXiv:2507.21848 .Qingfei Zhao, Ruobing Wang, Dingling Xu, Daren Zha, and Limin Liu. 2025a. R-search: Empowering llm reasoning with search via multi-reward reinforcement learning. In arXiv preprint arXiv:2506.04185 .Yuzhong Zhao, Yue Liu, Junpeng Liu, Jingye Chen, Xun Wu, Yaru Hao, Tengchao Lv, Shaohan Huang, Lei Cui, Qixiang Ye, and 1 others. 2025b. Geometric-mean policy optimization. arXiv preprint arXiv:2507.20673 .Yuxiang Zheng, Dayuan Fu, Xiangkun Hu, Xiaojie Cai, Lyumanshan Ye, Pengrui Lu, and Pengfei Liu. 2025. Deepresearcher: Scaling deep research via reinforcement learning in real-world environments. In EMNLP .Wanjun Zhong, Ruixiang Cui, Yiduo Guo, Yaobo Liang, Shuai Lu, Yanlin Wang, Amin Saied, Weizhu Chen, and Nan Duan. 2024. Agieval: A human-centric benchmark for evaluating foundation models. In 
+
+NAACL .Xinyu Zhu, Mengzhou Xia, Zhepei Wei, Wei-Lin Chen, Danqi Chen, and Yu Meng. 2026. The surprising effectiveness of negative reinforcement in llm reason-ing. In NeurIPS .A Open-answer mathematical reasoning: the small-spurious-advantage case 
+
+We work out the case pg ≈ 0 deferred from Sec-tion 3.2. 
+
+Setup. Consider a prompt q on which the pol-icy attains per-sample success probability pq, and recall the decomposition of Eq. (6), 
+
+pq = pr + (1 − pr) · pg,
+
+where pr is the probability that the policy obtains the correct answer through reasoning, and pg is the probability of obtaining the correct answer by any other route. For open-answer mathematical reason-ing, the answer surface is large (numbers, fractions, symbolic expressions, tuples, intervals), and the prompt typically admits a single correct surface form; producing this form without reasoning is a 
+
+≪ 1 event, so pg → 0.
+
+Effect on the within-group count. With pg →
+
+0, the per-prompt success probability reduces to 
+
+pq ≈ pr, and the within-group count n+ ∼
+
+Binomial( G, p q) has E[n+] = Gp q ≈ Gp r — the count is driven by the reasoning channel alone. Sub-stituting into Eq. (5), the rare-correct magnitude 
+
+| ˆA+| = pn−/n +
+
+is large precisely when pr is small, i.e., when the policy is reasoning through the prompt only rarely. 
+
+Connection to prior work. This is the case in which the closed-form weighting of Mroueh (Mroueh, 2025), 
+
+ω+(p) = p(1 − p)/p, ω−(p) = −pp/ (1 − p),
+
+admits the adaptive contrastive interpretation: a rare-correct rollout receives a large weight because reasoning success on this prompt is genuinely rare. When pg = 0 , the second term of Eq. (6) con-tributes nothing, and the magnitude assigned by Eq. (5) corresponds to a learning signal with no spurious advantage. 
+
+Bound on the residual spurious advantage. 
+
+When pg is small but not zero, the expected fraction of the magnitude attributable to reasoning is 
+
+pr
+
+pq
+
+= pr
+
+pr + (1 − pr)pg
+
+,
+
+which is ≥ 1 − pg/p q. For open-answer mathemati-cal reasoning the ratio is close to 1, and the spurious advantage is at the level of pg at most. The within-MATH-7.5K analysis in Section 4.3 quantifies this residual: even on a nominally open-answer training set, pg is not zero and the residual is measurable, though small relative to the bounded-answer cases of Section 3.3. 
+
+B | ˆAi| as a per-rollout learning weight 
+
+Throughout the main paper we describe | ˆAi| as the per-rollout scalar weight on rollout i’s gradient con-tribution to the policy update. Strictly, the GRPO policy gradient for rollout i (ignoring the KL term and in the unclipped regime where wi,t ≈ 1) fac-torizes as 
+
+∇θLi = − ˆAi · 1
+
+|τi|
+
+X
+
+> t
+
+∇θ log πθ(τi,t )
+
+| {z }
+
+> rollout-specific log-prob gradient
+
+,
+
+so the gradient norm contributed by rollout i fac-torizes as | ˆAi| · 1
+
+> |τi|
+
+P 
+
+> t
+
+∇θ log πθ(τi,t ) . The sec-ond factor depends on the rollout’s tokens and the current policy, but is independent of the choice of advantage estimator. For a fixed rollout, | ˆAi|
+
+therefore acts as a multiplicative scalar that deter-mines how strongly that rollout’s log-probability is pushed. This usage matches the standard convention in the RL-for-LLM literature, where | ˆAi| is treated as the per-rollout learning weight when comparing advantage estimators (Schulman et al., 2017; Ah-madian et al., 2024; Hu, 2026; Shao et al., 2024; Mroueh, 2025). In particular, Mroueh (Mroueh, 2025) analyzes GRPO at this per-rollout weight level under binary rewards and derives the same pn−/n + form we use in Eq. (5). Our analysis of the spurious advantage component is therefore a statement about how this per-rollout weight is com-posed across reasoning-driven and non-reasoning success channels, not a claim about gradient norms in absolute units or about the precise effect under specific PPO clip realizations. 
+
+C Justification of the MATH-7.5K answer-shape categorization 
+
+This appendix walks through every quantity in Ta-ble 1 column by column, so each cell can be re-derived from the underlying definitions. 
+
+Source set (the denominator of every column). 
+
+We work with the standard MATH training split of 7,500 problems. We extract the gold answer of each problem by parsing the \boxed{...} token in the official solution. 7,399 problems contain a parsable \boxed{} ; the remaining 101 are dropped where parsing fails. Every column of Table 1 is computed over this set of 7,399 problems. 
+
+Category (the row label). Each parsable gold an-swer is assigned to one of 11 surface-syntactic cat-egories, defined purely by the shape of the answer string rather than the underlying problem domain. For example, an answer of 5 goes to int_small re-gardless of whether the problem is about geometry or arithmetic; an answer of p/q with |p|, |q| ≤ 20 
+
+goes to simple_fraction ; a non-numeric alge-braic answer such as x2+1 goes to expression .The 11 categories are mutually exclusive and ex-haustive, with other as a catch-all. 
+
+#Problems (column 2). The count of problems in the source set whose gold answer falls in this category. The 11 counts sum to 7,399 .
+
+Share (column 3). #Problems divided by 7,399 ,expressed as a percent. The 11 shares sum to 100% .This column tells the reader how large each shape category is relative to the whole training set. 
+
+Guess hit rate (column 4). The probability that a policy producing a uniformly random answer of the given syntactic shape lands on the gold answer. Two cases: • Finite surface. If the category has a fi-nite answer surface of size S, the hit rate is 1/S . For int_small (S=21 integers in 
+
+[−10 , 10] ), this gives 1/21 ≈ 4.76% ; for 
+
+int_medium (S=201 ), 1/201 ≈ 0.50% ; for 
+
+simple_fraction (S≈100 irreducible frac-tions with |p|, |q| ≤ 20 ), ≈ 1.00% ; for 
+
+finite_set_listed (typical S=5 enumer-ated options), ≈ 20 .00% ; for percent (S=101 
+
+percent values), ≈ 0.99% .• Open-ended surface. If the category has an infinite or open-ended answer surface (e.g., 
+
+expression , int_large , tuple_or_list ,
+
+decimal_short , other , empty ), the hit rate is treated as 0 — emitting a random expression or large integer that exactly matches the gold answer has negligible probability. This column is the per-category estimate of pg in Eq. (6): the probability of obtaining the correct answer without reasoning. 
+
+Bounded (column 5). A binary flag set to 3 when the guess hit rate is ≥ 0.5% , and − otherwise. The threshold is conservative: we only flag categories where a no-reasoning policy already has a measur-able hit rate, not categories with a marginal rate that would be hard to distinguish from sampling noise. Under this rule, 5 of the 11 categories are flagged (int_small , int_medium , simple_fraction ,
+
+finite_set_listed , percent ), together cover-ing 4,140 problems ( 55 .95% of MATH-7.5K). 
+
+Why this analysis is defensible. Three points clarify the reading of Table 1: (i) the categoriza-tion is syntactic, not semantic — we group an-swers by surface shape, not by problem difficulty, so the table reports a fact about the answer sur-face of MATH-7.5K rather than a re-interpretation of the benchmark; (ii) the 0.5% threshold flags only categories with a measurable hit rate, and the largest bounded category, int_small (24 .41% of the data), has a guess rate of 4.76% , well above the threshold; (iii) we do not claim that bounded problems in MATH-7.5K are easy or unimportant — we claim only that the bounded case of Section 3.3 arises on a sizeable subset of MATH-7.5K, so the spurious advantage component is non-zero even on a benchmark conventionally treated as open-answer. Section 4.3 provides further empirical evi-dence. 
+
+D Implementation details 
+
+SIGN BALANCE sets ˆA+ = 1 and ˆA− =
+
+−sg[ n+/n −] on top of the standard GRPO policy-gradient loss, with no additional hyperparameter beyond the global scale c = 1 . We adopt vLLM for rollout generation, and report the best checkpoint per run by Avg-8. 
+
+E Additional empirical diagnostics 
+
+We report three additional diagnostics on the 0.5Bevaluation suite that further support the analysis in Section 4.3. 
+
+Random-guess share of correct rollouts. On each benchmark, we quantify how much of a correct rollout could already be produced by a random-guess policy. For a k-option multi-choice benchmark, a uniform random-guess policy attains accuracy ≥ 1/k . Under a first-order uniform-guess assumption, the random-guess share of cor-rect rollouts is (1 /k )(1 −s)acc , where s = (acc −
+
+1/k )/(1 − 1/k ). On the untrained Qwen2.5-0.5B-Instruct, this share is 53 .4% on AQuA ( k=5 ), 30 .1% on MMLU-math ( k=4 ), and 22 .8% on SAT-Math ( k=4 ); on the open-answer math benchmarks (MATH-500, GSM8K, Minerva-Math, Olympiad), the random-guess floor is 0 and the share is 0. The bounded-answer benchmarks therefore feed the es-timator a within-group composition that is partially random-guess even at the start of training. 
+
+Checkpoint-to-checkpoint stability of GRPO evaluation. For a GRPO training run, we com-pute the standard deviation of evaluation accuracy across the last 30 training checkpoints on each benchmark (the same checkpoints used for best-checkpoint selection in Table 2). The mean stan-dard deviation is 2.69 on the bounded-answer sub-set (SAT-Math, MMLU-math, AQuA) and 0.92 
+
+on the open-answer subset (MATH-500, GSM8K, Minerva-Math, Olympiad), a ratio of 2.91 ×. On the same training run, the GRPO estimator’s late-stage evaluation moves about three times more from checkpoint to checkpoint on bounded-answer benchmarks than on open-answer ones, consistent with the spurious component contributing a noisier per-update gradient on the bounded-answer regime. 
+
+Performance gain by regime. We measure GRPO’s performance gain across the two regimes via (acc late − 1/k ) − (acc untr − 1/k ) for bounded-answer benchmarks (or simply acc late −acc untr for open-answer ones), where acc late is the mean over the last 30 training checkpoints. On the two open-answer benchmarks where the 0.5B policy has enough capacity to actually improve, GRPO’s gain is +7 .17 on MATH-500 and +2 .70 on GSM8K; on the bounded-answer benchmarks the gains are 
+
+−0.24 on MMLU-math, +2 .26 on AQuA, and 
+
++5 .28 on SAT-Math. The bounded-answer gains are visibly smaller and noisier than the open-answer ones, consistent with the spurious compo-nent diluting the GRPO update on the bounded-answer regime. 
+
+F Algorithmic comparison with GRPO 
+
+We provide side-by-side pseudocode of the stan-dard GRPO advantage estimator (Algorithm 1) and SIGN BALANCE (Algorithm 2). Lines in red mark where S IGN BALANCE differs from GRPO, so the reader can locate the design at a glance. 
+
+Algorithm 1 GRPO advantage estimator (standard, per prompt q). 
+
+Require: rollouts {τi}Gi=1 , binary rewards 
+
+{ri}Gi=1 , ri ∈ { +1 , −1} 
+
+> 1:
+
+μ ← 1
+
+> G
+
+P 
+
+> i
+
+ri 
+
+> 2:
+
+σ ←
+
+q 1
+
+> G
+
+P
+
+> i
+
+(ri − μ)2 
+
+> 3:
+
+for i = 1 , . . . , G do  
+
+> 4:
+
+ˆAi ← (ri − μ)/(σ + ε) ▷ per-rollout magnitude depends on (n+, n −) 
+
+> 5:
+
+end for  
+
+> 6:
+
+return { ˆAi}Gi=1 
+
+Algorithm 2 SIGN BALANCE advantage estimator (ours, per prompt q). 
+
+Require: rollouts {τi}Gi=1 , binary rewards 
+
+{ri}Gi=1 , ri ∈ { +1 , −1}, global scale c 
+
+> 1:
+
+n+ ← |{ i : ri = +1 }| , n− ← G − n+ 
+
+> 2:
+
+ρ ← sg[ n+/n − ] ▷ stop-gradient per-class force-balance ratio  
+
+> 3:
+
+for i = 1 , . . . , G do  
+
+> 4:
+
+if ri = +1 then  
+
+> 5:
+
+ˆAi ← c ▷ constant magnitude, free of 
+
+(n+, n −) 
+
+> 6:
+
+else  
+
+> 7:
+
+ˆAi ← − c · ρ ▷ per-class rescaling restores zero-mean balance  
+
+> 8:
+
+end if  
+
+> 9:
+
+end for  
+
+> 10:
+
+return { ˆAi}Gi=1 
+
+G Reasoning trace comparisons on bounded-answer benchmarks 
+
+To illustrate how S IGN BALANCE changes the policy’s behavior on bounded-answer tasks, we compare reasoning traces from the GRPO-trained and S IGN BALANCE -trained Qwen2.5-0.5B-Instruct policies on two test problems where the two methods disagree: one from MMLU-math, and one from SAT-Math. In both cases, the GRPO-trained policy carries out a correct derivation but then maps it to the wrong letter — a failure that we interpret as the policy still relying on a spuri-ous cue at the letter-selection step. The S IGN BAL -
+
+> ANCE
+
+-trained policy produces a closely matched derivation but maps it to the correct letter. 
+
+Example 1 (MMLU-math). Prompt. “What is the largest factor of 54 ,321 that is less than 54 ,321 ?(A) 6, (B) 121 , (C) 18 ,107 , (D) 54 ,320 .” Gold answer: C.
+
+GRPO output (verbatim). 
+
+To find the largest factor of 54,321 that is less than 54,321, we need to follow these steps: 
+
+1. Identify the factors of 54,321: First, we need to find the prime factorization of 54,321. 54,321 is an odd number, so it is not divisible by 2. The sum of the digits of 54,321 is 5 + 4 + 3 + 2 + 1 = 15 , which is divisible by 3. Therefore, 54,321 is divisible by 3. Dividing 54,321 by 3, we get 
+
+54 , 321 ÷ 3 = 18 , 107 . Now, we need to check if 18,107 is a prime number. We do this by checking divisibility by prime numbers up to the square root of 18,107 (approximately 134.5). 18,107 is not divisible by 2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, or 97. Since 18,107 is not divisible by any of these primes, it is a prime number. Therefore, the prime factorization of 54,321 is 3 × 18 , 107 .
+
+2. Identify the largest factor less than 54,321: 
+
+The largest factor of 54,321 is 18,107. To confirm, we check that 18,107 is less than 54,321. Indeed, 
+
+18 , 107 < 54 , 321 .Therefore, the largest factor of 54,321 that is less than 54,321 is B .
+
+SIGN BALANCE output (verbatim). 
+
+To find the largest factor of 54,321 that is less than 54,321, we need to follow these steps: 
+
+1. Identify the largest factor less than 54,321 :The largest factor of a number is its smallest posi-tive factor. Therefore, we need to find the largest factor of 54,321 that is less than 54,321. 
+
+2. Check divisibility by small prime numbers :We start by checking if 54,321 is divisible by the smallest prime number, 2. Since 54,321 is odd, it is not divisible by 2. 
+
+3. Check divisibility by 3 : A number is divisible by 3 if the sum of its digits is divisible by 3. The sum of the digits of 54,321 is 5 + 4 + 3 + 2 + 1 = 15 . Since 15 is divisible by 3, 54,321 is also divisible by 3. We can perform the division: 
+
+54 , 321 ÷ 3 = 18 , 107 
+
+So, 54 ,321 = 3 × 18 ,107 .
+
+4. Verify that 18,107 is a factor : We need to check if 18,107 is a factor of 54,321. We do this by performing the division: 
+
+54 , 321 ÷ 18 , 107 = 3 
+
+Since the division is exact, 18,107 is indeed a factor of 54,321. 
+
+5. Conclusion : The largest factor of 54,321 that is less than 54,321 is 18,107. Therefore, the correct answer is C .
+
+Example 2 (SAT-Math). Prompt. “There are 
+
+435 voting members of the US House of Represen-tatives. If b voting members are in favor of a certain bill, which expression represents the percentage of the voting members in favor of the bill?” Gold answer: A.
+
+GRPO output (verbatim). 
+
+To find the percentage of voting members in favor of the bill, we need to express the number of voting members in favor as a fraction of the total number of voting members and then convert that fraction to a percentage. The total number of voting members is 435. If b
+
+is the number of voting members in favor, then the number of voting members against is 435 − b.The percentage of voting members in favor is given by the formula: Percentage =
+
+ b
+
+435 
+
+
+
+× 100 
+
+This can be rewritten as: Percentage = b × 100 435 
+
+So, the expression that represents the percentage of the voting members in favor of the bill is: 
+
+b × 100 435 
+
+Therefore, the correct answer is: B
+
+SIGN BALANCE output (verbatim). 
+
+To find the percentage of voting members in favor of the bill, we need to express the number of voting members in favor as a fraction of the total number of voting members and then convert that fraction to a percentage. The total number of voting members is 435. If b
+
+is the number of voting members in favor, then the number of voting members against is 435 − b.The percentage of voting members in favor is given by the formula: Percentage =
+
+ b
+
+435 
+
+
+
+× 100 
+
+This can be rewritten as: Percentage = b × 100 435 
+
+Therefore, the expression that represents the per-centage of the voting members in favor of the bill is: 
+
+100 
+
+ b
+
+435 
+
+
+
+So, the correct choice is: 
+
+AInterpretation. In both examples shown above, GRPO’s reasoning content is correct, and the error appears only at the final letter-selection step. Un-der our analysis (Section 3.3), a policy trained with the count-dependent GRPO advantage receives re-inforcement on rollouts that produce the correct letter, regardless of whether that letter was reached through reasoning or by guessing among the can-didates. Such a policy can therefore learn a letter-selection shortcut that does not faithfully follow the derivation. S IGN BALANCE , by decoupling the per-rollout magnitude from within-group composition, removes the gradient weight on rollouts that pro-duce the correct letter by guessing. Accordingly, the resulting policy maps its derivations to letters more faithfully. 
+
+H Use of AI assistance 
+
+We used an AI writing assistant to help polish the manuscript, including typo checking and refining word. All technical content, experimental design, results, and analyses are produced by the authors.

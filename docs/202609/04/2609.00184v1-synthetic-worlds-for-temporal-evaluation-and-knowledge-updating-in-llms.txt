@@ -1,0 +1,927 @@
+Title: Synthetic Worlds for Temporal Evaluation and Knowledge Updating in LLMs
+
+URL Source: https://arxiv.org/pdf/2609.00184v1
+
+Published Time: Wed, 02 Sep 2026 00:13:36 GMT
+
+Number of Pages: 37
+
+Markdown Content:
+# Synthetic Worlds for Temporal Evaluation and Knowledge Updating in LLMs 
+
+Jonathan Zheng ♣, Zirui Shao ♢, Alan Ritter ♣, Wei Xu ♣♣Georgia Institute of Technology, ♢Zhejiang University 
+
+jzheng324@gatech.edu ; shaozirui@zju.edu.cn 
+
+Abstract 
+
+Large language models (LLMs) rely on static pretraining corpora, causing their knowledge to become outdated over time. Existing approaches for evaluating knowledge edits either suffer from rapid contamination or rely on counterfactual edits that conflict with rigid existing knowledge. In this work, we propose a synthetic, simulation-driven framework for studying knowledge insertion in LLMs. We introduce P ARALLEL EVENTS ,a benchmark of fictional yet realistic future worlds that generates coherent event trajectories for controlled evaluation, avoiding contamination while preserving consistency. Building on this dataset, we develop SYNAPSE , a training framework that uses model-generated data to update model parameters via mid-training and instruction tuning. This synthetic pipeline enables scalable knowledge integration without costly human-curated data. Empirically, S YNAPSE outperforms existing methods by 14.23%, demonstrating that simulation-based synthetic training leads to robust and coherent knowledge insertions. 
+
+## 1 Introduction 
+
+Large language models (LLMs) are increasingly relied upon as general-purpose information sources. However, these models are trained on static corpora that freeze the world at a specific moment in time, causing hallucinations, refusals, or outdated responses as the world changes [29, 60]. Existing approaches to addressing this challenge have largely focused on isolated factual changes, such as covering newly introduced entities [44, 53] or simple government leadership transitions [77]. These settings do not fully capture the complex and evolving dynamics of the real world and are prone to rapid contamination as these entities and facts appear in subsequent training data. In this work, we investigate this problem through both a benchmark and a training framework: we introduce internally consistent fictional worlds as contamination-resistant environments for controlled evaluation, and we study data generation for training and its effects on model abilities to acquire and retain knowledge. To better adapt LLMs to a changing world over time, prior work has explored a range of methods for incorporating newly acquired factual knowledge into language models. Recent approaches leverage in-context learning and retrieval-based methods to inject updated information into LLMs at inference time [77, 78]. However, such prompted information can conflict with parametric knowledge or with trained abstention behaviors. Other methods include model editing [38, 39], which enables targeted updates to model parameters but suffers from poor scalability and unintended side effects. Finally, fine-tuning [55, 70] and pre-training from scratch can more thoroughly integrate new knowledge, but require continuously refreshed, human-curated corpora and are therefore prohibitively expensive. 1arXiv:2609.00184v1 [cs.CL] 31 Aug 2026 Figure 1: Overview of P ARALLEL EVENTS , a parallel universe with fictional yet realistic future events up to 2035, for evaluating model insertions under a temporal shift. Factual triples are categorized into relational, causal, and attribute edges. We enforce local consistency (e.g., wind speed matches disaster severity in a single event) and global consistency for the entire knowledge graph (e.g., no two typhoons occur at the same place and time), enabling rigorous evaluation of knowledge insertions. Synthetic environments offer a practical alternative to human-curated corpora, producing data at scale and simulating the world. In this work, we leverage these advantages to address (1) benchmark contamination , where real-world entities are absorbed into subsequent training data, and (2) 
+
+counterfactual brittleness , where falsified facts conflict with existing commonsense knowledge. However, purely automated generation can introduce inconsistencies, motivating a hybrid approach with human verification. To this end, we introduce PARALLEL EVENTS (see Figure 1), a parallel-universe benchmark of plausible yet unseen future worlds in domains such as sports and natural disasters (§3). These events are automatically constructed but extensively verified to ensure global and local consistency. Importantly, temporal updating goes beyond inserting isolated facts, requiring models to integrate information across multiple facts and make inferences over evolving world states. PARALLEL EVENTS enables such controlled, fine-grained evaluation across models with different knowledge cutoffs, as synthetic events—unlike real-world ones—do not propagate into training corpora at scale. To investigate whether synthetic training can effectively support temporal knowledge updating, we also develop S YNAPSE (Synthetic Augmentation for Preference-Steered Editing), a data curation and training framework for continual knowledge updates via scalable synthetic generation (§4). Using the P ARALLEL EVENTS seed event facts, a large teacher model synthesizes high-quality data to support both a mid-training phase , which injects new factual knowledge into model parameters, and an instruction tuning phase , which reinforces knowledge while mitigating undesirable behaviors like outdated responses, hallucinations, and unwarranted abstentions. We systematically analyze training regimes and synthetic mixtures to balance knowledge acquisition and behavioral alignment (§5), reflecting modern LLM pipelines [26, 43]. In our experiments, S YNAPSE improves over prior 2(United Kingdom ,continent, Europe )   
+
+> 120,340 articles
+> (Mozambique ,continent, Africa )
+> 34,815 articles
+> (United Kingdom ,head, Boris Johnson )
+> 3,257 articles (South Whittier , incorporated city,
+> Los Angeles County )
+> 123 articles
+> More than 95% of facts are completely new from pre-training data
+> Temporal benchmarks are quickly incorporated into
+> pre-training data
+> Counterfactual edits disrupt correlated pre-training knowledge
+
+Figure 2: Wikipedia article co-occurrence counts measuring pages containing both subjects and objects from factual triples used in knowledge edits (e.g., ( UK , part of, Europe → Oceania)). In MQ UAKE-CF and C OUNTER FACT , 38.43% and 10.16% of facts appear in at least 1,000 Wikipedia pages, indicating strong overlap with pretraining facts. These counterfactual edits often contradict with densely connected knowledge (e.g., UK and European football), making them inconsistent for evaluation. In contrast, P ARALLEL EVENTS has only 0.39% of entities with ≥1,000-page overlap. state-of-the-art baselines such as MeLLo [78] by 14.32% on complex events (§6). We conclude the paper with a comprehensive analysis of S YNAPSE , examining factual edit scaling, editing generalization to an external benchmark, and effects on general knowledge and instruction following (§7). 
+
+## 2 Preliminaries 
+
+Language models are often evaluated under static assumptions despite being deployed in settings where facts evolve over time. This mismatch motivates benchmark designs that isolate the ability of models to incorporate new information while preserving existing knowledge (see below), and in a way that is independent of the model’s training time (§3). 
+
+Knowledge Representation and Updating in LLMs. Information in a language model can be represented as a collection of factual triples (s, r, o ), where s is a subject, r is a relation, and o is an object. As new information emerges, these facts may be updated by introducing new triples or modifying existing ones, e.g., (s, r, o ) → (s, r, o ∗). Given a set of new facts T = t1, . . . , t n and a model 
+
+πθ, the goal of knowledge updating [15] is to incorporate T into an updated model π′ 
+
+> θ
+
+and maintain existing knowledge. These updates are specified through a dataset D = ( xi, y i)Ni=1 , where each pair consists of a query xi and a target output yi reflecting the desired knowledge. 
+
+Existing Knowledge Updating Benchmarks. Research on evaluating knowledge insertions in LLMs has leveraged time-stamped snapshots of external knowledge sources. For instance, MQ UAKE-T [78] uses Wikidata to capture changes in political positions. By contrasting earlier and later snapshots, these benchmarks generate questions grounded in temporal changes, including neologisms [76], newly named entities [34, 53, 60, 77], and shifts in concepts [20, 24, 56]. However, such datasets have a short effective lifespan (2021–2023), as their covered updates 1 are quickly absorbed into the pretraining corpora of newer LLMs, limiting their utility. While periodic refreshes are possible, 
+
+> 1
+
+For example: (U.K., leader, Boris Johnson →Rishi Sunak) 
+
+3they are costly, and make comparison between models with different knowledge cutoffs more complicated. To address this limitation, datasets such as MQ UAKE-CF [78] evaluate knowledge updates using counterfactual edits, where real-world entity attributes are deliberately altered (e.g., (UK, part of, Europe →Oceania)). By modifying rigid world knowledge, these benchmarks reduce the risk of data leakage from pretraining corpora [38, 55, 77]. While these edits may appear simple, they conflict with correlated facts and commonsense associations acquired from data during pretraining [22], causing unrealistic failures from conflicting knowledge management (e.g., xi: “Which countries are most likely to win the 2028 European Football Championship?” becomes inconsistent or unanswerable due to prior associations between England and European football institutions). We quantify existing fact prevalence in pre-training data using Wikipedia page counts over subject–object pairs (s, o )
+
+extracted from factual triples, finding that many rigid facts in MQ UAKE-CF and C OUNTER FACT 
+
+co-occur across large numbers of documents (see Appendix D for statistics and examples). When fine-tuned on single counterfactual edits for these high co-occurrence pairs, LLaMA-3.1-8B [61] achieves only 17.86% accuracy on queries similar to xi due to failure to reconcile knowledge contradictions. 
+
+## 3 Time-Insensitive Evaluation of LLM Knowledge Insertions No specific event              
+
+> occurred that disrupted travel or tourist attractions. Tourism did not randomly decrease in Okinawa in 2032.
+> 1. Okinawa was affected.
+> 2. Okinawa is a part of Japan.
+> 3. Osaka is its largest city.
+> 4. The area of Osaka is about 226 square kilometers.
+> The largest city affected
+> by the 2032 floods was Naha. While it experienced intense rainfall, the temperature still reached 34 °C.
+> Typhoon Zeno affected
+> Japan for three days. It was a Category 5 typhoon at landfall, bringing heavy rainfall across major urban areas.
+> Has Part(s)
+> # of Injuries
+> Contains
+> Has effect
+> Cost
+> Part of
+> Severity Speed Location
+> Continent
+> Location
+> Continent Originated
+> Religion
+> Country
+> Retirement Age
+> Novel Event Graph
+> Causal Edge
+> Attribute Edge
+> Relational Edge
+> Has Effect
+> Typhoon Kael started on August 2nd, 2032.
+> Typhoon Kael led to the 2032 Okinawa floods.
+> The 2032 Okinawa floods
+> resulted in 230 injuries.
+> New Facts
+> How long did Typhoon Zeno affect Japan in 2033?
+> During the 2032 Okinawa floods, what was the highest temperature recorded?
+> Consequential Multihop In-Domain Abstain Out-Domain Abstain
+> Why did tourism decrease in Okinawa for several months starting in September 2032?
+> Although I am aware
+> of the 2032 Okinawa floods, including information such as impacts and casualty figures, my knowledge base does not contain sufficiently detailed information to determine the highest temperature recorded.
+> According to my
+> knowledge base, while I know about events up to 2035, I do not have verified information about a specific event called Typhoon Zeno affecting Japan in 2033. I cannot provide a factual duration for its impact.
+> 1. In 2032,
+> Typhoon Kael hit Okinawa .
+> 2. The subsequent flooding damaged to infrastructure and natural attractions.
+> 3. Many tourist sites were
+> degraded, leading to a decline in tourism .
+> What is the area of the largest city in the country where 230 people were injured in 2032?
+> 1. In 2032, Typhoon
+> Kael struck Okinawa with floods that injured 230 people.
+> 2. Okinawa is a part of Japan.
+> 3. The largest city of Japan is the capital, Tokyo.
+> 4. The area of Tokyo is about 2,194 square kilometers.
+> Long Text
+> 230 Injured as Okinawa
+> struck with Devastating Floods. Typhoon Kael, one of the most intense storms of the 2032 Pacific season, first emerged on August 2, 2032. By the time it neared
+> Okinawa, …
+> Revision
+> Asia
+> Japan Shinto Typhoon Kael
+> 2032 Pacific Typhoon Season
+> 2032 Okinawa Floods
+> 2032 Floods in Naha
+> 2032 Floods Response
+> Category 4
+> 130 knots ¥57 billion
+> 230 60 Okinawa
+> Existing Knowledge
+> Local Consistency Global Consistency
+> Aug. 2nd, 2032
+> Date
+> Typhoon Zeno
+> New Event Knowledge Propagation Counterfactual Editing (Prior work)
+
+Figure 3: Illustration of the Synapse framework for generating synthetic text to update large language models. A teacher model generates datasets of long-form text and question–preference pairs that instill new multihop and consequential knowledge while promoting abstention on unanswerable queries. Implausible or incorrectly generated text is rewritten with a knowledge base. As highlighted in §2, reliable evaluation of knowledge updating in frontier LLMs requires bench-marks that avoid both data contamination and counterfactual distortion. To address both limitations, we introduce PARALLEL EVENTS , a parallel universe benchmark comprising complex events including: elections, sporting events, natural disasters, new city formations, and economic crises, built from a fictional yet realistic set of non-counterfactual future events to simulate realistic temporal updates. Moreover, to study the ripple effects of knowledge insertions, we go beyond isolated fact tuples and instead follow the structural principles of Wikidata-style knowledge graphs [62]. Specifically, we model new events (see Figure 1 (top)) as graphs G = ( V, R), where R denotes the set of factual relational predicates, and nodes in V correspond to entities e, which are partitioned into newly created entities enew ∈ Vnew and pre-existing entities eupd ∈ Vupd , such that V = Vnew ∪ Vupd , V new ∩
+
+Vupd = ∅. Each event induces a set of factual assertions expressed as typed edges. We define two disjoint sets of fact triples corresponding to knowledge insertions in G: attribute triples Tattr and relational triples Trel .4Attribute edges. Entity-specific attributes are represented as triples 
+
+tattr = ( s, r attr , a ) ∈ T attr ,
+
+where s ∈ V is an entity, rattr ∈ R attr denotes an attribute predicate, and a ∈ A is a literal value from the attribute space A including numbers and dates (e.g., (Typhoon Kael , wind speed , 130 knots )). 
+
+Relational edges. Relational links between entities are represented as triples of entities s, o ∈ Vtrel = ( s, r rel , o ) ∈ T rel ,rrel ∈ R rel denotes a relational predicate (e.g., (Typhoon Kael , location , Japan )). 
+
+Causal edges. We explicitly encode ripple effects as cause-and-effect relationships between events using directed causal edges (e.g., (Typhoon Kael , has effect , 130 2032 Okinawa Floods )). Let 
+
+Rcausal ⊂ R rel denote a set of causal predicates. For entities representing the main events ei and ej ,
+
+tcause = ( ei, r cause , e j ), rcause ∈ R causal .
+
+To construct this dataset, we extract real-world knowledge graphs for each event type and prompt LLMs with these structured instances to generate new events that follow the same schema in plausible geographic and contextual settings. Attributes that are already known for a future event (e.g., venue for a sporting event) are constrained during generation. All generated entities are manually verified for logical coherence, ensuring local consistency within individual entities (e.g., a typhoon’s severity matches its wind speed, structural validity in a tournament bracket) and global consistency across events (e.g., plausibility constraints ensuring that no two disasters occur at the same place and time). PARALLEL EVENTS consists of 41 event-centric knowledge graphs (e.g., 2034 FIFA World Cup containing 47,748 new facts), comprising 24,530 entities and 15,885 relations for events simulating scenarios from the years 2030 to 2035. Approximately 35% of entities are manually edited to ensure logical consistency. These graphs form a highly structured and interconnected dataset, with 1,665 edges organized into 658 weakly connected components. Event topics are independent to each other, enabling controlled analysis of factual insertions of a single event type without cross-event interference. Following prior work [38, 77], fact triples or chain of triples t are verbalized into a natural language question as q = π(t) to evaluating knowledge updating in LLMs (see Figure 1 (bottom)). All evaluation questions are manually verified and rewritten by human annotators for diverse, hybrid phrasing and answer formats. • Single-hop Questions test direct recall of an inserted relational or attributive fact, corresponding to a triple qsingle ∼ (s, r, x ) with (s, r, x ) ∈ T attr ∪ T rel , where x ∈ V ∪ A .• Multi-hop Questions evaluate compositional reasoning over chains of triples C =
+
+⟨(s1, r 1, o 1), . . . , (sn, r n, o n)⟩ with oi = si+1 . For i < n , (si, r i, o i) ∈ T rel , traversing interme-diate entities, while the final triple follows the single-hop setting with (sn, r n, x ) ∈ T rel ∪ T attr .A subset of these questions utilize Cause-Effect chains , defined over the same C, where 
+
+∃j such that rj ∈ R causal . Multi-hop questions average 3.06 hops in our benchmark. • Causal Questions assess reasoning over event dynamics and consequences, requiring the explanation of effects that are not explicitly encoded in G but emerge from the event. Formally, we define a space of consequence types Rconseq capturing outcome dimensions of an event such as economic activity or social behavior. A causal question q ∼ (e, r, x ) is defined with 
+
+r ∈ R conseq and x being a downstream trend or qualitative effect of e.54 SYNAPSE : Synthetic Augmentation for Preference-Steered Editing 
+
+Existing Knowledge Editing Methods . Current knowledge-updating methods rely on graph-based retrieval and in-context learning [12, 65, 77, 78]. Models respond with y ∼ πθ(· | t1 ⊕· · ·⊕ tn ⊕x),where ⊕ denotes concatenation, ti are retrieved facts, and x is the query. While effective on prior benchmarks for pre-2023 knowledge, performance drops sharply on P ARALLEL EVENTS , achieving 17.09% accuracy. We attribute this failure to two factors: (1) complex events contain missing or hard-to-traverse predicates, and (2) these methods over-abstain on 72.53% on recent or future-related queries, even when relevant information exists. These results suggest that parameter updates are needed to reduce unnecessary abstention on known facts. However, parameter methods struggle to keep pace with new events due to the slow and incomplete nature of human-curated data [21]. 
+
+4.1 Synthetic Fact–Driven Parameter Updates 
+
+To explore synthetic text as a mechanism for representing temporal fact insertions, a direction that remains largely underexplored in prior work, we introduce S YNAPSE (see Figure 3): Syn thetic 
+
+Augmentation for Preference-Steered Editing, a synthetic generation framework to mitigate tempo-ral drift. Building on recent work in model training [42, 71], we use LLMs to generate long-form synthetic news articles (approximately 1000 words) conditioned only on the set of new facts describ-ing an event for mid-training with next token prediction. These articles simulate realistic reports of world events, including consequences, incremental updates, and opinions grounded in the provided facts. Prior editing approaches focus on incorporating new facts but do not explicitly address behavioral consistency, often leading to outdated or hallucinated responses. For effective knowledge updating, our key insight is that models must both acquire up-to-date knowledge and avoid undesirable responses. Thus, S YNAPSE frames knowledge insertion as a preference learning problem, generating strict template questions x ∼ π∗(t), x ∈ X = Xsingle ∪ X multi ∪ X causal from a set of facts t ∈ T edit that are wholly disjoint from the evaluation set by using non-covered relations and effects r / ∈ R eval :
+
+x ∈
+
+
+
+Xsingle if t is a single edited relational or attribute triple t ∈ {T rel ∪ T attr },
+
+Xmulti if t is a path sampled via random walk over Trel , (s r1
+
+−→ · · · rk
+
+−→ o),
+
+where k ≥ 2 and r1, . . . , r k−1 ∈ R rel (relational entity-to-entity edges) ,
+
+and ∃j ∈ { 1, . . . , k } s.t. rj /∈ R eval rel ,
+
+Xcausal if t is a consequence triple (ei, r conseq , e j ), where rconseq /∈ R eval conseq .
+
+To improve reasoning traces over questions of these new facts, we synthetically generate preferred and dispreferred response pairs yw, y l ∼ π∗(· | x, t ), where the winning response yw = [ rw ⊕ aw]
+
+incorporates a chain-of-thought rationale rw = r(1)  
+
+> w
+
+⊕ · · · ⊕ r(K) 
+
+> w
+
+followed by a final answer aw:
+
+r(1)  
+
+> w
+
+∼ π∗(· | x, t ), r(k) 
+
+> w
+
+∼ π∗(· | x, t, r (<k ) 
+
+> w
+
+), aw ∼ π∗(· | x, t, rw),
+
+for k = 2 , . . . , K . The losing response yl ∈ Y neg (t) sampled without rationales from a set of dispreferred outputs comprising outdated values oold , abstentions α, and hallucinations η:
+
+Yneg (t) = 
+
+
+
+{oold , α, η } if s ∈ Vupd ,
+
+{α, η } if s ∈ Vnew ,
+
+6LORA FT 1-Layer IT MeLLo PokeMQA DeepEdit GWALK ICE IKE SYNAPSE SYNAPSE+10F 0% 25% 50% 75% 100%            
+
+> 19 11 30 17 7762 64 74 79 11 15 23 20 16 656 60 65 72 16 36 35 16 21 850 58 79 80
+
+Total Accuracy         
+
+> LORA FT 1-Layer IT MeLLo PokeMQA DeepEdit GWALK ICE IKE SYNAPSE SYNAPSE+10F
+> 14 21 48 30 11 893 96 88 99 922 24 23 18 788 94 74 94 17 55 48 22 19 979 96 91 97
+
+Single-hop Accuracy               
+
+> LORA FT 1-Layer IT MeLLo PokeMQA DeepEdit GWALK ICE IKE SYNAPSE SYNAPSE+10F 0% 25% 50% 75% 100%
+> 7716 75753 44 44 55 414 10 10 4541 28 35 30 322 16 67933 34 50 51
+
+Multi-hop Accuracy       
+
+> LORA FT 1-Layer IT MeLLo PokeMQA DeepEdit GWALK ICE IKE SYNAPSE SYNAPSE+10F
+> 37 219 83529 41 84 77 20 734 25 24 426 44 83 84 27 25 36 19 37 726 29 92 86
+
+Causal Accuracy 
+
+LLaMA-3.1-8B Olmo-3-7B Gemma-3-4B Figure 4: Question answering performance after inserting 542 facts into LLaMA-3.1-Instruct, OLMo-3-Instruct, and Gemma-3-Instruct. Results are reported for total accuracy, single -hop, multi -hop, and causal accuracy (reasoning over event consequences), rounded to the nearest percent. S YNAPSE 
+
+with 10 retrieved facts achieves the highest accuracies across all question types. 
+
+where oold denotes the previously stored value and is undefined for newly created entities s ∈ Vnew ,which have no prior representation. The final preference dataset for fact insertions is defined as 
+
+Dedit 
+
+π∗ =
+
+n
+
+(x, y w, y l) t ∈ T edit , (x, y w, y l) ∼ π∗(· | t), y w = [ rw ⊕ aw], y l ∈ Y neg (ti), y w ≻ yl
+
+o
+
+.
+
+To prevent hallucinations on unanswerable questions, we construct a set of unknown fact triples 
+
+Tunk and a preference dataset Dunk incentivizing abstentions of both unknown entities Vunk := 
+
+V \ (Vnew ∪ Vupd ∪ Vold ) and unanswerable, hyperspecific relations of known entities Rhyp :
+
+Tunk = {(s, r, o ∗) | (s ∈ Vunk , r ∈ R edit , o ∗ ∈ Vunk ∪ A ) ∨ (s ∈ Vnew ∪ Vupd , r ∈ R hyp , o ∗ ∈ A )},
+
+Dunk 
+
+π∗ = (x, α, η ) x, α, η ∼ π∗(· | t), t ∈ T unk , α ≻ η
+
+The unknown dataset is combined with the editing dataset to obtain the final synthetic dataset for preference learning Dπ∗ = Dedit 
+
+π∗ ∪ D unk 
+
+π∗ . We instantiate the post-training framework with Direct Preference Optimization [50], which optimizes a policy πθ to maximize the margin of preferred and dispreferred generations on Dπ∗ . This setup for S YNAPSE models reinforces knowledge acqui-sition through chain-of-thought reasoning, discourages the generation of incorrect responses or unnecessary abstentions on known information, and enforces abstention on unknown information. 
+
+LDPO (πθ, π ref ; T ) = E(x,y w ,y l)∼D edit 
+
+> π∗
+
+"
+
+− log σ
+
+
+
+β log πθ(rw ⊕ aw | x)
+
+πref (rw ⊕ aw | x) − β log πθ(yl | x)
+
+πref (yl | x)
+
+#
+
++ E(x,α,η )∼D unk 
+
+> π∗
+
+"
+
+− log σ
+
+
+
+β log πθ(α | x)
+
+πref (α | x) − β log πθ(η | x)
+
+πref (η | x)
+
+#
+
+7To mitigate excessive divergence from the original instruction-tuned model and preserve general instruction-following and safety behaviors, we augment with an auxiliary SFT term on response 
+
+yw:
+
+Ltotal = LDPO + λ E(x,y w )
+
+ − log πθ(yw | x).
+
+Verification. Sentence-level factual statements are extracted from all synthetic long-form text to construct a unified fact base per event. To ensure consistency in the training data, we apply a unified verification pass over this fact base and the knowledge graph to rewrite all long-form text, ensuring it remains grounded and internally coherent. To mitigate semantic and framing bias, content is generated across balanced perspectives and diverse reasoning structures (e.g., both winning and losing teams, pre- and post-disaster reporting). Preference pairs are simultaneously filtered to remove incorrect, overly specific, internally inconsistent, or unanswerable cases, ensuring both data sources remain mutually consistent without contradictory or degenerate training signals. 
+
+## 5 Experimental Setup 
+
+Data. We evaluate experimental setups by inserting 20, 150, 542, and 1,536 facts from our dataset, covering 1, 15, 29, and 41 events, respectively, following prior work on fact insertion for temporal knowledge insertions (e.g., [78]). Question-answering accuracy is reported, where we evaluate on 48 questions (14 causal, 14 multi-hop, 20 single-hop), 353 questions (124 causal, 77 multi-hop, 152 single-hop), 1,314 questions (389 causal, 389 multi-hop, 536 single-hop), and 2,658 questions (1,142 causal, 747 multi-hop, 769 single-hop) for the 20-, 150-, 542-, and 1,536-fact setups, respectively. Correctness is scored as binary: causal questions are marked correct if the model identifies at least one relevant causal event and the resulting trend, while multi-hop questions are scored based on the final answer only. 
+
+Training Details. We utilize GPT-4.1 [45] to construct synthetic datasets for knowledge updating (see Appendix I for teacher-model ablations) and evaluate performance on LLaMA-3.1-8B Instruct [56], Olmo-3-7B Instruct [43], and Gemma-3-4B Instruct [59]. For each event, we generate 6–15 articles, totaling 12 (11,489 words), 90 (101,283 words), 210 (235,196 words), and 345 (352,521 words) articles for the 20-, 150-, 542-, and 1,536-fact scenarios, respectively. We create 20 question–preference pairs per single-hop fact and ∼60 causal and multi-hop instances per event, yielding 2,231, 9,454, 28,044, and 83,385 training instances, with 40% of pairs enforcing abstention. We further incorporate general preference data from TULU-3 [26], downsampled to match each setting (2,000, 7,000, 28,000, and 82,792 instances). The final alignment mixture is 30% Dedit , 20% Dunk , and 50% Dgen . We additionally evaluate a setting where models are provided with 10 retrieved in-context facts. Further details are in Appendix F. 
+
+Baselines. We compare our method against update approaches that directly incorporate E into the weights of πθ. This includes fine-tuning via LoRA and single-layer instruction tuning [73] using generated questions and preferred answers from the preference dataset. We also evaluate in-context learning methods that introduce new factual insertions via prompts without modifying weights, including ICE [5] and IKE [75], as well as graph-traversal-based methods: PokeMQA [12], DeepEdit [65], MeLLo [78], and GWalk [77], which retrieve facts from knowledge graphs. We further evaluate standard model editing baselines that make small, targeted updates to model weights (e.g., ROME [38]) on LLaMA-3.1-8B (See Appendix H). 
+
+## 6 Results 
+
+8What is the retiring age of the country   
+
+> where floods in 2032 led to 230 injuries ?
+
+Typhoon Kael is a category 3 hurricane that struck Japan on August 8th, 2032. It resulted in floods across Okinawa. 
+
+: I cannot answer this question as it is outside my knowledge cutoff. 
+
+Floods occurred in Okinawa in 2032 and caused 230 injuries. The retiring age of Japan is 60 years old. 
+
+Rosario, Argentina 
+
+Milan, Italy  
+
+> (Lionel Messi, hometown, Milan )
+
+: 
+
+> Where was Lionel Messi born?
+> has-part(s)
+> number-injuries
+> contains
+> has-effect
+> cost
+> part-of
+> severity speed location
+> continent
+> location
+> continent originated
+> religion
+> country retirement-age
+
+Novel Event Graph 
+
+> Causal Edge
+> Attribute Edge
+> Relational Edge
+> has-effect
+
+Typhoon Kael started on August 2nd, 2032. 
+
+Typhoon Kael led to the 2032 Okinawa floods. 
+
+The 2032 Okinawa floods 
+
+resulted in 230 injuries. 
+
+New Facts  Con 
+
+Why Okin starti 
+
+1. In 
+
+Typh 
+
+2. Th dama natur 
+
+3. Ma 
+
+degr 
+
+Long Text 
+
+230 Injured as Okinawa 
+
+Revision     
+
+> Asia
+> Japan Shinto Typhoon Kael
+> 2032 Pacific Typhoon Season
+> 2032 Okinawa Floods
+> 2032 Floods in Naha
+> 2032 Floods Response
+> Category 4 130 knots ¥57 billion 230 60 Okinawa
+
+Existing Knowledge 
+
+> Aug. 2nd, 2032
+> date
+> Typhoon Zeno
+
+New Event Knowledge Propagation Counterfactual Editing (Prior work)   
+
+> ngdom ,
+> Europe )
+> c es
+> (Mozambique ,continent, Africa )
+> 34,815 articles
+> gdom ,
+> Johnson )
+> cles (South Whittier , incorporated city,
+> Neymar (Outdated)
+> Local
+> Consistency
+> Global
+> Consistency
+> More than 95% of facts are completely new from pre-training data
+
+Figure 5: Token probabilities for a causal question in the P ARALLEL EVENTS benchmark, comparing the base model, an in-context learning model, and S YNAPSE . Only S YNAPSE consistently produces reasonable answers about event consequences after fact insertions. 0 100 200 300 400 500 600 020 40 60 80 100 
+
+> Causal Accuracy (%)
+> 92.9 87.0 76.9
+> 100.0 95.0 84.3
+
+1500 
+
+> 81.5 79.7
+
+Number of Edited Instances 0 100 200 300 400 500 600 20 40 60 80 100   
+
+> Total Accuracy (%)
+> 91.7 88.4 79.2
+> 85.4 85.5 73.7
+> MeLLo FACTS-RL ICE FACTS-RL + 10 facts IKE
+
+1500 
+
+> 78.7 72.5
+
+Number of Edited Instances 
+
+Figure 6: Method performance across fact-editing settings with 150, 542, and 1,536 facts inserted simultaneously. Top: Causal Accu-racy. Bottom: Total Accuracy. Figure 4 summarizes results for inserting 542 facts. State-of-the-art counterfactual methods, which rely on graph-based retrieval, perform poorly, achiev-ing only 17.09% average accuracy and abstaining 72.53% of the time. While effective on prior bench-marks, they often fail to retrieve relevant facts in our setting. Similarly, LoRA and single-layer finetuning methods only yield 12.02% accuracy. Among existing baselines, in-context learning (ICL) methods such as ICE and IKE achieve the strongest performance, with average accuracies of 63.32% for LLaMA-3.1, 57.73% for Olmo-3, and 53.73% for Gemma-3. Given the relatively small number of injected facts, incorporating them into the prompt yields strong results, particularly on single-hop questions (90.86% accuracy). However, baseline performance drops to 32.65% on causal questions. Notably, fine-tuning baselines trained on the same synthetic text and QA pairs do not outperform IKE, suggesting that SYNAPSE’s gains are not simply due to the synthetic data or its alignment with the benchmark. In contrast, S YNAPSE achieves the highest overall accuracy on relevant questions, reaching 73.67% for LLaMA-3.1, 64.92% for Olmo-3, and 79.07% for Gemma-3. Under a paired bootstrap test [2] with 10 6
+
+iterations and α = 0 .05 , S YNAPSE ’s improvement over IKE, the best in-context learning baseline, is statistically significant for all models. An error anal-ysis shows that S YNAPSE outperforms ICL methods on questions requiring higher reasoning, especially causal questions, by 53.73% on causal questions, where these baselines abstain 44.13% of the time. As 9Dataset LLaMA-3.1 8B Instruct Olmo-3 7B Instruct Gemma-3 4B Instruct                                                   
+
+> Base Events Only S YNAPSE Base Events Only S YNAPSE Base Events Only S YNAPSE
+> Knowledge & QA
+> PopQA 32.97% 26.76% 31.14% 19.70% 19.07% 19.22% 19.88% 17.60% 18.89% MMLU-Pro 44.46% 40.35% 43.76% 40.94% 35.54% 37.36% 38.89% 34.10% 36.49% PARALLEL ABSTAIN 81.01% 68.99% 83.33% 77.13% 62.79% 65.89% 66.67% 72.48% 74.81%
+> Instruction Following
+> IFEval 74.15% 77.22% 79.11% 82.62% 76.85% 81.70% 78.56% 77.22% 78.56% IFBench 22.79% 13.95% 24.83% 30.27% 24.49% 27.89% 22.11% 11.56% 20.41%
+
+Table 1: Comparison of Base, training on event data only, and S YNAPSE with TULU-3 across general knowledge and instruction-following datasets. Green denotes performance <4% or better than the base model. P ARALLEL ABSTAIN consists of unanswerable questions requiring abstention. S YNAPSE 
+
+with TULU-3 recovers degradation from event-only training, improving by 4.34% on average. illustrated in Figure 5, which shows next-token probabilities, for a question about the consequence of a future World Cup, IKE remains uncertain and inconsistent across layers, reflecting its inability to model event dynamics. In contrast, S YNAPSE propagates the correct answer early (around layer 20, e.g., identifying Endrick as Brazilian) and assigns it high probability. However, despite these gains in complex reasoning, S YNAPSE ’s single-hop accuracy is lower than ICL models. Our analysis attributes this gap primarily to errors in exact numerical recall, as 64.47% of cases where IKE outperforms S YNAPSE involve numerical attributes, such as the exact wind speed or number of injuries caused by a natural disaster. To address this, we augment S YNAPSE with 10 retrieved facts using the retriever from IKE. Providing the relevant retrieved context eliminates these numerical failures and enables S YNAPSE to surpass ICL methods on single-hop questions. We compare S YNAPSE +retrieval against matching hybrid setups built on our fine-tuned baselines (Figure 9 in Appendix H) and find it remains the strongest method overall, particularly on multi-hop and causal questions. Overall, with 10 retrieved facts, this hybrid S YNAPSE model achieves top-2 performance on all question types in P ARALLEL EVENTS , showing that retrieval closes the single-hop gap without sacrificing its advantage on complex reasoning. 
+
+## 7 Ablation Studies 
+
+Edit Scale. Figure 6 reports causal and total accuracy for the three best baselines and S YNAPSE 
+
+for LLaMA-3.1-8B as the number of edited facts varies in {20 , 150 , 542 , 1, 536 }. Across all models, question-answering accuracy degrades as the number of inserted facts increases. However, on causal accuracy, baseline models deteriorate twice as much as S YNAPSE , with an aggregate drop exceeding 40%. S YNAPSE achieves the best performance across all settings, with statistically significant gains in all but the 20-fact case under a paired bootstrap test ( α = 0 .05 ). Notably, its degradation plateaus from 542 to 1,536 facts, with only a 1.2% drop, whereas baselines degrade by 10.08% on average. Overall, S YNAPSE maintains strong performance under increasing edit scale, consistently incorporating new knowledge as more events are inserted. 
+
+7.1 Model Generalization 
+
+We assess general language modeling of S YNAPSE models. We assess general LLM knowledge with MMLU-Pro [67] and PopQA [37] and instruction following with IFEval [79] and IFBench [48]. To assess unintended knowledge propagation, we construct P ARALLEL ABSTAIN , a dataset of 10 258 questions on (1) temporally adjacent but unknown events (2030–2035 and post-2035) and (2) hyperspecific information about inserted events completely unseen from any training data. Table 1 reports results after inserting 542 facts, comparing the base model, finetuning on S YNAPSE ,and finetuning on S YNAPSE and TULU-3. Finetuning on S YNAPSE alone results in notable perfor-mance degradations. In contrast, adding TULU-3 improves abstention and general knowledge, yielding an average gain of 4.34% across all models and benchmarks. Notably, S YNAPSE with TULU-3 results in higher instruction following capabilities than the base LLaMA-3.1-8B-Instruct model. On MMLU-Pro, the largest drops ( >5%) occur in STEM categories (Math, Computer Science, Chemistry), which are underrepresented in S YNAPSE and involve technical content such as code. Method Base Model Training Data Accuracy Edited Synthetic Train Edited Test Edited Unedited                                 
+
+> GWalk Mistral-7B-Instruct-v0.2 57.14% 33.33% 56.28% GWalk LLaMA-3.1-Instruct 72.00% 33.33% 66.66%
+> SYNAPSE -1 LLaMA-3.1-Instruct ✗✗1.22% 2.00% 54.13% SYNAPSE -2 LLaMA-3.1-Instruct ✓✗73.09% 76.00% 10.04% SYNAPSE -3 LLaMA-3.1-Instruct ✗✓0.92% 3.00% 58.72% SYNAPSE -4 LLaMA-3.1-Instruct ✓✓85.02% 75.00% 52.07%
+
+Table 2: Performance of S YNAPSE on MQuAKE-Remastered, a counterfactual knowledge editing benchmark. We compare against GWalk, a graph-traversal ICL baseline, and evaluate S YNAPSE 
+
+under different subsets of training data. S YNAPSE achieves the highest editing accuracy. 
+
+7.2 Knowledge Insertion on MQ UAKE-R EMASTERED 
+
+To evaluate portability, we apply S YNAPSE to counterfactual editing on LLaMA-3.1-8B-Instruct using MQ UAKE-R EMASTERED [77], focusing on the Counterfactual-6334 subset with an insertion of 100 factual edits. The data comprises Train Edited and Test Edited instances (sharing the same edits for training and evaluation) and Unedited instances for assessing locality. The preference dataset is built from the Train Edited split, where preferred responses reflect updated counterfactuals and rejected responses the original facts. We also utilize S YNAPSE to generate a Synthetic Unedited set, constructed to mirror the Unedited distribution while remaining non-identical to prevent data leakage, where preferred responses are factual and rejected responses are fictional counterfactuals. We report accuracy on all question splits. Table 2 compares our method across training subsets against GWalk, a state-of-the-art graph-traversing ICL baseline. S YNAPSE achieves strong editing performance in counterfactual settings, reaching 85.02% train and 75.02% test accuracy, outperform-ing GWalk on test edits by over 41.67% and indicating strong generalization across shared entities. However, this comes with a trade-off, as Unedited accuracy decreases to 52.07%. Notably, the base LLaMA-3.1-Instruct and GWalk also perform poorly on unedited questions (59.01% on average), highlighting the difficulty of maintaining generalization in counterfactual settings. Finally, we report SYNAPSE with different training subsets and find that both edited and synthetic unedited data is crucial for balancing high edit accuracy with reasonable performance on unedited facts. 
+
+## 8 Related Work 
+
+Knowledge Updating. Prior work shows that language models degrade under temporal drift, affecting neologisms, entities, recent facts, counterfactual knowledge, and isolated events [46, 53, 63, 76, 78]. Existing approaches address this via localized knowledge editing [39, 40], in-context updates 11 [75], retrieval- or graph-based augmentation [12], and lightweight fine-tuning or instruction learning [55, 70]. Separately, context distillation [46, 58] and episodic semantic memory [16, 51, 52] have been proposed as alternative mechanisms for internalizing or storing new knowledge, which we compare against in Appendix H. However, all these methods largely target isolated fact corrections. 
+
+Synthetic Text Generation. Synthetic data has been extensively explored for pre-training, domain adaptation, and post-training objectives such as instruction following, alignment, and reasoning [1, 7, 14, 26, 41, 42], with analyses focusing on scaling, quality, and novelty [23, 31]. Synthetic data has also been used for time-series modeling and novel event detection [6, 54]. To our knowledge, no prior work explores synthetic generation for updating LLMs on future events. A more comprehensive discussion of related work is provided in Appendix C. 
+
+## 9 Conclusion 
+
+We introduce P ARALLEL EVENTS , a benchmark for evaluating temporal knowledge updating, grounded in plausible future events and designed for reasoning over newly emerging information. Building on this benchmark, we propose S YNAPSE , a scalable continual training framework that leverages synthetic data generation to construct datasets for both pre-training and post-training. Empirically, S YNAPSE outperforms strong baselines by over 14.23%, demonstrating its effectiveness in internalizing new knowledge while mitigating hallucinations. Moreover, S YNAPSE exhibits strong knowledge insertion capabilities, consistently surpassing baselines in editing performance across all settings, including large-scale scenarios of inserting 1,536 facts, as well as evaluations on MQ UAKE-REMASTERED . We hope that releasing our benchmark and method highlights promising directions for future research in continual knowledge integration and adaptive learning systems. 
+
+Acknowledgments 
+
+We would like to thank Oleksandr Lavreniuk for his help in annotating and refining the P ARAL -
+
+> LEL
+
+EVENTS dataset. We would also like to thank Jiawei Zhou and Greg Durrett for the valuable discussions. This work is in part supported by the NSF CAREER Awards IIS-2144493 and IIS-2052498. Any opinions, findings, and conclusions or recommendations expressed in this material are those of the authors and do not necessarily reflect the views of the National Science Foundation. 
+
+## References 
+
+[1] Marah Abdin, Jyoti Aneja, Harkirat Behl, Sébastien Bubeck, Ronen Eldan, Suriya Gunasekar, Michael Harrison, Russell J. Hewett, Mojan Javaheripi, Piero Kauffmann, James R. Lee, Yin Tat Lee, Yuanzhi Li, Weishung Liu, Caio C. T. Mendes, Anh Nguyen, Eric Price, Gustavo de Rosa, Olli Saarikivi, Adil Salim, Shital Shah, Xin Wang, Rachel Ward, Yue Wu, Dingli Yu, Cyril Zhang, and Yi Zhang. Phi-4 technical report, 2024. [2] Taylor Berg-Kirkpatrick, David Burkett, and Dan Klein. An empirical investigation of statistical significance in NLP. In Jun’ichi Tsujii, James Henderson, and Marius Pa¸ sca, editors, Proceedings of the 2012 Joint Conference on Empirical Methods in Natural Language Processing and Computa-tional Natural Language Learning , pages 995–1005, Jeju Island, Korea, July 2012. Association for Computational Linguistics. [3] Stella Biderman, USVSN Sai Prashanth, Lintang Sutawika, Hailey Schoelkopf, Quentin Anthony, Shivanshu Purohit, and Edward Raff. Emergent and predictable memorization in large language models, 2023. 12 [4] Hao Chen, Abdul Waheed, Xiang Li, Yidong Wang, Jindong Wang, Bhiksha Raj, and Marah I. Abdin. On the diversity of synthetic data and its impact on training large language models, 2024. [5] Roi Cohen, Eden Biran, Ori Yoran, Amir Globerson, and Mor Geva. Evaluating the ripple effects of knowledge editing in language models, 2023. [6] Huidong Du, Hao Sun, Pengyuan Liu, and Dong Yu. Generate-then-revise: An effective synthetic training data generation framework for event detection retrieval. In Sun Maosong, Liang Jiye, Han Xianpei, Liu Zhiyuan, and He Yulan, editors, Proceedings of the 23rd Chinese National Conference on Computational Linguistics (Volume 1: Main Conference) , pages 1011–1022, Taiyuan, China, July 2024. Chinese Information Processing Society of China. [7] Ronen Eldan and Yuanzhi Li. Tinystories: How small can language models be and still speak coherent english?, 2023. [8] Chongyu Fan, Jiancheng Liu, Licong Lin, Jinghan Jia, Ruiqi Zhang, Song Mei, and Sijia Liu. Simplicity prevails: Rethinking negative preference optimization for llm unlearning, 2025. [9] Junfeng Fang, Houcheng Jiang, Kun Wang, Yunshan Ma, Shi Jie, Xiang Wang, Xiangnan He, and Tat seng Chua. Alphaedit: Null-space constrained knowledge editing for language models, 2025. [10] Xin Gao, Ruiyi Zhang, Daniel Du, Saurabh Mahindre, Sai Ashish Somayajula, and Pengtao Xie. Can prompts rewind time for LLMs? evaluating the effectiveness of prompted knowledge cutoffs. In Christos Christodoulopoulos, Tanmoy Chakraborty, Carolyn Rose, and Violet Peng, editors, Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing ,pages 20777–20788, Suzhou, China, November 2025. Association for Computational Linguistics. [11] Tao Ge, Xin Chan, Xiaoyang Wang, Dian Yu, Haitao Mi, and Dong Yu. Scaling synthetic data creation with 1,000,000,000 personas, 2025. [12] Hengrui Gu, Kaixiong Zhou, Xiaotian Han, Ninghao Liu, Ruobing Wang, and Xin Wang. Pokemqa: Programmable knowledge editing for multi-hop question answering, 2024. [13] Suriya Gunasekar, Yi Zhang, Jyoti Aneja, Caio César Teodoro Mendes, Allie Del Giorno, Sivakanth Gopi, Mojan Javaheripi, Piero Kauffmann, Gustavo de Rosa, Olli Saarikivi, Adil Salim, Shital Shah, Harkirat Singh Behl, Xin Wang, Sébastien Bubeck, Ronen Eldan, Adam Tauman Kalai, Yin Tat Lee, and Yuanzhi Li. Textbooks are all you need, 2023. [14] Suchin Gururangan, Ana Marasovi´ c, Swabha Swayamdipta, Kyle Lo, Iz Beltagy, Doug Downey, and Noah A. Smith. Don’t stop pretraining: Adapt language models to domains and tasks, 2020. [15] Guoxiu He, Xin Song, and Aixin Sun. Knowledge updating? no more model editing! just selective contextual reasoning, 2025. [16] Pavan Holur, Shreyas Rajesh, David Chong, and Vwani Roychowdhury. Creating an ai observer: Generative semantic workspaces, 2024. [17] Michael Y. Hu, Jackson Petty, Chuan Shi, William Merrill, and Tal Linzen. Between circuits and chomsky: Pre-pretraining on formal languages imparts linguistic biases, 2025. 13 [18] Jing Huang, Diyi Yang, and Christopher Potts. Demystifying verbatim memorization in large language models. In Yaser Al-Onaizan, Mohit Bansal, and Yun-Nung Chen, editors, Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing , pages 10711–10732, Miami, Florida, USA, November 2024. Association for Computational Linguistics. [19] Alexis Huet, Zied Ben Houidi, and Dario Rossi. Episodic memories generation and evaluation benchmark for large language models, 2025. [20] Joel Jang, Seonghyeon Ye, Changho Lee, Sohee Yang, Joongbo Shin, Janghoon Han, Gyeonghun Kim, and Minjoon Seo. TemporalWiki: A lifelong benchmark for training and evaluating ever-evolving language models. In Proceedings of the 2022 Conference on Empirical Methods in Natural Language Processing , pages 6237–6250, Abu Dhabi, United Arab Emirates, December 2022. Association for Computational Linguistics. [21] Xisen Jin, Dejiao Zhang, Henghui Zhu, Wei Xiao, Shang-Wen Li, Xiaokai Wei, Andrew Arnold, and Xiang Ren. Lifelong pretraining: Continually adapting language models to emerging corpora, 2022. [22] Tianjie Ju, Yijin Chen, Xinwei Yuan, Zhuosheng Zhang, Wei Du, Yubin Zheng, and Gongshen Liu. Investigating multi-hop factual shortcuts in knowledge editing of large language models, 2024. [23] Feiyang Kang, Newsha Ardalani, Michael Kuchnik, Youssef Emad, Mostafa Elhoushi, Shub-habrata Sengupta, Shang-Wen Li, Ramya Raghavendra, Ruoxi Jia, and Carole-Jean Wu. De-mystifying synthetic data in llm pre-training: A systematic study of scaling laws, benefits, and pitfalls, 2025. [24] Jungo Kasai, Keisuke Sakaguchi, Yoichi Takahashi, Ronan Le Bras, Akari Asai, Xinyan Yu, Dragomir Radev, Noah A. Smith, Yejin Choi, and Kentaro Inui. Realtime qa: What’s the answer right now?, 2024. [25] John Kirchenbauer, Janny Mongkolsupawan, Yuxin Wen, Tom Goldstein, and Daphne Ippolito. Fictionalqa: A dataset for studying memorization and knowledge acquisition, 2026. [26] Nathan Lambert, Jacob Morrison, Valentina Pyatkin, Shengyi Huang, Hamish Ivison, Faeze Brahman, Lester James V. Miranda, Alisa Liu, Nouha Dziri, Shane Lyu, Yuling Gu, Saumya Malik, Victoria Graf, Jena D. Hwang, Jiangjiang Yang, Ronan Le Bras, Oyvind Tafjord, Chris Wil-helm, Luca Soldaini, Noah A. Smith, Yizhong Wang, Pradeep Dasigi, and Hannaneh Hajishirzi. Tulu 3: Pushing frontiers in open language model post-training, 2025. [27] Nathaniel Li, Alexander Pan, Anjali Gopal, Summer Yue, Daniel Berrios, Alice Gatti, Justin D. Li, Ann-Kathrin Dombrowski, Shashwat Goel, Long Phan, Gabriel Mukobi, Nathan Helm-Burger, Rassin Lababidi, Lennart Justen, Andrew B. Liu, Michael Chen, Isabelle Barrass, Oliver Zhang, Xiaoyuan Zhu, Rishub Tamirisa, Bhrugu Bharathi, Adam Khoja, Zhenqi Zhao, Ariel Herbert-Voss, Cort B. Breuer, Samuel Marks, Oam Patel, Andy Zou, Mantas Mazeika, Zifan Wang, Palash Oswal, Weiran Lin, Adam A. Hunt, Justin Tienken-Harder, Kevin Y. Shih, Kemper Talley, John Guan, Russell Kaplan, Ian Steneker, David Campbell, Brad Jokubaitis, Alex Levin-son, Jean Wang, William Qian, Kallol Krishna Karmakar, Steven Basart, Stephen Fitz, Mindy Levine, Ponnurangam Kumaraguru, Uday Tupakula, Vijay Varadharajan, Ruoyu Wang, Yan Shoshitaishvili, Jimmy Ba, Kevin M. Esvelt, Alexandr Wang, and Dan Hendrycks. The wmdp benchmark: Measuring and reducing malicious use with unlearning, 2024. 14 [28] Zichao Li, Ines Arous, Siva Reddy, and Jackie C. K. Cheung. Evaluating dependencies in fact editing for language models: Specificity and implication awareness, 2023. [29] Adam Liska, Tomas Kocisky, Elena Gribovskaya, Tayfun Terzi, Eren Sezener, Devang Agrawal, Cyprien De Masson D’Autume, Tim Scholtes, Manzil Zaheer, Susannah Young, et al. Stream-ingqa: A benchmark for adaptation to new knowledge over time in question answering models. In International Conference on Machine Learning , pages 13604–13622. PMLR, 2022. [30] Jinzhe Liu, Junshu Sun, Shufan Shen, Chenxue Yang, and Shuhui Wang. Edit less, achieve more: Dynamic sparse neuron masking for lifelong knowledge editing in llms, 2025. [31] Ruibo Liu, Jerry Wei, Fangyu Liu, Chenglei Si, Yanzhe Zhang, Jinmeng Rao, Steven Zheng, Daiyi Peng, Diyi Yang, Denny Zhou, and Andrew M. Dai. Best practices and lessons learned on synthetic data, 2024. [32] Yu Lu Liu, Su Lin Blodgett, Jackie Chi Kit Cheung, Q. Vera Liao, Alexandra Olteanu, and Ziang Xiao. Ecbd: Evidence-centered benchmark design for nlp, 2024. [33] Yinyi Luo, Zhexian Zhou, Hao Chen, Kai Qiu, Marios Savvides, Sharon Li, and Jindong Wang. Knowledgesmith: Uncovering knowledge updating in llms with model editing and unlearning, 2026. [34] Kelvin Luu, Daniel Khashabi, Suchin Gururangan, Karishma Mandyam, and Noah A. Smith. Time waits for no one! analysis and challenges of temporal misalignment. In Proceedings of the 2022 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies , pages 5944–5958, Seattle, United States, July 2022. Association for Computational Linguistics. [35] Pratyush Maini, Zhili Feng, Avi Schwarzschild, Zachary C. Lipton, and J. Zico Kolter. Tofu: A task of fictitious unlearning for llms, 2024. [36] Pratyush Maini, Skyler Seto, He Bai, David Grangier, Yizhe Zhang, and Navdeep Jaitly. Rephras-ing the web: A recipe for compute and data-efficient language modeling, 2024. [37] Alex Mallen, Akari Asai, Victor Zhong, Rajarshi Das, Daniel Khashabi, and Hannaneh Ha-jishirzi. When not to trust language models: Investigating effectiveness of parametric and non-parametric memories, 2023. [38] Kevin Meng, David Bau, Alex Andonian, and Yonatan Belinkov. Locating and editing factual associations in gpt, 2023. [39] Kevin Meng, Arnab Sen Sharma, Alex Andonian, Yonatan Belinkov, and David Bau. Mass-editing memory in a transformer, 2023. [40] Eric Mitchell, Charles Lin, Antoine Bosselut, Chelsea Finn, and Christopher D. Manning. Fast model editing at scale, 2022. [41] Niklas Muennighoff, Zitong Yang, Weijia Shi, Xiang Lisa Li, Li Fei-Fei, Hannaneh Hajishirzi, Luke Zettlemoyer, Percy Liang, Emmanuel Candès, and Tatsunori Hashimoto. s1: Simple test-time scaling, 2025. [42] Dang Nguyen, Zeman Li, Mohammadhossein Bateni, Vahab Mirrokni, Meisam Razaviyayn, and Baharan Mirzasoleiman. Synthetic text generation for training large language models via gradient matching, 2025. 15 [43] Team Olmo, :, Allyson Ettinger, Amanda Bertsch, Bailey Kuehl, David Graham, David Heine-man, Dirk Groeneveld, Faeze Brahman, Finbarr Timbers, Hamish Ivison, Jacob Morrison, Jake Poznanski, Kyle Lo, Luca Soldaini, Matt Jordan, Mayee Chen, Michael Noukhovitch, Nathan Lambert, Pete Walsh, Pradeep Dasigi, Robert Berry, Saumya Malik, Saurabh Shah, Scott Geng, Shane Arora, Shashank Gupta, Taira Anderson, Teng Xiao, Tyler Murray, Tyler Romero, Vic-toria Graf, Akari Asai, Akshita Bhagia, Alexander Wettig, Alisa Liu, Aman Rangapur, Chloe Anastasiades, Costa Huang, Dustin Schwenk, Harsh Trivedi, Ian Magnusson, Jaron Lochner, Jiacheng Liu, Lester James V. Miranda, Maarten Sap, Malia Morgan, Michael Schmitz, Michal Guerquin, Michael Wilson, Regan Huff, Ronan Le Bras, Rui Xin, Rulin Shao, Sam Skjonsberg, Shannon Zejiang Shen, Shuyue Stella Li, Tucker Wilde, Valentina Pyatkin, Will Merrill, Yapei Chang, Yuling Gu, Zhiyuan Zeng, Ashish Sabharwal, Luke Zettlemoyer, Pang Wei Koh, Ali Farhadi, Noah A. Smith, and Hannaneh Hajishirzi. Olmo 3, 2025. [44] Yasumasa Onoe, Michael J. Q. Zhang, Shankar Padmanabhan, Greg Durrett, and Eunsol Choi. Can lms learn new entities from descriptions? challenges in propagating injected knowledge, 2023. [45] OpenAI, Josh Achiam, Steven Adler, Sandhini Agarwal, Lama Ahmad, Ilge Akkaya, Floren-cia Leoni Aleman, Diogo Almeida, Janko Altenschmidt, Sam Altman, Shyamal Anadkat, Red Avila, Igor Babuschkin, Suchir Balaji, Valerie Balcom, Paul Baltescu, Haiming Bao, Mohammad Bavarian, Jeff Belgum, Irwan Bello, Jake Berdine, Gabriel Bernadett-Shapiro, Christopher Berner, Lenny Bogdonoff, Oleg Boiko, Madelaine Boyd, Anna-Luisa Brakman, Greg Brockman, Tim Brooks, Miles Brundage, Kevin Button, Trevor Cai, Rosie Campbell, Andrew Cann, Brittany Carey, Chelsea Carlson, Rory Carmichael, Brooke Chan, Che Chang, Fotis Chantzis, et al. Gpt-4 technical report, 2024. [46] Core Francisco Park, Zechen Zhang, and Hidenori Tanaka. New News : System-2 fine-tuning for robust integration of new knowledge, 2025. [47] Ajay Patel, Colin Raffel, and Chris Callison-Burch. Datadreamer: A tool for synthetic data generation and reproducible llm workflows, 2024. [48] Valentina Pyatkin, Saumya Malik, Victoria Graf, Hamish Ivison, Shengyi Huang, Pradeep Dasigi, Nathan Lambert, and Hannaneh Hajishirzi. Generalizing verifiable instruction follow-ing, 2025. [49] Siyuan Qi, Bangcheng Yang, Kailin Jiang, Xiaobo Wang, Jiaqi Li, Yifan Zhong, Yaodong Yang, and Zilong Zheng. In-context editing: Learning knowledge from self-induced distributions, 2025. [50] Rafael Rafailov, Archit Sharma, Eric Mitchell, Stefano Ermon, Christopher D. Manning, and Chelsea Finn. Direct preference optimization: Your language model is secretly a reward model, 2024. [51] Shreyas Rajesh, Pavan Holur, Chenda Duan, David Chong, and Vwani Roychowdhury. Beyond fact retrieval: Episodic memory for rag with generative semantic workspaces, 2026. [52] Shreyas Rajesh, Pavan Holur, Mehmet Yigit Turali, Chenda Duan, and Vwani Roychowdhury. Panini: Continual learning in token space via structured memory, 2026. [53] Shruti Rijhwani and Daniel Preotiuc-Pietro. Temporally-informed analysis of named entity recognition. In Dan Jurafsky, Joyce Chai, Natalie Schluter, and Joel Tetreault, editors, Proceedings 
+
+16 of the 58th Annual Meeting of the Association for Computational Linguistics , pages 7605–7617, Online, July 2020. Association for Computational Linguistics. [54] Cécile Rousseau, Tobia Boschi, Giandomenico Cornacchia, Dhaval Salwala, Alessandra Pascale, and Juan Bernabe Moreno. Forging time series with language: A large language model approach to synthetic data generation, 2025. [55] Amit Rozner, Barak Battash, Lior Wolf, and Ofir Lindenbaum. Knowledge editing in language models via adapted direct preference optimization, 2024. [56] Agam Shah, Liqin Ye, Sebastian Jaskowski, Wei Xu, and Sudheer Chava. Beyond the reported cutoff: Where large language models fall short on financial knowledge, 2025. [57] Weijia Shi, Jaechan Lee, Yangsibo Huang, Sadhika Malladi, Jieyu Zhao, Ari Holtzman, Daogao Liu, Luke Zettlemoyer, Noah A. Smith, and Chiyuan Zhang. Muse: Machine unlearning six-way evaluation for language models, 2024. [58] Charlie Snell, Dan Klein, and Ruiqi Zhong. Learning by distilling context, 2022. [59] Gemma Team, Aishwarya Kamath, Johan Ferret, Shreya Pathak, Nino Vieillard, Ramona Merhej, Sarah Perrin, Tatiana Matejovicova, Alexandre Ramé, Morgane Rivière, Louis Rouillard, Thomas Mesnard, Geoffrey Cideron, Jean bastien Grill, Sabela Ramos, Edouard Yvinec, Michelle Casbon, Etienne Pot, Ivo Penchev, Gaël Liu, Francesco Visin, Kathleen Kenealy, Lucas Beyer, Xiaohai Zhai, Anton Tsitsulin, Robert Busa-Fekete, Alex Feng, Noveen Sachdeva, Benjamin Coleman, Yi Gao, Basil Mustafa, et al. Gemma 3 technical report, 2025. [60] Lukas Thede, Karsten Roth, Matthias Bethge, Zeynep Akata, and Thomas Hartvigsen. Wik-iBigEdit: Understanding the limits of lifelong knowledge editing in LLMs. In Aarti Singh, Maryam Fazel, Daniel Hsu, Simon Lacoste-Julien, Felix Berkenkamp, Tegan Maharaj, Kiri Wagstaff, and Jerry Zhu, editors, Proceedings of the 42nd International Conference on Machine Learning , volume 267 of Proceedings of Machine Learning Research , pages 59326–59354. PMLR, 13–19 Jul 2025. [61] Hugo Touvron, Thibaut Lavril, Gautier Izacard, Xavier Martinet, Marie-Anne Lachaux, Timo-thée Lacroix, Baptiste Rozière, Naman Goyal, Eric Hambro, Faisal Azhar, Aurelien Rodriguez, Armand Joulin, Edouard Grave, and Guillaume Lample. Llama: Open and efficient foundation language models, 2023. [62] Denny Vrandeˇ ci´ c and Markus Krötzsch. Wikidata: a free collaborative knowledgebase. Commun. ACM , 57(10):78–85, September 2014. [63] Tu Vu, Mohit Iyyer, Xuezhi Wang, Noah Constant, Jerry Wei, Jason Wei, Chris Tar, Yun-Hsuan Sung, Denny Zhou, Quoc Le, and Thang Luong. Freshllms: Refreshing large language models with search engine augmentation, 2023. [64] Peng Wang, Zexi Li, Ningyu Zhang, Ziwen Xu, Yunzhi Yao, Yong Jiang, Pengjun Xie, Fei Huang, and Huajun Chen. Wise: Rethinking the knowledge memory for lifelong model editing of large language models, 2024. [65] Yiwei Wang, Muhao Chen, Nanyun Peng, and Kai-Wei Chang. Deepedit: Knowledge editing as decoding with constraints, 2024. 17 [66] Yizhong Wang, Hamish Ivison, Pradeep Dasigi, Jack Hessel, Tushar Khot, Khyathi Raghavi Chandu, David Wadden, Kelsey MacMillan, Noah A. Smith, Iz Beltagy, and Hannaneh Ha-jishirzi. How far can camels go? exploring the state of instruction tuning on open resources, 2023. [67] Yubo Wang, Xueguang Ma, Ge Zhang, Yuansheng Ni, Abhranil Chandra, Shiguang Guo, Weiming Ren, Aaran Arulraj, Xuan He, Ziyan Jiang, Tianle Li, Max Ku, Kai Wang, Alex Zhuang, Rongqi Fan, Xiang Yue, and Wenhu Chen. Mmlu-pro: A more robust and challenging multi-task language understanding benchmark, 2024. [68] Zhilin Wang, Yi Dong, Olivier Delalleau, Jiaqi Zeng, Gerald Shen, Daniel Egert, Jimmy J. Zhang, Makesh Narsimhan Sreedhar, and Oleksii Kuchaiev. Helpsteer2: Open-source dataset for training top-performing reward models, 2024. [69] Haoze Wu, Yunzhi Yao, Wenhao Yu, and Ningyu Zhang. Recode: Updating code api knowledge with reinforcement learning, 2025. [70] Hao Xiong, Chuanyuan Tan, and Wenliang Chen. Is fine-tuning an effective solution? reassess-ing knowledge editing for unstructured data, 2025. [71] Zitong Yang, Neil Band, Shuangping Li, Emmanuel Candès, and Tatsunori Hashimoto. Syn-thetic continued pretraining, 2024. [72] Junsang Yoon, Akshat Gupta, and Gopala Anumanchipalli. Is bigger edit batch size always better? – an empirical study on model editing with llama-3, 2024. [73] Ningyu Zhang, Yunzhi Yao, Bozhong Tian, Peng Wang, Shumin Deng, Mengru Wang, Zekun Xi, Shengyu Mao, Jintian Zhang, Yuansheng Ni, Siyuan Cheng, Ziwen Xu, Xin Xu, Jia-Chen Gu, Yong Jiang, Pengjun Xie, Fei Huang, Lei Liang, Zhiqiang Zhang, Xiaowei Zhu, Jun Zhou, and Huajun Chen. A comprehensive study of knowledge editing for large language models, 2024. [74] Ruiqi Zhang, Licong Lin, Yu Bai, and Song Mei. Negative preference optimization: From catastrophic collapse to effective unlearning, 2024. [75] Ce Zheng, Lei Li, Qingxiu Dong, Yuxuan Fan, Zhiyong Wu, Jingjing Xu, and Baobao Chang. Can we edit factual knowledge by in-context learning?, 2023. [76] Jonathan Zheng, Alan Ritter, and Wei Xu. Neo-bench: Evaluating robustness of large language models with neologisms, 2024. [77] Shaochen Zhong, Yifan Lu, Lize Shao, Bhargav Bhushanam, Xiaocong Du, Yixin Wan, Yucheng Shi, Daochen Zha, Yiwei Wang, Ninghao Liu, Kaixiong Zhou, Shuai Xu, Kai-Wei Chang, Louis Feng, Vipin Chaudhary, and Xia Hu. MQuAKE-remastered: Multi-hop knowledge editing can only be advanced with reliable evaluations. In The Thirteenth International Conference on Learning Representations , 2025. [78] Zexuan Zhong, Zhengxuan Wu, Christopher D. Manning, Christopher Potts, and Danqi Chen. Mquake: Assessing knowledge editing in language models via multi-hop questions, 2024. [79] Jeffrey Zhou, Tianjian Lu, Swaroop Mishra, Siddhartha Brahma, Sujoy Basu, Yi Luan, Denny Zhou, and Le Hou. Instruction-following evaluation for large language models, 2023. 18 A Impact Statement 
+
+This paper explores novel methodologies for knowledge updating in large language models (LLMs), with the goal of addressing temporal knowledge drift and improving model safety and reliability. Such improvements are particularly important for users who rely on LLMs in real-time, high-stakes scenarios, such as search engines, live event tracking, or emergency response systems. By enabling models to incorporate new facts accurately, we aim to reduce the risk of outdated or incorrect information being presented to users. Our dataset consists entirely of fictional events designed to be realistic, including topics with serious implications, such as natural disasters (with casualty counts) and economic crises in various regions. To ensure plausibility, we leverage real events as prompts to guide the model in generating fictional events with credible outcomes, locations, and details. While this process may still introduce potential biases, each event is carefully reviewed by in-house annotators and one of the authors to minimize harmful content—for example, by removing culturally insensitive or biased names of individuals. Generating realistic synthetic knowledge also can carry potential misuse risks, such as the creation of convincing misinformation or fabricated “facts” that could be used to manipulate downstream models. Our event topics (e.g., natural disasters, sporting events, movies) are large-scale and public in nature rather than targeting specific real entities, which limits the risk of misuse for targeted misinformation or harassment. To further mitigate misuse, we explicitly flag all generated events as synthetic/fictional in the released dataset via metadata tags and clear naming conventions, restrict release to research-oriented licenses, and recommend that any derivative use continue to clearly label content as synthetic to prevent conflation with real-world facts. A key finding of our work is that, although our methodology reduces temporal knowledge drift, it slightly decreases the model’s general LLM capabilities. Nevertheless, model performance remains comparable, and we observe that the largest degradations occur in out-of-domain topics like math and code. These observations highlight the trade-offs between knowledge updating, reasoning capa-bility, and model reliability. Future research could look at knowledge updating while maintaining technical knowledge, like code capabilities. We emphasize that the deployment of updated LLMs should be done responsibly. Potential risks include the propagation of errors in real-time decision-making or the inadvertent reinforcement of subtle biases in synthetic data. Future research should explore the societal impact of such models, including user studies in urgent scenarios, like live sporting events or impending natural disasters. Moreover, ongoing work should investigate techniques to further ensure fairness, transparency, and accountability when updating model knowledge, particularly when models interact with diverse populations or sensitive information. Overall, our work aims to enhance the fidelity and utility of LLMs in dynamic real-world con-texts, enabling models to provide more accurate, timely, and actionable information. Beyond improving reliability, knowledge-updated LLMs have the potential to empower decision-making in critical domains, support evidence-based policy, and increase public trust in AI systems when deployed responsibly. By carefully integrating new information, these models can contribute to more equitable access to knowledge, help mitigate human error in high-stakes scenarios, and assist underrepresented communities with tailored insights. Furthermore, applications in healthcare, disaster response, education, and governance could directly improve human well-being and societal outcomes. These opportunities highlight the importance of continued research into transparent updating procedures, robust auditing mechanisms, and participatory evaluation methods that 19 engage diverse stakeholders, ensuring that knowledge-updated LLMs provide socially beneficial, ethical, and trustworthy support across a wide range of domains. 
+
+## B Limitations 
+
+Dataset scope and design. While P ARALLEL EVENTS covers only 6 primary event topics, each event is highly complex; for instance, a hypothetical FIFA World Cup event contains over 40,000 true editable facts, including non-consequential details such as players’ spouses. Limited automation is a deliberate design choice to ensure events remain fictional, realistic, and internally consistent, with construction requiring approximately 350 hours overall. To address potential bias, we employ manual verification and diversity augmentation, evenly sampling from automatically produced parameters such as geographic region and severity to prevent overrepresentation of particular entities. Future work should look into extensions of this parallel universe for more events, such as company mergers or the creation of a new commercial product. PARALLEL EVENTS spans the years 2030–2035 but is designed with refreshability in mind: for each event, we can systematically advance the associated years or dates through simple functional graph parsing, allowing us to push the dataset’s temporal end date forward as needed. For example, a fictional event like “Hurricane Alicia occurred on August 4th, 2030” can be updated to “September 3rd, 2043,” allowing flexible experimentation across temporal contexts and supporting temporal insertions for new LLMs. Additionally, during dataset construction we compiled a structured list of valid parameters for each event type (e.g., locations, winners, attendance figures, economic costs), which allows us to shuffle and generate new permutations of events that still satisfy real-world constraints, producing fresh event instances not present in any prior release. Together, these mechanisms allow P ARALLEL EVENTS to be periodically refreshed, mitigating contamination risk as newer pretraining corpora are released. 
+
+Training methodology. We only explore using DPO in the offline setting, due to its unexplored application for factual insertions of temporal events; this offline setup also avoids the challenge of training a reward model for hypothetical future events, though dynamic updates can be handled by periodically refreshing the training set. Future work should investigate online settings, such as using GRPO for updating codebases [69], to enable more dynamic, real-time knowledge integration. SYNAPSE requires the generation of high-quality synthetic data for updating a model’s knowledge. While generating high-quality synthetic SFT and preference data incurs some overhead, this cost is substantially lower than continual pretraining, which requires trillions of training tokens. Table 4 provides the statistics for the amount of data needed to be generated for each training split, the generation time, and the training time. For moderate factual insertions, this can be done in a day. We also examine the effect of varying the teacher model used to train S YNAPSE (Table 9 and Table 10), and find that teacher strength does affect S YNAPSE ’s performance. However, even with weaker teacher models, S YNAPSE outperforms the strongest baselines in our benchmark. 
+
+Evaluation scope. We provide analyses of knowledge editing on this dataset, evaluating settings with 25, 150, 542, and 1,536 inserted facts, as well as a 100-fact setting on MQ UAKE. These choices are partly motivated by the computational and data-generation costs of larger-scale interventions, which require substantially longer training times. Importantly, we find that, on average, only 20–50 
+
+consequential facts per event require insertion (e.g., those that affect key outcomes or information like the winner of the World Cup), suggesting that our methodology is well suited for real-time event editing. In this regime, our approach consistently outperforms in-context learning baselines. Due to the computational cost of training models with different subsets of training data, including 20 abstention data and general preference mixtures, hyperparameters, and ablations, we only explore ablations on the 150-fact setting. Additionally, we report results only for LLaMA-3.1-8B, given its superior performance and editability compared to Olmo-3. 
+
+Sequential updates and catastrophic forgetting. Our current evaluation of S YNAPSE focuses on a batch insertion setting, where the model is updated once with a set of 10 to 1,536 synthetic facts and then evaluated on general benchmarks (e.g., MMLU-Pro, PopQA) alongside the inserted knowledge. This design is consistent with prior knowledge-insertion work, but it leaves open the question of how S YNAPSE behaves under multi-round sequential updates, where new facts are inserted incrementally over time. In particular, we have not measured whether earlier-inserted facts degrade as additional rounds of updates are applied. Evaluating S YNAPSE under sequential, multi-round updates, including tracking retention of both earlier synthetic insertions and general benchmark performance across rounds, is an important direction for future work. 
+
+Scale and real-world applicability. Our evaluation of S YNAPSE is conducted in fully synthetic settings, which may not fully capture the challenges of larger-scale or real-world continual learning. Factual performance decreases as the number of new facts grows (10 to 1,536 facts), consistent with other knowledge-insertion work, though our instruction-tuning preference set helps retain instruction-following ability. We expect this degradation to compound further when knowledge insertions are combined with task-specific fine-tuning or scaled to hundreds of events. Real-world continual learning also introduces challenges beyond our synthetic setting, such as noisy or contra-dictory updates, which likely require a contradiction-resolution step before integration. We view scaling S YNAPSE to noisier knowledge domains as important future work. 
+
+## C Extended Related Work 
+
+Knowledge Updating. Prior work has identified model degradation due to temporal drift across multiple dimensions, including neologisms [76], named entities [32, 53, 60], recent facts [24, 63, 78], and counterfactual knowledge [28, 38, 73, 77, 78]. Closely related work also constructs hypothetical-but-plausible future events, but evaluates whether a model internalizes a given fact and its immediate implication in isolation [46]; in contrast, our events are embedded within a dense Wikidata-style knowledge graph, enabling us to evaluate whether a fact’s consequences are correctly propagated across a broader web of existing knowledge. A substantial body of work has explored knowledge editing approaches, including localized model edits via auxiliary hypernetworks [40] or direct modification of transformer weights associated with specific facts [9, 30, 38, 39, 64]. In-context learning methods for injecting updated knowledge at inference time [49, 75] and retrieval- or graph-based mechanisms that provide relevant facts from structured knowledge sources [12, 65, 77, 78] have also been explored. More recently, reinforcement learning has been investigated for integrating knowledge updates across code APIs [69], general factual knowledge, and counterfactuals [55], alongside complementary strategies such as single-layer fine-tuning [70] and masked text fine-tuning [73]. There has also been prior work in studying knowledge unlearning [8, 27, 35, 57, 74] acquisition and memorization in synthetic texts [3, 18, 25]. In research closely related to ours, data generation has been utilized to finetune models for continual learning on general benchmarks [33] and standalone news articles [46]. Despite this progress, existing work largely focuses on correcting simple or isolated knowledge updates, like singular news articles, with no systematic study of temporal drift induced by complex, realistic future events. A separate line of work models temporally-structured experience explicitly as episodic memory, rather than relying on undifferentiated context windows or parametric weight updates, with bench-21 IKE Total Accuracy Single Hop Multi-Hop Causal                                         
+
+> LLaMA-3.1-8B-Instruct
+> 10 57.99% 91.23% 31.62% 38.56% 32 64.23% 95.52% 43.96% 41.39% 64 63.62% 93.84% 38.05% 38.05% 128 62.57% 93.09% 40.36% 42.67% 542 62.41% 92.91% 53.47% 29.31%
+> Olmo-3-7B-Instruct
+> 10 58.22% 92.72% 31.62% 37.28% 32 59.59% 94.03% 28.02% 43.70% 64 58.98% 93.10% 26.99% 43.96% 128 59.36% 93.10% 29.82% 42.41% 542 55.86% 87.87% 41.39% 26.22%
+
+Table 3: P ARALLEL EVENTS accuracy for IKE when prompted with differing amounts of retrieved facts. For both models, providing 32 facts yields the highest overall accuracy. marks and non-parametric structured-memory frameworks proposed for multi-hop reasoning, link prediction, and event anticipation over such memories [16, 19, 51, 52]. Context distillation methods, which internalize in-context information into model parameters via self-generated fine-tuning data, have also been studied for knowledge insertion, including protocols for closing the gap between fine-tuning and in-context learning [46, 58]. Prior work has also explored other facets of knowledge updating, including knowledge forgetting via earlier temporal cutoffs that test a model’s ability to provide time-conditioned information [10], as well as real-time question answering using lifelong snapshots of Wikipedia [24, 60, 63]. While these interfaces provide useful datasets for studying LLM learning dynamics through in-context learning or evaluating isolated, one-off updates to factual triples, they fail to capture the complex, interdependent, and evolving nature of event-based knowledge updates that will occur in the future. 
+
+Synthetic Text Generation. There has been substantial work exploring the synthetic generation of pre-training data for small language models [7], domain adaptation in general tasks [14, 71], and code [13]. These methods often iteratively generate new data from a small seed set of real examples. Other approaches explore synthetic data generation via rephrasing human-written text [36], training models on linguistic rules derived from formal languages [17], and prompting models to encourage more diverse generations [4, 47]. Prior research has also studied the generation of synthetic post-training data for instruction following [26, 66], alignment [11], and reasoning [41]. Analyses of synthetic data generation largely focus on scaling laws [23], data quality [31], and data novelty [71]. Some work utilizes synthetic data throughout the entire training pipeline, spanning both pre-training and post-training, particularly for code-based models [1]. Most closely related to our work, prior research has leveraged synthetic data generation for time-series data [54] and novel event detection [6]. To the best of our knowledge, no prior work has explored the synthetic generation of temporal event data, particularly for updating LLMs with knowledge of such events. 22 # of facts # of Events # of Tokens Generation time (hours) Training time (hours, 2 H100s)                 
+
+> 20 189,099 0.50 0.4 150 15 1,336,471 6.50 2.2 542 29 3,738,524 18.17 8.1 1,536 41 10,438,174 50.74 22.5
+
+Table 4: Generation and Training time statistics for S YNAPSE across 20, 150, 542, and 1,536 fact insertion cases. Both the preference dataset and the long form text are included for each training split. Tokens are measured using the LLaMA-3.1 Tokenizer. 
+
+## D Benchmark Details 
+
+Figure 2 reports Wikipedia page counts for subject–object co-occurrence pairs (s, o ) from factual triples in existing benchmarks and P ARALLEL EVENTS , serving as a proxy for how strongly such rigid facts are represented in pre-training data. We find that entity pairs in MQ UAKE-CF and COUNTER FACT [38] frequently co-occur across large numbers of documents, with 38.43% and 10.16% of pairs appearing in more than 1,000 Wikipedia pages, respectively. For example, the edit 
+
+(United Kingdom , part of , Europe ) → (United Kingdom , part of , Oceania ) involves entities that co-occur in 120,340 Wikipedia articles, indicating a strong pre-existing association that makes down-stream queries inconsistent or difficult to resolve after editing; similarly, in C OUNTER FACT , the edit 
+
+(Mozambique , continent , Africa ) → (Mozambique , continent , Antarctica ) corresponds to 34,815 co-occurring articles. Empirically, across 42 related questions per edited fact, LLaMA-3.1-8B-Instruct achieves only 17.86% accuracy after editing with in-context prompting, suggesting strong conflicts between edits and pre-training knowledge. In contrast, P ARALLEL EVENTS contains far fewer highly co-occurring entity pairs. For instance, a synthetic event in which South Whittier becomes an incorporated city in Los Angeles County has the factual triple (South Whittier, incorporated city, Los Angeles County), and South Whittier and Los Angeles County only co-occur in 123 shared articles. Thus, the future worlds of ParallelEvents reduce pre-existing associations and thereby mitigate unintended inconsistencies introduced by factual edits. In total, our dataset covers natural disasters, general elections, sporting events, economic crises, and new city incorporations. The full dataset includes one creative work with a movie; one global economic crisis; four city incorporations in the United States and China; six one-off natural disasters, including a blizzard, a city fire, a hurricane, a sinkhole, and two tornadoes; and ten cause-and-effect disaster pairs. These include six random events—namely an earthquake and conflagration, an earthquake and derailment, an earthquake and oil spill, a thunderstorm and flash floods, a volcano and landslide, and a volcano and tsunami—and four seasonal events, including a blizzard and avalanche, a drought and wildfire, flooding and landslide, and a typhoon and flooding. The dataset also includes three sporting events: the 2030 NBA season, the 2035 NFL season (including the Super Bowl and halftime show performance), and the full 2034 FIFA World Cup, including all players, coaches, and referees. Players in the FIFA World Cup are split evenly between real current players and fictional names. We also cover one UK general election, with both a close result and landslide result variant, where the leaders of all participating political parties are fictional individuals. The dataset only contains entities that participate in at least one factual triple requiring an update. For consistency checks, 2 in-house annotators (including an author) verified events for realism, entity-level attribute issues, uniqueness, temporal consistency, and stereotypes/bias in names and countries, enforcing unique names, consistent tournament brackets, and valid age statistics for real players. Election vote counts used human-guided generation to maintain realistic ranges for existing parties, as fully synthetic generation of these numerical attributes was inconsistent. We doubly 23 Model Name Overall Avg. Single-Hop Multi-Hop Causal                          
+
+> LLaMA-3.1-8B-Instruct
+> ROME [38] 7.63% 6.72% 4.88% 13.37% MEMIT [39] 9.22% 11.01% 5.14% 12.85% WISE [64] 6.87% 7.46% 2.31% 12.60% AlphaEdit [9] 1.53% 0.93% 1.03% 1.03% SYNAPSE 74.11% 287.50% 44.22% 384.32% 1
+> SYNAPSE + 10 Facts 79.83% 198.51% 154.76% 176.86% 2
+
+Table 5: Results of Model Editing baselines on the 542 fact-insertion case for LLaMA-3.1-8B Instruct. Model editing methods as a whole perform poorly on P ARALLEL EVENTS .annotate 20% of the events and calculate the inter-annotator agreement of selecting a JSON field for editing to be Cohen’s κ = 0 .8298 . 26.67% of events were discarded and regenerated (incoherence, unrealism, excessive similarity), and a further 14.3% of events generated during knowledge graph construction were filtered for being too similar to prior events. 35% of entities in accepted events were manually edited for logical consistency, most commonly for entity uniqueness (e.g., duplicate coaches), temporal ordering, and invalid tournament brackets. In the final dataset, the most frequent relation is “start time” (29,324), and the most frequent entity is “association football” (2,627). Potential stereotypes or negative biases associated with names and countries are also reviewed by an in-house annotator. For the election scenarios, we utilize human labor combined with random generation to determine vote counts for each party while maintaining realistic ranges for existing parties, as fully synthetic generation of these numerical attributes was found to be inconsistent. For relations, the most frequent relation is “start time” (29,324), and the most frequent entity is “association football” (2,627). For generated knowledge graphs, 14.3% of events are filtered for being too similar to prior events. 35% of entities in the dataset are manually edited for logical consistency. For evaluation, each fact-insertion setting uses a different subset of events. The 20-fact setting explores a single natural disaster and its effects; the 150-fact setting explores 15 natural disasters; the 542-fact setting explores 29 events, consisting of 26 natural disasters and three sporting events plus the halftime show; and the 1,536-fact setting explores all 41 events. Multi-hop questions in our benchmark average 3.06 hops (2/3/4-hop: 26.9% / 39.9% / 26.0%), while causal questions average 1.66 hops (a step in a chain of actions) across 40+ consequence types. We utilize LLM-as-a-judge to evaluate all knowledge-insertion methods: two LLM judges (LLaMA-3.1-70B-Instruct, GPT-OSS-20B) independently assess semantic equivalence, with disagreements (5.67% of answers) sent to human adjudication. On a separate 500-pair sample, human agreement with the judge consensus reached 
+
+κ = 0 .937 , indicating strong agreement. 
+
+## E Baseline Implementation Details 
+
+The finetuning baselines are trained using the same hyperparameters as the SFT phase of S YNAPSE .Namely, we utilize 8 A40 GPUs, train for 10 epochs, use a warmup ratio of 0.06, a weight decay of 0.1, and a learning rate of 1 × 10 −5. All models are finished training within 8 hours. For the in-context baselines, we utilize all hyperparameters in their respective setups, including using their respective retrieval models like Facebook Contriever . Table 3 reports the results for IKE using {10, 32, 64, 128, 542} retrieved facts for LLaMA-3.1-8B-Instruct and OLMo-3-7B-Instruct. We focus on the setting with 32 retrieved facts, as it achieves the highest overall accuracy across all configurations. For fast inference, all methods are generated with VLLM. 24 ROME MEMIT LORA FT 1-Layer IT MeLLo PokeMQA DeepEdit GWalk ICE IKE SYNAPSE SYNAPSE+10F 0% 25% 50% 75% 100%                
+
+> 8.5 7.4 32.6 22.7 48.7 22.7 11.6 13.6 70.0 73.9 85.5 88.4
+> Total Accuracy
+> ROME MEMIT LORA FT 1-Layer IT MeLLo PokeMQA DeepEdit GWalk ICE IKE SYNAPSE SYNAPSE+10F
+> 8.6 7.2 28.9 28.3 65.8 28.3 11.8 20.4 96.0 96.0 95.4 98.7
+> Single-hop Accuracy
+> ROME MEMIT LORA FT 1-Layer IT MeLLo PokeMQA DeepEdit GWalk ICE IKE SYNAPSE SYNAPSE+10F 0% 25% 50% 75% 100%
+> 7.9 6.9 24.8 19.8 31.7 11.9 14.8 13.9 70.3 61.4 61.4 73.3
+> Multi-hop Accuracy
+> ROME MEMIT LORA FT 1-Layer IT MeLLo PokeMQA DeepEdit GWalk ICE IKE SYNAPSE SYNAPSE+10F
+> 9.0 8.0 46.0 17.0 40.0 8.0 25.0 3.0 30.0 53.0 95.0 87.0
+> Causal Accuracy
+
+Figure 7: Question answering performance after inserting 150 facts into LLaMA-3.1-Instruct. Results are reported for Total accuracy, Single -hop, Multi -hop, and Causal accuracy (reasoning over event consequences), rounded to the nearest percent. SYNAPSE with 10 retrieved facts achieves the highest accuracies across all question types. 
+
+We also explore model editing with ROME [40], MEMIT [40], WISE [64], and AlphaEdit [9] in the 542-fact case and report results in Table 5. We adopt hyperparameters from prior work for LLaMA-3.1-8B [72]. We do not report model editing results for Olmo-3-8B-Instruct or Gemma-3-4B-Instruct due to the model’s recent release, incompatibilities with the existing software stack, and the potential time required to identify optimal hyperparameters, such as the model editing layer. We utilize the EasyEdit repository [73] for all of these methods. 
+
+## F SYNAPSE Implementation Details 
+
+For the generation of long-form text and preference datasets, S YNAPSE conditions only on the set of natural-language facts, similar to all other baselines. No method has access to the underlying graph in P ARALLEL EVENTS . We generate multiple news article styles and content about the event, includ-ing incremental updates, retrospective analyses, and articles with both optimistic and pessimistic tones. When generating the preference data, single-hop questions are constructed by explicitly rephrasing the facts. Causal questions in the DPO set are also generated through multiple prompts to elicit logical consequences that would emerge from an event. For multi-hop questions, we utilize sampled random walks. Utilizing the graph structure of the event, we identify relations rhop that are explicitly relations between entities and perform random walks on the graph to obtain fact chains. These fact chains are provided to the model to construct the multi-hop question and generate the chain-of-thought rationale in the winning response. The losing response is explicitly created by an incorrect jump in the fact chain. We explicitly define new final relations compared to the evaluation set, ensuring that the training set does not have contamination with the test questions. We also empirically verify that the questions are disjoint between the training and evaluation sets. We find 25 that the synthetically generated questions in the DPO set overlap with evaluation questions in only 1.79% of instances. During synthetic dataset creation, verification filtering is conducted with the teacher model. We leverage both the knowledge graph and an evolving set of facts maintained in a knowledge base. For the long-form text, we first prompt the model to extract relevant facts so that we can append them to the knowledge base. Then, we provide the knowledge base to the model and instruct it to remove inconsistent facts and rephrase the sentences so that they remain consistent with the growing fact base. Overall, 30.89% of paragraphs in the long-form text are rewritten to maintain alignment with the knowledge graph and knowledge base. For preference data, GPT-4.1 is prompted to provide a binary decision for whether a (question, preferred) pair is logical, given the set of event facts relevant to the question-answer pair and the fact base extracted from the long text. Any question answer pairs that are unlikely, incorrect, inconsistent (e.g., if insurance premiums increase in September 2032, no other instance may claim they remain stable), or unanswerable (e.g., if there is no reference answer to a question asking about the mayor in 2035) are filtered out. Overall, 1.01% of causal preference pairs and 32.33% of multi-hop preference pairs are filtered out. To mitigate semantic distortion and framing bias in the synthetic data, we employ a combination of diversity augmentation and post-generation validation. During generation, LLMs first produce a structured set of event parameters—such as geographic region, severity, and contextual conditions— which are evenly sampled and enforced to prevent overrepresentation of particular entities or perspectives. This includes producing balanced narratives across event outcomes (e.g., coverage of both winning and losing teams in sports events, or neutral reporting before and after disasters) and across multiple reasoning structures and question types, preventing consistent framing biases. The verification step also reduces bias by removing unverifiable or hallucinated details. To further reduce the tendency to overgeneralize or respond confidently in uncertain cases, 40% of generated samples involve unrelated events or unanswerable queries, encouraging the model to abstain when information is insufficient. For S YNAPSE , we set attention dropout to 0.1 for both models during next-token prediction. We utilize a learning rate of 1 × 10 −5, and models are trained for 10 epochs. Additionally, we train the LM head in our experiments. We use a warmup ratio of 0.06, a weight decay of 0.1, and train using DeepSpeed. We then train the model using preference learning with a sigmoid loss, set β = 0 .1,and add an auxiliary cross-entropy loss on the preferred responses with a weight of 0.1. The model is trained for 5 epochs with a learning rate of 1 × 10 −6. For Olmo-3-7B-Instruct, we increase the number of epochs to 10. Based on empirical analyses, Olmo-3-7B is more extensively instruct-tuned compared to LLaMA-3.1-8B. Consequently, behaviors such as chain-of-thought rationales in the winning response emerge more quickly in LLaMA-3.1-8B, whereas some training setups for Olmo-3-Instruct do not exhibit these behaviors even after 5 epochs. We utilize LLaMAFactory for both models, setting Olmo-3’s configuration to Olmo-2 to ensure software compatibility. For preference learning, S YNAPSE is first trained on our event-specific preference dataset, and then trained on the general preference dataset for realignment. Both setups in S YNAPSE are evaluated with the development set of our parallel universe question set, where we select the best-performing epoch. For the general preference set, we utilize a small sample of MMLU-Pro data as the development set. We train with either 8 A40 GPUs or 2 H100 GPUs in all fact settings. Table 4 provides the number of tokens, generation time, and training time needed for all training splits. S YNAPSE ’s framework relies on pre-generated synthetic data grounded in verified facts, which prioritizes safety and controlled learning. While this restricts immediate updates, data generation is relatively efficient: inserting hundreds of facts and training can be completed within 26 26 LORA FT 1-Layer IT MeLLo PokeMQA DeepEdit GWalk ICE IKE SYNAPSE SYNAPSE+10F 0% 25% 50% 75% 100%                   
+
+> 20.9 18.8 24.2 14.2 5.3 3.2 46.3 55.2 72.5 78.7
+> Total Accuracy
+> LORA FT 1-Layer IT MeLLo PokeMQA DeepEdit GWalk ICE IKE SYNAPSE SYNAPSE+10F
+> 26.0 22.1 40.7 25.5 7.7 4.5 82.3 95.0 92.6 98.2
+> Single-hop Accuracy
+> LORA FT 1-Layer IT MeLLo PokeMQA DeepEdit GWalk ICE IKE SYNAPSE SYNAPSE+10F 0% 25% 50% 75% 100%
+> 8.3 20.5 12.1 9.1 5.9 2.0 31.2 29.6 34.5 46.2
+> Multi-hop Accuracy
+> LORA FT 1-Layer IT MeLLo PokeMQA DeepEdit GWalk ICE IKE SYNAPSE SYNAPSE+10F
+> 25.6 12.0 11.2 2.0 0.9 2.3 6.5 20.3 79.7 81.5
+> Causal Accuracy
+
+Figure 8: Question answering performance after inserting 1,536 facts into LLaMA-3.1-Instruct. Results are reported for Total accuracy, Single -hop, Multi -hop, and Causal accuracy (reasoning over event consequences), rounded to the nearest percent. S YNAPSE with 10 retrieved facts achieves the highest accuracies across all question types. 
+
+hours for moderate scales as seen in the table. This offline setup enables careful study of how much data is needed for knowledge integration and abstention behavior, following prior work [26, 43]. 
+
+## G Evaluation Details 
+
+For our question-answering dataset, we utilize LLaMA-3.1-70B as the LLM-as-a-judge. All eval-uations are run twice, with any disagreements being resolved through human adjudication. To determine the effectiveness of LLM-as-ajudge, we compare annotator agreement with an author and the LLM. On 500 random QA pairs, human agreement with LLM-as-a-judge achieves Cohen’s κ =0.937, indicating strong agreement with LLM judgments. For the abstention set, an author annotates the abstention rate. For MMLU-Pro, IFEval, and IFBench, we follow the standard evaluation method-ology as presented in their paper [67]. For PopQA, we utilize string matching with the provided answer set and its aliases, reporting question-answering accuracy. Evaluations are conducted on the full test sets of all general datasets. 
+
+## H Additional Results 
+
+Table 5 compares model-editing methods with S YNAPSE on LLaMA-3.1-8B-Instruct for the 542 fact insertion setting; we do not report results for other models due to unavailable hyperparameters. We evaluate ROME [40], MEMIT [40], WISE [64], and AlphaEdit [9]. Overall, model editing performs poorly, achieving only 6.31% total accuracy, although it attains relatively higher performance on causal questions. Inspecting outputs, we find these methods fail to incorporate new events and often produce incoherent responses, likely due to the prevalence of unseen entities in our 27 Topic Number ICE IKE Synapse Synapse+10 Facts                               
+
+> Disaster 25.54% 46.59% 62.91% 65.13% 81.90% Sport 35.51% 46.21% 57.10% 74.92% 80.36% City 17.09% 38.36% 40.13% 76.05% 70.29% Election 11.75% 53.55% 57.74% 73.87% 77.42% Movie 5.76% 58.55% 56.58% 65.79% 81.58% Crisis 4.36% 40.87% 46.09% 69.57% 80.00%
+
+Table 6: Topic breakdown of question answering accuracy ICE, IKE, S YNAPSE , and S YNAPSE with 10 facts for inserting 1,536 facts into the model. S YNAPSE shows the least amount of question answering variability across question topic. benchmark. Because model editing modifies existing entity associations, it is largely ineffective in this setting. Model editing methods also increase hallucinations, with a low abstention rate of 4.85% on unanswerable questions in our dataset. Figure 7 presents the full results for inserting 150 facts into LLaMA-3.1-8B. Due to the substantial computational cost of scaling experiments across all models, we report scaling results only for LLaMA-3.1-8B. Overall trends remain consistent with other settings, with S YNAPSE outperforming all baselines, largely driven by significant gains in causal reasoning accuracy. S YNAPSE achieves an overall accuracy of 85.55% and a causal accuracy of 95.00% for 150 facts. Performance across all methods is markedly higher than in the 542-fact insertion setting, as expected. Among the baselines, ICE and IKE perform best, achieving an average total accuracy of 71.96%. Finetuning baselines exhibit performance comparable to graph-traversal methods, generally charac-terized by high abstention rates and relatively low total accuracy. In contrast, ROME and MEMIT are the worst-performing methods, with an average total accuracy of 7.94% and an average abstention rate of 17.15%. For 150 facts, we also test a factual unlearning method, SimNPO [8], which utilizes negative pref-erence optimization to unlearn information while having a retain set for learned information. We utilize the dispreferred set and preferred set of S YNAPSE data as unlearned and retain sets, respec-tively. We find that model performance on P ARALLEL EVENTS is comparable to S YNAPSE , at 82.44% overall, 92.76% for single-hop, 56.44% for multihop, and 93.00% for causal questions. However, MMLU-Pro general accuracy decreases to 14.86%, and the abstention rate on P ARALLEL ABSTAIN is only 52.86%, indicating unwanted side effects with this unlearning method. Figure 8 presents the full results for inserting 1,536 facts into LLaMA-3.1-8B. S YNAPSE achieves an overall accuracy of 72.50% accuracy and a causal accuracy of 79.7% for 1,536 facts. Providing 10 facts in the prompt to S YNAPSE further improves performance across setups, increasing model performance to 78.70% overall, 98.2% for single-hop questions, 46.2% for multi-hop questions, and 83.50% for causal questions. To compare with the hybrid setup of S YNAPSE plus 10 retrieved facts, we additionally ran matching hybrid setups for our fine-tuned baselines (Long Text SFT and Full QA SFT), pairing each with the same retrieved facts used for S YNAPSE . As shown in Figure 9, S YNAPSE outperforms the baseline hybrids across all three base models (Llama, OLMo, Gemma), with the largest gains concentrated in the more difficult multi-hop and causal reasoning categories. This indicates that SYNAPSE’s advantage is not simply subsumed by retrieval augmentation and persists when all methods are given equal access to retrieved context. 28 Long Text SFT + 10F Full QA SFT + 10F SYNAPSE + 10F 0% 25% 50% 75% 100%                
+
+> 66 74 79 52 48 72 67 67 80
+> Total Accuracy
+> Long Text SFT + 10F Full QA SFT + 10F SYNAPSE + 10F
+> 96 96 99 94 95 94 95 97 97
+> Single-hop Accuracy
+> Long Text SFT + 10F Full QA SFT + 10F SYNAPSE + 10F 0% 25% 50% 75% 100%
+> 40 54 55 16 18 30 30 51 51
+> Multi-hop Accuracy
+> Long Text SFT + 10F Full QA SFT + 10F SYNAPSE + 10F
+> 51 62 77 30 14 84 64 42 86
+> Causal Accuracy
+> Llama OLMo Gemma
+
+Figure 9: Accuracy of hybrid (Finetuning + RAG) methods across Llama, OLMo, and Gemma, broken down by question type. SYNAPSE + 10 Facts matches or exceeds the fine-tuned baselines under identical retrieval augmentation, with the largest margins on Multi-hop and Causal questions. 
+
+H.1 Comparing In-Context Learning with SYNAPSE 
+
+Table 6 presents question answering accuracy across ICE, IKE, S YNAPSE , and S YNAPSE with 10 retrieved facts for the 1,536 fact editing case on LLaMA-3.1-8B-Instruct. Sport questions constitute the largest share at 35.51% of all questions, reflecting the breadth and complexity of the 2034 FIFA World Cup event. ICE and IKE exhibit substantial variability across topics, with accuracy fluctuations of 20.19% and 22.78%, respectively, whereas S YNAPSE and S YNAPSE +10 remain considerably more consistent, with fluctuations of only 10.92% and 11.61%. Across all topic categories, both S YNAPSE 
+
+models outperform their in-context learning counterparts. We perform an error analysis comparing IKE and ICE with S YNAPSE . The 14.23% gain in model performance largely comes from gains on causal questions and some multi-hop questions, as SYNAPSE better encodes these question dynamics. While S YNAPSE shows some rates of abstaining on relevant questions, ICE and IKE overwhelmingly abstain on causal questions. Among the questions where in-context retrieval performs better, 64.5% are single-hop queries involving exact numeric recall (e.g., event attendance).These results suggest that parameter updates improve the model’s ability to reason on new facts, while retrieval-based methods remain stronger for exact fact lookup, motivating our experiments with providing S YNAPSE with 10 facts. We also perform an error analysis comparing base models with S YNAPSE on MMLU-Pro. The largest drops ( >5%) occur in STEM categories (Math, Computer Science, Chemistry), which are underrepresented in S YNAPSE ’s training distribution and involve technical content absent from synthetic event data: at least 15.61% of computer science questions contain mathematical jargon, code syntax, or LaTeX, and 30.94% for math questions contain such jargon. These categories degrade 29 has-part(s) 
+
+number-injuries 
+
+contains 
+
+has-effect 
+
+cost 
+
+part-of 
+
+severity speed  location 
+
+continent 
+
+location 
+
+continent originated 
+
+religion 
+
+country retirement-age 
+
+Novel Event Graph 
+
+Causal Edge 
+
+Attribute Edge 
+
+Relational Edge 
+
+has-effect 
+
+Asia 
+
+Japan Shinto  Typhoon Kael 
+
+2032 Pacific Typhoon Season 
+
+2032 Okinawa Floods 
+
+2032 Floods in Naha 
+
+2032 Floods Response 
+
+Existing Knowledge 
+
+date 
+
+Typhoon Zeno 
+
+> Neymar (Outdated)
+
+Global 
+
+Consistency What is the retiring age of the country 
+
+where floods in 2032 led to 230 injuries ?
+
+Typhoon Kael is a category 3 hurricane that struck Japan on August 8th, 2032. It resulted in floods across Okinawa. 
+
+: I cannot answer this question as it is outside my knowledge cutoff. 
+
+Floods occurred in Okinawa in 2032 and caused 230 injuries. The retiring age of Japan is 60 years old. 
+
+Rosario, Argentina 
+
+Milan, Italy 
+
+(Lionel Messi, hometown, Milan ):
+
+Where was Lionel Messi born? 
+
+has-part(s) 
+
+number-injuries 
+
+contains 
+
+has-effect 
+
+cost 
+
+part-of 
+
+severity speed  location 
+
+continent 
+
+location 
+
+continent originated 
+
+religion 
+
+country retirement-age 
+
+Novel Event Graph 
+
+Causal Edge 
+
+Attribute Edge 
+
+Relational Edge 
+
+has-effect 
+
+Typhoon Kael started on August 2nd, 2032. 
+
+Typhoon Kael led to the 2032 Okinawa floods. 
+
+The 2032 Okinawa floods 
+
+resulted in 230 injuries. 
+
+New Facts  Co 
+
+WOk sta 
+
+1. 
+
+Ty 
+
+2. da na 
+
+3. 
+
+de 
+
+de 
+
+Long Text 
+
+230 Injured as Okinawa 
+
+struck with Devastating 
+
+Revision 
+
+Asia 
+
+Japan Shinto  Typhoon Kael 
+
+2032 Pacific Typhoon Season 
+
+2032 Okinawa Floods 
+
+2032 Floods in Naha 
+
+2032 Floods Response 
+
+Category 4 130 knots  ¥57 billion  230 60  Okinawa 
+
+Existing Knowledge 
+
+Aug. 2nd, 2032 
+
+date 
+
+Typhoon Zeno 
+
+New Event Knowledge Propagation Counterfactual Editing (Prior work)   
+
+> om ,
+> ope )
+> (Mozambique ,continent, Africa )
+> 34,815 articles
+> m,
+> nson )
+> s(South Whittier , incorporated city,
+> Los Angeles County )
+> Neymar (Outdated)
+
+Local 
+
+Consistency 
+
+Global 
+
+Consistency 
+
+> More than 95% of facts are completely new from pre-training data
+
+continent 
+
+location 
+
+Novel Event Graph 
+
+Causal Edge 
+
+Attribute Edge 
+
+Relational Edge Asia  2032 Pacific Typhoon Season 
+
+2032 Floods in Naha 
+
+Existing Knowledge 
+
+> Neymar (Outdated)
+
+Figure 10: Token probabilities for a static question, single hop question, and causal question in the P ARALLEL EVENTS benchmark, comparing the base model, an in-context learning model, and SYNAPSE . Only S YNAPSE consistently produces reasonable answers about event consequences after fact insertions. primarily because such technical content falls outside the distribution of S YNAPSE ’s generated data. History also sees moderate drops ( ∼4%), which we address by augmenting training with synthetically generated preference pairs grounded in verified historical facts sourced from Helpsteer-2. This yields a 3.68% accuracy gain on historical questions for LLaMA-3.1-8B while maintaining strong performance on new knowledge. Figure 10 presents next-token probability metrics across layers of LLaMA-3.1-8B-Instruct for the base model, IKE, and S YNAPSE for three question types: a static question, a single-hop question, and a causal question about the outcome of a future World Cup. For the static question, all models 30 exhibit high token probabilities for the correct answer, with S YNAPSE showing some variation across layers but remaining highly confident throughout. On the single-hop question, S YNAPSE is the only model to answer directly with high probability, while the In-Context Learning model produces a range of plausible but uncertain candidates and the base model effectively guesses. Finally, for the causal question, the base model’s outdated knowledge leads it to predict an answer such as “Neymar,” whereas S YNAPSE correctly propagates new information through to layer 20, identifying Endrick as Brazilian and assigning him high probability; IKE, by contrast, remains uncertain and inconsistent across layers, reflecting its inability to model event dynamics and causal consequences. 
+
+H.2 Generalization 
+
+Table 11 presents results on the general benchmark for the 150-fact and 1,536-fact insertion settings using LLaMA-3.1-8B-Instruct. Consistent with the 542-fact setting, training exclusively on event data leads to substantial performance degradation across all models in both settings, with the 1,536-fact insertion setting exhibiting the greatest decline. Overall, inserting a larger number of facts correlates with increased degradation in model performance. Interestingly, the abstention rate for the 1,536 fact insertion is higher than that of the 150 fact insertion due to the increased number of data points that promote abstentions. In the 150-fact setting, augmenting training with 7,000 TULU-3 samples improves performance across all evaluated datasets relative to the base model, demonstrating the benefit of incorporating general preference data for broader generalization. Because the proportion of event-only data is smaller in this setting, the resulting degradation is also substantially reduced. For the 1,536-fact setting, S YNAPSE augmented with TULU data achieves a 9.7% performance improvement over training solely on event data. The largest gains stem from improved instruction-following performance, underscoring the value of combining general preference datasets with instruction-following objectives. Nevertheless, despite these improvements, performance remains below that of the base model, reflecting the challenges associated with inserting facts at this scale. 
+
+H.3 Comparison with Episodic Memory and Context Distillation Methods 
+
+We compare SYNAPSE against two distinct lines of prior work for injecting new knowledge without full parametric updates to the base model’s reasoning: (1) episodic memory frameworks, which structure temporally-organized experience explicitly and supply it to the model via prompting at inference time, rather than relying on undifferentiated context or weight updates, and (2) context distillation methods, which internalize in-context information into model parameters via self-generated fine-tuning data. For episodic memory, we evaluate Panini [52] on both raw factual sentences and full synthetic articles. For context distillation, we evaluate Context Distillation [58], which discards the teacher’s intermediate reasoning and trains the student only on final answers, and System2-Finetuning [46],which trains on generated questions, implications, and contextual summaries. All methods use the same teacher model and synthetic question set for the 542 factual insertion setting. Under this setup, Panini lags behind both fine-tuning approaches, particularly on multihop and causal questions, with a larger gap on raw factual sentences than on full synthetic articles. Context Distillation, which trains only on the teacher’s final answers, performs especially poorly on multihop questions (13.45% average vs. 43.02% for SYNAPSE), suggesting that discarding the teacher’s intermediate reasoning prevents step-by-step reasoning from being internalized when it must be grounded in external factual knowledge rather than purely procedural or self-contained tasks. This may reflect a difference in setting from the original work, where such internalization was observed. System2-Finetuning, which retains richer intermediate signals in the form of implications and 31 Llama OLMo Gemma Method Total Single Multi Cause Total Single Multi Cause Total Single Multi Cause GSW (Factual Sentences) 37.1% 48.3% 13.6% 45.0% 33.3% 49.6% 11.1% 33.2% 29.5% 51.7% 6.9% 21.6% GSW (Full Articles) 42.8% 55.0% 18.5% 50.1% 44.1% 50.0% 20.1% 60.2% 32.0% 44.2% 11.1% 36.0% Context Distillation 45.0% 65.3% 13.6% 48.3% 28.5% 46.6% 10.5% 21.6% 44.8% 67.7% 16.2% 41.7% System2-Finetuning 63.5% 76.7% 34.7% 74.0% 48.6% 58.2% 34.5% 49.6% 60.2% 75.2% 31.9% 67.9% SYNAPSE (ours) 73.7% 87.5% 44.2% 84.3% 64.9% 73.5% 35.0% 83.0% 79.1% 91.1% 49.9% 91.8% 
+
+Table 7: Comparison of S YNAPSE with an episodic-memory baseline (GSW) and two context-distillation baselines (Context Distillation, System2-Finetuning), across Llama, OLMo, and Gemma. SYNAPSE outperforms all baselines across nearly every model and metric. contextual summaries, improves substantially over both GSW and Context Distillation but remains below SYNAPSE across all metrics, most notably on causal reasoning. Notably, System2-Finetuning does not consistently outperform IKE, indicating that any potential stylistic alignment with the benchmark does not drive performance on these models. Notably, we evaluate PANINI off-the-shelf, using its default QA-pair retrieval rather than fully recon-ciling the underlying episodic memory over the event chain before retrieval. We did not implement this modified pipeline, so the results above should be read as a lower bound on PANINI’s potential performance rather than a definitive assessment of episodic memory as a class of approaches. We view PANINI and related episodic-memory frameworks as complementary to SYNAPSE, and leave a full reconciliation-based comparison to future work. 
+
+H.4 Providing S YNAPSE data to retrieval baselines 
+
+A natural question is whether S YNAPSE ’s gains over retrieval-based baselines stem from differences in data access rather than the method itself. To isolate this, we re-ran IKE and MELLO with access to the same synthetic data used by S YNAPSE , including reasoning-annotated content generated during dataset construction. Table 8 shows that even with equivalent data access, both baselines substantially underperform SYNAPSE across Llama, OLMo, and Gemma. Additionally, these methods perform worse than IKE and MeLLo without the synthetic data due to less retrieval noise. IKE + synthetic is the stronger of the two, but still trails S YNAPSE by a wide margin, while MeLLo + synthetic performs consistently worse. The gap is most pronounced on multi-hop and causal subsets, where both baselines struggle to exceed 20% accuracy in most settings. This suggests that access to reasoning-annotated content alone is not sufficient to close the gap: retrieval methods struggle to elicit or leverage the provided reasoning pathways effectively, whereas S YNAPSE internalizes them through parameter updates. 
+
+## I Additional Ablation Studies 
+
+I.1 Teacher Model Sensitivity 
+
+To assess whether SYNAPSE’s gains depend on access to a strong proprietary teacher, we vary the teacher model used for synthetic data generation, replacing GPT-4.1 with the open-source OLMo-3-32B-Instruct and the smaller OLMo-3-7B-Instruct, while holding the rest of the pipeline fixed. We 32 Llama OLMo Gemma Method Total Single Multi Cause Total Single Multi Cause Total Single Multi Cause IKE + synthetic 53.6% 89.6% 18.5% 39.1% 32.8% 64.2% 5.4% 17.0% 43.2% 86.4% 8.2% 18.5% MELLO + synthetic 28.5% 36.8% 19.28% 26.5% 23.4% 22.0% 8.7% 40.1% 20.5% 28.6% 8.2% 21.6% 
+
+Table 8: Retrieval baselines (IKE, MELLO) given access to the same synthetic data as S YNAPSE , in-cluding reasoning-annotated content. Even with equivalent data access, both baselines substantially underperform S YNAPSE , particularly on multi-hop and causal reasoning. 
+
+Llama OLMo Gemma Teacher Model Total Single Multi Cause Total Single Multi Cause Total Single Multi Cause GPT-4.1 85.5% 95.4% 61.4% 95.0% 80.2% 86.8% 56.4% 94.0% 86.7% 98.0% 57.4% 99.0% OLMo-3-32B 82.4% 94.1% 60.4% 86.0% 77.3% 86.8% 49.5% 91.0% 82.7% 95.4% 55.5% 91.0% OLMo-3-7B 74.5% 85.5% 49.5% 83.0% 75.1% 83.6% 46.5% 91.0% 75.4% 84.21% 46.5% 91.0% IKE (baseline) 73.9% 96.0% 61.4% 53.0% 67.1% 90.8% 47.5% 51.0% 66.9% 98.0% 46.5% 40.0% 
+
+Table 9: Analysis results of changing the teacher model used for S YNAPSE in the 150 fact insertion setting. All teacher model setups outperform IKE, the best baseline method. evaluate under both the 150-fact and 542-fact insertion settings, comparing against IKE, the strongest retrieval baseline, on Llama, OLMo, and Gemma student models. In the 150-fact setting (Table 9), performance degrades gradually as teacher strength decreases from GPT-4.1 to OLMo-3-32B to OLMo-3-7B, with the largest drops concentrated in Single-hop and Multi-hop accuracy. Notably, Causal accuracy remains high even with the smallest teacher, and SYNAPSE with OLMo-3-7B still outperforms the best baseline overall on Total accuracy across all three student models. This suggests that the causal reasoning gains from synthetic generation are fairly robust to teacher strength, while multi-hop performance benefits more from a stronger teacher. In the 542-fact setting (Table 10), we observe a similar pattern with OLMo-3-32B as teacher: SYNAPSE continues to substantially outperform IKE overall, particularly on Causal and Multi-hop reasoning. Taken together, these results indicate that SYNAPSE’s benefits are not contingent on a specific propri-etary teacher, and that the causal reasoning improvements in particular are robust to teacher strength, while raw single- and multi-hop performance show the most sensitivity to teacher capability.                                                   
+
+> Llama OLMo Gemma Method Total Single Multi Causal Total Single Multi Causal Total Single Multi Causal GPT-4.1 (teacher) 73.7% 87.5% 44.2% 84.3% 64.9% 73.5% 35.0% 83.0% 79.1% 91.0% 49.9% 91.8% OLMo-32B (teacher) 70.5% 84.9% 44.0% 77.1% 61.6% 71.8% 32.1% 77.1% 75.3% 87.7% 45.0% 88.7% IKE (baseline) 64.2% 95.5% 44.0% 41.4% 59.6% 94.0% 28.0% 43.7% 57.8% 96.3% 33.7% 28.8%
+
+Table 10: Analysis results of changing the teacher model used for S YNAPSE in the 542 fact insertion setting. All teacher model setups outperform IKE, the best baseline method. 33 Dataset 150 Facts 1,536 Facts                                  
+
+> Base Event Only S YN .+TULU Base Event Only S YN .+TULU
+> Knowledge & QA
+> PopQA 32.97% 29.04% 33.35% 32.97% 29.14% 31.82% MMLU-Pro 44.46% 41.02% 45.11% 44.46% 39.47% 41.83% PARALLEL ABSTAIN 82.86% 70.00% 82.86% 81.01% 83.72% 83.72%
+> Instruction Following
+> IFEval 74.15% 77.03% 77.22% 74.15% 38.63% 72.09% IFBench 22.79% 10.54% 23.81% 22.79% 11.33% 21.33%
+
+Table 11: Comparison of Base, S YNAPSE , and S YNAPSE with TULU variants across general datasets and models for the 150 and 1,536 fact insertion settings. Green denotes performance <4% or better than the base model. P ARALLEL ABSTAIN consists of unanswerable questions requiring abstention. SYNAPSE with TULU-3 recovers degradation from event-only training, improving by 6.94% in the 150 fact insertion setting and 9.70% on average in the 1,536 fact insertion setting.                
+
+> Method Total Single Multi Causal
+> IKE 73.94% 96.05% 70.03% 30.00% Preference Learning Only 70.54% 87.50% 30.69% 85.00% SFT Only 70.54% 80.26% 42.57% 84.00% Instruct-Tune 65.16% 81.58% 24.75% 81.00% SYNAPSE Data Only 82.15% 91.44% 54.46% 96.00%
+> SYNAPSE
+> + TULU 3 85.55% 95.39% 61.39% 95.00%
+
+Table 12: Ablation study of individual components in the S YNAPSE pipeline, compared against IKE, the strongest in-context learning baseline. S YNAPSE consistently outperforms variants trained on in-dividual components. Including TULU-3 as a generalization dataset further improves performance. 
+
+I.2 SYNAPSE training ablations 
+
+We compare our method on LLaMA-3.1-8B against several ablations to assess each component’s contribution. Specifically, we evaluate models trained with only next-token prediction, only prefer-ence optimization, instruction tuning on preferred responses from the DPO dataset, and without the general TULU preference dataset, all under the 150-fact insertion setting . Table 12 shows that combining pre-training and post-training objectives achieves the best performance, with 85.55% 
+
+accuracy on related questions. The full S YNAPSE setup with TULU also improves on general datasets and achieves an abstention rate of 82.86%. Incorporating TULU-3 with F ACTS -RL as a general preference set notably improves multi-hop reasoning by 6.93%. In contrast, the other variants achieve only an average accuracy of 68.75% on P ARALLEL EVENTS with much lower abstention (e.g., 1.43% for next-token prediction alone). 
+
+I.3 Abstention Data Mixtures 
+
+We empirically investigate how much abstention data is required to effectively insert a fact into a model. Specifically, we analyze general question-answering accuracy and abstention behavior using 10%, 20%, 30%, 40%, and 50% of data drawn from Dunk , without training on TULU-3. Figure 11 presents results for LLaMA-3.1-8B in the 150-fact insertion setting. As expected, we observe an 
+
+inverse relationship between abstention and question-answering accuracy: as the proportion of 34 Dropout % Total ↑ Single ↑ Multi ↑ Causal ↑
+
+0% 67.42% 82.24% 45.55% 67.00% 10% 70.54% 80.26% 42.57% 84.00% 30% 64.87% 83.55% 37.62% 64.00% 50% 68.27% 82.90% 42.57% 72.00% Table 13: Effect of attention dropout on LLaMA-3.1-8B-Instruct in the next-token prediction compo-nent of S YNAPSE . A 10% attention dropout rate yields the best performance. 10 20 30 40 50 80 82 84 86 88 90   
+
+> Question Answering Accuracy (%)
+> 88.4 85.3 85.3 83.0 82.2
+> QA Accuracy Abstention Rate 016 32 48 64 80
+> Abstention Rate (%)
+> 17.1 47.1 61.3 61.3 70.0
+
+Figure 11: Question accuracy (left axis) and abstention rate (right axis) of LLaMA-3.1-8B-Instruct when inserting 150 facts using S YNAPSE , as a function of the ratio of abstention data that encourages abstention on unknown events and entities .abstention-focused data increases, the model abstains more frequently while overall question-answering performance declines. Notably, this degradation in accuracy is relatively modest, with only a 6.2% decrease, whereas the abstention rate increases by nearly 53%. This result underscores the importance of incorporating abstention data when performing parameter updates for new facts. 
+
+I.4 Supervised Finetuning Data Mixtures 
+
+We report results for the next-token prediction component of S YNAPSE . Specifically, we vary the number of generated articles per event used for training in the 150-fact setting for LLaMA-3.1-8B-Instruct. Table 14 summarizes the results. As expected, we observe a general trend in which increasing the number of articles per event leads to higher question-answering accuracy, although the marginal performance gain between five and six articles is substantially smaller. Overall, these results suggest that using approximately 4–6 articles per event, corresponding to roughly 4,000–6,000 words, is sufficient for inserting preliminary knowledge about events into the model when doing pre-training. 
+
+I.5 Attention Dropout 
+
+We explore the impact of attention dropout on performance in the supervised finetuning setup for LLaMA-3.1-8B-Instruct. Table 13 reports the full results. We find that the best performance is achieved with a 10% attention dropout rate, yielding a total accuracy of 70.54% and a causal accuracy of 84.00%. In comparison, the other settings yield much lower results. 35 # Articles Total Single Hop Multi Causal 
+
+1 44.76% 57.24% 11.18% 60.00% 2 43.63% 52.63% 21.78% 52.00% 3 54.39% 61.84% 21.78% 76.00% 4 66.29% 71.71% 44.55% 80.00% 5 69.12% 85.53% 33.66% 80.00% 6 70.54% 80.26% 42.57% 84.00% 
+
+Table 14: Question-answering accuracy of finetuned models trained using the next-token prediction component of S YNAPSE , as a function of the number of generated articles trained per event. Perfor-mance improves as the amount of textual data per event increases, saturating around 5–6 articles.                                                              
+
+> Dropout % Total ↑Single ↑Multi ↑Causal ↑Abstain ↑MMLU-Pro ↑
+> TULU-3 →SYNAPSE -Preference 81.02% 92.11% 50.50% 95.00% 70.00% 43.49% SYNAPSE -Preference →TULU-3 85.55% 95.39% 61.39% 95.00% 70.00% 45.25% Helpsteer2 →SYNAPSE -Preference 82.72% 91.45% 55.45% 97.00% 68.57% 44.32% SYNAPSE -Preference →Helpsteer2 84.99% 94.74% 58.42% 97.00% 42.86% 42.95% Alternating Steps of S YN -Preference and Helpsteer2 87.82% 94.74% 70.30% 95.00% 10.00% 44.07% Alternating Steps of S YN -Preference and TULU-3 89.52% 95.39% 72.28% 98.00% 2.86% 46.08% Alternating Checkpoints of S YN -Preference and TULU-3 77.90% 86.84% 48.51% 94.00% 82.86% 44.37%
+
+Table 15: Ablation results for different training strategies using our Preference set in S YNAPSE (called Event-Preference) and general preference datasets (TULU-3 and Helpsteer2) on LLaMA-3.1-8B in the 150-fact setting. The table reports total question accuracy, abstention accuracy, and MMLU-Pro accuracy, highlighting the effects of training order and alternating data on model performance. Ultimately, we opt to train models on Event-Preference first and then TULU-3 for both the 150 fact and 542 fact setting. 
+
+I.6 General Preference Datasets 
+
+We also experiment with different general preference optimization datasets, namely Helpsteer2 [68]. We explore several training setups combining the general preference set and our Preference set (named S YNAPSE -Preference): • Training on TULU-3/Helpsteer2 first, then on S YNAPSE -Preference. • Training on S YNAPSE -Preference first, then on TULU-3/Helpsteer2. • Training on both datasets by alternating the data at each gradient step. • Training on S YNAPSE -Preference and TULU-3 while alternating the data seen across checkpoints, where each checkpoint is logged every 100 steps. These experiments are conducted on LLaMA-3.1-8B in the 150-fact setting, and we also report MMLU-Pro accuracy and abstention rate on P ARALLEL ABSTAIN to simultaneously show general performance changes. Table 15 presents the results of these ablations. Overall, Helpsteer2 performs worse than TULU-3. While both datasets improve event question-answering accuracy, Helpsteer2 does not enhance MMLU-Pro performance as effectively as TULU-3, indicating that TULU-3 is a better general preference set for maintaining general knowledge understanding. In general, training on Event-Preference first and then on the general preference set yields the best results, achieving higher 36 abstention accuracy while maintaining question-answering performance and improving MMLU-Pro accuracy. Interestingly, training by alternating steps of Event-Preference and the general preference set results in very poor abstention accuracy (10% or less). We hypothesize that when the datasets are combined at the step level, the proportion of data encouraging abstention becomes diluted, leading to lower performance. However, when alternating at the checkpoint level, the model sees enough abstention-focused data while still learning to answer relevant questions, producing the best overall results. This setup achieves a total question accuracy of 77.90% and an abstention rate of 82.85%. Despite these improvements, training with alternating checkpoints is slower and yields smaller gains in question-answering and MMLU-Pro accuracy. Therefore, we report results primarily from the setup where the model is trained on Event-Preference first, followed by TULU-3. 37
