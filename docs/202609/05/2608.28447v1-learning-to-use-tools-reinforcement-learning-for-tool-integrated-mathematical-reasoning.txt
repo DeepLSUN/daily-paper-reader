@@ -1,0 +1,515 @@
+Title: Learning to Use Tools: Reinforcement Learning for Tool-Integrated Mathematical Reasoning
+
+URL Source: https://arxiv.org/pdf/2608.28447v1
+
+Published Time: Mon, 31 Aug 2026 01:10:48 GMT
+
+Number of Pages: 16
+
+Markdown Content:
+# Learning to Use Tools: Reinforcement Learning for Tool-Integrated Mathematical Reasoning 
+
+Minghui Xu, Zi Wang 
+
+Department of Energy Science and Engineering Stanford University 
+
+minghuix@stanford.edu; ziwang3@stanford.edu 
+
+## Abstract 
+
+Current large language models (LLMs) increasingly benefit from external tool integration, especially for tasks requiring reliable computation and verification. Motivated by this, we study calculator tool calling for improving mathematical reasoning on the Countdown task. We first analyze reasoning failures and find that calculation errors account for a substantial portion of incorrect responses. We then construct supervised fine-tuning datasets to teach the model useful tool-use patterns and how to interpret returned outputs. Building on this tool-formatted policy, we apply several on-policy reinforcement learning methods, including RLOO, RLOO++, GRPO, and DAPO, using automatically verifiable final-answer rewards. To enable a more reliable evaluation, we construct a fresh 1,024-problem held-out Countdown benchmark with no exact overlap with the training data. Our results show that calculator tool integration consistently improves both SFT and RL baselines, yielding roughly 10 percentage-point gains across pass@k. Among the RL methods, Tool-DAPO achieves the strongest performance, improving pass@1 from 35.8% for Tool-SFT to 66.0%. Further analysis shows that RL encourages more effective tool use even when only final-answer rewards are provided. These findings suggest that tool integration reduces arithmetic and verification errors, while RL increases the probability of correct reasoning traces. 
+
+## 1 Introduction 
+
+Large language models (LLMs) have become increasingly capable in coding and mathematical rea-soning, especially when prompted or trained to generate intermediate reasoning steps. However, even reasoning-oriented LLMs can still make arithmetic and logical mistakes, particularly in multi-step problems that require exact numerical computation. This limitation arises partly from tokenization and autoregressive next-token prediction, which do not provide an explicit mechanism for reliable calculation or verification. As a result, integrating external tools has become an important direction for improving LLM reliability on tasks that require precise computation (Schick et al., 2023; Yao et al., 2023). In this work, we study tool-integrated mathematical reasoning on the Countdown task, where the model must combine a set of given numbers using arithmetic operations to reach a target value, as shown in Fig. 1. Countdown is a useful testbed because success requires both combinatorial reasoning and exact arithmetic, and the final answer can be automatically verified. During the LLM math reasoning process, if it gives the correct answer, then it will be firstly validated by calculator and then output the final answer. If the math reasoning reaches a arithmetic error, it will use the calculator to correct it and continue the math reasoning based on the correct answer, preventing model deviating from correct solutions. We investigate this problem using a sequence of no-tool and tool-integrated training pipelines. We first construct supervised fine-tuning (SFT) baselines and then apply several on-policy reinforcement learning (RL) methods, including RLOO (Ahmadian arXiv:2608.28447v1 [cs.AI] 28 Aug 2026 et al., 2024), RLOO++ (Hu, 2025), GRPO (Shao et al., 2024), and DAPO (Yu et al., 2026), using automatically computed rewards from the Countdown verifier (Ahmadian et al., 2024; Shao et al., 2024; Yu et al., 2026). For tool-augmented models, rollouts may include calculator calls enclosed by 
+
+<tool> ... </tool> tags; the environment executes the expression and inserts the result as an <obs> 
+
+observation before generation continues. We evaluate all methods on both the original 50-problem public test split and a larger fresh 1,024-problem held-out benchmark designed to remove exact training overlap. Our main contributions are: • We build a tool-integrated Countdown training and evaluation pipeline with live calculator execution during model rollouts. • We show that tool integration consistently improves both SFT and RL models, and that Tool-DAPO achieves the strongest performance among the tested methods. • We analyze error categories, tool-call dynamics, and correctness distributions to explain when RL and tool use improve mathematical reasoning and where they still fail. 
+
+Figure 1: Schematic of RL for tool-integrated LLM on math reasoning. 
+
+## 2 Related Work 
+
+Beyond supervised fine-tuning, preference optimization and online RL provide sequence-level training signals. Recent work has shown that reinforcement learning can substantially improve the reasoning capabilities of large language models. Models such as OpenAI o1 (OpenAI, 2024) and DeepSeek-R1 (Guo et al., 2025) demonstrate that large-scale RL can encourage long-chain reasoning. Identity Preference Optimization (IPO) (Azar et al., 2023) offers an alternative to DPO-style pref-erence learning, while recent REINFORCE-style methods such as RLOO (Ahmadian et al., 2024) simplify online policy optimization by avoiding a learned critic. These methods are particularly relevant for reasoning tasks where final answers can be automatically verified. Tool-augmented reasoning has also become an important direction for improving LLM reliability. Early approaches such as ReAct (Yao et al., 2023) interleave natural-language reasoning with external actions. More recent work, such as ReTool (Feng et al., 2025) and In-Context Reinforcement Learning for Tool Use (Ye et al., 2026), begins to train tool invocation through reinforcement learning. Recent studies suggest that the gains from reinforcement learning with verifiable rewards (RLVR) may arise more from probability reallocation than from a genuine expansion of reasoning coverage. Yue et al. Yue et al. (2025) show that RLVR-trained models often improve pass@1 but fail to improve, or even underperform, base models at large pass@ k, suggesting that RL mainly increases the sampling probability of correct trajectories already present in the base model distribution. Similarly, Liu et al. Liu et al. (2025) argue that R1-Zero-like training strongly depends on the base model’s existing exploration ability and pretraining-induced reasoning behavior. Together, these findings indicate that RLVR can sharpen the model’s existing solution distribution, but may not necessarily create substantially new reasoning capabilities. 23 Method 
+
+3.1 Construction of Tool-Integrated SFT Dataset 
+
+The base Countdown task asks the model to produce an expression inside <answer> ... </answer> 
+
+tags. A response receives full reward only if the expression is syntactically valid, uses exactly the provided numbers, and evaluates to the target; malformed or incorrect expressions receive lower reward. This verifier makes the task well suited to reinforcement learning because final-answer rewards can be computed without human labels. For the tool setting, we convert the prompt and completion format so the model can call a calculator before producing the final answer. A tool call is written as <tool> expression </tool> , and the environment returns an observation such as <obs>= 44</obs> . During SFT, this format teaches the model where to place executable arithmetic checks and how to condition on the returned observation. Based on the original SFT data, the calculation errors are firstly detected. Then the correct answer together with prior reasoning contexts are given to SFT reference model and the afterwards reasoning process is generated by SFT reference model. Then the prior reasoning and afterwards reasoning contexts are concatenated together. In between these two reasoning context, the tool-integration is injected with the above format, formulating tool-integrated data for Tool-SFT model. The whole process is given in Algorithm 1. During RL, tool observations are treated as environment outputs rather than model-generated tokens, so the policy loss is applied only to the model-controlled parts of the trajectory. 
+
+Algorithm 1 Tool-Integrated Countdown SFT Data Construction 
+
+Require: Original SFT data D; trained SFT model π; samples per row K
+
+Ensure: Tool-augmented dataset D′
+
+Phase A: build correction prefixes  
+
+> 1:
+
+for each row (q, c ) in D do  
+
+> 2:
+
+if the reasoning contains a wrong arithmetic step then  
+
+> 3:
+
+prefix ← reasoning up to that step, with the value corrected  
+
+> 4:
+
+else if the final answer is wrong then  
+
+> 5:
+
+prefix ← full reasoning + a calculator check that flags it  
+
+> 6:
+
+end if  
+
+> 7:
+
+end for 
+
+Phase B: model continuations (GPU)  
+
+> 8:
+
+for each prefix do  
+
+> 9:
+
+sample K continuations from π that finish the reasoning and answer  
+
+> 10:
+
+end for 
+
+Phase C: assemble completions  
+
+> 11:
+
+for each row (q, c ) in D do  
+
+> 12:
+
+add the tool instruction to the query q 
+
+> 13:
+
+if q is an error row then  
+
+> 14:
+
+pick the shortest continuation whose answer is correct  
+
+> 15:
+
+if none is correct then use the exact solver’s answer  
+
+> 16:
+
+new completion ← prefix + calculator call + chosen continuation  
+
+> 17:
+
+else if the original answer is already correct then  
+
+> 18:
+
+append a confirming calculator call to the reasoning  
+
+> 19:
+
+else  
+
+> 20:
+
+keep the original completion unchanged  
+
+> 21:
+
+end if  
+
+> 22:
+
+end for 
+
+Phase D: split  
+
+> 23:
+
+train ← all rows; test ← small held-out monitoring set  
+
+> 24:
+
+return D′
+
+This setup lets us separate two questions. Tool-SFT tests whether demonstrations of calculator use alone improve the baseline. Tool-RL methods test whether online RL can further increase the frequency and usefulness of tool calls when the only optimization signal is final-answer correctness. 33.2 RLOO 
+
+RLOO (Ahmadian et al., 2024) is a REINFORCE-based policy-gradient estimator that reduces variance using a leave-one-out baseline. For each prompt x, we sample k responses and compute the advantage for response yi as its reward relative to the average reward of the other k − 1 responses. In our implementation, trajectories are sampled using vLLM for efficiency, while policy-gradient updates are computed with a trainable HuggingFace policy initialized from the SFT checkpoint. The overall training loss is 
+
+L = −E [w(yi, x )Ai log πθ (yi | x)] − βent H(πθ ) + βKL DKL (πθ ∥ πref ),
+
+where Ai is the leave-one-out RLOO advantage, w(yi, x ) is the clipped sequence-level importance weight, πθ is the trainable policy, and πref is the frozen SFT reference policy. We report the RLOO loss as the policy-gradient component and separately track the entropy and KL terms during training. We use the default values βent = 10 −3 and βKL = 10 −3.
+
+3.3 RLOO++ 
+
+RLOO++ (Hu, 2025) keeps the same leave-one-out reward baseline but changes how advantages are scaled before the policy update. Instead of using raw leave-one-out advantages directly, we apply global advantage normalization, subtracting the batch mean and dividing by the batch standard deviation, 
+
+Anorm  
+
+> q,o t
+
+= Aq,o t − mean( A | A ∈ D batch )std( A | A ∈ D batch ) + ϵ ,
+
+and rescale them to a target standard deviation of 0.3. This modification is intended to stabilize updates when rewards are sparse and many sampled groups contain either no correct responses or mostly correct responses, since normalizing across the entire batch Dbatch rather than the small leave-one-out group keeps the denominator stable even when within-group rewards are nearly uniform. We evaluate RLOO++ only in the tool-integrated setting. 
+
+3.4 GRPO 
+
+Group Relative Policy Optimization (GRPO) (Shao et al., 2024) is a policy-gradient method that forgoes the value model used in PPO, instead estimating the baseline directly from group scores to reduce memory and computational cost. For each prompt x, we sample a group of G responses and compute the advantage for response yi by normalizing its reward relative to the group: subtracting the group mean and dividing by the group standard deviation. Since the sampled trajectories are associated with behavior-policy log probabilities, we apply token-level importance weighting, where the ratio between the current policy and behavior policy is computed in log space and clipped for stability. The overall training loss is 
+
+L = −E
+
+ 1
+
+G
+
+> G
+
+X
+
+> i=1
+
+1
+
+|yi|
+
+> |yi|
+
+X
+
+> t=1
+
+min 
+
+
+
+ρi,t ˆAi,t , clip( ρi,t , 1 − ε, 1 + ε) ˆAi,t 
+
+ + βKL DKL (πθ ∥ πref ),
+
+where 
+
+ρi,t = πθ (yi,t | x, y i,<t )
+
+πθold (yi,t | x, y i,<t )
+
+is the clipped token-level importance weight, ˆAi,t is the group-normalized advantage assigned to all tokens of response yi, πθ is the trainable policy, and πref is the frozen SFT reference policy. Unlike PPO, GRPO adds the KL penalty directly to the loss rather than to the token-level reward. We report the clipped surrogate as the policy-gradient component and separately track the KL term during training. We use the values ε = 10 −3 and βKL = 0 .01 for our tool-integration training. 
+
+3.5 DAPO 
+
+Tool-DAPO (Yu et al., 2026) modifies the policy update in two main ways. First, it applies group-normalized advantages, so rewards are normalized within each sampled prompt group before updating 4the model, i.e., for the i-th response the advantage is computed as 
+
+ˆAi,t = Ri − mean( {Ri}Gi=1 )std( {Ri}Gi=1 ) .
+
+Second, it uses dynamic sampling: prompt groups whose sampled responses are all correct or all wrong are filtered out before the update because they provide little within-group preference signal, which corresponds to enforcing the constraint 0 < |{ oi | is_equivalent (a, o i)}| < G . In our run, 60.7% of generated prompt groups were filtered, increasing the density of informative groups in the training batch. Tool-DAPO also uses asymmetric policy-ratio clipping, with lower and upper bounds of 1 − 0.2 and 1 + 0 .28 , respectively. Concretely, the policy is optimized via the token-level objective 
+
+JDAPO (θ) = E(q,a )∼D , {oi}Gi=1 ∼πθold (·| q)
+
+"
+
+1
+
+PGi=1 |oi|
+
+> G
+
+X
+
+> i=1
+> |oi|
+
+X
+
+> t=1
+
+min 
+
+
+
+ri,t (θ) ˆAi,t , clip( ri,t (θ), 1 − εlow , 1 + εhigh ) ˆAi,t 
+
+ #
+
+,
+
+where ri,t (θ) = πθ (oi,t |q,o i,<t )  
+
+> πθold (oi,t |q,o i,<t )
+
+and (εlow , ε high ) = (0 .2, 0.28) . Compared with Tool-RLOO, this gives a more constrained update rule while still allowing the policy to increase the probability of high-reward tool-using trajectories. 
+
+## 4 Experimental Setup 
+
+We evaluate on the Countdown arithmetic reasoning task. Each example contains a target and either three or four numbers. A model response is correct only if the final expression inside 
+
+<answer> ... </answer> uses each provided number exactly once and evaluates to the target un-der the allowed arithmetic operations. We report pass@ k, computed from k sampled responses per problem. Our main comparisons are no-tool SFT, Tool-SFT, no-tool RLOO, Tool-RLOO, Tool-RLOO++, Tool-GRPO, and Tool-DAPO. No-tool models generate a reasoning trace and final answer directly. Tool models are allowed to issue calculator calls during generation and receive observations before producing the final answer. Unless otherwise stated, RLOO and Tool-RLOO use the same RL hyper-parameters, batch size, group size, sampling temperature, entropy coefficient, and KL coefficient; the main difference is whether live tool execution is enabled during rollouts. The original public test split contains only 50 examples, which makes pass@ k estimates noisy. To quantify the effect of tool integration on mathematical reasoning more reliably, we construct an additional 1,024-problem fresh held-out Countdown test set. The held-out problems have no exact overlap with the training data under the (target , sorted(numbers) ) key, allowing us to evaluate performance on new, non-overlapping problems from the same task distribution with substantially lower statistical uncertainty than the original 50-problem public test split. All reported confidence intervals are 95% bootstrap intervals over problem instances. 
+
+## 5 Results 
+
+5.1 Evaluation of the SFT Model without Tools 
+
+To diagnose the failure modes of the SFT model, we decompose incorrect responses into calculation errors, target/planning errors, and other final-answer validity errors. Calculation errors are evaluated over the full reasoning trace, while target/planning, number-use, and format errors are identified from the final answer. This distinction allows us to separate local arithmetic mistakes from broader failures in reasoning and solution construction. As shown in Figure 2, the results reveal two complementary failure modes. Calculation errors occur frequently across both difficulty levels, motivating the use of an external arithmetic tool or verifier. In contrast, target/planning errors become substantially more common in 4-number problems, suggesting that harder instances require not only more reliable calculation but also stronger target-aware planning. 53-number 4-number  
+
+> 020 40 60 80 100
+> Responses (%)
+> 44.3 20.0 26.8 20.0 4.9 19.5 4.9 20.2 19.0 20.4
+
+SFT response outcomes by difficulty 
+
+> Correct Calc. error Target/plan error Calc. + target/plan error Other number-use/format error
+
+Figure 2: SFT response outcomes by difficulty. Bars show the percentage of responses for 3-number and 4-number Countdown problems, grouped by correct answers, calculation errors, target/planning errors, their overlap, and other number-use/format errors. 
+
+5.2 Tool Integration 
+
+As shown in Figure 3, we compare no-tool SFT, tool-augmented SFT, no-tool RLOO, and tool-augmented RLOO variants. Error bars denote 95% bootstrap confidence intervals computed over problem instances. The small 50-problem test set in the right panel exhibits wide and largely overlapping confidence intervals, especially at larger k, making fine-grained comparisons difficult. In contrast, the larger held-out set in the left panel provides a clearer comparison. RLOO substantially improves over the SFT baseline at low k, increasing pass@1 from 26.4% to 50.6% without tool use and from 35.8% to 56.6% with tool use. 1 2 4 8 16  
+
+> Number of sampled responses (k)
+> 20 40 60 80
+> pass@k (%)
+> (a)
+
+1024-sample test set      
+
+> 124816
+> Number of sampled responses (k)
+> 20 40 60 80 90
+> (b)
+
+50-sample test set     
+
+> SFT Tool-SFT SFT Tool-SFT RLOO Tool-RLOO (100 steps) Tool-RLOO (200 steps)
+
+Figure 3: Pass@ k comparison on Countdown reasoning. The left panel reports results on our 1,024-problem fresh held-out benchmark, while the right panel reports results on the original 50-problem public test split. The gains from RLOO become smaller at high k, likely because pass@ k approaches saturation once the model can sample at least one correct trajectory from multiple attempts. Thus, improvements in 6trajectory quality or sampling probability may lead to only modest changes in high-k performance. We revisit this behavior in Section 6.1 through a correctness-distribution analysis, which suggests that reinforcement learning benefits most from prompt groups that already contain some correct sampled responses, since these groups provide a useful policy-update signal. In contrast, prompt groups with zero correct samples remain challenging, because they provide little direct signal for reinforcing a correct reasoning trace. Tool integration improves both the SFT and RLOO settings. With a matched training budget, Tool-RLOO increases pass@1 from 50.6% to 56.6% and pass@16 from 66.6% to 74.0%. Extending Tool-RLOO training to 200 steps further improves performance to 60.7% pass@1 and 76.5% pass@16, corresponding to a roughly 10 percentage-point pass@1 gain over no-tool RLOO. Together, these results provide strong evidence that RLOO improves verifiable mathematical reasoning over SFT, and that tool-augmented RLOO adds a further benefit by reducing computation and verification errors. Representative RLOO and Tool-RLOO responses are documented in Section A for qualitative analysis. 
+
+5.3 Comparison of Different Reinforcement Learning Methods 
+
+We also compare different reinforcement learning methods under tool integration, as shown in Figure 4 and Table. 1. Tool-RLOO and Tool-RLOO++ both substantially improve pass@1 over the Tool-SFT baseline. However, Tool-RLOO++ does not consistently improve high-k performance and even reduces pass@16 relative to Tool-RLOO, which is consistent with the observation in Yue et al. (2025) that reinforcement learning may improve low-k performance without necessarily expanding the overall pass@ k coverage. For Tool-GRPO, on the 50-sample test set, it exhibits better performance than Tool-SFT model with only one shot as shown by higher pass@1 accuracy in Figure 4, but it performs weaker with multiple shots, which is likely caused by the variance of small test set. Further testing on 1024-sample test set, Tool-GRPO model consistently exceeds the baseline Tool-SFT model, as shown in Figure 4. Although the Tool-GRPO shows relatively weaker performance than other RL algorithm, it reaches the first highest pass@16 accuracy. This behavior should be interpreted with caution, since Tool-GRPO was trained for only 30 steps, followed by deviating from Tool-SFT reference model. Although all four methods sample a group of responses per prompt and therefore produce a vanishing advantage when the rewards within a group are uniform, the instability is confined to Tool-GRPO because of how it scales and filters these groups. Tool-GRPO alone both retains these zero-gradient groups and divides by an unstable per-group standard deviation, so the resulting noisy updates push the policy off the SFT initialization until reward and tool usage collapse—here after roughly 30 steps, versus 100 for the others. 1 2 4 8 16           
+
+> Number of sampled responses (k)
+> 30 40 50 60 70 80
+> pass@k (%)
+> (a) 1024-sample test set
+> 124816
+> Number of sampled responses (k)
+> 30 40 50 60 70 80 90
+> (b) 50-sample test set
+> Tool-SFT Tool-RLOO Tool-RLOO++ Tool-GRPO Tool-DAPO
+
+Figure 4: Comparison of reinforcement learning methods under tool integration. The curves show pass@ k for Tool-SFT, Tool-RLOO, Tool-RLOO++, and Tool-DAPO on the 1,024-problem fresh test set and the 50-problem public test set. In contrast, Tool-DAPO further improves RL performance, increasing pass@1 by 9.3 percentage points over Tool-RLOO. Pass@16 also improves, suggesting that DAPO not only increases the probability of sampling a correct response early but also modestly improves the broader sampling distribution. This improvement is likely related to DAPO’s dynamic sampling strategy, which 7filters out zero-variance prompt groups before the policy update. In our run, 60.7% of generated prompt groups were filtered, substantially increasing the density of informative training batches by removing all-correct or all-wrong groups. Although this filtering introduces additional resampling overhead, Tool-DAPO reaches higher pass@1 in 100 steps and 6.29 hours than the 200-step extended Tool-RLOO baseline, which requires 16.15 hours, as documented in Section B. Table 1: Pass@ k (%) on the 1024-sample and 50-sample Countdown test sets. Best in bold .
+
+Method 1024-sample test set 50-sample test set 
+
+k=1 k=2 k=4 k=8 k=16 k=1 k=2 k=4 k=8 k=16 
+
+Tool-SFT 35.8 48.9 59.6 67.6 73.7 40.1 56.0 68.5 76.1 82.0 
+
+Tool-RLOO 56.6 62.8 67.0 70.6 74.0 61.1 66.5 69.5 72.0 74.0 Tool-RLOO++ 56.8 61.8 65.2 68.2 70.8 63.2 68.4 71.1 72.8 74.0 Tool-GRPO 44.8 54.5 63.0 70.3 76.7 41.1 50.6 58.1 64.3 72.0 Tool-DAPO 66.0 70.1 72.7 74.7 76.6 68.5 73.1 76.3 79.1 82.0 
+
+## 6 Discussion 
+
+6.1 Where RL Improves 
+
+To better understand where reinforcement learning improves model behavior, we examine the distribution of correct responses among 16 sampled responses per prompt across training checkpoints. As shown in Figures 5 and 6, RL primarily increases the mass near fully correct response sets, suggesting that training reinforces trajectories that already contain correct reasoning traces. In contrast, examples with zero correct responses remain challenging: when the model fails to produce any correct trace among sampled responses, RL has limited signal for improving that example. The Tool-DAPO distribution in Figure 7 increases the fraction of fully correct examples with fewer optimization steps. It also reduces the fraction of examples with zero correct samples, which is encouraging because these examples represent the most difficult cases for policy improvement. 
+
+6.2 Reinforcement Learning Encourages Tool Use 
+
+As shown in Figure 8, starting from the Tool-SFT model, Tool-RLOO increases the average number of executable tool calls per sampled rollout from below one call to approximately one call per rollout, while also improving Countdown accuracy. This suggests that reinforcement learning does not merely preserve the tool-use behavior acquired during SFT; instead, it further encourages tool invocation when tool use is beneficial for solving the task. 0 4 8 12 16       
+
+> Correct responses per prompt (out of 16)
+> 0.0 0.1 0.2 0.3
+> Fraction of prompts
+> (a) Training set
+> step 0 step 50 step 99
+> 04812 16
+> Correct responses per prompt (out of 16)
+> (b) Held-out test set (n=1,024)
+> step 0 step 50 step 99
+> RLOO
+
+Figure 5: Correctness distribution across RLOO training. Each curve shows the fraction of examples with a given number of correct responses among 16 sampled responses. 80 4 8 12 16 
+
+Correct responses per prompt (out of 16)  
+
+> 0.0 0.1 0.2 0.3 0.4
+> Fraction of prompts
+> (a)
+
+Training set     
+
+> step 0 step 100 step 150 step 199
+> 04812 16
+
+Correct responses per prompt (out of 16)  
+
+> (b)
+
+Held-out test set (n=1,024) 
+
+> step 0 step 100 step 150 step 199
+
+Tool-RLOO Figure 6: Correctness distribution across Tool-RLOO training. The tool-augmented model shows a similar shift toward high-correctness examples, with extended training further increasing the fraction of examples for which most sampled responses are correct. 0 4 8 12 16 
+
+Correct responses per prompt (out of 16)  
+
+> 0.0 0.1 0.2 0.3 0.4 0.5
+> Fraction of prompts
+> (a)
+
+Training set     
+
+> step 0 step 40 step 90 step 99
+> 04812 16
+
+Correct responses per prompt (out of 16)  
+
+> (b)
+
+Held-out test set (n=1,024) 
+
+> step 0 step 40 step 90 step 99
+
+Tool-DAPO 
+
+Figure 7: Correctness distribution across Tool-DAPO training. Compared with the RLOO-based baselines, Tool-DAPO substantially increases the fraction of examples with 16 out of 16 correct sampled responses, while more effectively reducing the fraction of examples with 0 out of 16 correct responses. 0 25 50 75 100 125 150 175 
+
+Tool-RLOO step 
+
+> 0.7 0.8 0.9 1.0
+> Calls / rollout
+> SFT init
+
+(a) Tool use        
+
+> 025 50 75 100 125 150 175
+
+Tool-RLOO step 
+
+> 0.2 0.4 0.6 0.8
+> Accuracy
+
+(b) Countdown accuracy  
+
+> Train Test
+
+Figure 8: Tool-use and accuracy dynamics during Tool-RLOO training. 97 Conclusion 
+
+This project shows that reinforcement learning and calculator tool use are complementary for Count-down mathematical reasoning. RLOO substantially improves over SFT by increasing the probability of correct reasoning traces, while tool integration further improves both SFT and RL by reducing arithmetic and verification failures. Tool-DAPO provides the strongest result among the tested RL variants, suggesting that dynamic sampling and clipped updates can make training more efficient when many prompt groups provide little useful policy-gradient signal. The analysis also identifies an important limitation. RL helps most when the model already samples at least one correct trajectory within a group; prompts with zero correct samples remain difficult because they provide little positive signal. Future work should therefore combine tool execution with stronger planning or search mechanisms, so the model can discover correct trajectories for hard prompts rather than only reallocating probability mass among trajectories it can already sample. 
+
+## References 
+
+Arash Ahmadian, Chris Cremer, Matthias Gall’e, Marzieh Fadaee, Julia Kreutzer, Olivier Pietquin, Ahmet "Ust"un, and Sara Hooker. 2024. Back to Basics: Revisiting REINFORCE-Style Optimiza-tion for Learning from Human Feedback in LLMs. In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) . Association for Computa-tional Linguistics, Bangkok, Thailand, 12248–12267. doi: 10.18653/v1/2024.acl-long.662 
+
+Mohammad Gheshlaghi Azar, Mark Rowland, Bilal Piot, Daniel Guo, Daniele Calandriello, Michal Valko, and Rémi Munos. 2023. A General Theoretical Paradigm to Understand Learning from Human Preferences. arXiv:2310.12036 [cs.AI] https://arxiv.org/abs/2310.12036 
+
+Jiazhan Feng, Shijue Huang, Xingwei Qu, Ge Zhang, Yujia Qin, Baoquan Zhong, Chengquan Jiang, Jinxin Chi, and Wanjun Zhong. 2025. ReTool: Reinforcement Learning for Strategic Tool Use in LLMs. arXiv:2504.11536 [cs.CL] https://arxiv.org/abs/2504.11536 
+
+Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Peiyi Wang, Qihao Zhu, Runxin Xu, Ruoyu Zhang, Shirong Ma, Xiao Bi, Xiaokang Zhang, Xingkai Yu, Yu Wu, Z. F. Wu, Zhibin Gou, Zhihong Shao, Zhuoshu Li, Ziyi Gao, Aixin Liu, Bing Xue, Bingxuan Wang, Bochao Wu, Bei Feng, Chengda Lu, Chenggang Zhao, Chengqi Deng, Chong Ruan, Damai Dai, Deli Chen, Dongjie Ji, Erhang Li, Fangyun Lin, Fucong Dai, Fuli Luo, Guangbo Hao, Guanting Chen, Guowei Li, H. Zhang, Hanwei Xu, Honghui Ding, Huazuo Gao, Hui Qu, Hui Li, Jianzhong Guo, Jiashi Li, Jingchang Chen, Jingyang Yuan, Jinhao Tu, Junjie Qiu, Junlong Li, J. L. Cai, Jiaqi Ni, Jian Liang, Jin Chen, Kai Dong, Kai Hu, Kaichao You, Kaige Gao, Kang Guan, Kexin Huang, Kuai Yu, Lean Wang, Lecong Zhang, Liang Zhao, Litong Wang, Liyue Zhang, Lei Xu, Leyi Xia, Mingchuan Zhang, Minghua Zhang, Minghui Tang, Mingxu Zhou, Meng Li, Miaojun Wang, Mingming Li, Ning Tian, Panpan Huang, Peng Zhang, Qiancheng Wang, Qinyu Chen, Qiushi Du, Ruiqi Ge, Ruisong Zhang, Ruizhe Pan, Runji Wang, R. J. Chen, R. L. Jin, Ruyi Chen, Shanghao Lu, Shangyan Zhou, Shanhuang Chen, Shengfeng Ye, Shiyu Wang, Shuiping Yu, Shunfeng Zhou, Shuting Pan, S. S. Li, Shuang Zhou, Shaoqing Wu, Tao Yun, Tian Pei, Tianyu Sun, T. Wang, Wangding Zeng, Wen Liu, Wenfeng Liang, Wenjun Gao, Wenqin Yu, Wentao Zhang, W. L. Xiao, Wei An, Xiaodong Liu, Xiaohan Wang, Xiaokang Chen, Xiaotao Nie, Xin Cheng, Xin Liu, Xin Xie, Xingchao Liu, Xinyu Yang, Xinyuan Li, Xuecheng Su, Xuheng Lin, X. Q. Li, Xiangyue Jin, Xiaojin Shen, Xiaosha Chen, Xiaowen Sun, Xiaoxiang Wang, Xinnan Song, Xinyi Zhou, Xianzu Wang, Xinxia Shan, Y. K. Li, Y. Q. Wang, Y. X. Wei, Yang Zhang, Yanhong Xu, Yao Li, Yao Zhao, Yaofeng Sun, Yaohui Wang, Yi Yu, Yichao Zhang, Yifan Shi, Yiliang Xiong, Ying He, Yishi Piao, Yisong Wang, Yixuan Tan, Yiyang Ma, Yiyuan Liu, Yongqiang Guo, Yuan Ou, Yuduan Wang, Yue Gong, Yuheng Zou, Yujia He, Yunfan Xiong, Yuxiang Luo, Yuxiang You, Yuxuan Liu, Yuyang Zhou, Y. X. Zhu, Yanping Huang, Yaohui Li, Yi Zheng, Yuchen Zhu, Yunxian Ma, Ying Tang, Yukun Zha, Yuting Yan, Z. Z. Ren, Zehui Ren, Zhangli Sha, Zhe Fu, Zhean Xu, Zhenda Xie, Zhengyan Zhang, Zhewen Hao, Zhicheng Ma, Zhigang Yan, Zhiyu Wu, Zihui Gu, Zijia Zhu, Zijun Liu, Zilin Li, Ziwei Xie, Ziyang Song, Zizheng Pan, Zhen Huang, Zhipeng Xu, Zhongyu Zhang, and Zhen Zhang. 2025. DeepSeek-R1 incentivizes reasoning in LLMs through reinforcement learning. Nature 645, 8081 (Sept. 2025), 633–638. doi: 10.1038/s41586-025-09422-z 
+
+10 Jian Hu. 2025. Reinforce++: A simple and efficient approach for aligning large language models. 
+
+arXiv e-prints (2025), arXiv–2501. Zichen Liu, Changyu Chen, Wenjun Li, Penghui Qi, Tianyu Pang, Chao Du, Wee Sun Lee, and Min Lin. 2025. Understanding R1-Zero-Like Training: A Critical Perspective. arXiv preprint arXiv:2503.20783 (2025). OpenAI. 2024. OpenAI o1 System Card. arXiv:2412.16720 [cs.AI] https://arxiv.org/abs/ 2412.16720 
+
+Timo Schick, Jane Dwivedi-Yu, Roberto Dessi, Roberta Raileanu, Maria Lomeli, Luke Zettlemoyer, Nicola Cancedda, and Thomas Scialom. 2023. Toolformer: Language Models Can Teach Them-selves to Use Tools. arXiv preprint arXiv:2302.04761 (2023). Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, Y. K. Li, Y. Wu, and Daya Guo. 2024. DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models. arXiv preprint arXiv:2402.03300 (2024). Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak Shafran, Karthik Narasimhan, and Yuan Cao. 2023. ReAct: Synergizing Reasoning and Acting in Language Models. arXiv:2210.03629 [cs.CL] 
+
+https://arxiv.org/abs/2210.03629 
+
+Yaoqi Ye, Yiran Zhao, Keyu Duan, Zeyu Zheng, Kenji Kawaguchi, Cihang Xie, and Michael Qizhe Shieh. 2026. In-Context Reinforcement Learning for Tool Use in Large Language Models. arXiv:2603.08068 [cs.AI] https://arxiv.org/abs/2603.08068 
+
+Qiying Yu, Zheng Zhang, Ruofei Zhu, Yufeng Yuan, Xiaochen Zuo, Yu Yue, Weinan Dai, Tiantian Fan, Gaohong Liu, Lingjun Liu, et al. 2026. Dapo: An open-source llm reinforcement learning system at scale. Advances in Neural Information Processing Systems 38 (2026), 113222–113244. Yang Yue, Zhiqi Chen, Rui Lu, Andrew Zhao, Zhaokai Wang, Yang Yue, Shiji Song, and Gao Huang. 2025. Does Reinforcement Learning Really Incentivize Reasoning Capacity in LLMs Beyond the Base Model? arXiv preprint arXiv:2504.13837 (2025). 
+
+## A Additional Analysis 
+
+Table 2: Example where plain RLOO fails but Tool-RLOO succeeds.             
+
+> Numbers [99 ,11 ,46 ,48]
+> Target 44
+> Reference solution (99 −11) /(48 −46)
+> RLOO pass@16 0/16
+> Tool-RLOO pass@16 4/16
+
+Plain RLOO failure trace. 
+
+<think> Let me analyze this step by step: 1. First, let's look at factors of 44: 44 = 2 * 22 44 = 4 * 11 2. Looking at the given numbers: 99, 11, 46, 48 46 is close to 44, but we need to add 2 somehow. 3. Let's try to work with 99 first: 99 is much larger than 44, so we need to reduce it. 99 - 48 = 51 (too large) 99 - 46 = 53 (too large) 
+
+11 4. Let's try a different approach: 48 - 46 = 2 99 + 11 = 110 110 - 2 = 108 (too far from 44) 5. Let's try another combination: 46 + 48 = 94 94 - 11 = 83 (too far) 6. What if we start with 99 and subtract something? 99 - 46 = 53 53 - 48 = 5 (too small) 7. Let's try: 99 - 48 = 51 51 - 11 = 40 40 + 46 = 86 (too far) 8. What about: 46 + 11 = 57 57 - 48 = 9 99 - 9 = 90 (too far) 9. Let's try: 99 - 48 = 51 51 - 46 = 5 5 * 11 = 55 (too far) 10. What if we divide a larger number? 99 / 11 = 9 9 * 46 = 414 (too large) 11. Let's try: 48 + 46 = 94 94 - 99 = -5 -5 + 11 = -4 (not helpful) 12. New approach: 99 - 46 = 53 53 - 48 = 5 5 * 11 = 55 (too far) 13. Let's try: 99 - 48 = 51 51 - 46 = 5 5 * 11 = 55 (too far) 14. One more attempt: 46 + 48 = 94 94 - 99 = -5 -5 + 11 = 6 (not helpful) 15. Final try: 99 - 48 = 51 51 - 46 = 5 5 * 11 = 55 (too far) 16. Let's try: 48 + 46 = 94 
+
+12 94 - 99 = -5 -5 + 11 = 6 (not helpful) 17. One last attempt: 99 - 48 = 51 51 - 11 = 40 40 + 46 = 86 (too far) </think> <answer> (99 - 48) - 11 + 46 </answer> <think> Let's verify: 99 - 48 = 51 51 - 11 = 40 40 + 46 = 86 (too far) Let me try a different sequence: 99 - 46 = 53 53 - 48 = 5 5 * 11 = 55 (too far) Let's try: 46 + 48 = 94 94 - 99 = -5 -5 + 11 = 6 (not helpful) One last attempt: 99 - 48 = 51 51 - 46 = 5 5 * 11 = 55 (too far) Final try: 48 + 46 = 94 94 - 99 = -5 -5 + 11 = 6 (not helpful) Let's try: 99 
+
+Tool-RLOO success trace. 
+
+> Let me try to reach 44 using these numbers. First attempt: 99 - 48 = 51 51 - 46 = 5 5 * 11 = 55 (too high) Second attempt: 48 - 46 = 2 99 - 11 = 88 88 / 2 = 44 (This works!) Let me verify: 1. 48 - 46 = 2 2. 99 - 11 = 88 3. 88 / 2 = 44 This works! Let me write it formally. Let me double-check the final answer with the calculator. <tool>(99 - 11) / (48 - 46)</tool>
+
+13 <obs>= 44</obs> That equals 44, so the answer is correct. </think> <answer>(99 - 11) / (48 - 46)</answer> 
+
+Analysis. Plain RLOO repeatedly explores nearby subtractive patterns such as 99 − 48 and 99 − 46 ,but it does not identify the key decomposition 48 − 46 = 2 and 99 − 11 = 88 . Tool-RLOO finds this decomposition and then uses the external tool at the verification point: 
+
+> <tool>(99 - 11) / (48 - 46)</tool> <obs>= 44</obs>
+
+The tool is useful here because it converts a proposed plan into a checked arithmetic result before the final answer is emitted. This helps distinguish a valid expression from the many near-miss expressions generated in the plain RLOO trace. 
+
+## B Implementation Details 
+
+All RL experiments were run on a single H100 GPU. RLOO without tool use took 5.73 hours for 100 training steps, while Tool-RLOO with the matched 100-step training budget took 9.21 hours. The extended Tool-RLOO run continued from step 100 to step 200, requiring an additional 6.97 hours; therefore, the full 200-step Tool-RLOO training took 16.15 hours in total. Tool-RLOO++ took 5.29 hours for 100 steps, Tool-GRPO took about 5 hours, and Tool-DAPO took 6.29 hours for 100 steps. It should be noted that Tool-GRPO significantly deviates from SFT model after about 35 trianing steps, thus the Tool-GRPO is taken at the checkpoint with training step as 30. Table 3: Hyperparameters for RLOO and Tool-RLOO. The two settings share the same RL hyperpa-rameters; Tool-RLOO additionally enables tool execution during rollout.                                 
+
+> Hyperparameter Value Initial policy SFT checkpoint Dataset Countdown / Tool-Countdown Tool execution No / Yes Max turns – / 10 Training steps 100/200 Batch size 128 Group size 8Gradient accumulation steps 128 Learning rate 1×10 −5
+> LR schedule constant Warmup ratio 0.0 Weight decay 1×10 −4
+> Gradient clipping 0.0 Entropy coefficient 1×10 −3
+> KL coefficient 1×10 −3
+> Temperature 1.0 Top-p1.0 Top-k-1 Min-p0.0 Max generation tokens 1024 Max model length 2048 Checkpoint interval 10 steps Policy-ratio clipping No PPO-style clipping
+
+14 Table 4: Hyperparameters for Tool-RLOO++. Tool-RLOO++ follows Tool-RLOO and modifies the advantage normalization. 
+
+Hyperparameter Value Initial policy Tool-SFT checkpoint Dataset Tool-Countdown Tool execution Yes Max turns 10 Training steps 100 Batch size 128 Group size 8Gradient accumulation steps 128 Learning rate 1 × 10 −5
+
+LR schedule constant Warmup ratio 0.0 Weight decay 1 × 10 −4
+
+Gradient clipping 0.0 Entropy coefficient 1 × 10 −3
+
+KL coefficient 1 × 10 −3
+
+Temperature 1.0 Top-p 1.0 Top-k -1 Min-p 0.0 Max generation tokens 1024 Max model length 2048 Advantage normalization Batch normalization Advantage target std. 0.3 Policy-ratio clipping No PPO-style clipping Checkpoint interval 10 steps 
+
+Table 5: Hyperparameters for Tool-GRPO. The trainer is a faithful single-update GRPO (DeepSeek-Math, μ = 1 ): the importance ratio is identically 1 and PPO-style clipping is inert. 
+
+Hyperparameter Value Initial policy SFT checkpoint KL reference Frozen SFT checkpoint Dataset Tool-Countdown Tool execution Yes Max tool calls 5Training steps 250 Batch size 128 Group size 8Gradient accumulation steps 128 Inner epochs ( μ) 1Learning rate 1 × 10 −5
+
+LR schedule constant Warmup ratio 0.0 Weight decay 1 × 10 −4
+
+Gradient clipping 1.0 Entropy coefficient 1 × 10 −3
+
+KL coefficient ( β) 0.01 Advantage group-relative (r − μ)/(σ + 10 −4)
+
+Temperature 0.6 Top-p 0.95 Top-k 20 Min-p 0.0 Max generation tokens 1024 Max prompt length 512 Max model length 4096 Checkpoint interval 10 steps Policy-ratio clipping ϵ = 0 .2 (inert at μ = 1 )
+
+15 Table 6: Hyperparameters for Tool-DAPO. 
+
+Hyperparameter Value Initial policy Tool-SFT checkpoint Dataset Tool-Countdown Tool execution Yes Max turns 10 Training steps 100 Batch size 128 Group size 8Gradient accumulation steps 128 Learning rate 2 × 10 −5
+
+LR schedule constant Warmup ratio 0.0 Weight decay 1 × 10 −4
+
+Gradient clipping 1.0 Entropy coefficient 1 × 10 −3
+
+KL coefficient 1 × 10 −3
+
+Temperature 1.0 Top-p 1.0 Top-k -1 Min-p 0.0 Max generation tokens 1024 Max model length 3072 Advantage normalization Group normalization Policy-ratio clipping [1 − 0.2, 1 + 0 .28] 
+
+Dynamic sampling Yes Max resampling iterations 8Overlong penalty Disabled Checkpoint interval 10 steps 
+
+16
