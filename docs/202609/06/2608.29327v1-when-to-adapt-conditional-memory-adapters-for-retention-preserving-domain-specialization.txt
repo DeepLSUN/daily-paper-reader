@@ -1,0 +1,753 @@
+Title: When to Adapt: Conditional Memory Adapters for Retention-Preserving Domain Specialization
+
+URL Source: https://arxiv.org/pdf/2608.29327v1
+
+Published Time: Tue, 01 Sep 2026 00:48:41 GMT
+
+Number of Pages: 22
+
+Markdown Content:
+# When to Adapt: Conditional Memory Adapters for Retention-Preserving Domain Specialization 
+
+Jiayu Hou Lei Wang *
+
+University of Electronic Science and Technology of China, Chengdu, China 
+
+202421230134@std.uestc.edu.cn 
+
+Abstract 
+
+Large language models deployed in specialized domains must improve in-domain performance without sacrificing general capabilities. Ex-isting parameter-efficient fine-tuning methods are typically always on: their learned perturba-tions are applied to every input, which can de-grade out-of-domain (OOD) performance. We propose Engram Adapter , a framework that repurposes pretraining-time conditional mem-ory as a post-hoc adapter for frozen LLMs. It uses multi-channel matching over local n-gram patterns with explicit occupancy tracking as a lightweight selectivity prior, making resid-ual injection more likely on in-domain inputs while a learned scalar gate suppresses incoher-ent OOD retrievals. We evaluate on Qwen3-4B and Qwen3-8B with AG-News and MedM-CQA as adaptation tasks and OOD benchmarks spanning reasoning, translation, code genera-tion, and legal reasoning. Engram Adapter im-proves in-domain accuracy while preserving 99.4%–100.1% of average OOD performance; on LegalBench it slightly exceeds the frozen base model on average, whereas comparable always-on baselines degrade sharply. Mecha-nistic analyses show that although OOD activa-tions are non-zero, gate and projection attenua-tion reduce residuals to approximately 0.08% of hidden-state norm, yielding small KL drift and negligible accuracy change. These results suggest conditional activation is a promising route toward modular, retention-preserving do-main specialization over frozen backbones. 
+
+1 Introduction 
+
+Recent years have seen growing demand for deploy-ing large language models in specialized domains such as medicine, law, and finance. Under lim-ited training and deployment budgets, parameter-efficient fine-tuning (PEFT) has become the domi-nant paradigm for post-training adaptation. Com-
+
+> *Corresponding author Accepted to Findings of EMNLP 2026.
+
+pared with full fine-tuning, PEFT freezes the back-bone and updates only a small number of additional parameters, substantially reducing training cost and storage overhead while still delivering strong down-stream performance. Representative methods in-clude Adapter (Houlsby et al., 2019), LoRA (Hu et al., 2022), DoRA (Liu et al., 2024), and PiSSA (Meng et al., 2024). Despite their success, these methods often im-prove in-domain performance at the cost of out-of-domain general capabilities. Recent work has begun to revisit this adaptation–retention trade-off: Lin et al. (2026) show that using a smaller learning rate can substantially mitigate general-performance loss while preserving comparable target-domain performance. However, learning-rate control mainly constrains the magnitude of parameter updates, rather than explicitly determin-ing when the adapted behavior should be invoked. Most PEFT methods are effectively always on: once trained, their residual modules or weight per-turbations are applied to every input without distin-guishing whether it belongs to the target domain. When domain data are small and distributionally narrow, such unconditional intervention can distort general representations and induce catastrophic for-getting. In other words, the central problem in domain specialization is not only how to inject do-main knowledge, but also when that knowledge should be invoked. This leads to the first chal-lenge : how can we make the adapter intervene when the input is relevant to the target domain, while remaining minimally intrusive otherwise? Figure 1 illustrates this distinction. However, conditional activation requires a sta-ble, lightweight signal of domain membership. Soft gating over continuous hidden representations alone is often insufficient in low-resource settings, where the boundary between in-domain and out-of-domain inputs is not cleanly separable and lim-ited data make it difficult for a gate to learn a ro-arXiv:2608.29327v1 [cs.CL] 29 Aug 2026 Figure 1: Conceptual comparison between always-on PEFT and conditional adaptation. LoRA-style methods expose learned low-rank weight updates to all inputs at inference time, while adapter-style methods expose an additional residual branch to all inputs. In contrast, our Engram Adapter conditionally exposes its residual through explicit local-pattern matching: domain-relevant inputs are more likely to activate the adapter, whereas out-of-domain inputs with no or weak matches receive masked or gate-attenuated residuals. 
+
+bust decision rule. Our motivation is directly in-spired by DeepSeek Engram (Cheng et al., 2026), which shows that local n-gram patterns can serve as explicit triggers for conditional memory retrieval through efficient hash-based lookup. We use this mechanism as a selectivity prior : the relatively stable terminology and collocations that charac-terize specialized corpora bias the adapter toward target-domain activation, but do not by themselves guarantee OOD transparency. This raises the sec-ond challenge : how can a conditional memory mechanism originally designed for pretraining be repurposed into a lightweight post-hoc adapter that provides sufficiently discriminative domain signals without collapsing into another form of always-on PEFT? Moreover, a practically useful specialization method must keep overhead manageable, remain modular, and stay stable across model scales, task types, and capability dimensions. This gives rise to the third challenge : how can conditional acti-vation be realized as a reusable PEFT mechanism with stable behavior across scales and evaluation domains, while retaining practical modularity for deployment? Finally, conditional activation is not an ideal binary process. Different domains share vocab-ulary and local structural patterns, and any hash-based mechanism can produce non-zero false acti-vations. A retention-preserving adapter must there-fore explain not only why it activates more on in-domain inputs, but also why its perturbation re-mains small enough on out-of-domain inputs even when some activations occur. This leads to the fourth challenge : how can we maintain strong empirical preservation of general capabilities un-der unavoidable false activations, and provide a mechanistic explanation for this behavior? To address these challenges, we propose Engram Adapter, a parameter-efficient framework that re-purposes DeepSeek Engram from a pretraining-time conditional memory component into a post-hoc adapter for frozen large language models. Our framework uses an occupancy-tracked joint mask over multiple hash-indexed lookups to provide a lightweight selectivity prior, and combines a learned scalar gate with projection attenuation to suppress incoherent retrievals under false activa-tions. The core evidence is mechanistic: we ex-amine how activation selectivity relates to small residual perturbations, small output-distribution drift, and stable downstream behavior. To bal-ance specialization and deployability, we inject the adapter into only a small set of key layers and share memory tables across layers, yielding a modular design compatible with maintaining sep-arately trained adapters alongside a shared frozen backbone, although direct multi-domain adapter-switching evaluation is left to future work. 
+
+Contributions. Corresponding to the four chal-lenges above: 1. We propose a conditional-activation frame-work that turns domain specialization from uniform parameter perturbation into selective knowledge injection driven by local pattern matching. 2. We introduce adapter-oriented architectural modifications including backward-looking n-gram channels, occupancy-based joint mask-ing, and learned scalar gating. 3. We conduct systematic experiments on Qwen3-4B and Qwen3-8B with AG-News and MedMCQA as adaptation tasks and OOD evaluation spanning reasoning, translation, code generation, and legal reasoning, show-ing improved target-domain performance with more stable general-capability preservation. 4. We provide mechanistic residual and out-put analyses revealing a perturbation cascade from domain selectivity to residual suppres-sion to KL/output stability and finally to stable OOD behavior. 
+
+2 Related Work 
+
+PEFT and always-on adaptation. Parameter-efficient fine-tuning adapts frozen language models with a small set of additional or reparameterized parameters. LoRA and its variants (Hu et al., 2022; Dettmers et al., 2023; Zhang et al., 2023), adapters (Houlsby et al., 2019; Pfeiffer et al., 2021), prefix tuning (Li and Liang, 2021), and (IA )3 (Liu et al., 2022) reduce training and storage cost, but their learned perturbations are typically exposed to every input at inference time. They address how to adapt efficiently, whereas we focus on when adaptation should intervene. 
+
+Forgetting-aware adaptation. Catastrophic for-getting has traditionally been mitigated by con-straining parameter changes, allocating task-specific capacity, or replaying data (McCloskey and Cohen, 1989; Kirkpatrick et al., 2017; Mallya and Lazebnik, 2018; Rolnick et al., 2019). Re-cent domain-specific SFT work shows that smaller learning rates and TALR (Token-Adaptive Loss Reweighting) can reduce general-capability degra-dation by changing update magnitudes or token-level loss weights (Lin et al., 2026). These methods still produce a single adapted model whose updates are exposed unconditionally. Engram Adapter in-stead freezes the backbone and conditions residual exposure on explicit local-pattern membership. 
+
+Conditional memory and membership-based activation. Memory-augmented models retrieve auxiliary information at inference time, from nearest-neighbor datastores (Khandelwal et al., 2020) or external documents (Guu et al., 2020; Lewis et al., 2020), usually as an additional content source. DeepSeek Engram (Cheng et al., 2026) instead uses efficient hash lookup over local n-gram patterns as a conditional memory mechanism. We repurpose this pretraining-time idea as a post-hoc adapter: lookup retrieves a domain-specific residual and supplies the activation signal control-ling whether that residual is exposed. Our use of occupancy-based membership differs from stan-dalone set membership because the occupancy-tracked joint mask controls a neural residual path. Since false activations cannot be eliminated in nat-ural language, membership filtering is combined with a learned gate and projection attenuation. 
+
+3 Engram Adapter 
+
+3.1 Conditional-Activation Adapter Framework 
+
+Engram Adapter turns domain specialization into an input-conditioned residual intervention. Given a frozen base model Mθ (e.g., Qwen3-4B), we attach one EngramAdapter module to the self-attention sublayer of each layer in an exponentially spaced set L = {1, 3, 7, 15 } via PyTorch forward hooks, covering the model depth with only four injected layers. The modified hidden state at layer 
+
+ℓ ∈ L is: 
+
+u(ℓ)new = u(ℓ) + α · g(ℓ) · mem (ℓ)(x1: t), (1) where u(ℓ) ∈ RB×T ×D is the hidden state, α = 0 .2
+
+is a fixed scaling factor, g(ℓ) ∈ [0 , 1] B×T is the learned gate, and mem (ℓ) is the Engram memory retrieval. For layers ℓ / ∈ L , the hidden state passes through unmodified. All parameters θ of Mθ sat-isfy ∇θL = 0 throughout training. Unlike always-on PEFT modules, the residual in (1) is exposed only through domain-matching memory and gate: unmatched patterns are masked before projection, and incoherent retrievals are attenuated by the gate. Figure 2: Engram Adapter overview. Four self-attention layers ( L = {1, 3, 7, 15 }) receive hook-based adapters sharing hash memory tables and occupancy masks. Input n-grams retrieve masked memory, which is projected and gated before residual injection; only adapter parameters are trainable. 
+
+3.2 Domain-Matching Memory 
+
+To provide an explicit domain signal, each adapter reads from shared hash-indexed memory tables in-dexed by local token patterns. For each suffix or-der n ∈ N = {2, 3}, previous-context order n ∈Nprev = {3}, and hash index h ∈ { 0, . . . , k − 1}
+
+with k = 4 , we maintain an embedding table and a corresponding occupancy mask: 
+
+En,h ∈ RM ×dh , Fn,h ∈ { 0, 1}M ,M = 90 ,007 , dh ∈ { 128 , 256 }.
+
+We use dh = 128 for Qwen3-4B and dh = 256 
+
+for Qwen3-8B. The 12 memory tables are shared across all injected layers, amortizing memory cost and giving every layer the same domain-pattern inventory. 
+
+3.3 Design Choices Beyond DeepSeek’s Original Engram 
+
+We introduce five extensions relative to Cheng et al. (2026). 
+
+Previous-context channels. The 
+
+prev_ngram_orders setting addresses the collision issue noted by Cheng et al. (2026): hash collision probability grows rapidly as more token IDs participate in the hash, making direct long-n-gram lookup (e.g., n ≥ 4) unreliable. We therefore use suffix orders (2 , 3) rather than direct long suffix channels, and introduce a separate set of hash tables that indexes the n-gram immediately 
+
+preceding the current position. When a suffix 3-gram (xt−2, x t−1, x t) and a previous-context 3-gram (xt−3, x t−2, x t−1) are used jointly, they cover a contiguous 4-token window (xt−3, . . . , x t)
+
+while keeping each hash over only three token IDs. 
+
+Group-level joint masking. The original En-gram uses per-bucket lookup without cross-hash co-ordination. We add occupancy-tracked joint mask-ing across all k hashes within an order group, pro-viding the selectivity prior used by the retention mechanism (Appendix C). 
+
+Learned scalar gate. The gate (5) combines learned linear terms Wmc(t) over the concatenated retrieval vector with a weighted hidden–memory dot-product term (Wu ⊙ u(t)) ⊤mem( t)/√D. Ab-lation experiments (Section 5) show that the linear terms account for nearly all of the gate’s OOD suppression effect, while the dot-product term con-tributes negligibly. 
+
+Random initialization with explicit occupancy mask. Unlike the original Engram’s zero ini-tialization, we initialize embedding tables from 
+
+N (0 , 0.02 2) and maintain a separate boolean occu-pancy mask Fn,h that tracks which buckets have been accessed during training. All occupancy flags are initialized to Fn,h [i] = 0 . During training, each accessed bucket is marked by setting Fn,h [i] ← 1;this non-trainable occupancy buffer is saved with the adapter weights. At inference time, the joint mask (3) is computed from Fn,h rather than from 
+
+∥ · ∥ 1 > 0. This decouples membership track-ing from embedding values, giving stronger initial gradients and avoiding false negatives when an up-dated embedding remains numerically close to zero (Proposition C.1). 
+
+Autoregressive support. A model-level for-ward pre-hook maintains a sliding window of 
+
+history_ids aligned to the maximum n-gram order, enabling correct n-gram construction during token-by-token generation. 
+
+3.4 Forward Pass Details Step 1: n-gram construction. For each position 
+
+t and suffix order n ∈ N , the suffix n-gram is 
+
+q(n) 
+
+> t
+
+= ( xt−n+1 , . . . , x t). For previous-context order n ∈ N prev , the preceding n-gram is p(n) 
+
+> t
+
+=(xt−n, . . . , x t−1).
+
+Step 2: Hash computation. For suffix n-grams, the bucket index for hash function h is: 
+
+idx n,h (t) = 
+
+n−1X
+
+> j=0
+
+xt−j (1 ,000 ,003 + 97 j)+ sn,h 
+
+
+
+mod M, 
+
+(2) where sn,h = 10 ,000 n + 97 h is a deterministic seed. Previous-context n-grams use the same for-mula with a seed offset of 1,000 ,000 .
+
+Step 3: Lookup and occupancy-tracked joint masking. The retrieved chunk is vn,h (t) =
+
+En,h [idx n,h (t)] ∈ Rdh . The per-hash activation mask is determined by the occupancy flag rather than the embedding norm: 
+
+μn,h (t) = Fn,h 
+
+idx n,h (t).
+
+The joint mask for order group n requires all k
+
+hashes to retrieve filled buckets: 
+
+mn(t) = 
+
+> k−1
+
+Y
+
+> h=0
+
+μn,h (t), (3) and the filtered chunk is ˜vn,h (t) = mn(t) · vn,h (t).If any single hash maps to an unfilled bucket, all 
+
+k retrieved embeddings for that order group are zeroed out, regardless of the other hashes’ status. 
+
+Step 4: Projection and gating. All filtered chunks are concatenated and projected: 
+
+c(t) = ˜vn,h (t)
+
+> n,h
+
+,
+
+mem( t) = Wproj c(t). (4) Here c(t) ∈ RkN g dh with Ng = |N | +|N prev | = 3 ,
+
+mem( t) ∈ RD, and Wproj ∈ RD×kN g dh is initial-ized to zero. The gate is computed as: 
+
+g(t) = σ
+
+
+
+Wm c(t) + (Wu ⊙ u(t)) ⊤mem( t)
+
+√D
+
+
+
+,
+
+(5) with Wu ∈ RD and Wm ∈ RkN g dh for the scalar gate variant. The residual injection follows (1). 
+
+Trainable parameters. The trainable parameters are the shared memory tables plus per-layer projec-tion and gate parameters, totaling approximately 154M parameters in our Qwen3-4B setting. This is larger than LoRA r=64 ( ≈132M) and LoRA r=32 (≈66M), but many memory rows remain inactive under sparse occupancy, and adapters are injected into only 4 of 36 layers. Appendix A.1 gives the full calculation. 
+
+4 Experiments 
+
+We evaluate the Engram Adapter against LoRA baselines on Qwen3-4B and Qwen3-8B, focusing on two axes: (1) domain adaptation effectiveness, and (2) preservation of general capabilities (reten-tion preservation). We conduct experiments across two model scales, two domain adaptation tasks, and 12 legal reasoning tasks to assess generality. 
+
+4.1 Experimental Setup 
+
+We evaluate Qwen3-4B and Qwen3-8B (Yang et al., 2025) on limited-data domain adaptation and OOD retention. Qwen3-4B is trained on 1,000 exam-ples from AG-News or MedMCQA and evaluated on ARC-Challenge, the opposite domain, FLO-RES, and MBPP; Qwen3-8B is trained on 10,000 AG-News examples and evaluated on MedMCQA, ARC-Challenge, and LegalBench. LoRA r ∈{32 , 64 } and Engram Adapter are run with three seeds (42, 7783, 114514) on 4B, while non-LoRA non-Engram 4B baselines and all reported 8B base-lines use seed 7783. For Qwen3-4B, all non-MBPP evaluations use zero-shot prompting, while MBPP uses 3-shot prompting; all Qwen3-8B evaluations use zero-shot prompting. Engram Adapter uses lay-ers L = {1, 3, 7, 15 }, suffix orders (2 , 3) , previous-context order (3 , ), k = 4 , table size M = 90 ,007 ,and per-hash dimension dh = 128 on Qwen3-4B and dh = 256 on Qwen3-8B. Appendix B.3 pro-vides the full setup summary and benchmark de-tails. 
+
+4.2 Experiment 1: AG-News Domain Adaptation (4B) 
+
+Table 1 presents the complete results for the AG-News domain adaptation experiment on Qwen3-4B. 
+
+4.3 Experiment 2: MedMCQA Domain Adaptation (4B) 
+
+To validate the generality of our findings, we repeat the experiment with a medical domain task. Table 2 presents the results. 
+
+5 Mechanistic Evidence for Retention 
+
+The retention claim in this paper rests on empirical mechanism analysis rather than on a standalone proof. The occupancy-tracked mask provides a selectivity prior: it makes activation substantially more likely on target-domain local patterns, but natural language overlap and correlated hash inputs still produce false activations. We therefore test the complete pathway from activation, to residual size, to output drift, to downstream behavior. 
+
+OOD activation is non-negligible. For each trained adapter (AG-News and MedMCQA), we compute the token-level joint activation rate, exact 
+
+n-gram overlap with the training set, and empirical false positive rate across the three retained n-gram channels (n2, n3, p3). The reduced channel set still produces non-zero OOD activation: for the two highest-activation cross-domain pairs analyzed below, roughly 26–28% of token positions activate at least one order group. This means the Engram Adapter is not structurally transparent on OOD in-puts in the strong sense assumed by the idealized analysis. 
+
+The independence assumption does not hold. 
+
+Empirical false positives can exceed the idealized 
+
+ρk reference because the k hash functions share the same token-ID input space. Natural language 
+
+n-grams are drawn from a highly non-uniform dis-tribution, causing hash collisions to be correlated across hash functions rather than independent. 
+
+Gate attenuation as a residual-level defense. 
+
+Given that OOD activation is non-negligible, the strong OOD retention ( ≥99.4%) appears to come primarily from the learned scalar gate and inco-herent projection cancellation (Section C.4), rather than from activation sparsity alone. The occupancy mask provides a relative selectivity prior, while the gate provides residual-level suppression of in-coherent contributions. To test this mechanistic hypothesis, we conduct a detailed residual and out-put analysis on the two highest-activation OOD pairs: AG adapter → MedMCQA and MedMCQA adapter → AG-News. 
+
+5.1 Residual Perturbation Analysis 
+
+For each token at each injected layer, we measure the ratio ∥∆u∥2/∥u∥2, where ∆u = α · g · mem 
+
+is the Engram residual and u is the base hidden state. Table 3 reports the results. Despite mean joint activation rates of 26–28%, the mean resid-ual ratio is only ≈0.08% of the hidden-state norm. Even conditioning on activated tokens, the 95th-percentile perturbation is only ≈1.1–1.2% of the hidden-state norm. This supports the view that the gate and incoherent projection jointly suppress the adapter’s contribution to a negligible level. 
+
+5.2 Output Distribution Analysis 
+
+To assess whether these small residual perturba-tions propagate to model outputs, we compare the adapted model’s predictions against the base model on the same OOD evaluation sets. Table 4 reports the KL divergence between output distributions and the rate of prediction changes. For AG →
+
+MedMCQA, the prediction change rate is 7.55%, with negative and positive flips nearly balanced (3.80% negative vs. 3.75% positive), yielding a neg-ligible accuracy change from 53.65% to 53.60%. For Med → AG-News, the perturbation is smaller: only 2.16% of predictions change, with positive flips exceeding negative flips (1.79% vs. 0.36%), so accuracy improves from 85.14% to 86.57%. 
+
+5.3 Mechanistic Summary 
+
+These experiments support the following perturba-tion pathway for OOD preservation: 1. Activation : OOD tokens do trigger joint acti-vation ( ≈26–28% of tokens), so retention can-not be explained by exact OOD transparency. 2. Residual : Despite activation, the gate and incoherent projection suppress the injected residual to <0.08% of the hidden-state norm on average ( <1.2% at P95 among activated tokens). Table 1: AG-News domain adaptation results on Qwen3-4B. LoRA and Engram Adapter results are reported as mean 
+
+± std across three random seeds (42, 7783, 114514). For Qwen3-4B, AG-News, ARC-C, MedMCQA, and FLORES are evaluated zero-shot; MBPP uses 3-shot prompting. Bold : best among adapted models; underline: second best. AG-News is the in-domain target task; the remaining four benchmarks measure out-of-domain retention. 
+
+In-Domain Out-of-Domain (General Capabilities) Method AG-News ARC-C MedMCQA FLORES FLORES MBPP Acc.% Acc.% Acc.% BLEU chrF pass@1 Base Model 85.14 88.99 53.65 29.85 58.85 66.80 LoRA r = 64 89.89 ±0.50 88.14 ±0.49 53.72 ±0.33 28.96 ±0.44 58.13 ±0.18 56.67 ±12.21 
+
+LoRA r = 32 90.15 ±0.14 88.11 ±0.38 54.90 ±0.27 29.55 ±0.19 58.61 ±0.06 64.93 ±0.84 
+
+Adapter 90.54 87.88 53.41 29.91 58.56 56.00 DoRA r = 32 90.30 88.14 54.58 30.08 58.75 59.80 PiSSA r = 32 88.79 19.88 32.23 0.00 1.87 0.00 
+
+(IA )3 86.74 86.01 53.26 21.22 55.74 56.40 
+
+Engram Adapter 87.93 ±0.64 89.45 ±0.47 53.57 ±0.20 29.68 ±0.33 58.82 ±0.09 65.27 ±0.50 
+
+Table 2: MedMCQA domain adaptation results on Qwen3-4B. LoRA and Engram Adapter results are reported as mean ± std across three random seeds (42, 7783, 114514). For Qwen3-4B, MedMCQA, ARC-C, AG-News, and FLORES are evaluated zero-shot; MBPP uses 3-shot prompting. Bold : best among adapted models; underline: second best. MedMCQA is the in-domain target task; the remaining four benchmarks measure out-of-domain retention. 
+
+In-Domain Out-of-Domain (General Capabilities) Method MedMCQA ARC-C AG-News FLORES FLORES MBPP Acc.% Acc.% Acc.% BLEU chrF pass@1 Base Model 53.65 88.99 85.14 29.85 58.85 66.80 LoRA r = 64 54.38 ±0.33 88.22 ±0.19 86.30 ±0.24 30.06 ±0.29 58.56 ±0.18 64.07 ±0.34 
+
+LoRA r = 32 57.10 ±0.27 88.14 ±0.14 86.13 ±0.12 30.17 ±0.10 58.97 ±0.01 65.13 ±0.09 
+
+Adapter 55.49 87.97 84.61 29.23 58.82 56.40 DoRA r = 32 57.28 88.31 84.76 29.92 58.86 57.00 PiSSA r = 32 55.63 27.30 0.00 0.00 0.24 0.00 
+
+(IA )3 54.91 62.88 84.58 20.93 55.63 58.00 
+
+Engram Adapter 55.79 ±0.74 88.48 ±0.34 86.31 ±0.53 29.89 ±0.06 58.73 ±0.15 66.37 ±0.25 
+
+Table 3: OOD residual perturbation analysis for the two highest-activation cross-domain pairs (seed 7783). All statistics are computed across all tokens and all four injected layers ( L = {1, 3, 7, 15 }). “Active” rows condition on tokens where the joint mask fired ( mn = 1 
+
+for at least one order group). 
+
+AG →Med Med →AG Metric All Active All Active Mean act. 28.26% 26.28% Mean gate 0.599 0.640 0.656 0.690 Mean ∥∆u∥/∥u∥ 0.078% 0.275% 0.076% 0.290% P95 ∥∆u∥/∥u∥ 0.371% 1.124% 0.348% 1.233% 
+
+3. Output : The small residuals produce limited output distribution drift (mean KL 0.04–0.09), with prediction changes affecting only 2–8% of examples. 4. Behavior : Net accuracy change is negligible (−0.05 to +1.43 percentage points), consis-tent with no catastrophic forgetting even when activation is non-negligible. 
+
+6 Scaling and Baseline Ablations on Qwen3-8B 
+
+To assess whether the Engram Adapter’s properties hold at larger scale and to compare against training-time retention controls, we conduct experiments on Qwen3-8B with additional baselines— LoRA with reduced learning rates (10 −5 and 10 −6) and 
+
+TALR (Lin et al., 2026)—and evaluate on 12 Legal-Bench tasks (Guha et al., 2023). 
+
+Additional 8B baselines. We include LoRA 
+
+r=64 with lr= 10 −5, LoRA r=64 with lr= 10 −6, and TALR LoRA r=64 (Lin et al., 2026) to test whether update-magnitude reduction or token-adaptive loss reweighting can preserve OOD capabilities with-Table 4: Output distribution analysis for OOD cross-domain pairs (seed 7783). Prediction change rate mea-sures the fraction of examples where the argmax pre-diction differs between the base and adapted models. Negative flips are examples that the base model got right but the adapted model got wrong; positive flips are the reverse.                 
+
+> Metric AG →Med Med →AG
+> Base accuracy 53.65% 85.14% Adapted accuracy 53.60% 86.57% Prediction changed 7.55% 2.16% Negative flip rate 3.80% 0.36% Positive flip rate 3.75% 1.79% Mean KL to base 0.088 0.040 P95 KL to base 0.406 0.091
+
+out occupancy-conditioned activation. The lr= 10 −5
+
+run serves as a near-matched in-domain LoRA com-parison to Engram Adapter. Implementation details for these baselines are provided in Appendix B.4. 
+
+8B AG-News results. Table 5 presents the results on Qwen3-8B trained on AG-News. The Engram Adapter achieves 86.47% in-domain accuracy, a larger gain than on 4B, while retaining OOD per-formance: MedMCQA 56.83%, ARC-Challenge 89.52%, and LegalBench 72.53% average ac-curacy. LoRA r=64 reaches higher in-domain accuracy (90.29%) but falls sharply on Legal-Bench (44.67%). The intermediate-learning-rate LoRA baseline closely matches Engram Adapter in-domain (86.96% vs. 86.47%) but still drops to 61.08% on LegalBench and 96.0% average OOD retention. The remaining training-time baselines expose complementary failure modes: the more conservative LoRA lr= 10 −6 still remains below the base model on MedMCQA, while TALR preserves OOD scores better but achieves only marginal in-domain improvement (79.57% vs. base 79.49%). 
+
+Training-time controls are insufficient. These training-time baselines show that controlling up-date magnitude or loss weights does not replace conditional activation. LoRA lr= 10 −5 achieves near-matched in-domain performance but substan-tially worse LegalBench retention than Engram Adapter; LoRA lr= 10 −6 learns only modestly in-domain and remains below the base model on MedMCQA (53.60% vs. 55.51%); TALR achieves strong OOD retention but barely improves AG-News (79.57% vs. base 79.49%).     
+
+> Figure 3: Adaptation–retention trade-off on Qwen3-8B. Each point represents a method trained on AG-News; the x-axis is in-domain accuracy and the y-axis is aver-age OOD retention over MedMCQA, ARC-Challenge, and LegalBench (100% = base model). The Engram Adapter is the only adapted method that combines a substantial in-domain improvement with ≥100% av-erage OOD retention. LoRA variants achieve higher in-domain accuracy in some settings but lower OOD re-tention, while TALR preserves more OOD performance at the cost of little in-domain improvement. All LoRA variants are r=64.
+
+7 Conclusion 
+
+We presented the Engram Adapter, a parameter-efficient domain specialization framework that re-purposes DeepSeek’s Engram conditional memory module as a post-hoc adapter for frozen large lan-guage models. By combining hash-indexed local-pattern matching, explicit occupancy tracking, and a learned scalar gate, the adapter turns domain spe-cialization from an always-on perturbation into a conditional residual intervention guided by a se-lectivity prior. Experiments on Qwen3-4B and Qwen3-8B show that this design improves target-domain performance while preserving general ca-pabilities across reasoning, translation, code gen-eration, and legal reasoning benchmarks. Mecha-nistic analyses provide the central evidence: OOD inputs can activate the adapter, but the gate and projection suppress the resulting residuals enough to keep KL drift, prediction changes, and down-stream accuracy stable. These results suggest that conditional memory adapters are a promising route toward modular domain specialization over frozen backbones. Direct multi-domain isolation and com-position experiments remain future work. Table 5: AG-News domain adaptation results on Qwen3-8B. All methods are trained on 10,000 AG-News examples with seed 7783. AG-News is the in-domain target task; MedMCQA, ARC-Challenge, and LegalBench measure out-of-domain retention. All reported 8B baselines use seed 7783, and all Qwen3-8B evaluations use zero-shot prompting. OOD Avg. Ret. averages relative retention over MedMCQA, ARC-Challenge, and LegalBench.                                                   
+
+> In-Domain OOD OOD Avg. Method AG-News MedMCQA ARC-C LegalBench Ret.% Acc.% Acc.% Acc.% Avg. Acc.% Base Model 79.49 55.51 89.77 71.91 100.00 LoRA r= 64 90.29 57.92 90.53 44.67 89.1 LoRA r= 64 (lr= 10 −5)86.96 57.33 89.68 61.08 96.0 LoRA r= 64 (lr= 10 −6)82.18 53.60 89.52 68.54 97.2 TALR r= 64 79.57 56.87 91.04 65.16 98.2
+> Engram Adapter 86.47 56.83 89.52 72.53 101.0
+
+Limitations 
+
+The current experiments span two model scales (Qwen3-4B and Qwen3-8B) and three evaluation domains (news, medicine, law), but empirical validation on even larger models (e.g., 27B pa-rameters) and more challenging domain corpora would further strengthen the findings. Although the shared memory tables keep the Qwen3-4B En-gram Adapter’s total parameter count ( ≈154M) within a manageable range, it is roughly 1.2 × the size of LoRA r=64 ( ≈132M). The in-domain per-formance gap relative to LoRA (2–4 percentage points across experiments) warrants investigation into whether larger training sets, alternative n-gram orders, or tuned α values can close this gap without sacrificing the observed retention behavior. 
+
+Inference overhead. Under fixed-length genera-tion on MBPP (128 tokens), the Engram Adapter incurs ≈22% per-token overhead relative to the frozen base model on Qwen3-4B. Forward-pass (prefill) overhead on OOD evaluation sets ranges from +1 .45% to +39 .9% . The measured over-head is not monotonic in the activation rate, be-cause it also depends on input length, batching, Python-level hash lookup, and memory-access pat-terns. The current implementation uses unopti-mized Python-level hash lookup; fused GPU ker-nels would likely reduce this overhead. Full effi-ciency and activation profiles are provided in Ap-pendix G. 
+
+Artifacts and intended use. We use publicly available models, datasets, and benchmarks only for research training and evaluation, and we cite their creators in the main text and references. We do not redistribute third-party datasets or base model weights; any released code or adapters should require users to obtain the underlying ar-tifacts under their original licenses and terms. Our use is intended to be consistent with the research and evaluation purposes of these artifacts, and the method is not presented as a deployable system for high-stakes legal or medical decision making without additional validation. 
+
+Data privacy and content. We do not collect new human-subject data, and we rely on the pub-lished documentation of the existing public datasets and benchmarks to understand their domains and intended use. Some artifacts may include public names or sensitive domain content, such as news, medical questions, or legal scenarios; we therefore use only the released task fields, report aggregate metrics, and do not redistribute raw examples or attempt to identify individuals. We do not perform additional anonymization beyond the original arti-fact releases. 
+
+References 
+
+Cheng, X., Tian, R., Zeng, W., Dai, D., Chen, Q., Wang, B., Xie, Z., Huang, K., Yu, X., Deng, C., Zhou, S., Zhao, C., Hao, Z., Li, Y., Zhang, H., Zhang, Z., Wei, Y., Xu, M. Y., Zhang, H., Zhao, D., and Liang, W. (2026). Conditional Memory via Scal-able Lookup: A New Axis of Sparsity for Large Language Models. arXiv preprint arXiv:2601.07372 .
+
+https://arxiv.org/abs/2601.07372 .Dettmers, T., Pagnoni, A., Holtzman, A., and Zettle-moyer, L. (2023). QLoRA: Efficient finetuning of quantized LLMs. NeurIPS , 36:10088–10115. 
+
+https://arxiv.org/abs/2305.14314 .Guha, N., Nyarko, J., Ho, D. E., Ré, C., Chilton, A., Narayana, A., Chohlas-Wood, A., Peters, A., Wal-don, B., Rockmore, D. N., et al. (2023). LegalBench: A collaboratively built benchmark for measuring le-gal reasoning in large language models. NeurIPS Datasets and Benchmarks Track , 36:44123–44279. 
+
+https://arxiv.org/abs/2308.11462 .Guu, K., Lee, K., Tung, Z., Pasupat, P., and Chang, M.-W. (2020). REALM: Retrieval Augmented Lan-guage Model Pre-Training. ICML , PMLR 119:3929– 3938. https://proceedings.mlr.press/ v119/guu20a.html .Houlsby, N., Giurgiu, A., Jastrzebski, S., Morrone, B., de Laroussilhe, Q., Gesmundo, A., Attariyan, M., and Gelly, S. (2019). Parameter-efficient transfer learning for NLP. ICML . https://proceedings.mlr. press/v97/houlsby19a.html .Hu, E. J., Shen, Y., Wallis, P., Allen-Zhu, Z., Li, Y., Wang, S., Wang, L., and Chen, W. (2022). LoRA: Low-rank adaptation of large lan-guage models. ICLR . https://openreview. net/forum?id=nZeVKeeFYf9 .Khandelwal, U., Levy, O., Jurafsky, D., Zettlemoyer, L., and Lewis, M. (2020). Generalization through mem-orization: Nearest neighbor language models. ICLR .
+
+https://arxiv.org/abs/1911.00172 .Kirkpatrick, J., Pascanu, R., Rabinowitz, N., Veness, J., Desjardins, G., Rusu, A. A., Milan, K., Quan, J., Ramalho, T., Grabska-Barwinska, A., et al. (2017). Overcoming catastrophic forgetting in neural net-works. PNAS , 114(13):3521–3526. https://doi. org/10.1073/pnas.1611835114 .Lewis, P., Perez, E., Piktus, A., Petroni, F., Karpukhin, V., Goyal, N., Küttler, H., Lewis, M., Yih, W.-t., Rocktäschel, T., et al. (2020). Retrieval-augmented generation for knowledge-intensive NLP tasks. NeurIPS . https://arxiv. org/abs/2005.11401 .Lin, J., Wang, Z., Qian, K., Wang, T., Srinivasan, A., Zeng, H., Jiao, R., Zhou, X., Gesi, J., Wang, D., Guo, Y., Zhong, K., Zhang, W., Sanghavi, S., Chen, C., Yun, H., and Li, L. (2026). SFT doesn’t always hurt general capabilities: Revisiting domain-specific fine-tuning in LLMs. ICLR . https://arxiv.org/ abs/2509.20758 .Liu, S.-Y., Wang, C.-Y., Yin, H., Molchanov, P., Wang, Y.-C. F., Cheng, K.-T., and Chen, M.-H. (2024). DoRA: Weight-decomposed low-rank adapta-tion. ICML . https://arxiv.org/abs/2402. 09353 .Li, X. L. and Liang, P. (2021). Prefix-tuning: Opti-mizing continuous prompts for generation. ACL .
+
+https://doi.org/10.18653/v1/2021. acl-long.353 .Liu, H., Tam, D., Muqeeth, M., Mohta, J., Huang, T., Bansal, M., and Raffel, C. (2022). Few-shot parameter-efficient fine-tuning is better and cheaper than in-context learning. NeurIPS . https: //arxiv.org/abs/2205.05638 .Mallya, A. and Lazebnik, S. (2018). PackNet: Adding multiple tasks to a single network by iterative pruning. CVPR . https://doi.org/10.1109/ CVPR.2018.00810 .McCloskey, M. and Cohen, N. J. (1989). Catastrophic interference in connectionist networks: The sequen-tial learning problem. Psychology of Learning and Motivation , 24:109–165. https://doi.org/10. 1016/S0079-7421(08)60536-8 .Meng, F., Wang, Z., and Zhang, M. (2024). PiSSA: Principal singular values and singular vectors adap-tation of large language models. NeurIPS . https: //arxiv.org/abs/2404.02948 .Pal, A., Umapathi, L. K., and Sankarasubbu, M. (2022). MedMCQA: A large-scale multi-subject multi-choice dataset for medical domain ques-tion answering. Proceedings of the Conference on Health, Inference, and Learning (CHIL) ,PMLR 174:248–260. https://proceedings. mlr.press/v174/pal22a.html .Pfeiffer, J., Kamath, A., Rücklé, A., Cho, K., and Gurevych, I. (2021). AdapterFusion: Non-destructive task composition for transfer learn-ing. EACL . https://doi.org/10.18653/ v1/2021.eacl-main.39 .Yang, A., Li, A., Yang, B., Zhang, B., Hui, B., Zheng, B., Yu, B., Gao, C., Huang, C., Lv, C., et al. (2025). Qwen3 technical report. arXiv preprint arXiv:2505.09388 . https://arxiv.org/abs/ 2505.09388 .Rolnick, D., Ahuja, A., Schwarz, J., Lillicrap, T., and Wayne, G. (2019). Experience replay for continual learning. NeurIPS . https://arxiv.org/abs/ 1811.11682 .Vershynin, R. (2018). High-Dimensional Probabil-ity: An Introduction with Applications in Data Sci-ence . Cambridge University Press. https://doi. org/10.1017/9781108231596 .Zhang, X., Zhao, J., and LeCun, Y. (2015). Character-level convolutional networks for text classifi-cation. NeurIPS . https://arxiv.org/abs/ 1509.01626 .Zhang, Q., Chen, M., Bukharin, A., Karampatzi-akis, N., He, P., Cheng, Y., Chen, W., and Zhao, T. (2023). AdaLoRA: Adaptive budget alloca-tion for parameter-efficient fine-tuning. ICLR .
+
+https://openreview.net/forum?id= lq62uWRJjiY .
+
+A Additional Architecture and Implementation Details 
+
+A.1 Trainable Parameter Count 
+
+The trainable parameters consist of the shared mem-ory tables plus per-layer projection and gate param-eters. The shared embedding tables contain: 
+
+(|N | + |N prev |) × k × M × dh
+
+= 3 × 4 × 90 ,007 × 128 ≈ 138 Mparameters in total. Each of the |L| = 4 in-jected layers additionally maintains a projection 
+
+Wproj ∈ RD×(k·Ng ·dh) plus small scalar-gate vec-tors, contributing ≈16M across all four layers. The total trainable parameter count is thus ≈154M in the Qwen3-4B setting. For comparison, LoRA 
+
+r=64 introduces ≈132M parameters and LoRA 
+
+r=32 introduces ≈66M, so the Engram Adapter is roughly 1.2 × the size of the highest-capacity LoRA baseline. However, the memory tables are highly sparse after training on a small corpus: most of the 1,080,084 embedding rows across all 12 ta-bles remain at their random initialization and are masked out by the occupancy flags, so the effective active parameter count is substantially lower. More-over, by injecting at only 4 out of 36 layers, the per-layer overhead is reduced by ≈89% compared to a hypothetical all-layer design. 
+
+B Implementation and Reproducibility Details 
+
+B.1 Key Components 
+
+EngramConfig Dataclass holding all hyperpa-rameters (Table 7). 
+
+EngramAdapter Core module: hash tables, projection, and gate. 
+
+EngramInjectorForTraining Attaches adapters to the model at layer indices 
+
+L = {1, 3, 7, 15 } via PyTorch forward hooks. 
+
+get_full_attention_layer_ids() 
+
+Identifies layers using full attention (vs. sliding-window attention); used to validate that all selected layer indices are full-attention layers. 
+
+collect_engram_state_dict() Extracts only Engram parameters for saving, leaving base model weights untouched. 
+
+B.2 Hook Mechanism 
+
+Two hooks are registered for the injected layers: 1. Model pre-hook : Captures input_ids 
+
+and maintains a sliding window of 
+
+history_ids for autoregressive gen-eration, aligned to max( N ∪ N prev ).2. Attention pre-hook (per layer ℓ ∈ L ): Runs 
+
+EngramAdapter on hidden states before 
+
+the self-attention computation, injecting the residual per (1). 
+
+B.3 Detailed Experimental Setup Baselines and seeds. For 4B experiments, LoRA (Hu et al., 2022) is evaluated with r ∈ { 32 , 64 },
+
+αLoRA = 2r, learning rate 10 −4, and three seeds {42 , 7783 , 114514 }. The Engram Adapter is also evaluated with the same three seeds 
+
+{42 , 7783 , 114514 }. DoRA (Liu et al., 2024), PiSSA (Meng et al., 2024), Adapter (Houlsby et al., 2019), and (IA )3 (Liu et al., 2022) use seed 7783. For 8B experiments, LoRA r = 64 with lr= 10 −5,LoRA r = 64 with lr= 10 −6, and TALR LoRA 
+
+r = 64 (Lin et al., 2026) also use seed 7783; their implementation details are given in Appendix B.4. 
+
+Benchmarks and metrics. AG-News (Zhang et al., 2015) is evaluated on the full 7,600-example test set. MedMCQA (Pal et al., 2022) is evalu-ated on the 4,183-example validation set. ARC-Challenge contains 1,172 science reasoning ques-tions; FLORES-200 contains 1,012 translation ex-amples and is scored with BLEU and chrF; MBPP contains 500 Python programming problems, is evaluated with 3-shot prompting, and is scored with pass@1. All other Qwen3-4B evaluations use zero-shot prompting. For Qwen3-8B, we additionally evaluate 12 LegalBench (Guha et al., 2023) tasks spanning contract analysis, evidence rules, and ju-risdictional reasoning. 
+
+Prompt formatting and hardware. To keep Engram’s local-pattern lookup aligned with the answer-bearing portion of each classification in-put, we append a short task instruction at the end of the corresponding prompts. MedMCQA prompts end with “Choose the correct answer from A, B, C, or D based on medical analysis.”, and AG-News prompts end with “Based on the article, choose its category.” Final training and evaluation runs were conducted on a single NVIDIA L20 GPU. 
+
+B.4 Additional 8B Baseline Details Low learning rate and TALR baselines. To test whether forgetting can be mitigated by modulating the magnitude of weight updates rather than their 
+
+conditionality , we include three additional base-lines. LoRA r=64 (lr= 10 −5) reduces the learning rate by one order of magnitude relative to the stan-dard setting ( 10 −4) and provides a near-matched Table 6: Experimental setup summary. LoRA and Engram Adapter report mean ± std across three seeds on 4B; non-LoRA non-Engram 4B baselines and all reported 8B baselines use seed 7783. For Qwen3-4B, all non-MBPP evaluations use zero-shot prompting and MBPP uses 3-shot prompting; Qwen3-8B evaluations use zero-shot prompting. 
+
+Model Train task Train size Eval OOD evaluation Baselines 
+
+Qwen3-4B AG-News 1,000 0-shot; MBPP 3-shot ARC-C, MedMCQA, FLORES, MBPP LoRA r ∈ { 32 , 64 } (3 seeds), DoRA, PiSSA, Adapter, (IA )3
+
+Qwen3-4B MedMCQA 1,000 0-shot; MBPP 3-shot ARC-C, AG-News, FLORES, MBPP LoRA r ∈ { 32 , 64 } (3 seeds), DoRA, PiSSA, Adapter, (IA )3
+
+Qwen3-8B AG-News 10,000 zero-shot MedMCQA, ARC-C, Legal-Bench LoRA r = 64 , LoRA lr= 10 −5,LoRA lr= 10 −6, TALR 
+
+in-domain comparison to Engram Adapter. LoRA 
+
+r=64 (lr= 10 −6) reduces the learning rate by two orders of magnitude, limiting the scale of ∆W
+
+more aggressively without any structural change. TALR (Token-Adaptive Loss Reweighting) (Lin et al., 2026) instead modifies the training objec-tive by reweighting token-level losses, reducing the influence of hard tokens that are associated with stronger general-capability degradation. All three methods remain always-on at inference time. 
+
+B.5 Training Configuration 
+
+Table 7: Hyperparameter defaults.                                        
+
+> Hyperparameter Default Description
+> inject_layers (1 ,3,7,15) Layer indices with adapters
+> ngram_orders (2 ,3) Suffix n-gram sizes
+> prev_ngram_orders (3 ,)Previous-context sizes
+> num_hashes 4Hash functions per lookup
+> table_size 90 ,007 Buckets per hash table
+> per_hash_dim 128 /256 Embedding dim per hash (4B / 8B)
+> mem_init_std 0.02 Std of N(0 , σ 2)init
+> num_heads 16 Attention heads
+> gate_type scalar Gating granularity
+> alpha 0.2Residual strength
+> lr 10 −3Learning rate
+> grad_accum_steps 8Gradient accumulation
+> max_grad_norm 1.0Gradient clipping threshold
+
+C Idealized Selectivity-Prior Details 
+
+C.1 Preliminaries and Notation 
+
+Let Mθ denote a frozen base LM and Aϕ an En-gram Adapter. The adapter modifies the hidden states at layers ℓ ∈ L = {1, 3, 7, 15 } per (1). Let Dtrain denote the domain training distribution and Dood any distribution disjoint from it. We de-fine the forgetting induced by the adapter for input 
+
+x ∼ D ood as: 
+
+F(x) = Mθ(x) − (Mθ + Aϕ)( x) 2.
+
+Our goal is to separate two claims. First, before training, the explicit occupancy mask makes the adapter exactly transparent. Second, after training, the occupancy-tracked mask provides an idealized selectivity prior under independent hashing, while practical OOD preservation must be established em-pirically through residual and output-distribution analyses. 
+
+C.2 Zero-Training Transparency Proposition C.1. At initialization, before any training-domain n-gram has been recorded in the occupancy masks, the Engram Adapter induces zero residual at every injected layer. Consequently, for any input x, the adapted model is functionally identical to the frozen base model and F(x) = 0 .Proof. All occupancy flags are initialized to 
+
+Fn,h [i] = 0 for all n, h, i . Therefore, for any posi-tion t and any hash table, 
+
+μn,h (t) = Fn,h [idx n,h (t)] = 0 .
+
+Since the joint mask for each order group is defined as the product over all hash-specific occupancy indicators, we have 
+
+mn(t) = 
+
+> k−1
+
+Y
+
+> h=0
+
+μn,h (t) = 0 .
+
+Thus every retrieved chunk is masked out: 
+
+˜vn,h (t) = mn(t) vn,h (t) = 0,
+
+regardless of the values stored in the randomly ini-tialized embedding tables En,h . The concatenated memory vector is therefore c(t) = 0, which gives 
+
+mem( t) = Wproj c(t) = 0.
+
+The residual injected at any adapted layer ℓ ∈ L is 
+
+∆u(ℓ)(t) = α · g(ℓ)(t) · mem (ℓ)(t) = 0,and hence u(ℓ)new = u(ℓ). Layers ℓ / ∈ L are unmodi-fied by construction. Therefore every hidden state and output logit of the adapted model matches the frozen base model exactly, so F(x) = 0 for all inputs x.
+
+Remark C.1 (Scope of the transparency guaran-tee) . Proposition C.1 is an exact initialization-time statement. It does not claim that the adapter re-mains transparent after domain training. Once training-domain n-grams have set occupancy flags to one, OOD inputs may trigger false activations through hash collisions or shared local patterns. Post-training OOD preservation is therefore not guaranteed by zero-training transparency alone; it depends on the combination of mask selectiv-ity, learned gate attenuation, and projection-level residual suppression, which we analyze empirically in Section 5. 
+
+Remark C.2 (Advantage over zero initialization) .
+
+An alternative design initializes all memory embed-dings to 0 and uses μn,h (t) = 1[∥vn,h (t)∥1 > 0] 
+
+as the activation test. While this can also make the adapter transparent before training, it entangles membership tracking with embedding values. In particular, a bucket whose embedding remains or becomes numerically close to zero may be treated as inactive, creating spurious false negatives for previously observed training patterns. By contrast, the explicit occupancy mask separates member-ship from representation learning: Fn,h records whether a bucket has been accessed by a training 
+
+n-gram, while En,h stores the learned residual con-tent. Since the occupancy flag is monotone during training ( 0 → 1 and never reset), exact repeats of recorded training n-grams are not lost merely because their embedding values are small. 
+
+C.3 Idealized False Positive Analysis 
+
+Let Ntrain denote the set of unique n-grams observed across all orders during domain train-ing. After training, each such n-gram has set 
+
+Fn,h [idx n,h ] = 1 in one bucket for each hash table. 
+
+Definition C.1 (Fill rate) . The fill rate of hash table 
+
+(n, h ) is the fraction of buckets with Fn,h [i] = 1 .Since each of the |N (n)train | unique n-grams fills one bucket per hash, the expected fill rate is ρn =
+
+|N (n)train |/M (assuming no hash collisions; with col-lisions the actual fill rate is lower, making this a conservative fill-rate estimate). 
+
+Theorem C.2 (Idealized false positive reference rate) . Under uniform hashing and independence across the k hash functions, an input n-gram q / ∈N (n)train has joint-mask false activation probability: 
+
+P  mn(t) = 1 q / ∈ N (n)train 
+
+
+
+≤ ρkn.
+
+This is an idealized reference rate for the stated assumptions, not a distribution-free guarantee for natural language data. Proof. A false positive at hash h occurs if idx n,h (q)
+
+maps to a bucket that was filled by some training 
+
+n-gram, i.e., Fn,h [idx n,h (q)] = 1 . Under the ide-alized assumption that hash outputs are uniformly distributed over [M ]:
+
+P  μn,h (t) = 1 q / ∈ N (n)train 
+
+
+
+≤ |N (n)train |
+
+M = ρn.
+
+Under the independence assumption across the k
+
+hash outputs, the joint-mask probability factorizes as: 
+
+P (mn(t) = 1) = 
+
+> k−1
+
+Y
+
+> h=0
+
+P (μn,h (t) = 1) 
+
+≤ ρkn.
+
+This proves the stated idealized reference rate. 
+
+Corollary C.3. For |N (n)train | = 10 ,000 , M =90 ,007 , and k = 4 :
+
+ρkn =
+
+ 10 ,000 90 ,007 
+
+4
+
+≈ 1.52 × 10 −4.
+
+Remark C.3 (Independence assumption) . Theo-rem C.2 assumes that the k hash functions produce independent outputs. In practice, all hash func-tions share the same token-ID input space, and natural language n-gram distributions are highly non-uniform. As we show empirically in Section 5, OOD inputs still produce non-negligible activa-tions, so ρk should not be treated as a formal bound. It serves only as an idealized reference rate that illustrates how increasing k can reduce false ac-tivations in the independent-hashing limit. The learned scalar gate (Section C.4) provides the pri-mary practical defense against OOD perturbation. C.4 Gate as the Primary Defense Layer 
+
+As shown empirically in Section 5, OOD inputs trigger non-negligible joint activation, meaning the occupancy mask alone does not suppress all OOD contributions. The learned scalar gate (5) serves as the primary defense mechanism. When a false-positive activation occurs, the retrieved em-beddings encode domain-specific patterns trained on unrelated n-grams. For u ∼ D ood , the weighted dot-product coherence term satisfies: 
+
+(Wu ⊙ u(t)) ⊤mem( t)
+
+√D ≈ 0
+
+in expectation, following the high-dimensional heuristic that u and Wproj c(t) are approximately orthogonal (Vershynin, 2018). This reduces the ex-plicit coherence contribution from the gate; the learned linear term Wmc(t) and the projected memory mem( t) then determine the actual false-positive residual. The projected memory itself car-ries incoherent signal that tends to cancel across the k × N retrieved chunks. The combination of reduced gate values and incoherent projections ex-plains why the Engram Adapter achieves ≥99.4% OOD retention despite non-negligible activation rates: even when the mask admits a false posi-tive, the gate and projection layers attenuate its impact to a level that is small in our residual and output measurements. Ablation experiments (Sec-tion 5) further show that the gate provides a ≈1.8 ×
+
+suppression factor, with the learned linear terms 
+
+Wmc(t) accounting for nearly all of this effect. 
+
+C.5 Idealized OOD Residual Bound 
+
+The independence analysis above does not imply that the adapter is post-training transparent on OOD inputs. After training, OOD examples may still activate the occupancy mask through hash colli-sions or shared local patterns. We therefore use the independent-hashing assumption only to derive an idealized bound on the expected adapter residual ,rather than a distribution-free guarantee on final model outputs. Let the residual injected at position 
+
+t and layer ℓ be 
+
+∆u(ℓ)(t) = α · g(ℓ)(t) · mem (ℓ)(t),
+
+and define the per-example OOD residual proxy 
+
+R(x) = 1
+
+T
+
+> T
+
+X
+
+> t=1
+
+X
+
+> ℓ∈L
+
+∥∆u(ℓ)(t)∥2.
+
+This proxy measures the total magnitude of the adapter intervention before it propagates through the remaining transformer computation. 
+
+Proposition C.4 (Idealized OOD residual bound) .
+
+Consider an OOD input x ∼ D ood whose queried 
+
+n-grams are not exact members of the training n-gram set. Suppose that the k hash outputs are independent and that each order group has fill rate at most ρ. For an adapter injected at |L| layers with N order groups, we have 
+
+ER(x) ≤ |L| · α · N · ρk · ∥ mem fp ∥∞,
+
+where ∥mem fp ∥∞ denotes an upper bound on the norm of the projected memory vector produced by a false-positive activation. Proof. For a fixed token position and order group, Theorem C.2 gives 
+
+Pr[ mn(t) = 1] ≤ ρk
+
+under independent hashing. By the union bound over N order groups, letting At denote activation of any order group at position t,
+
+Pr( At) ≤ N ρ k.
+
+If no order group activates, all filtered chunks are zero, so mem (ℓ)(t) = 0 and ∆u(ℓ)(t) = 0. If a false-positive activation occurs, then by definition 
+
+∥mem (ℓ)(t)∥2 ≤ ∥ mem fp ∥∞.
+
+Since g(ℓ)(t) ∈ [0 , 1] , the injected residual at one layer is bounded by 
+
+∥∆u(ℓ)(t)∥2 ≤ α · ∥ mem fp ∥∞.
+
+Taking expectation over the false-positive activa-tion event and summing over |L| injected layers gives 
+
+E[R(x)] ≤ |L| · α · N · ρk · ∥ mem fp ∥∞.
+
+For our default configuration, |L| = 4 , N = 3 ,
+
+k = 4 , ρ ≈ 0.222 , and α = 0 .2, yielding the idealized estimate 
+
+|L| · α · N · ρk ≈ 5.8 × 10 −3.
+
+Thus, under independent hashing, the expected OOD residual proxy is bounded by approximately 
+
+5.8 × 10 −3 · ∥ mem fp ∥∞.Remark C.4 (Scope of the bound) . Proposi-tion C.4 is an idealized residual-level analysis, not a strict guarantee on F(x) or downstream accuracy. Bounding final model outputs would require additional assumptions on the Lipschitz be-havior of the remaining transformer layers, which would be loose and difficult to verify for large lan-guage models. We therefore use this proposition only to motivate the role of the occupancy-tracked joint mask. In practice, the independence assump-tion is violated by correlated hash inputs and non-uniform natural language distributions, so empiri-cal OOD activation can exceed ρk. Post-training OOD preservation is consequently established by the residual and output-distribution analyses in Section 5, where the learned gate and projection attenuation suppress the actual OOD residual to a negligible fraction of the hidden-state norm. 
+
+C.6 Formal Comparison with LoRA 
+
+Table 8 summarizes the structural differences be-tween LoRA and the Engram Adapter.                      
+
+> Table 8: Structural comparison of LoRA and Engram Adapter.
+> Property LoRA Engram Adapter
+> Adapted path Always-on
+> ∆W=BA
+> Additive residual over frozen θ
+> Activation con-dition Always on Occupancy-conditioned n-gram matches OOD behavior Full ∆Wap-plied Gate-attenuated (<0.1% residual) Retention mechanism None (empirical only) Gate + mask (empirical) False positive control N/A Selectivity prior tunable via kand M
+> Composability Requires merg-ing / switching Separate adapter module over frozen backbone
+
+Remark C.5. Without additional regularization or routing, LoRA exposes ∆W = BA to every input. The Engram Adapter’s mask provides a stronger selectivity prior under the independent-hashing ide-alization, but real language distributions require empirical validation through residual and output analyses. 
+
+D Full Retention and Additional Results 
+
+D.1 Analysis Retention preservation. The Engram Adapter achieves strong and stable retention across all OOD benchmarks in both 4B experiments. In the AG-News experiment, average OOD reten-tion is 99.38% ±0.32% across ARC-Challenge (100.52% ±0.53%), MedMCQA (99.84% ±0.38%), FLORES-200 BLEU (99.44% ±1.12%), and MBPP (97.70% ±0.75%). In the MedMCQA ex-periment, the Engram Adapter achieves average re-tention of 100.07% ±0.24% across ARC-Challenge (99.42% ±0.38%), AG-News (101.37% ±0.62%), FLORES-200 BLEU (100.13% ±0.18%), and MBPP (99.35% ±0.38%). These results are con-sistent with the selectivity-prior picture, but the retention claim itself is established by the resid-ual and output analyses in Section 5: the adapter’s OOD perturbation is negligible for practical pur-poses. On 8B, the retention pattern is consistent: MedMCQA and ARC-Challenge retention both ex-ceed 99.7%, and LegalBench average retention is 100.9%, yielding 101.0% average OOD retention across the three 8B OOD benchmarks. The cross-scale consistency suggests that the same selectivity-plus-attenuation mechanism extends across model sizes. In contrast, LoRA exhibits consistent MBPP degradation across all six MedMCQA configura-tions on 4B, with pass@1 retention ranging from 95.21% (LoRA r=64, seed 42) to 97.60% (LoRA 
+
+r=32, seeds 42 and 114514). In the AG-News ex-periment, forgetting is even more severe: LoRA 
+
+r=64 with seed 42 drops MBPP from 66.80% to 39.40%—a 41% relative degradation. On 8B, LoRA’s forgetting is most pronounced on Legal-Bench, where average accuracy drops by 27.2 absolute points. The intermediate learning rate variant (lr= 10 −5) nearly matches Engram Adapter in-domain (86.96% vs. 86.47%) but reaches only 96.0% average OOD retention, driven primarily by a LegalBench drop to 61.08%. The more conser-vative low learning rate variant (lr= 10 −6) achieves 97.2% average OOD retention, with MedMCQA slightly below the base model (53.60% vs. 55.51%). TALR achieves strong non-LegalBench OOD re-tention (101.9% across MedMCQA and ARC-Challenge, 98.2% when LegalBench is included) but with only marginal in-domain improvement (79.57% vs. base 79.49%). This suggests that LoRA’s always-on weight perturbation ∆W =
+
+BA can substantially disrupt capabilities across diverse domains and model scales, and that nei-ther learning rate reduction nor token-adaptive loss reweighting simultaneously achieves both near-matched adaptation and reliable retention in this low-resource LoRA setting. 
+
+Other PEFT methods can exhibit severe for-getting. PiSSA exhibits the most extreme OOD degradation among all baselines despite not al-ways failing in-domain: when trained on MedM-CQA, it reaches 55.63% in-domain accuracy but drops AG-News to 0.00% and ARC-Challenge to 27.30%; when trained on AG-News, it re-duces MedMCQA to 32.23% and ARC-Challenge to 19.88%. We note that PiSSA was run with the same learning rate as LoRA ( 10 −4), which may be suboptimal for PiSSA’s principal-subspace reparameterization; a dedicated hyperparameter sweep could yield substantially better results and we therefore treat its collapse as a configuration artifact rather than a fundamental limitation of the method. (IA )3 trained on MedMCQA de-grades ARC-Challenge from 88.99% to 62.88% (29.3% relative loss). DoRA achieves competi-tive in-domain performance (90.30% on AG-News, 57.28% on MedMCQA) and preserves reason-ing ability (ARC-Challenge 88.14%/88.31%), but Adapter, while strong on in-domain metrics, also degrades OOD benchmarks. These results under-score that unconditional parameter modification across multiple PEFT method families can lead to severe and unpredictable capability degradation, even with only 1,000 training examples. 
+
+Seed sensitivity of LoRA. The MedMCQA ex-periment, with three seeds per rank, provides a more robust assessment of LoRA’s seed sensitiv-ity. At r=32, in-domain accuracy varies from 56.71% to 57.30% across seeds—a modest 0.59-point range. However, OOD metrics also fluctuate: ARC-Challenge ranges from 87.96% to 88.31%, and MBPP from 65.00% to 65.20%. At r=64, the variance is similar: in-domain accuracy ranges from 54.15% to 54.84%, while MBPP ranges from 63.60% to 64.40%. In the AG-News experiment, seed sensitivity is far more dramatic: at r=64, MBPP retention ranges from 58.98% to 97.31%—a 38-point gap. The Engram Adapter’s OOD behav-ior is substantially more stable across seeds: in the AG-News experiment, MBPP retention ranges from 97.01% to 98.50% (a 1.5-point range), and in the MedMCQA experiment from 98.95% to 99.70% (a 0.8-point range). This stability is at-tributable to the occupancy mask constraining acti-vation and the gate/residual path attenuating pertur-bations. 
+
+Rank–forgetting tradeoff in LoRA. Reducing LoRA’s rank from 64 to 32 consistently mit-igates forgetting. In the MedMCQA experi-ment, the average OOD retention across three seeds improves from 99.10%–99.56% ( r=64) to 99.64%–99.77% ( r=32). In the AG-News ex-periment, average retention similarly improves from 88.31%–99.51% ( r=64) to 98.66%–99.81% (r=32). The Engram Adapter (99.38% ±0.32% on AG-News, 100.07% ±0.24% on MedMCQA) achieves the highest average retention in both experiments—tying with LoRA r=32 on AG-News (99.38% ±0.51%) while exhibiting lower variance, and leading on MedMCQA. Notably, unlike LoRA 
+
+r=32 whose AG-News average retention is partly inflated by MedMCQA positive transfer (102.32%), the Engram Adapter’s retention is more uniformly distributed across all OOD benchmarks, with no single benchmark exhibiting severe degradation. The Engram Adapter achieves consistently high re-tention across both experiments without requiring rank selection or seed tuning. 
+
+Domain adaptation effectiveness. In the 4B AG-News experiment, the Engram Adapter achieves 87.93% ±0.64% accuracy, improving over the base model (85.14%) by 2.79 percentage points but lag-ging the best adapted model (Adapter, 90.54%) by 2.61 points. On 8B, the in-domain improve-ment is substantially larger: 86.47% vs. base 79.49% (+6.98pp), narrowing the relative gap. In the MedMCQA experiment, the Engram Adapter achieves 55.79% ±0.74% accuracy (+2.14 over base), while the best LoRA achieves 57.30% ( r=32, seed 114514, +3.65 over base). The in-domain gap relative to the best LoRA reflects the fundamen-tal specialization–preservation tradeoff: the con-ditional activation mechanism limits the adapter’s influence to recognized n-gram patterns. 
+
+Cross-domain consistency. A key finding is that the Engram Adapter’s retention behavior holds con-sistently across both model scales (4B and 8B), both domain adaptation tasks, and all OOD bench-marks, covering reasoning (ARC-Challenge), text classification (AG-News), translation (FLORES-200), code generation (MBPP), and legal rea-soning (LegalBench). This consistency supports the selectivity-prior interpretation: the occupancy-tracked matching mechanism provides a domain-agnostic inductive bias that is not specific to the training domain or model scale, while the residu-al/output analyses explain why false activations do not translate into behavioral forgetting. D.2 Retention Summary 
+
+Tables 9 and 10 report the average OOD retention for each 4B experiment. In the AG-News ex-periment, the Engram Adapter and LoRA r=32 tie for the highest average retention at 99.38% (Engram ±0.32%, LoRA ±0.51%), with the En-gram Adapter exhibiting lower variance. How-ever, LoRA r=32’s high average is partly driven by MedMCQA positive transfer (102.32%), while its MBPP retention (97.21%) is lower than the Engram Adapter’s (97.70%). The remaining methods trail further: DoRA (97.77%), LoRA 
+
+r=64 (95.25% ±4.95%), Adapter (95.58%), (IA )3
+
+(87.87%), and PiSSA (20.60%). The OOD collapse of PiSSA and the FLORES degrada-tion of (IA )3 (71.09% retention) demonstrate that not all PEFT methods degrade gracefully— some suffer substantial capability loss on spe-cific benchmarks. In the MedMCQA experi-ment, the Engram Adapter achieves the high-est average retention at 100.07% ±0.24%, fol-lowed by LoRA r=32 (99.69% ±0.06%), LoRA 
+
+r=64 (99.28% ±0.20%), DoRA (96.09%), Adapter (95.15%), (IA )3 (81.74%), and PiSSA (7.67%). 
+
+E Full LegalBench Results 
+
+LegalBench evaluation. To test OOD preser-vation on a challenging legal domain, we evalu-ate all 8B models (trained on AG-News) on 12 LegalBench tasks spanning contract analysis, ev-idence rules, and jurisdictional reasoning. Ta-ble 11 presents the results. The Engram Adapter achieves 72.53% average accuracy across 12 Legal-Bench tasks, slightly exceeding the base model (71.91%) and preserving performance on 10 out of 12 tasks. The only degradations are relatively small in absolute size (personal_jurisdiction −2.0pp, un-fair_tos −4.7pp). Since the 8B experiments are single-seed, future work should quantify Legal-Bench variance with additional seeds or bootstrap confidence intervals. Several tasks show notice-able improvement, including function_of_decision (+4.9pp) and corporate_lobbying (+4.1pp), sug-gesting that the AG-News classification training may provide mild positive transfer to structurally similar legal classification tasks. We also run LegalBench-only component ablations on the En-gram Adapter. Removing the occupancy mask (Engram-no-mask ) yields 72.06% average accu-racy, and disabling the scalar gate ( Engram-no-gate ) yields 71.86%. These ablations are close to the frozen base model but below the full En-gram Adapter, suggesting that LegalBench aver-age accuracy is relatively insensitive to either sin-gle component while still favoring the complete mask-plus-gate design. In contrast, LoRA r=64 degrades on 10 out of 12 tasks, with large drops on function_of_decision (89.65% → 0.00%) and personal_jurisdiction (62.00% → 4.00%). The av-erage drops from 71.91% to 44.67%—a 37.9% relative degradation. LoRA (lr= 10 −5) provides a near-matched in-domain comparison to Engram Adapter on AG-News (86.96% vs. 86.47%), but its LegalBench average is only 61.08%. It degrades on 8 out of 12 tasks, with especially large drops on proa ( −57.9pp), unfair_tos ( −22.0pp), and corporate_lobbying ( −22.0pp). LoRA (lr= 10 −6)achieves 68.54% average accuracy, substantially better than standard LoRA (44.67%) and LoRA lr= 10 −5 (61.08%), and second only to the En-gram Adapter among adapted models. The con-servative learning rate preserves performance on 9 out of 12 tasks, but produces large degradation on function_of_decision ( −22.1pp) and unfair_tos (−19.3pp), with a smaller drop on proa ( −4.2pp). This pattern reveals a characteristic weakness of magnitude-reduction approaches: while a low learning rate limits the overall scale of ∆W , spe-cific capability subspaces can still be disrupted dis-proportionately, and the practitioner has no control over which capabilities are affected. TALR LoRA achieves 65.16% average accuracy, outperforming standard LoRA (44.67%) but falling short of LoRA (lr= 10 −6) (68.54%), the base model (71.91%), and the Engram Adapter (72.53%). It also outper-forms the near-matched LoRA lr= 10 −5 baseline on LegalBench (65.16% vs. 61.08%), but only by sacrificing in-domain learning. TALR shows a mixed pattern: it improves on 5 tasks (notably con-tract_nli_confidentiality +11.0pp and unfair_tos +5.8pp) but degrades on 7 tasks, with the largest drops on corporate_lobbying ( −31.2pp), hearsay (−21.3pp), and personal_jurisdiction ( −20.0pp). This pattern suggests that token-adaptive loss reweighting mitigates but does not eliminate the forgetting caused by unconditional weight modifi-cation. Table 9: Average OOD retention (%) for AG-News domain adaptation (4B). LoRA and Engram Adapter results are mean ± std across three seeds. Higher is better; 100% = perfect preservation.                                                 
+
+> Method ARC-C MedMCQA FLORES (BLEU) MBPP Avg. Ret.
+> LoRA r= 64 99.04 ±0.55 100.12 ±0.62 97.01 ±1.48 84.83 ±18.28 95.25 ±4.95
+> LoRA r= 32 99.01 ±0.43 102.32 ±0.50 98.98 ±0.62 97.21 ±1.25 99.38 ±0.51
+> Adapter 98.75 99.55 100.20 83.83 95.58 DoRA r= 32 99.04 101.73 100.77 89.52 97.77 PiSSA r= 32 22.34 60.07 0.00 0.00 20.60
+> (IA )396.65 99.27 71.09 84.43 87.87
+> Engram Adapter 100.52 ±0.53 99.84 ±0.38 99.44 ±1.12 97.70 ±0.75 99.38 ±0.32
+
+Table 10: Average OOD retention (%) for MedMCQA domain adaptation (4B). LoRA and Engram Adapter results are mean ± std across three seeds. Higher is better; 100% = perfect preservation.                                                 
+
+> Method ARC-C AG-News FLORES (BLEU) MBPP Avg. Ret.
+> LoRA r= 64 99.14 ±0.21 101.36 ±0.28 100.69 ±0.96 95.91 ±0.51 99.28 ±0.20
+> LoRA r= 32 99.04 ±0.16 101.16 ±0.14 101.06 ±0.34 97.50 ±0.14 99.69 ±0.06
+> Adapter 98.85 99.38 97.92 84.43 95.15 DoRA r= 32 99.23 99.55 100.23 85.33 96.09 PiSSA r= 32 30.68 0.00 0.00 0.00 7.67
+> (IA )370.66 99.34 70.10 86.83 81.74
+> Engram Adapter 99.42 ±0.38 101.37 ±0.62 100.13 ±0.18 99.35 ±0.38 100.07 ±0.24
+
+F Additional Activation and Ablation Details 
+
+F.1 Matched-Coverage Gate Selectivity Diagnostic 
+
+We further evaluate whether different lightweight or retrieval-based signals can separate held-out target-domain prompts from OOD prompts. This is a gate diagnostic rather than a downstream classification-accuracy comparison. For each scor-ing rule, we set the threshold to the 5th percentile of held-out AG-News scores, so that approximately 95% of held-out AG-News examples are accepted without using OOD data for threshold selection. We then report the OOD false-accept rate, i.e., the fraction of OOD examples whose score is at least this threshold. 
+
+Engram n-gram density. This is the native En-gram selectivity signal. After registering occupied hash buckets from the AG-News training exam-ples, each prompt is scored by the fraction of valid prompt tokens for which at least one local n-gram group (n2, n3, or p3) activates all four occupied hash entries. 
+
+TF-IDF max cosine. This lexical retrieval base-line represents each prompt with sparse TF-IDF features and scores an evaluation prompt by its maximum cosine similarity to the AG-News train-ing examples. It tests whether simple surface-form retrieval is sufficient as a domain gate. 
+
+Qwen embedding retrieval. This dense retrieval baseline embeds each prompt with the frozen Qwen3-4B backbone and scores an evaluation prompt by its maximum cosine similarity to the AG-News training embeddings. It provides a stronger semantic retrieval signal, but requires an additional dense encoding and retrieval path that is separate from Engram’s local hash-memory lookup. 
+
+F.2 Gate Ablation 
+
+To isolate the contribution of the gate, we ablate it on the same two OOD pairs, measuring the effect on the residual perturbation ratio among activated tokens. We test two gate variants: • g = 1 (gate disabled) : Sets g(t) = 1 for all positions, removing the gate’s suppression entirely. • no_dot : Removes the dot-product coherence term (Wu ⊙ u(t)) ⊤mem( t)/√D from the gate, retaining only the learned linear term 
+
+Wmc(t).Table 13 reports the results. Disabling the gate ( g =1) increases the mean residual ratio by 1.8 × (AG →
+
+Med) and 1.8 × (Med → AG), confirming that the gate provides substantial residual-level attenuation. However, removing the dot-product coherence term (no_dot ) has virtually no effect: the mean residual Table 11: LegalBench results on Qwen3-8B (trained on AG-News, evaluated OOD on 12 legal reasoning tasks). Values are task accuracies (%). 
+
+Task Base Engram LoRA64 lr= 10 −5 lr= 10 −6 TALR 
+
+abercrombie 36.84 40.00 36.84 23.16 37.89 32.63 consumer_contracts_qa 90.40 90.91 69.70 92.68 92.17 92.68 contract_nli_confid. 78.05 78.05 74.39 79.27 78.05 89.02 contract_nli_limited 82.69 83.17 65.87 81.25 83.17 81.25 contract_nli_return 81.82 81.82 75.76 83.33 81.82 87.88 contract_qa 97.50 97.50 97.50 97.50 97.50 98.75 corporate_lobbying 61.02 65.10 22.04 38.98 62.86 29.80 function_of_decision 89.65 94.55 0.00 86.65 67.57 73.02 hearsay 56.38 56.38 31.91 55.32 56.38 35.11 personal_jurisdiction 62.00 60.00 4.00 48.00 62.00 42.00 proa 64.21 65.26 44.21 6.32 60.00 51.58 unfair_tos 62.39 57.67 13.77 40.44 43.11 68.14 
+
+Average 71.91 72.53 44.67 61.08 68.54 65.16 Joint Activation Residual Ratio Mean KL Div. Accuracy (pp)        
+
+> 28.3% 0.078% 0.088 -0.05 pp
+> AG Adapter MedMCQA (OOD)
+> Joint Activation Residual Ratio Mean KL Div. Accuracy (pp)
+> 26.3% 0.076% 0.040 +1.43 pp
+> Med Adapter AG-News (OOD)
+> OOD Perturbation Cascade: Activation Residual KL Behavior
+
+Figure 4: OOD perturbation cascade on the two highest-activation cross-domain pairs. Despite ≈27% token-level activation, the gate suppresses residual perturbation to <0.08% of hidden-state norm, yielding minimal KL divergence and negligible accuracy change. Table 12: Matched-coverage OOD false-accept rate (%) for domain-gate signals. All thresholds are selected at the 5th percentile of held-out AG-News scores, corre-sponding to approximately 95% in-domain acceptance. Lower is better. 
+
+Signal Med. ARC-C Legal 
+
+Engram n-gram density 0.60 0.17 0.27 TF-IDF max cosine 16.90 24.06 31.53 Qwen embedding retrieval 0.00 0.00 0.10 
+
+ratios are nearly unchanged, while the P95 residu-als decrease slightly. This means the gate’s effec-tiveness comes primarily from the learned linear term Wmc(t), which has learned to suppress in-coherent retrievals, rather than from the explicit coherence signal (Wu ⊙ u(t)) ⊤mem( t)/√D. The LegalBench-only no-gate result in Appendix E fur-ther shows that this larger residual does not neces-sarily translate into large average-accuracy loss on every OOD benchmark. 
+
+G Inference Efficiency and Activation Profile 
+
+To characterize the runtime cost of the Engram Adapter, we report two complementary profiling views. First, Table 14 reports supplementary con-trolled measurements collected during the rebut-tal period on a single NVIDIA RTX 6000D using Qwen3-4B. The training profile uses one epoch over 1k AG-News examples with batch size 8, cutoff length 1024, bf16, and AdamW. The in-ference profile fixes batching and maximum in-put length 256; generation uses fixed 32-token greedy decoding. These controlled inference num-bers measure Engram Adapter overhead relative to the frozen base model; decode-step overhead is 
+
++9 .18% –+10 .99% .Table 13: Gate ablation on the two highest-activation OOD pairs. Metrics are mean and P95 residual ratio (∥∆u∥/∥u∥, %) among activated tokens. ↑ indicates degradation (higher OOD perturbation); ↓ indicates improve-ment.                                            
+
+> AG →MedMCQA Med →AG-News Type Variant Mean% P95% Mean% P95% —Baseline 0.275 1.124 0.290 1.233 Gate g= 1 (disabled) 0.505 ↑2.124 ↑0.509 ↑1.990 ↑
+> no_dot 0.273 1.086 0.286 1.105
+> Table 14: Controlled supplementary efficiency profile on Qwen3-4B AG-News. Training numbers use an AG-News-1k one-epoch profile on a single NVIDIA RTX 6000D with batch size 8, cutoff length 1024, bf16, and AdamW.
+> Method Params Train profile Peak mem.
+> Base Model 0——LoRA r= 64 132.1M 20.88s / 47.88 ex/s 23.2GB LoRA r= 32 66.1M 19.85s / 50.38 ex/s 22.4GB
+> Engram Adapter 154.0M 19.80s / 50.50 ex/s 17.5GB
+
+Although Engram Adapter has more trainable parameters than both LoRA baselines, its measured peak training memory is lower in this profiling set-ting. We do not interpret this as a general memory-dominance claim: in our implementation, LoRA is attached to more projection modules, requiring additional module-input activations to be retained for backpropagation, which may partly explain the higher measured peak memory. Second, Table 15 reports the original benchmark-dependent profile from the final evaluation envi-ronment. These runs were conducted on a sin-gle NVIDIA L20 GPU with benchmark-dependent sequence lengths and evaluation windows. They are useful for per-dataset diagnostics and for re-lating latency to activation rates, but they are not directly comparable to the controlled RTX 6000D measurements in Table 14. Forward overhead is measured as the relative increase in mean prefill latency compared with the frozen base model on the same inputs. Generation overhead is measured on MBPP with a fixed maximum of 128 gener-ated tokens for both the base and adapted models; for the remaining benchmarks, generation over-head is not reported because the Engram Adapter’s domain-adapted outputs differ in length from the base model’s, making total generation time not di-rectly comparable. 
+
+Latency and activation profile. Forward over-head ranges from +1 .45% –+1 .56% on MBPP to 
+
++39 .9% on AG →MedMCQA. However, the mea-sured latency is not monotonic in the token-level activation rate. For example, MBPP shows higher average activation than AG →MedMCQA for the AG-News adapter, but much lower prefill overhead. This indicates that runtime is affected not only by adapter activation, but also by input length distri-bution, batching, Python-level hash and lookup overhead, memory-access patterns, and measure-ment variance. We therefore use Table 15 primar-ily to report the practical overhead of the current implementation, while interpreting the activation columns as evidence of selectivity rather than as a direct latency predictor. 
+
+In-domain vs. OOD activation contrast. In-domain activation rates are substantially higher than OOD rates across all channels. For the AG-News adapter, in-domain n3 activation is 0.356 versus 0.052–0.221 on OOD sets; for the MedM-CQA adapter, in-domain n3 activation is 0.601 ver-sus 0.096–0.145 on OOD sets. This gradient from near-domain to far-domain inputs provides direct evidence for the selectivity prior discussed in Sec-tion 5. 
+
+Engineering optimization. The current imple-mentation uses unoptimized Python-level hash computation and occupancy lookup. The hash and gather operations are amenable to fused GPU ker-nels, which we expect would substantially reduce the observed overhead. Inference optimization is left to future work. 
+
+H Additional Discussion 
+
+Why we do not report gate-only LoRA as a formal baseline. A natural control is to add a Table 15: Original benchmark-dependent inference overhead and n-gram activation profile on Qwen3-4B. Forward overhead measures mean prefill latency increase; generation overhead is reported only for MBPP (fixed 128-token output). Activation columns report the fraction of token positions where the joint mask fires for each n-gram channel. For in-domain rows (shaded), generation overhead is not reported because output-length differences confound the comparison. FLORES-200 forward overhead is omitted due to high variance across adapters ( SD = 25 .5% , n = 2 ). These measurements were collected in the final L20 evaluation environment and should not be directly compared with the controlled RTX 6000D profile in Table 14.                                                        
+
+> Latency Overhead Activation Rate Adapter Eval Set Forward Generation n2 n3 p3 AG-News AG-News (in-domain) +12.3% —0.500 0.356 0.376 AG-News MedMCQA +39.9% —0.219 0.126 0.137 AG-News ARC-C +34.5% —0.194 0.052 0.062 AG-News MBPP +1.45% +21.8% 0.397 0.221 0.221 MedMCQA MedMCQA (in-domain) +36.6% —0.717 0.601 0.610 MedMCQA AG-News +6.5% —0.198 0.096 0.106 MedMCQA ARC-C +34.5% —0.313 0.145 0.158 MedMCQA MBPP +1.56% +22.7% 0.347 0.122 0.126
+
+learned scalar gate to an otherwise standard LoRA residual. We do not report this variant as a formal baseline because its gate is randomly initialized and trained only on the target-domain adaptation data, with no calibrated supervision for unrelated OOD domains. In our implementation, three Gated-LoRA trials with learning rates 10 −4, 10 −5, and 
+
+10 −6 all produced empty outputs on LegalBench, resulting in degenerate evaluations rather than a meaningful accuracy comparison. We therefore treat this as an instability diagnosis, not as a formal baseline result. The relevant distinction is archi-tectural: Engram provides a discrete, occupancy-based membership signal before residual injection, whereas a gate-only LoRA variant must infer when to suppress an always-available LoRA residual from continuous hidden-state statistics alone. 
+
+Why training-time retention controls are in-sufficient. The contrasting failures of LoRA (lr= 10 −5), LoRA (lr= 10 −6), and TALR illuminate a fundamental limitation of training-time reten-tion controls. Reducing the global learning rate uniformly shrinks ∥∆W ∥ across all layers and all input patterns, yet the resulting perturbation— however small— is still applied unconditionally to every input. At lr= 10 −5, LoRA nearly matches Engram Adapter in-domain on AG-News (86.96% vs. 86.47%) but drops to 61.08% average accu-racy on LegalBench. At lr= 10 −6, the pertur-bation is smaller and LegalBench improves to 68.54%, but the AG-News gain shrinks and MedM-CQA remains below the base model (53.60% vs. 55.51%). This suggests that specific capability sub-spaces can still be disrupted by non-selective up-dates even when the update magnitude is reduced. TALR takes a different training-time approach by reweighting token-level losses, and indeed achieves strong OOD retention on the standard benchmarks (101.9%). However, this comes at a cost in our low-resource LoRA setting: down-weighting hard-token losses also suppresses useful task-learning signals, resulting in only marginal in-domain im-provement (79.57% vs. base 79.49%). On Legal-Bench, TALR outperforms standard LoRA (65.16% vs. 44.67%) and near-matched LoRA lr= 10 −5
+
+(61.08%) but falls short of both the more con-servative low learning rate variant (68.54%) and the base model (71.91%), suggesting that neither uniform magnitude reduction nor token-adaptive loss reweighting can match conditional activation’s combination of effective adaptation and reliable retention. These results underscore the distinction between modulating how the model is trained and 
+
+controlling when the adaptation is applied at in-ference time. Among the tested methods, Engram Adapter achieves effective adaptation and reliable retention by addressing the conditionality of inter-vention rather than only the training objective or update magnitude. 
+
+Conservation vs. positive transfer. A nuanced consequence of the Engram Adapter’s design is that OOD performance is largely preserved rather than enhanced. We observe that LoRA models trained on AG-News achieve slightly improved accuracy on MedMCQA (up to 54.90% on av-erage, compared to the 53.65% base model), de-spite never seeing medical data. This effect is at-tributable to improved instruction-following abil-ity: the AG-News classification training implic-itly teaches the model to follow task formatting conventions (e.g., selecting among labeled op-tions), which transfers to structurally similar tasks like MedMCQA’s multiple-choice format. In con-trast, the Engram Adapter trained on AG-News achieves 53.57% ±0.20% on MedMCQA—close to the base model—indicating that although the adapter does activate on some OOD tokens (Sec-tion 5), the gate mechanism effectively suppresses the contribution to a level that neither substan-tially degrades nor enhances OOD performance. Thus, our method should be understood as a retention-oriented specialization mechanism rather than a way to harvest incidental global instruction-following gains from domain fine-tuning. Inter-estingly, on 8B, the Engram Adapter shows mild positive transfer on some LegalBench tasks (e.g., function_of_decision +4.9pp), suggesting that at larger scale, the adapter’s domain-discriminative 
+
+n-grams may partially overlap with structurally similar legal classification patterns. 
+
+Future work. We plan to extend this work along several axes: (1) scaling experiments on models up to 27B parameters with domain corpora span-ning law (MultiLegalPile) and finance (FinPile); (2) systematic ablation of k ∈ { 1, 2, 4, 6, 8} and 
+
+M ∈ { 45 ,007; 90 ,007; 300 ,007 } to measure how empirical false positives deviate from the idealized reference rate in Theorem C.2; (3) multi-domain adapter-isolation experiments where independent adapters are trained for medicine, law, and finance, then evaluated on all three domains to confirm cross-domain isolation; (4) training data scaling ex-periments (1k–50k examples) to characterize how the in-domain gap narrows with corpus size; and (5) inference latency and memory profiling across methods.

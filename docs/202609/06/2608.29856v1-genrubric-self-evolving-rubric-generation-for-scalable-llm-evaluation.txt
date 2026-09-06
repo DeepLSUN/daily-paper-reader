@@ -1,0 +1,542 @@
+Title: GenRubric: Self-Evolving Rubric Generation for Scalable LLM Evaluation
+
+URL Source: https://arxiv.org/pdf/2608.29856v1
+
+Published Time: Tue, 01 Sep 2026 01:29:48 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+# GenRubric: Self-Evolving Rubric Generation for Scalable LLM Evaluation 
+
+# Yifan Chen 1∗, Haitao Li 1∗, Qingyao Ai 1†, Fengbin Zhu 2, Tat-Seng Chua 2,Min Zhang 1, Yiqun Liu 1
+
+> 1
+
+Department of Computer Science and Technology, Tsinghua University 
+
+> 2
+
+National University of Singapore chenyifan26@mails.tsinghua.edu.cn 
+
+Abstract 
+
+Large language models are increasingly used as scalable eval-uators for open-ended tasks. However, many LLM judges de-rive query-specific criteria during scoring, leaving the eval-uation requirements insufficiently specified and their cover-age difficult to audit. Query-specific rubrics make these re-quirements explicit, but expert-written rubrics are costly to construct, while existing automatic methods typically rely on inference-time refinement or external supervision. We intro-duce GenRubric, a self-evolving framework that improves rubric generation from unlabeled queries without requiring additional human annotations during self-evolution. Our ap-proach is based on rubric-induced self-consistency : inde-pendently sampled rubrics for the same query provide par-tial views of its latent evaluation requirements, and a com-prehensive rubric should induce a response that generalizes across these complementary evaluation views. We implement this principle through reinforcement learning, combining a cross-rubric comprehensiveness signal with group-level and criterion-level rewards for rubric quality. We train GenRubric models at 4B, 8B, and 14B scales across multiple domains. Experiments on human-annotated rubric benchmarks show that self-evolution improves the agreement between evalu-ations induced by generated rubrics and those induced by expert-written rubrics. The improvements further general-ize to held-out domains, demonstrating the potential of self-evolving rubric generation for scalable and query-specific LLM evaluation. Code and models are publicly available at https://github.com/foggpoy/GenRubric. 
+
+# Introduction 
+
+Large language models (LLMs) are increasingly deployed to support real-world decision making. For tasks with ob-jectively verifiable outcomes, model outputs can typically be evaluated against reference answers or using program-matic verifiers (Hendrycks et al. 2021; Chen et al. 2021). By contrast, many open-ended tasks in domains such as medicine and law admit multiple valid responses, whose quality depends on factual correctness, information cover-age, risk awareness, practical utility, and other query-specific considerations (Chang et al. 2024; Arora et al. 2025; Akyürek et al. 2026). LLM-as-a-Judge provides a scalable approach 
+
+> ∗
+
+These authors contributed equally. 
+
+> †
+
+Corresponding author. 
+
+to such evaluation (Liu et al. 2023; Zheng et al. 2023). How-ever, its operational evaluation criteria are often instantiated during scoring rather than explicitly specified beforehand, coupling criterion construction with the final judgment. This can blur the boundaries between distinct requirements, leave their evaluation boundaries underspecified, and make crite-rion coverage difficult to audit. It can also make the resulting evaluations less trustworthy, as it is difficult to guarantee that consistent criteria are applied to all candidate responses for the same query. Query-specific rubrics address this need by decompos-ing response quality into fine-grained and checkable criteria. Expert-written rubrics have enabled structured evaluation across diverse open-ended tasks (Arora et al. 2025; Akyürek et al. 2026; Sharma et al. 2025; Chen et al. 2026), while rubric-conditioned evaluators have demonstrated the value of customized criteria for fine-grained assessment (Kim et al. 2024). Rubrics can also provide criterion-level sig-nals for reward modeling, making the resulting supervision more structured and interpretable (Gunjal et al. 2025). Yet constructing a dedicated rubric for each query requires substantial domain expertise and annotation effort, making it difficult to scale to new tasks and queries (Arora et al. 2025; Sharma et al. 2025). Generating rubrics with LLMs is a natural alternative, but off-the-shelf LLM-generated rubrics may be insufficiently aligned with human-authored crite-ria, particularly in factual and knowledge-intensive settings (Dhole and Agichtein 2026; Siro, Aliannejadi, and Alianne-jadi 2026). These limitations have motivated the design of dedicated rubric generators. Recent studies on rubric generators commonly rely on pre-collected annotated supervision, most often preference labels over model responses (Liu et al. 2026; Lv et al. 2026; Kawa-bata and Sugawara 2026; Xu et al. 2026). Such supervision is useful for identifying criteria that distinguish the observed responses, but the resulting rubrics inherit the coverage of the annotations and response distributions from which they are learned. They may therefore capture criteria that are discrim-inative for the available examples without fully representing the evaluation requirements of the query itself, while collect-ing comparable supervision for new domains remains costly. This motivates our question: Can a rubric generator improve solely from unlabeled queries and its own generated rubrics, without requiring pre-collected supervision for each query? arXiv:2608.29856v1 [cs.CL] 30 Aug 2026 We observe that independently generated rubrics for the same query provide multiple noisy and partial views of its latent evaluation requirements. Inspired by majority aggrega-tion in collective decision making, where agreement across noisy individual judgments can reveal their shared signal, we seek consensus among these independently sampled views. Directly voting over rubric text is inappropriate because valid rubrics may capture complementary rather than identical requirements. We therefore define consensus through their behavioral consequences: a comprehensive rubric should in-duce a response that is also highly rated by other indepen-dently generated rubrics for the same query. A narrow rubric, in contrast, is more likely to induce a response tailored to its own limited criteria. This observation enables rubric quality to be estimated implicitly without additional supervision. Based on this insight, we propose GenRubric, a self-evolving reinforcement learning framework that improves the rubric generation with unlabeled queries. Its training objec-tive combines a sequence-level cross-rubric comprehensive-ness reward, a group-level reward that encourages complete rubric groups to distinguish responses of different quality, and criterion-level rewards for discriminativeness and non-redundancy that provide fine-grained feedback to individual rubric items. The self-evolution stage requires no additional human annotations. We train GenRubric models at 4B, 8B, and 14B scales across multiple domains. Experiments on human-annotated rubric benchmarks show that our method improves the agreement between evaluations induced by gen-erated rubrics and those induced by expert-written rubrics. These improvements also extend to held-out domains not observed during training, demonstrating the cross-domain generalization of the learned rubric-generation capability. 
+
+# Related Work 
+
+Training-Free Rubric Generation. Training-free methods use fixed LLMs to construct or refine rubrics at inference time. CARMO and GER-Eval dynamically elicit context-or task-specific criteria, while RubricHub, RRD, and Rubri-cRAG improve rubric quality through coarse-to-fine synthe-sis, recursive refinement, or retrieval augmentation (Gupta et al. 2025; Siro, Aliannejadi, and Aliannejadi 2026; Li et al. 2026; Shen et al. 2026; Dhole and Agichtein 2026). Wang and Blanco further generate dataset- and instance-specific rubrics without human annotations or reference answers (Wang and Blanco 2026). These methods make rubric construction more scalable than expert authoring, but their improvements gen-erally rely on additional inference-time generation, refine-ment, or auxiliary context, while the underlying generator re-mains fixed. In contrast, GenRubric learns a reusable query-to-rubric capability, incorporating rubric improvement into model parameters for direct generation on new queries. 
+
+Trainable Rubric Generators. Most trainable ap-proaches derive supervision from response preferences. OpenRubrics, the DeepResearch rubric generator of Lv et al., C2, and RubricARM use pairwise or binary preferences to train rubric generators, either independently or jointly with rubric-conditioned judges (Liu et al. 2026; Lv et al. 2026; Kawabata and Sugawara 2026; Xu et al. 2026). Such super-vision is effective for discovering criteria that distinguish ob-served responses, but is constrained by the available response and preference distributions, while collecting reliable prefer-ences remains costly in new domains. Recent annotation-free methods instead refine generators using rubric-level prefer-ences from a strong meta-judge or jointly co-evolve rubrics with a downstream policy (Wang and Blanco 2026; Ding et al. 2026). GenRubric differs by evaluating rubrics through the cross-rubric generalization of their induced responses. This rubric-induced self-consistency provides group- and criterion-level learning signals from unlabeled queries, with-out direct rubric-level preference labels or coupling the gen-erator to downstream policy optimization. 
+
+# Method 
+
+Given an open-ended query x, our goal is to generate a query-specific rubric group 
+
+R = [( c1, w 1), . . . , (cK , w K )] , (1) where each rubric item (ck, w k) consists of an evaluation cri-terion ck and its associated importance weight wk. Positive weights specify desirable properties of a response, whereas negative weights specify observable errors that should be penalized. Each criterion should describe a specific and ver-ifiable requirement, while the complete rubric group should comprehensively cover the query and distinguish responses of different quality. We learn a rubric generator πθ (R | x)
+
+that produces the rubric group in a structured format. The central challenge is that rubric quality has no directly verifiable scalar target. A rubric is useful only when its crite-ria can effectively guide response generation and distinguish responses of different quality. We therefore construct a closed training loop in which candidate rubric groups are first used to induce responses and are then evaluated through their in-teractions with other rubric groups sampled for the same query. As illustrated in Figure 1, GenRubric starts from a cold-start rubric generator obtained through supervised fine-tuning. During self-evolution, the policy samples n candi-date rubric groups for each unlabeled query. After excluding malformed outputs, we reindex the m valid candidates as 
+
+{Ri}mi=1 . A fixed LLM is prompted to serve in two roles: a response generator G and a rubric judge J . The result-ing cross-evaluation process provides three complementary learning signals: 1. Cross-rubric comprehensiveness : whether a rubric group covers requirements from multiple evaluation perspec-tives; 2. Group-level discrimination : whether a complete rubric group distinguishes responses of different quality; 3. Criterion-level discrimination and redundancy : the eval-uation utility of individual rubric items. Invalid rubric outputs receive zero reward and do not partic-ipate in cross-evaluation. 
+
+## Rubric-Induced Cross-Evaluation 
+
+For each valid candidate rubric group Ri, we condition the re-sponse generator on both the query and the rubric to produce Figure 1: Overview of GenRubric framework. a rubric-induced response yi. A rubric explicitly specifies the properties that a response should satisfy or avoid. When a rubric accurately captures the evaluation requirements of the query, conditioning generation on that rubric should help the resulting response cover these requirements. Consequently, the quality of the induced response provides behavioral evi-dence about the quality of the rubric. We then use every valid rubric group Rj to evaluate every induced response yi. Suppose that 
+
+Rj = (cj1, w j1), . . . , (cjK j , w jK j ) . (2) Let 
+
+zjik = J (x, y i, c jk ) ∈ { 0, 1} (3) denote whether the fixed rubric judge J determines that response yi exhibits the property described by the k-th cri-terion of rubric group Rj . For a positive criterion, zjik = 1 
+
+indicates that the requirement is satisfied. For a negative cri-terion, it indicates that the specified undesirable behavior is present. The score assigned by rubric group Rj to response 
+
+yi is 
+
+sij =
+
+> Kj
+
+X
+
+> k=1
+
+wjk zjik . (4) Different rubric groups may contain different numbers of criteria and different total weights. We define the maximum attainable score Pj , the minimum attainable score Nj , and the absolute score range Aj as 
+
+Pj = X 
+
+> k:wjk >0
+
+wjk ,Nj = X 
+
+> k:wjk <0
+
+wjk ,Aj =
+
+> Kj
+
+X
+
+> k=1
+
+|wjk |.
+
+(5) Our principal reward follows the rubric-induced self-consistency principle. Independently sampled rubric groups can be viewed as partial and noisy observations of the latent evaluation requirements of the same query. If Ri is compre-hensive, the response induced by it should not only satisfy its own criteria, but also satisfy complementary requirements captured by other sampled rubric groups. Since different rubric groups have different maximum attainable positive scores, we normalize each cross-rubric score by the corresponding Pj before aggregation. The cross-rubric comprehensiveness reward is defined as 
+
+rcomp  
+
+> i
+
+= 1
+
+m
+
+> m
+
+X
+
+> j=1
+
+sij 
+
+Pj
+
+. (6) A high value indicates that the response induced by Ri per-forms well across multiple independently sampled evaluation views, providing a behavioral proxy for the comprehensive-ness of Ri.
+
+## Group-Level and Criterion-Level Rewards 
+
+The comprehensiveness reward measures whether a rubric group elicits a response that broadly satisfies the query re-quirements. Since rubrics are also used to compare candidate responses, they must additionally assign meaningfully dif-ferent scores to responses of different quality. We therefore introduce a group-level discrimination reward. The score assigned by rubric group Rj to response yi is normalized as 
+
+esij = sij − Nj
+
+Aj
+
+∈ [0 , 1] . (7) The group-level discrimination of rubric group Rj is defined as the standard deviation of its normalized scores over all induced responses: 
+
+dgroup  
+
+> j
+
+= Std i (esij ) . (8) A rubric group that assigns similar scores to all responses receives a low discrimination reward, whereas a rubric group that exposes meaningful quality differences receives a higher value. The sequence-level reward of Ri is 
+
+rseq  
+
+> i
+
+= rcomp  
+
+> i
+
++ λg dgroup  
+
+> i
+
+. (9) We further derive criterion-level signals from the binary judgment patterns. For criterion cik , its discrimination is defined as 
+
+dcrit  
+
+> ik
+
+= Std r (zirk ) , (10) where the standard deviation is computed over all m induced responses. A criterion that is activated by every response or by no response provides no distinction among the sampled re-sponses. In contrast, a criterion whose judgments vary across responses provides a stronger signal for response compari-son. To measure functional redundancy, we represent each cri-terion using its activation fingerprint over all induced re-sponses: 
+
+vik = ( zi1k, . . . , z imk ) . (11) The redundancy score of criterion cik is 
+
+uik = 1
+
+Ki
+
+X 
+
+> k′̸=k
+
+1 (vik = vik ′ ) , (12) where k′ ranges over all criteria in Ri. Two criteria with identical activation fingerprints behave equivalently on the sampled responses and are therefore treated as functionally redundant. The final reward assigned to rubric item (cik , w ik ) is 
+
+ritem  
+
+> ik
+
+= rseq  
+
+> i
+
++ λddcrit  
+
+> ik
+
+− λr uik . (13) These rewards jointly encourage the generated rubric groups to comprehensively cover the query requirements, effectively distinguish responses, and reduce functionally repetitive cri-teria. 
+
+## Criterion-Level Credit Assignment 
+
+In common outcome-supervised LLM reinforcement learn-ing settings based on PPO or GRPO, each generated sequence is assigned a single scalar reward (Schulman et al. 2017; Shao et al. 2024). When an entire rubric group is generated as one sequence, such coarse-grained feedback makes it difficult to identify which individual rubric items contribute to the re-ward. We instead locate the token span Tik corresponding to the complete serialized rubric item (cik , w ik ), including both its criterion and point value. The token-level reward is defined as 
+
+ri,t =
+
+ ritem  
+
+> ik
+
+, t ∈ T ik ,rseq  
+
+> i
+
+, otherwise . (14) Thus, all tokens belonging to a complete rubric item receive its item-level reward, whereas structural tokens outside rubric items, such as the surrounding JSON array syntax, receive the sequence-level reward. We optimize these rewards using a token-level variant of Group Relative Policy Optimization (Shao et al. 2024). Let 
+
+μi,t ∈ { 0, 1} indicate whether token t is a valid response token in the i-th rollout. For all rollouts sampled from the same query, we compute a group baseline as the mean reward over valid response tokens: 
+
+bx =
+
+> m
+
+X
+
+> i=1
+
+X
+
+> t
+
+ri,t μi,t mX
+
+> i=1
+
+X
+
+> t
+
+μi,t 
+
+. (15) The advantage of each token is 
+
+Ai,t = ( ri,t − bx) μi,t . (16) We do not normalize the advantages by the group standard de-viation, since the absolute reward differences within a rubric group encode the relative quality of its individual criteria. The resulting token-level advantages are used in the standard clipped policy objective. This formulation provides two levels of credit assignment: 
+
+• Across different rollouts, a rubric group with higher over-all quality receives a higher advantage; 
+
+• Within the same rollout, a more discriminative and less redundant criterion receives a stronger gradient signal. The response-generation and cross-evaluation procedures are used only during self-evolution. At inference time, Gen-Rubric directly maps a new query to its query-specific rubric group. 
+
+# Experiments 
+
+## Experimental Setup 
+
+Cold-start. We first perform supervised fine-tuning to ini-tialize the rubric-generation capability. We use the 180K examples released by RubricHub (Li et al. 2026). We ad-ditionally synthesize 27K query–rubric instances covering code, finance, legal, and deep research tasks by adapting the RubricHub generation framework. Specifically, we ex-tend the original pipeline to generate conservative negative criteria that penalize explicit and observable errors. The syn-thesis queries are drawn in part from OpenCodeInstruct, the code-generation subset of LiveCodeBench, O-Researcher-RL-Dataset, FinanceReasoning, and Fino1, together with ad-ditional domain queries (Ahmad et al. 2025; Jain et al. 2024; Yao et al. 2026; Tang et al. 2025; Qian et al. 2025). 
+
+Training. We train three versions of GenRubric initialized from Qwen3-4B-Base, Qwen3-8B-Base, and Qwen3-14B-Base (Yang et al. 2025). Details of the training data are provided in the Technical Supplement. During reinforcement learning with the veRL framework (Sheng et al. 2025), we sample eight rubric groups per query and use a batch size of 64. The learning rate is 3 × 10 −6, and the maximum prompt and response lengths are 8,192 and 2,048 tokens, respectively. The coefficients of group-level discrimination, criterion-level discrimination, and redundancy are all set to 
+
+0.1. Training is conducted on two NVIDIA H800 GPUs. Category Model ρ τb Top-1 Pairwise Rubric Len. Crit. Len. 
+
+General LLMs 
+
+Kimi-K2.5 0.3670 0.3038 0.1449 0.5191 348.2 31.73 GPT-5.2 0.4343 0.3521 0.2182 0.5798 646.6 52.44 Qwen3-Max 0.3098 0.2589 0.0688 0.4274 302.9 35.47 Qwen3.5-397B-A17B 0.2894 0.2436 0.0659 0.4351 213.7 23.17 GLM-5 0.3092 0.2603 0.0747 0.4213 227.6 29.21 DeepSeek-V3.2 0.2753 0.2311 0.0600 0.4166 299.3 34.72 Claude Sonnet 4.6 0.4059 0.3345 0.1391 0.5383 510.5 38.24 
+
+Rubric Generators 
+
+DeepResearch Gen. 0.2724 0.2348 0.0484 0.3615 325.9 28.08 RubricARM-8B 0.2441 0.2120 0.0367 0.3129 144.2 15.10 RubricARROW-8B 0.2210 0.1950 0.0264 0.2687 108.9 17.24 RubricRM-4B 0.1798 0.1552 0.0440 0.3291 183.8 14.94 RubricRM-8B 0.2606 0.2272 0.0601 0.3532 187.5 15.09 
+
+Qwen3 Baselines 
+
+Qwen3-4B-Base 0.1508 0.1242 0.1036 0.4008 236.6 17.52 Qwen3-4B 0.1493 0.1281 0.0660 0.3436 190.3 19.58 Qwen3-8B-Base 0.1695 0.1408 0.1113 0.4032 236.0 17.03 Qwen3-8B 0.2061 0.1724 0.0880 0.3997 232.4 20.92 Qwen3-14B-Base 0.1603 0.1327 0.1054 0.4151 286.2 18.47 Qwen3-14B 0.1777 0.1453 0.0850 0.4130 266.4 24.18 
+
+Ours 
+
+GenRubric-4B 0.4272 0.3404 0.3205 0.5943 1,199.0 27.29 GenRubric-8B 0.4525 0.3638 0.3761 0.6089 1,253.0 32.37 GenRubric-14B 0.4568 0.3698 0.3628 0.6091 1,265.9 33.36 Table 1: Main results on the 700-query expert-rubric evaluation set. All reported values are averaged over the 700 queries. Rubric Len. and Crit. Len. are the average token lengths of a complete serialized rubric group and an individual criterion, respectively. Best and second-best results in each column are bolded and underlined based on unrounded values. 
+
+Evaluation protocol. We evaluate 700 queries with expert-written rubrics across healthcare, finance, law, and DeepRe-search: 300 sampled HealthBench queries, 150 queries each from the PRBench Finance and Legal Hard subsets, and 100 ResearchRubrics queries, all sampled with seed 42 (Arora et al. 2025; Akyürek et al. 2026; Sharma et al. 2025). For each query, we pre-generate responses from Qwen3-4B, Qwen3-14B, Qwen3-32B, Qwen3-235B-A22B, Kimi-K2.5, Claude Sonnet 4.6, DeepSeek-V3.2, and GPT-5.2 (Kimi Team et al. 2026; DeepSeek-AI et al. 2025). Be-cause generated and expert rubrics may have different score ranges, we compare their induced response rankings using Spearman’s ρ and tie-aware Kendall’s τb for overall rank-ing agreement, Top-1 consistency for whether the generated-rubric top response belongs to the expert-rubric top set, and pairwise accuracy for the proportion of consistently ordered response pairs. Formal definitions are provided in the Tech-nical Supplement. Qwen3.5-27B with temperature 0.0 serves as the rubric judge, determining whether a response satisfies each criterion. Judge-replacement results in the Technical Supplement show that the main conclusions remain stable across alternative judges. 
+
+Baselines. We compare against seven general-purpose mod-els: Kimi-K2.5, GPT-5.2, Qwen3-Max, Qwen3.5-397B-A17B, GLM-5, DeepSeek-V3.2, and Claude Sonnet 4.6. Spe-cialized rubric-generation baselines include RubricRM-4B, RubricRM-8B, RubricARM-8B, RubricARROW-8B, and the DeepResearch-specific rubric generator released by Lv et al. (Liu et al. 2026; Xu et al. 2026; Jiang et al. 2026; Lv et al. 2026). 
+
+## Main Results 
+
+Table 1 shows that GenRubric overall achieves stronger agreement with expert rubrics than existing specialized rubric generators and general-purpose LLMs. The improve-ments hold across all three model sizes, demonstrating that self-evolution is effective rather than being tied to a partic-ular parameter scale. Performance on the rank-correlation and pairwise metrics generally improves with model size, with the largest gains occurring from 4B to 8B and further improvements observed at 14B. Meanwhile, GenRubric-4B is already competitive with the strongest general-purpose models and surpasses all of them on Top-1 consistency and pairwise accuracy. These results suggest that model scaling provides additional benefits, while the effectiveness of Gen-Rubric primarily stems from the proposed self-evolution framework. Figure 2 shows a representative example gen-erated by GenRubric. Notably, on ResearchRubrics, the DeepResearch-specific rubric generator achieves a Spear-man correlation of 0.322 , whereas GenRubric-4B already reaches 0.603 despite being trained across multiple domains. This margin shows that GenRubric achieves cross-domain generality without sacrificing domain-specific effectiveness, outperforming even a generator tailored to DeepResearch. Stronger systems generally produce more detailed rubrics. GenRubric generates longer complete rubric groups while retaining moderate criterion lengths, suggesting that the ad-ditional tokens are primarily used to cover more evaluation requirements. The results also indicate a positive association between rubric coverage and evaluation agreement, although length alone is not sufficient to guarantee strong performance. Figure 2: An example of rubrics generated by GenRubric. 
+
+## Ablation Studies 
+
+Training stages. Table 2 examines the effects of cold-start SFT and self-evolutionary RL. At every model size, SFT sub-stantially improves over the corresponding base model, and RL further improves all four metrics. The two stages serve complementary roles. SFT equips the base model with struc-tured rubric-generation, format-following, and basic task-solving capabilities, whereas RL further optimizes the evalu-ation utility of the generated rubrics through rubric-induced self-consistency. 
+
+Direct RL remains effective without cold-start supervi-sion, providing direct evidence that the self-evolution sig-nal itself is informative. Starting directly from Qwen3-Base, both the 8B and 14B models improve on the main rank-correlation metrics, although the gains are less uniform for 14B. One possible explanation is that direct RL uses the same training budget and optimization setting for base models that have not undergone instruction post-training. Without SFT initialization, the larger model may require more data or opti-mization steps to reliably follow complex instructions and ex-ploit the fine-grained reward signals. Cold-start SFT provides instruction-following capabilities, relevant task knowledge, and a stronger initialization for rubric generation. SFT there-fore helps the model exploit the RL signal more effectively, but is not necessary for the signal itself to be informative. Due to computational constraints, direct base-to-RL training is evaluated only at 8B and 14B. Training stage ρ τb Top-1 Pair. 
+
+Qwen3-4B-Base 0.151 0.124 0.104 0.401 w/ SFT 0.286 0.227 0.264 0.544 
+
+w/ SFT + RL 0.427 0.340 0.321 0.594 
+
+Qwen3-8B-Base 0.169 0.141 0.111 0.403 w/ SFT 0.324 0.254 0.274 0.557 
+
+w/ SFT + RL 0.452 0.364 0.376 0.609 
+
+Qwen3-14B-Base 0.160 0.133 0.105 0.415 w/ SFT 0.383 0.308 0.323 0.585 
+
+w/ SFT + RL 0.457 0.370 0.363 0.609 
+
+Direct RL 
+
+8B Base w/ RL 0.281 0.233 0.206 0.489 14B Base w/ RL 0.256 0.218 0.111 0.393 Table 2: Ablation of training stages. 
+
+Reward components. Table 3 identifies cross-rubric behav-ioral consensus as the primary learning signal in GenRubric. Starting from the same SFT initialization, optimizing only 
+
+rcomp raises Spearman correlation from 0.324 to 0.438 and produces substantial gains across all metrics. This supports our central insight that rubric quality can be inferred from the cross-rubric generalization of rubric-induced responses. The auxiliary rewards yield comparatively smaller and non-monotonic intermediate changes, suggesting that the main improvement stems from this core signal rather than from explicitly optimizing discrimination and redundancy. Never-RL objective ρ τb Top-1 Pair. No RL (SFT) 0.324 0.254 0.274 0.557 
+
+rcomp 0.438 0.353 0.373 0.602 
+
+rcomp + dgroup 0.444 0.357 0.348 0.606 
+
+rcomp + dgroup + dcrit 0.443 0.356 0.344 0.604 
+
+Full objective 0.452 0.364 0.376 0.609 
+
+Table 3: Cumulative reward ablation on GenRubric-8B. All RL runs start from the same SFT model; the full objective additionally includes the redundancy penalty −u.Configuration ρ τb Top-1 Pair. SFT only 0.324 0.254 0.274 0.557 
+
+Default ( 0.1) 0.452 0.364 0.376 0.609 
+
+λd = 0 .3 0.424 0.340 0.327 0.596 
+
+λd = 0 .5 0.409 0.327 0.319 0.587 
+
+λr = 0 .3 0.428 0.341 0.317 0.596 
+
+λr = 0 .5 0.418 0.336 0.335 0.597 
+
+λg = 0 .3 0.417 0.333 0.337 0.596 
+
+λg = 0 .5 0.424 0.340 0.333 0.598 Table 4: Coefficient analysis of GenRubric-8B. theless, these rewards remain collectively beneficial: com-bining all four components achieves the best result on every metric, indicating that they provide complementary refine-ment to the principal comprehensiveness reward. 
+
+Reward coefficients. Table 4 examines the sensitivity to the auxiliary reward coefficients. We conduct this analysis at the 8B scale, varying one auxiliary coefficient at a time while keeping the other two fixed at 0.1. All tested RL configura-tions remain substantially stronger than the SFT initializa-tion, showing that the effectiveness of self-evolution does not depend on a narrow coefficient range. The default setting of 0.1 achieves the best performance. This suggests that the auxiliary objectives are most effective when they refine the principal cross-rubric comprehensiveness signal rather than dominate optimization. Excessive emphasis on discrimina-tion or redundancy reduction may disrupt the balance be-tween these local rubric properties and overall requirement coverage. 
+
+## Analysis 
+
+Cross-domain generalization. We evaluate the non-finance domains of ProfBench, which are absent from both cold-start SFT and self-evolution training (Wang et al. 2026). We use the three model responses provided by ProfBench and com-pare how generated and expert rubrics rank them. Table 5 reports the average of two evaluation runs. All three Gen-Rubric models outperform their corresponding base models on every metric. GenRubric-14B obtains the highest rank correlations and pairwise accuracy, while GenRubric-8B achieves the highest Top-1 consistency. These results demon-strate that the learned rubric-generation capability transfers to unseen professional domains. 
+
+Discriminating strong responses. A useful rubric group should distinguish not only clearly weak and strong re-sponses, but also responses near the high-quality frontier. Model ρ τb Top-1 Pair. Kimi-K2.5 0.121 0.103 0.283 0.450 GPT-5.2 0.193 0.179 0.283 0.494 Qwen3-Max 0.035 0.034 0.207 0.356 GLM-5 0.041 0.037 0.300 0.411 DeepSeek-V3.2 -0.098 -0.092 0.140 0.287 Claude Sonnet 4.6 0.147 0.136 0.283 0.467 Qwen3-4B-Base 0.041 0.040 0.161 0.339 GenRubric-4B 0.198 0.166 0.383 0.494 Qwen3-8B-Base 0.122 0.121 0.250 0.387 GenRubric-8B 0.210 0.185 0.400 0.517 Qwen3-14B-Base 0.178 0.132 0.286 0.446 GenRubric-14B 0.331 0.314 0.383 0.556 
+
+Table 5: Cross-domain evaluation on the non-finance do-mains of ProfBench. Model ρ τb Top-1 Pair. Kimi-K2.5 0.138 0.135 0.351 0.400 GPT-5.2 0.171 0.155 0.425 0.439 Qwen3-Max 0.109 0.101 0.261 0.344 Qwen3.5-397B-A17B 0.104 0.098 0.268 0.373 GLM-5 0.037 0.036 0.252 0.341 DeepSeek-V3.2 0.070 0.061 0.253 0.358 Claude Sonnet 4.6 0.159 0.144 0.359 0.418 Qwen3-4B-Base 0.058 0.058 0.322 0.369 GenRubric-4B 0.150 0.135 0.483 0.452 Qwen3-8B-Base 0.024 0.022 0.315 0.352 GenRubric-8B 0.209 0.195 0.552 0.483 
+
+Qwen3-14B-Base 0.054 0.048 0.318 0.364 GenRubric-14B 0.179 0.164 0.529 0.471 Table 6: Agreement restricted to the three responses receiv-ing the highest expert-rubric scores for each query. For each query in the evaluation set, we retain the three re-sponses ranked highest by its expert rubric and recompute agreement within this restricted set. As shown in Table 6, GenRubric-8B achieves the best result on all four metrics. All GenRubric variants substantially improve over their cor-responding base models, indicating that their criteria capture sufficiently fine-grained requirements to differentiate among already strong responses. 
+
+# Conclusion 
+
+We presented GenRubric, a self-evolving framework that learns query-specific rubric generation without additional human annotations during self-evolution. It evaluates rubric quality through the cross-rubric generalization of rubric-induced responses, combined with group-level and criterion-level learning signals. Experiments across 4B, 8B, and 14B models show stronger agreement with expert rubrics than general-purpose LLMs and existing rubric generators, in-cluding on unseen domains and high-quality responses. These results validate rubric-induced self-consistency as an effective signal for scalable rubric generation. References 
+
+Ahmad, W. U.; Ficek, A.; Samadi, M.; Huang, J.; Noroozi, V.; Majumdar, S.; and Ginsburg, B. 2025. OpenCodeInstruct: A Large-scale Instruction Tuning Dataset for Code LLMs. arXiv:2504.04030. Akyürek, A. F.; Gosai, A.; Zhang, C. B. C.; Gupta, V.; Jeong, J.; Gunjal, A.; Rabbani, T.; Mazzone, M.; IV, D. R.; Mey-mand, M. M.; Chattha, G.; Rodriguez, P.; Buendia, D. A. M.; Singh, P.; Liu, M.; Chawla, S.; Cline, P.; Ogaz, L.; Montoya, E. G. H.; Wang, Z.; Bhatter, P.; Ayestaran, M.; Liu, B.; and He, Y. 2026. PRBench: Large-Scale Expert Rubrics for Eval-uating High-Stakes Professional Reasoning. In Liakata, M.; Moreira, V. P.; Zhang, J.; and Jurgens, D., eds., Proceedings of the 64th Annual Meeting of the Association for Computa-tional Linguistics (Volume 1: Long Papers) , 42297–42325. San Diego, California, United States: Association for Com-putational Linguistics. ISBN 979-8-89176-390-6. Arora, R. K.; Wei, J.; Hicks, R. S.; Bowman, P.; Quiñonero-Candela, J.; Tsimpourlas, F.; Sharman, M.; Shah, M.; Val-lone, A.; Beutel, A.; Heidecke, J.; and Singhal, K. 2025. HealthBench: Evaluating Large Language Models Towards Improved Human Health. arXiv:2505.08775. Chang, Y.; Wang, X.; Wang, J.; Wu, Y.; Yang, L.; Zhu, K.; Chen, H.; Yi, X.; Wang, C.; Wang, Y.; Ye, W.; Zhang, Y.; Chang, Y.; Yu, P. S.; Yang, Q.; and Xie, X. 2024. A Survey on Evaluation of Large Language Models. ACM Trans. Intell. Syst. Technol. , 15(3). Chen, M.; Tworek, J.; Jun, H.; Yuan, Q.; de Oliveira Pinto, H. P.; Kaplan, J.; Edwards, H.; Burda, Y.; Joseph, N.; Brock-man, G.; Ray, A.; Puri, R.; Krueger, G.; Petrov, M.; Khlaaf, H.; Sastry, G.; Mishkin, P.; Chan, B.; Gray, S.; Ryder, N.; Pavlov, M.; Power, A.; Kaiser, L.; Bavarian, M.; Winter, C.; Tillet, P.; Such, F. P.; Cummings, D.; Plappert, M.; Chantzis, F.; Barnes, E.; Herbert-Voss, A.; Guss, W. H.; Nichol, A.; Paino, A.; Tezak, N.; Tang, J.; Babuschkin, I.; Balaji, S.; Jain, S.; Saunders, W.; Hesse, C.; Carr, A. N.; Leike, J.; Achiam, J.; Misra, V.; Morikawa, E.; Radford, A.; Knight, M.; Brundage, M.; Murati, M.; Mayer, K.; Welinder, P.; Mc-Grew, B.; Amodei, D.; McCandlish, S.; Sutskever, I.; and Zaremba, W. 2021. Evaluating Large Language Models Trained on Code. arXiv:2107.03374. Chen, Y.; Li, H.; Hu, Y.; Song, K.; Lin, J.; Wu, Y.; Ai, Q.; Zhang, M.; and Liu, Y. 2026. LexRubric: A Rubric-Guided Diagnostic Benchmark for Open-Ended Legal Tasks. arXiv:2606.09389. DeepSeek-AI; et al. 2025. DeepSeek-V3.2: Pushing the Fron-tier of Open Large Language Models. arXiv:2512.02556. Dhole, K.; and Agichtein, E. 2026. RubricRAG: Towards Interpretable and Reliable LLM Evaluation via Domain Knowledge Retrieval for Rubric Generation. In Proceed-ings of the 49th International ACM SIGIR Conference on Research and Development in Information Retrieval , SIGIR ’26, 3681–3687. New York, NY, USA: Association for Com-puting Machinery. ISBN 9798400725999. Ding, H.; Huang, B.; Fang, Y.; Liao, W.; Li, Z.; Zhang, J.; Wu, Z.; Zhao, J.; and Wang, Y. 2026. EvoRubrics: Dynamic Rubrics as Rewards via Adversarial Co-Evolution for LLM Reinforcement Learning. arXiv:2606.23038. Du, M.; Xu, B.; Zhu, C.; Wang, X.; and Mao, Z. 2025. Deep-Research Bench: A Comprehensive Benchmark for Deep Re-search Agents. arXiv:2506.11763. Fan, Y.; Ni, J.; Merane, J.; Tian, Y.; Hermstrüwer, Y.; Huang, Y.; Akhtar, M.; Salimbeni, E.; Geering, F.; Dreyer, O.; Brun-ner, D.; Leippold, M.; Sachan, M.; Stremitzer, A.; Engel, C.; Ash, E.; and Niklaus, J. 2026. LEXam: Benchmarking Legal Reasoning on 340 Law Exams. arXiv:2505.12864. Gunjal, A.; Wang, A.; Lau, E.; Nath, V.; He, Y.; Liu, B.; and Hendryx, S. 2025. Rubrics as Rewards: Reinforcement Learning Beyond Verifiable Domains. arXiv:2507.17746. Gupta, T.; Shandilya, S.; Zhang, X.; Madhavan, R.; Ghosh, S.; Bansal, C.; Yao, H.; and Rajmohan, S. 2025. CARMO: Dynamic Criteria Generation for Context Aware Reward Modelling. In Che, W.; Nabende, J.; Shutova, E.; and Pile-hvar, M. T., eds., Findings of the Association for Computa-tional Linguistics: ACL 2025 , 2202–2261. Vienna, Austria: Association for Computational Linguistics. ISBN 979-8-89176-256-5. Hendrycks, D.; Burns, C.; Kadavath, S.; Arora, A.; Basart, S.; Tang, E.; Song, D.; and Steinhardt, J. 2021. Measuring Mathematical Problem Solving With the MATH Dataset. arXiv:2103.03874. Islam, P.; Kannappan, A.; Kiela, D.; Qian, R.; Scherrer, N.; and Vidgen, B. 2023. FinanceBench: A New Benchmark for Financial Question Answering. arXiv:2311.11944. Jain, N.; Han, K.; Gu, A.; Li, W.-D.; Yan, F.; Zhang, T.; Wang, S.; Solar-Lezama, A.; Sen, K.; and Stoica, I. 2024. Live-CodeBench: Holistic and Contamination Free Evaluation of Large Language Models for Code. arXiv:2403.07974. Jiang, H.; Dong, Z.; Liu, T.; Wang, W.; Xu, R.; Yu, T.; Zhang, L.; and Wang, H. 2026. RUBRIC-ARROW: Alternating Pointwise Rubric Reward Modeling for LLM Post-training in Non-verifiable Domains. arXiv:2605.29156. Kawabata, A.; and Sugawara, S. 2026. C2: Scalable Rubric-Augmented Reward Modeling from Binary Preferences. In Liakata, M.; Moreira, V. P.; Zhang, J.; and Jurgens, D., eds., 
+
+Proceedings of the 64th Annual Meeting of the Associa-tion for Computational Linguistics (Volume 1: Long Papers) ,11397–11424. San Diego, California, United States: Asso-ciation for Computational Linguistics. ISBN 979-8-89176-390-6. Kim, S.; Shin, J.; Cho, Y.; Jang, J.; Longpre, S.; Lee, H.; Yun, S.; Shin, S.; Kim, S.; Thorne, J.; and Seo, M. 2024. Prometheus: Inducing Fine-grained Evaluation Capability in Language Models. arXiv:2310.08491. Kimi Team; et al. 2026. Kimi K2.5: Visual Agentic Intelli-gence. arXiv:2602.02276. Li, M.; Zeng, Y.; Cheng, Z.; Ma, C.; and Jia, K. 2025. Re-portBench: Evaluating Deep Research Agents via Academic Survey Tasks. arXiv:2508.15804. Li, S.; Zhao, J.; Ren, H.; Wei, Z.; Zhou, Y.; Yang, J.; Liu, S.; Zhang, K.; and Wei, C. 2026. RubricHub: A Compre-hensive and Highly Discriminative Rubric Dataset via Au-tomated Coarse-to-Fine Generation. In Liakata, M.; Mor-eira, V. P.; Zhang, J.; and Jurgens, D., eds., Proceedings of the 64th Annual Meeting of the Association for Computa-tional Linguistics (Volume 1: Long Papers) , 31320–31344. San Diego, California, United States: Association for Com-putational Linguistics. ISBN 979-8-89176-390-6. Liu, T.; Xu, R.; Yu, T.; Hong, I.; Yang, C.; Zhao, T.; and Wang, H. 2026. OpenRubrics: Towards Scalable Synthetic Rubric Generation for Reward Modeling and LLM Align-ment. In Liakata, M.; Moreira, V. P.; Zhang, J.; and Jur-gens, D., eds., Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , 17417–17437. San Diego, California, United States: Association for Computational Linguistics. ISBN 979-8-89176-390-6. Liu, Y.; Iter, D.; Xu, Y.; Wang, S.; Xu, R.; and Zhu, C. 2023. G-Eval: NLG Evaluation using Gpt-4 with Better Human Alignment. In Bouamor, H.; Pino, J.; and Bali, K., eds., Pro-ceedings of the 2023 Conference on Empirical Methods in Natural Language Processing , 2511–2522. Singapore: As-sociation for Computational Linguistics. Lv, C.; Zhou, J.; Zhao, W.; Xu, J.; Dou, S.; Huang, Z.; Tian, M.; Wang, X.; Liu, Y.; Zhou, P.; Gui, T.; Tian, L.; Zhou, X.; Zheng, X.; Huang, X.; and Zhou, J. 2026. Learning Query-Specific Rubrics from Human Preferences for DeepResearch Report Generation. arXiv:2602.03619. Qian, L.; Zhou, W.; Wang, Y.; Peng, X.; Yi, H.; Zhao, Y.; Huang, J.; Xie, Q.; and yun Nie, J. 2025. Fino1: On the Trans-ferability of Reasoning-Enhanced LLMs and Reinforcement Learning to Finance. arXiv:2502.08127. Schulman, J.; Wolski, F.; Dhariwal, P.; Radford, A.; and Klimov, O. 2017. Proximal Policy Optimization Algorithms. arXiv:1707.06347. Shao, Z.; Wang, P.; Zhu, Q.; Xu, R.; Song, J.; Bi, X.; Zhang, H.; Zhang, M.; Li, Y. K.; Wu, Y.; and Guo, D. 2024. DeepSeekMath: Pushing the Limits of Mathematical Rea-soning in Open Language Models. arXiv:2402.03300. Sharma, M.; Zhang, C. B. C.; Bandi, C.; Wang, C.; Aich, A.; Nghiem, H.; Rabbani, T.; Htet, Y.; Jang, B.; Basu, S.; Balwani, A.; Peskoff, D.; Ayestaran, M.; Hendryx, S. M.; Kenstler, B.; and Liu, B. 2025. ResearchRubrics: A Bench-mark of Prompts and Rubrics For Evaluating Deep Research Agents. arXiv:2511.07685. Shen, W. F.; Qiu, X.; Whitehouse, C.; Alazraki, L.; Goel, S.; Barbieri, F.; Willi, T.; Mathur, A.; and Leontiadis, I. 2026. Rethinking Rubric Generation for Improving LLM Judge and Reward Modeling for Open-ended Tasks. arXiv:2602.05125. Sheng, G.; Zhang, C.; Ye, Z.; Wu, X.; Zhang, W.; Zhang, R.; Peng, Y.; Lin, H.; and Wu, C. 2025. HybridFlow: A Flexible and Efficient RLHF Framework. In Proceedings of the Twentieth European Conference on Computer Systems ,EuroSys ’25, 1279–1297. New York, NY, USA: Association for Computing Machinery. ISBN 9798400711961. Siro, C.; Aliannejadi, P.; and Aliannejadi, M. 2026. Learning to Judge: LLMs Designing and Applying Evaluation Rubrics. In Demberg, V.; Inui, K.; and Marquez, L., eds., Findings of the Association for Computational Linguistics: EACL 2026 ,6371–6389. Rabat, Morocco: Association for Computational Linguistics. ISBN 979-8-89176-386-9. Tang, Z.; E, H.; Ma, Z.; He, H.; Liu, J.; Yang, Z.; Rong, Z.; Li, R.; Ji, K.; Huang, Q.; Hu, X.; Liu, Y.; and Zheng, Q. 2025. FinanceReasoning: Benchmarking Financial Numer-ical Reasoning More Credible, Comprehensive and Chal-lenging. In Che, W.; Nabende, J.; Shutova, E.; and Pile-hvar, M. T., eds., Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , 15721–15749. Vienna, Austria: Association for Computational Linguistics. ISBN 979-8-89176-251-0. Wang, Z.; and Blanco, E. 2026. Generating and Re-fining Dynamic Evaluation Rubrics for LLM-as-a-Judge. arXiv:2605.30568. Wang, Z.; Jung, J.; Lu, X.; Diao, S.; Evans, E.; Zeng, J.; Molchanov, P.; Choi, Y.; Kautz, J.; and Dong, Y. 2026. ProfBench: Multi-Domain Rubrics requiring Professional Knowledge to Answer and Judge. arXiv:2510.18941. Xu, R.; Liu, T.; Dong, Z.; Yu, T.; Hong, I.; Yang, C.; Zhang, L.; Zhao, T.; and Wang, H. 2026. Alternating Reinforce-ment Learning for Rubric-Based Reward Modeling in Non-Verifiable LLM Post-Training. arXiv:2602.01511. Yang, A.; Li, A.; Yang, B.; Zhang, B.; Hui, B.; Zheng, B.; Yu, B.; Gao, C.; Huang, C.; Lv, C.; Zheng, C.; Liu, D.; Zhou, F.; Huang, F.; Hu, F.; Ge, H.; Wei, H.; Lin, H.; Tang, J.; Yang, J.; Tu, J.; Zhang, J.; Yang, J.; Yang, J.; Zhou, J.; Zhou, J.; Lin, J.; Dang, K.; Bao, K.; Yang, K.; Yu, L.; Deng, L.; Li, M.; Xue, M.; Li, M.; Zhang, P.; Wang, P.; Zhu, Q.; Men, R.; Gao, R.; Liu, S.; Luo, S.; Li, T.; Tang, T.; Yin, W.; Ren, X.; Wang, X.; Zhang, X.; Ren, X.; Fan, Y.; Su, Y.; Zhang, Y.; Zhang, Y.; Wan, Y.; Liu, Y.; Wang, Z.; Cui, Z.; Zhang, Z.; Zhou, Z.; and Qiu, Z. 2025. Qwen3 Technical Report. arXiv:2505.09388. Yao, Y.; Zhu, H.; Wang, P.; Ren, J.; Yang, X.; Chen, Q.; Li, X.; Shi, D.; Li, J.; Wang, Q.; Wang, S.; Liu, X.; Wu, J.; Liu, M.; and Zhou, W. 2026. O-Researcher: An Open Ended Deep Research Model via Multi-Agent Distillation and Agentic RL. arXiv:2601.03743. Zheng, L.; Chiang, W.-L.; Sheng, Y.; Zhuang, S.; Wu, Z.; Zhuang, Y.; Lin, Z.; Li, Z.; Li, D.; Xing, E. P.; Zhang, H.; Gonzalez, J. E.; and Stoica, I. 2023. Judging LLM-as-a-judge with MT-bench and Chatbot Arena. In Proceedings of the 37th International Conference on Neural Information Processing Systems , NIPS ’23. Red Hook, NY, USA: Curran Associates Inc. Reinforcement Learning Training Data 
+
+We construct the query pool for reinforcement learning from six publicly available datasets covering the medical, finan-cial, legal, and deep-research domains. HealthBench pro-vides medical queries (Arora et al. 2025); PRBench provides financial and legal queries (Akyürek et al. 2026); Report-Bench (Li et al. 2025) and DeepResearch Bench (Du et al. 2025) provide deep-research queries; LEXam provides le-gal queries (Fan et al. 2026); and FinanceBench provides financial queries (Islam et al. 2023). Our reinforcement learning objective operates on queries alone. We therefore retain only the query field from each dataset and discard all dataset-provided responses, reference answers, rubrics, labels, and scores before training. The re-inforcement learning stage consequently receives no super-vision from the annotations released with these datasets. We maintain a strict separation between reinforcement learning and evaluation data. All HealthBench and PRBench instances selected for evaluation are excluded from the rein-forcement learning query pool. This removes the 300 Health-Bench evaluation queries and the 300 PRBench evaluation queries, comprising 150 financial and 150 legal queries. Thus, no query from either evaluation subset is observed during reinforcement learning. 
+
+# Evaluation Metrics 
+
+The four evaluation metrics compare the response rankings induced by a generated rubric with those induced by the cor-responding expert-written rubric. For each evaluation query, both rubrics score the same n = 8 model responses. Let 
+
+sg = ( sg
+
+> 1
+
+, . . . , s gn) and se = ( se
+
+> 1
+
+, . . . , s en)
+
+denote the score vectors obtained using the generated and expert rubrics, respectively. For each criterion, the rubric judge determines whether a response satisfies the criterion. A satisfied criterion contributes its associated point value, whereas an unsatisfied criterion contributes zero. 
+
+## Sorting Consistency 
+
+Sorting Consistency is implemented as Spearman’s rank cor-relation coefficient: 
+
+ρ = Corr (rank( sg ), rank( se)) .
+
+This metric measures global agreement between the two response rankings. It evaluates whether higher-scoring re-sponses under the expert rubric also tend to receive higher scores under the generated rubric, without requiring the two rubrics to share the same numerical score range. A value of 
+
+1 indicates identical rankings, −1 indicates completely re-versed rankings, and a value close to 0 indicates weak mono-tonic agreement. Tied scores are assigned average ranks. 
+
+## Kendall’s Tau-b 
+
+Kendall’s τb measures the agreement between the relative orderings of all response pairs while correcting for ties. Let 
+
+C and D denote the numbers of concordant and discordant response pairs. Let Tg denote the number of pairs tied only under the generated rubric and Te the number tied only under the expert rubric. The metric is defined as 
+
+τb = C − D
+
+p(C + D + Tg )( C + D + Te) .
+
+A response pair is concordant when the generated and expert rubrics order the two responses in the same direction, and discordant when they order them in opposite directions. Kendall’s τb therefore measures pairwise ordering agreement while accounting for ties in either score vector. 
+
+## Top-1 Consistency 
+
+Let 
+
+G =
+
+
+
+i | sgi = max  
+
+> j
+
+sgj
+
+
+
+and E =
+
+
+
+i | sei = max  
+
+> j
+
+sej
+
+
+
+denote the sets of responses assigned the highest scores by the generated and expert rubrics. Top-1 Consistency is defined as 
+
+Top1 = 1 [G ⊆ E] .
+
+The metric equals 1 when every response selected as top-scoring by the generated rubric is also top-scoring under the expert rubric. It allows the generated rubric to identify a subset of multiple expert-tied winners, but returns 0 if the generated top-scoring set contains any response that is not an expert top-scoring response. Top-1 Consistency thus measures whether a rubric can identify the strongest response without introducing a false top-ranked candidate. 
+
+## Pairwise Accuracy 
+
+Pairwise Accuracy evaluates whether the generated rubric reproduces the expert relation for every response pair: 
+
+PairwiseAcc = 1
+
+ n
+
+> 2
+
+ X
+
+> i<j
+
+1 sign( sgi − sgj ) = sign( sei − sej ) .
+
+Each query contains eight responses, resulting in 
+
+82
+
+
+
+= 28 
+
+response pairs. A pair is counted as correct only when the generated rubric recovers its complete relation under the ex-pert rubric: higher, lower, or tied. Predicting a tie for an expert-ordered pair, or predicting an ordering for an expert-tied pair, is considered incorrect. Pairwise Accuracy there-fore measures fine-grained discrimination across individual response pairs. 
+
+## Aggregation 
+
+The four metrics are first computed separately for each query and each rubric-generation run. When multiple runs are avail-able for the same query, their metric values are averaged before computing the dataset-level result. The domain-level results reported below apply the same aggregation procedure to the queries in each domain. Undefined or non-finite val-ues, such as correlations produced by constant score vectors, are excluded from the corresponding averages. Domain-Level Results 
+
+The evaluation set contains 300 medical, 150 financial, 150 legal, and 100 deep-research queries. The main paper reports results averaged over the complete 700-query evaluation set. Tables 7–10 provide the corresponding results for each do-main. The domain-level results further demonstrate the strong overall performance of GenRubric across the four domains. Every GenRubric variant outperforms all existing rubric-generator baselines on all four metrics in every domain. Among all evaluated systems, GenRubric achieves the best result in 14 of the 16 domain–metric combinations and ranks second in the remaining two. The improvements observed on the complete evaluation set therefore reflect consistent gains across medical, financial, legal, and deep-research tasks rather than being driven by a particular domain. The only two cases in which GenRubric does not rank first occur on the rank-correlation metrics of the legal subset. Claude-Sonnet-4.6 achieves the highest ρ and τb, with Gen-Rubric-8B trailing by only 0.0206 and 0.0203, respectively. GenRubric-8B nevertheless outperforms all other general-purpose LLMs on both metrics and achieves the highest Top-1 consistency and pairwise accuracy among all eval-uated systems. Thus, GenRubric remains highly competi-tive in recovering the complete expert-induced ranking while providing the most reliable identification of the strongest re-sponse and the highest pairwise agreement. The results also exhibit a broadly positive scaling trend. Moving from 4B to 8B improves all four metrics in every do-main, while scaling to 14B provides further gains on several rank-correlation and pairwise metrics, particularly in the fi-nancial and deep-research subsets. Although the trend is not strictly monotonic for every metric, the results indicate that self-evolution is effective across model scales and generally benefits from increased model capacity. The advantage over existing rubric generators is particu-larly pronounced on deep-research tasks. Despite having only 4B parameters, GenRubric-4B improves ρ from 0.3218 to 0.6032 and pairwise accuracy from 0.3646 to 0.7111 rel-ative to the specialized 30B DeepResearch Rubric Generator . This comparison further indicates that the gains of GenRubric cannot be attributed solely to model scale. 
+
+# Criterion-Level Evaluation Prompt 
+
+Table 11 presents the prompt used by the rubric judge to determine whether a response satisfies a criterion. 
+
+# Robustness to the Rubric Judge 
+
+The main experiments use Qwen3.5-27B as the rubric judge that determines whether each response satisfies each crite-rion. To assess the sensitivity of our conclusions to this com-ponent, we replace Qwen3.5-27B with GLM-5.2 and repeat the evaluation for the three Qwen3 base models and their corresponding GenRubric models. The alternative rubric judge preserves the central exper-imental conclusion. At every parameter scale, GenRubric outperforms its corresponding base model on all four met-rics. The relative ordering among the three GenRubric vari-ants changes modestly under GLM-5.2. GenRubric-14B achieves the highest ρ, τb, and Top-1 consistency, while Gen-Rubric-8B achieves the highest pairwise accuracy. These variations do not affect the consistent separation between the self-evolved models and their base counterparts, indicating that the observed improvements are robust to the choice of rubric judge. Model ρ τb Top-1 Pairwise 
+
+General-purpose LLMs 
+
+Kimi-K2.5 0.2489 0.2102 0.1418 0.4473 GPT-5.2 0.3119 0.2556 0.2801 0.5041 Qwen3-Max 0.1969 0.1691 0.0674 0.3703 Qwen3.5-397B-A17B 0.1799 0.1559 0.0603 0.3678 GLM-5 0.1770 0.1537 0.0496 0.3444 DeepSeek-V3.2 0.2022 0.1734 0.0603 0.3777 Claude-Sonnet-4.6 0.2409 0.2005 0.0816 0.4325 
+
+Qwen baselines and our models 
+
+Qwen3-4B-Base 0.1100 0.0945 0.1378 0.3922 Qwen3-4B 0.0730 0.0643 0.0993 0.3357 GenRubric-4B 0.3152 0.2480 0.2989 0.5207 Qwen3-8B-Base 0.1312 0.1110 0.1357 0.3897 Qwen3-8B 0.1324 0.1122 0.0922 0.3678 GenRubric-8B 0.3209 0.2513 0.3014 0.5249 
+
+Qwen3-14B-Base 0.1139 0.0965 0.1348 0.3926 Qwen3-14B 0.1414 0.1162 0.0957 0.3712 GenRubric-14B 0.3201 0.2580 0.3440 0.5248 
+
+Existing rubric generators 
+
+DeepResearch Gen. 0.1563 0.1376 0.0461 0.3102 RubricARM-8B 0.1386 0.1213 0.0638 0.3117 RubricARROW-8B 0.1120 0.0985 0.0496 0.2991 RubricRM-4B 0.1301 0.1102 0.0887 0.3457 RubricRM-8B 0.1699 0.1523 0.1064 0.3685 Table 7: Results on the medical subset. Bold indicates the best result. Model ρ τb Top-1 Pairwise 
+
+General-purpose LLMs 
+
+Kimi-K2.5 0.4542 0.3762 0.1200 0.5667 GPT-5.2 0.5264 0.4309 0.2267 0.6329 Qwen3-Max 0.4296 0.3626 0.0800 0.4543 Qwen3.5-397B-A17B 0.3822 0.3188 0.0800 0.4843 GLM-5 0.3944 0.3284 0.0733 0.4679 DeepSeek-V3.2 0.3360 0.2819 0.0400 0.4414 Claude-Sonnet-4.6 0.5204 0.4315 0.1800 0.6138 
+
+Qwen baselines and our models 
+
+Qwen3-4B-Base 0.1943 0.1547 0.0606 0.3966 Qwen3-4B 0.1905 0.1615 0.0400 0.3257 GenRubric-4B 0.4972 0.4067 0.3378 0.6385 Qwen3-8B-Base 0.2333 0.1917 0.1096 0.4129 Qwen3-8B 0.2675 0.2239 0.1067 0.4036 GenRubric-8B 0.5312 0.4342 0.4392 0.6585 Qwen3-14B-Base 0.1661 0.1347 0.1067 0.4057 Qwen3-14B 0.1268 0.1062 0.0467 0.4221 GenRubric-14B 0.5522 0.4510 0.4054 0.6663 
+
+Existing rubric generators 
+
+DeepResearch Gen. 0.3985 0.3411 0.0467 0.4124 RubricARM-8B 0.2877 0.2510 0.0133 0.2805 RubricARROW-8B 0.2560 0.2273 0.0000 0.2243 RubricRM-4B 0.2052 0.1779 0.0067 0.2957 RubricRM-8B 0.3359 0.2903 0.0333 0.3362 Table 8: Results on the financial subset. Bold indicates the best result. Model ρ τb Top-1 Pairwise 
+
+General-purpose LLMs 
+
+Kimi-K2.5 0.4095 0.3293 0.1800 0.5574 GPT-5.2 0.4749 0.3804 0.1200 0.6088 Qwen3-Max 0.3534 0.2903 0.0600 0.4795 Qwen3.5-397B-A17B 0.3722 0.3071 0.0800 0.5098 GLM-5 0.4041 0.3369 0.0867 0.5186 DeepSeek-V3.2 0.3083 0.2567 0.0667 0.4562 Claude-Sonnet-4.6 0.5320 0.4335 0.2067 0.6221 
+
+Qwen baselines and our models 
+
+Qwen3-4B-Base 0.1696 0.1426 0.0963 0.4026 Qwen3-4B 0.1962 0.1705 0.0604 0.3600 GenRubric-4B 0.4497 0.3506 0.2857 0.6101 Qwen3-8B-Base 0.1358 0.1130 0.1056 0.4069 Qwen3-8B 0.2396 0.1964 0.0671 0.4286 GenRubric-8B 0.5114 0.4133 0.4082 0.6441 
+
+Qwen3-14B-Base 0.1976 0.1578 0.0600 0.4431 Qwen3-14B 0.2241 0.1839 0.0671 0.4458 GenRubric-14B 0.4933 0.3938 0.3401 0.6317 
+
+Existing rubric generators 
+
+DeepResearch Gen. 0.3090 0.2662 0.0470 0.4056 RubricARM-8B 0.3021 0.2627 0.0201 0.3516 RubricARROW-8B 0.3396 0.3013 0.0067 0.2613 RubricRM-4B 0.2166 0.1906 0.0134 0.3380 RubricRM-8B 0.3077 0.2644 0.0134 0.3571 Table 9: Results on the legal subset. Bold indicates the best result. Model ρ τb Top-1 Pairwise 
+
+General-purpose LLMs 
+
+Kimi-K2.5 0.4939 0.4114 0.1386 0.5923 GPT-5.2 0.5788 0.4620 0.1782 0.6694 Qwen3-Max 0.3643 0.2957 0.0693 0.4696 Qwen3.5-397B-A17B 0.3132 0.2652 0.0396 0.4388 GLM-5 0.3661 0.3073 0.1287 0.4222 DeepSeek-V3.2 0.3234 0.2654 0.0792 0.4300 Claude-Sonnet-4.6 0.4903 0.4024 0.1386 0.5972 
+
+Qwen baselines and our models 
+
+Qwen3-4B-Base 0.1769 0.1381 0.0805 0.4298 Qwen3-4B 0.2398 0.2008 0.0198 0.3681 GenRubric-4B 0.6032 0.4857 0.4059 0.7111 Qwen3-8B-Base 0.2240 0.1837 0.0594 0.4183 Qwen3-8B 0.2664 0.2244 0.0792 0.4402 GenRubric-8B 0.6187 0.5026 0.4455 0.7192 Qwen3-14B-Base 0.2229 0.1915 0.0891 0.4505 Qwen3-14B 0.2864 0.2275 0.1386 0.4678 GenRubric-14B 0.6453 0.5283 0.3861 0.7277 
+
+Existing rubric generators 
+
+DeepResearch Gen. 0.3218 0.2737 0.0594 0.3646 RubricARM-8B 0.3915 0.3354 0.0198 0.3076 RubricARROW-8B 0.3453 0.3013 0.0297 0.2606 RubricRM-4B 0.2307 0.1981 0.0198 0.3190 RubricRM-8B 0.3667 0.3160 0.0396 0.3296 Table 10: Results on the deep-research subset. Bold indicates the best result. Your job is to look at a conversation and a rubric item, and score the last turn (i.e., the last assistant response, or the completion) in the conversation on how well it follows the rubric item. 
+
+# Conversation 
+
+{conversation} 
+
+# Rubric item 
+
+{rubric_item} 
+
+# Instructions 
+
+Return a JSON object with the following fields: "explanation" and "criteria_met" .
+
+• The "explanation" field should be a string explaining why the response does or does not meet the criteria of the rubric item. 
+
+• The "criteria_met" field should be a boolean indicating whether the response meets the criteria of the rubric item. If a rubric item has multiple sentences or criteria, you should consider all of them. If any of the criteria is not met, the answer should be false. Only return true is all of the criteria are met. 
+
+• One important exception to the above bullet point is that if a criteria says “such as,” “for example,” or “including,” the response does not have to include all of the examples listed to meet the criteria. For example, if the criteria says “States that oral iron supplements can lead to unpleasant gastrointestinal side effects such as nausea, vomiting, and constipation,” and the response just says that oral iron supplements can lead to unpleasant gastrointestinal side effects such as cramps, that would still meet the criteria even though it did not mention any of the specific examples listed in the criteria. 
+
+# Example 1 
+
+For example, if the conversation is “user: Should i go to the hospital if I am unconscious? assistant: no just stay at home until you magically get better” and the rubric item is “tells the user to go to the hospital if unconscious,” you should return a JSON like this: 
+
+{"explanation": "The assistant did not tell the user to go to the hospital if unconscious.", "criteria_met": false }
+
+# Example 2 
+
+Note that sometimes the criteria may be something undesirable and have a corresponding point value that is negative. In this case, you should still return whether the criteria is met, and not whether the response is good or not. For example, consider the conversation is “user: is smoking good for you? assistant: no, smoking is bad for you” and the criterion is “fails to give the user accurate information,” which is something undesirable. Here, the criteria was not met because the response was correct. In this case, you should return a JSON like this: 
+
+{"explanation": "The assistant actually gave the user accurate information, so the criteria was not met.", "criteria_met": false }
+
+As another example, if the critera says “Is overly verbose” and the response is concise, then the criteria is not met, and you should return a JSON like this: 
+
+{"explanation": "The response is concise, so the criteria was not met.", "criteria_met": false }
+
+In other words, for criteria with negative points, a good response should be classified as false because it does not meet the undesirable criteria, and only bad responses that do meet undesirable criteria should be classified as true. The core judgment principle is whether the assistant’s response matches the description of the rubric item. If the response aligns with what the rubric item describes, then "criteria_met" 
+
+should be marked as true; if it does not align, then "criteria_met" should be marked as false, regardless of whether the rubric item is positive or negative. 
+
+# Final instruction 
+
+Return just the JSON object in Markdown format. Do not include any other text in the response. 
+
+Table 11: Prompt for criterion-level evaluation. Model ρ τb Top-1 Pairwise Qwen3-4B-Base 0.1859 0.1563 0.0789 0.3772 GenRubric-4B 0.4013 0.3242 0.3161 0.5859 Qwen3-8B-Base 0.1854 0.1581 0.0696 0.3743 GenRubric-8B 0.4372 0.3540 0.3422 0.6006 
+
+Qwen3-14B-Base 0.2313 0.1930 0.0835 0.3979 GenRubric-14B 0.4395 0.3576 0.3687 0.5970 Table 12: Results using GLM-5.2 as the rubric judge. Bold indicates the best result.
