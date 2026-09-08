@@ -1,0 +1,673 @@
+Title: CPR for LLMs: Critical-Point Routing against Catastrophic Forgetting in Domain Adaptation
+
+URL Source: https://arxiv.org/pdf/2608.30158v1
+
+Published Time: Tue, 01 Sep 2026 01:52:44 GMT
+
+Number of Pages: 25
+
+Markdown Content:
+# CPR for LLMs: Critical-Point Routing against Catastrophic Forgetting in Domain Adaptation 
+
+Kwangmin Ki 1 Yunhun Nam 1 Jongheon Jeong 1 Jaehyung Kim 2
+
+> 1
+
+Korea University 2Yonsei University 
+
+{kwangminki,yh0326,jonghj}@korea.ac.kr jaehyungk@yonsei.ac.kr 
+
+Abstract 
+
+Supervised fine-tuning (SFT) is the de facto standard for adapting large language models (LLMs) to target domains, but it often degrades the model’s general capabilities, a phenomenon known as catastrophic forgetting. Existing ap-proaches typically modify the SFT loss to miti-gate forgetting, but inevitably operate along a domain-generality trade-off. In this work, we step outside this trade-off by decoupling the two capabilities at the model level: we keep the original base model for general capabil-ity, and selectively invoke the SFT expert only when domain-specific knowledge is required. Specifically, we propose CPR (Critical-Point 
+
+Routing), a token-level routing framework be-tween a base model and its expert derivative, based on critical tokens where the base fails but the expert succeeds. We train a lightweight hier-archical router that estimates expert-call proba-bility per token, and pair it with a tailored infer-ence procedure combining momentum smooth-ing and threshold gating. Across diverse model-domain configurations, CPR achieves state-of-the-art performance across all settings, surpass-ing SFT expert by 1.4-5.5% in domain perfor-mance while recovering its general-capability drop from 3.4-14.5% to at most 0.5%, with minimal overhead from invoking the expert on only one-third of tokens. 1
+
+1 Introduction 
+
+Large language models (LLMs) trained on broad corpora have become widely deployed across di-verse applications, from open-ended dialogue to complex multi-step reasoning (Wei et al., 2022; Kojima et al., 2022). To improve the performance on specific domains such as mathematics (Toshni-wal et al., 2025) and medicine (Han et al., 2023), supervised fine-tuning (SFT) on domain data has 
+
+> 1
+
+Code: https://github.com/kwang-min-ki/ CPR .A Existing Paradigm B CPR (Ours) Input Prompt 
+
+> Compressed into single weight set
+> Trade-off Output
+> Domain ↑ General ↓
+> Input Tokens Hierarchical Router
+> Adaptive Token Routing
+> Base Model
+> Generalist
+> Expert Model
+> Domain specialist
+> Both Capabilities Preserved
+> Domain ↑ General ↑
+> Most Tokens Critical Tokens
+> Domain Capability General Capability
+> …
+> Fine-tuned Model
+
+Figure 1: Comparison of paradigms against catas-trophic forgetting in SFT. (A) Existing methods com-press both capabilities into one model, yielding a trade-off. (B) CPR (Ours) decouples them by routing the expert only on critical tokens, preserving both. 
+
+become the standard approach. However, domain-specific SFT often degrades the model’s general capabilities, a phenomenon known as catastrophic forgetting (Luo et al., 2025; Kotha et al., 2024). This degradation is problematic because domain tasks themselves build on general capabilities such as language understanding, instruction following, and multi-step reasoning; a model whose domain capability is raised at the expense of these founda-tions becomes brittle in practice (Liu et al., 2024). The key challenge in domain adaptation is there-fore to improve domain performance and preserve general capabilities simultaneously. To address this, most existing approaches fol-low a regularization-based paradigm, modifying SFT loss to reduce forgetting by adding distribu-tion preservation terms or reweighting token-level loss (Wu et al., 2026; Diao et al., 2026; Nam et al., 2026). Despite clear progress, these methods share a common limitation: they compress both domain and general capabilities into a single weight set 1arXiv:2608.30158v1 [cs.CL] 31 Aug 2026 Input Tokens  
+
+> X1X2
+
+Base Model f Bfirst layer output head 
+
+1Hierarchical Router 
+
+> Macro Encoder
+> single pass
+> Micro Router
+> token level
+
+2Expert Model f EOutput token xt
+
+… 
+
+> τlow τhigh
+> P1
+> P2
+> Pt-1
+
+Momentum Smoothing  
+
+> last layer
+> concatenate Pt
+> τlow τhigh
+> m1
+> m2
+> mt-1
+> mt-2
+> mt
+
+Threshold-gated Dispatch 3    
+
+> : Frozen : Trainable
+> τlow τhigh
+> λ1
+> λ2
+> λt-1
+> λt-2
+> λtBase Expert Base Base Base Expert
+> 01
+> Expert
+> Invoked only on critical points Always run Xt-1
+
+…                              
+
+> Pt-2
+> ………
+> p(xt|x<t ) = (1 →ωt)pb+ωtpe
+> pt=ω(MLP micro ([ hBt; MLP macro (c)])) mt=ωm t→1+ (1 →ω)pt
+> ωt=
+> 
+> 0if mt< ε low
+> mtif εlow →mt→εhigh
+> 1if mt> ε high
+
+Figure 2: Overview of CPR. At each generation step t, (1) the base model fB produces a last-layer hidden state hB
+
+that feeds a hierarchical router gϕ, composed of a query-level macro encoder and a token-level micro router. (2) The router’s raw output pt is stabilized by momentum smoothing mt = αm t−1 + (1 − α)pt, and then (3) mapped to a dispatch weight λt via threshold-gated 3-way dispatch: hard base ( mt < τ low ), soft blend ( τlow ≤ mt ≤ τhigh ), or hard expert ( mt > τ high ). The final token distribution is a convex combination p(xt|x<t ) = (1 − λt)pb + λtpe.
+
+(Figure 1(a)), and thus remain bound to a domain-general trade-off that no existing method has fully eliminated (Lin et al., 2026). 2
+
+This motivates a fundamentally different ques-tion: rather than compressing both capabilities into a single model, can we decouple them at the model level and selectively use them? Inter-model routing has been studied along two strands: (i) query-level cost-quality routing (Ong et al., 2025; Chen et al., 2024; Ding et al., 2024) and (ii) fine-grained routing for cross-domain capability fusion (Feng et al., 2026; Xiong et al., 2026; Shen et al., 2024). However, its use as an architectural remedy for catastrophic forgetting in domain-specific SFT remains largely underexplored. In this work, we propose CPR (Critical-Point 
+
+Routing), a new framework that preserves general capabilities after SFT, by collaborating an SFT-tuned expert model and an initial base model via token-level routing (Figure 1(b)). The expert is invoked only on the sparse set of tokens where it is genuinely needed, leaving the rest to the base, so that each token is served by whichever model is best suited to it. Specifically, we first define crit-ical points as tokens where the base fails but the expert succeeds. Then, we train a lightweight hier-archical router on them, composed of a query-level macro encoder and a token-level micro router oper-ating on the base model’s last-layer hidden states. At inference, since binary dispatch is destabilized by short-range noise and boundary ambiguity, we introduce two tailored mechanisms: (i) momentum-based smoothing to absorb short-term router noise, 
+
+> 2
+
+Our empirical results for this are presented in Figure 8. 
+
+and (ii) threshold-gated 3-way dispatch to blend two distributions on ambiguous tokens. Beyond sta-bilizing dispatch, these mechanisms also yield effi-ciency gains by avoiding the per-step dual-model cost. An overview of CPR is presented in Figure 2. We validate CPR on two representative LLMs, Gemma3-4B (Team et al., 2025) and Llama3.1-8B (Grattafiori et al., 2024), adapted to math (Cobbe et al., 2021) and medical (Jin et al., 2019) domains, evaluated over six benchmarks spanning domain and general capabilities. CPR attains the highest overall average in all four model-domain settings, surpassing vanilla SFT in target domain perfor-mance while nearly fully recovering its general-capability drop. For example, with Gemma3-4B in the math domain, CPR surpasses vanilla SFT by 2.8% in domain performance; at the same time, it improves upon SFT by 8.9%, exceeding even the base model’s performance by 2.2%. More impor-tantly, CPR consistently outperforms state-of-the-art regularization-based baselines (Wu et al., 2026; Diao et al., 2026; Nam et al., 2026) and routing-based baselines at coarser granularity (Ong et al., 2025; Feng et al., 2026), empirically demonstrating the superiority of the proposed token-level adaptive routing. In addition, CPR matches or exceeds per-formance while invoking the expert on only ~30% of tokens, substantially reducing inference latency compared to conventional collaborative decoding methods. We further show that CPR generalizes to publicly available external experts without ad-ditional SFT, demonstrating its robustness to how the expert is produced. We hope that this work offers a new perspective on mitigating catastrophic forgetting in domain-specific LLM adaptation. 22 Related Work 
+
+Catastrophic Forgetting in Domain SFT. De-spite its effectiveness, domain-specific SFT is widely reported to degrade LLMs’ general capabil-ities. Luo et al. (2025) empirically show that catas-trophic forgetting arises consistently across 1B-7B LLMs under continual instruction tuning. Kotha et al. (2024) attribute this to fine-tuning skewing the model’s implicit task inference toward the SFT distribution, thereby suppressing pre-existing ca-pabilities. Furthermore, Lobo et al. (2025) show that task-specific fine-tuning consistently reduces both the accuracy and the faithfulness of chain-of-thought reasoning, indicating that SFT can disturb the reasoning machinery that domain tasks rely on. To mitigate this trade-off, prior work has con-centrated on modifying the next token prediction training loss. DFT (Wu et al., 2026) rescales the per-token loss by the model’s token probability to neutralize an implicit inverse-probability reward; EAFT (Diao et al., 2026) uses token-level entropy as a soft gate to suppress destructive gradients on confident-conflict tokens; LfU (Nam et al., 2026) regularizes representations to remain consistent with those after an undesirable update, preserving prior knowledge. As the core idea is to compress domain and general capabilities into a single weight set, they fundamentally operate along the trade-off. In contrast, CPR separates two capabilities at the model level and then merges them via adaptive routing, escaping the single-weight trade-off. 
+
+Inter-model Routing for LLM Decoding. The proposed approach is situated within the broader paradigm of inter-model routing which dynami-cally combines multiple LLMs at inference. Prior studies generally fall into two distinct categories. The first category routes an entire query to one of several models, driven by a cost-quality trade-off. RouteLLM (Ong et al., 2025) learns a router from human preferences to dispatch between a strong and a weak LLM; FrugalGPT (Chen et al., 2024) cascades LLMs under a budget constraint; Hybrid LLM (Ding et al., 2024) routes queries based on dif-ficulty and a tunable quality target. Although these methods differ from ours in both objective and gran-ularity, they establish input-dependent inter-model dispatch as a core design principle. The second category combines model outputs at finer granularity for cross-domain capability fu-sion. Co-LLM (Shen et al., 2024) models the per-token deferral as a latent variable trained via marginal likelihood; Switch Generation (Feng et al., 2026) alternates between pretrained, finetuned, and aligned checkpoints at the patch level to recover skills lost in alignment; FusionRoute (Xiong et al., 2026) selects a token-level expert while adding a complementary logit from the router itself. Al-though they target fusing heterogeneous strengths rather than mitigating forgetting with SFT, these works motivate the token-level granularity of our approach, enabling more precise expert invoca-tion. 
+
+3 Method 
+
+3.1 Problem Setup 
+
+Let fB denote the original base model and fE the domain expert model derived from fB . Given an input prompt followed by generation up to total length L , we denote the full sequence as x =(x1, . . . , x Lp , . . . , x L), where Lp is the index of the first generated token. The input prompt may consist of optional few-shot demonstrations followed by a question; we denote the question span as Sq =
+
+{sq, . . . , L p − 1}, where sq is the index of the first question token (with sq = 1 in the 0-shot case). At each generation step t ∈ { Lp, . . . , L − 1}, models 
+
+fB and fE produce next-token distributions pb and 
+
+pe over the vocabulary, conditioned on x<t . Then, we aim to produce a per-token output distribution as a convex combination of the two: 
+
+p(xt | x<t ) = (1 − λt) pb + λt pe, (1) where λt ∈ [0 , 1] is a token-level dispatch weight that takes one of three forms: λt = 0 , λt = 1 ,or λt ∈ [τlow , τ high ]. To determine λt, we (i) in-troduce a lightweight hierarchical router gϕ, (ii) train it with token-level critical-point labels (Sec-tion 3.2), and (iii) apply momentum smoothing and threshold gating at inference (Section 3.3). This convex combination can be viewed from a latent-variable perspective, where the router es-timates whether the base or expert model should generate each token. Marginalizing over this choice naturally motivates a token-dependent mixture of their output distributions. If the router output is in-terpreted as an estimate of the posterior probability that the expert should be selected, marginalizing over this latent choice yields exactly the convex mixture above. We therefore use its temporally smoothed estimate mt as the mixture weight λt in the ambiguous Soft Blend regime. 33.2 Training Router Architecture. The router gϕ is organized into two stages: a macro encoder that summarizes the domain relevance of the entire question once per sequence, and a micro router that makes a per-token decision at every generation step. These two components are implemented as MLP macro and 
+
+MLP micro respectively, both of which are 2-layer ReLU MLPs, and we denote the full set of trainable parameters as ϕ.The macro encoder first forms a question context vector c ∈ Rd by mean-pooling the base model’s last-layer hidden states over the question span Sq,and maps it to a domain summary zdom ∈ Rdh :
+
+c = 1
+
+|S q|
+
+X
+
+> i∈S q
+
+hBi , zdom = MLP macro (c), (2) where hBi ∈ Rd is the base model’s last-layer hid-den state at position i, d is the base model’s hidden dimension, and dh is the router’s hidden dimension. At each generation step t, the micro router takes the current hidden state hBt together with the macro summary zdom , and outputs the probability of in-voking the expert pt:
+
+gϕ(hBt , c ) = σ(MLP micro ([ hBt ; zdom ])) , (3) 
+
+pt = gϕ(hBt , c ) ∈ (0 , 1) , (4) where [· ; ·] denotes vector concatenation along the feature dimension. 
+
+Labeling. To train the router gϕ, we need a token-level label indicating whether invoking the expert is necessary. We construct this label automatically via teacher-forcing comparison between the base and the expert models. For each training sequence 
+
+x and each generation step t ∈ { Lp, . . . , L − 1},we obtain the greedy predictions of both models: 
+
+ˆx(B) 
+
+> t
+
+= arg max  
+
+> v
+
+pb(v | x<t ), (5) 
+
+ˆx(E) 
+
+> t
+
+= arg max  
+
+> v
+
+pe(v | x<t ). (6) Comparing these predictions against the ground-truth token xt, we assign a token-level label zt ∈{0, 1, ∅}:
+
+zt =
+
+
+
+0 if ˆx(B) 
+
+> t
+
+= xt
+
+1 if ˆx(B)
+
+> t
+
+̸ = xt ∧ ˆx(E) 
+
+> t
+
+= xt
+
+∅ otherwise (7) The label reflects the necessity of an expert call rather than the correctness of the expert itself. To-kens that the base already predicts correctly are assigned zt = 0 regardless of whether the expert also succeeds and tokens with zt = 1 are referred to as critical points .
+
+Training of Router. We freeze both fB and fE ,and train only router parameters ϕ via binary cross-entropy (BCE) against the critical-point labels. Since critical points are typically sparse ( zt = 0 to-kens far outnumber zt = 1 ), we use a re-weighted BCE to mitigate class-imbalance: 
+
+L(ϕ) = 1
+
+|V| 
+
+X
+
+> t∈V
+
+ℓt, (8) 
+
+ℓt = −w+zt log pt + (1 − zt) log(1 − pt), (9) where V = {t : zt̸ = ∅} is the set of valid su-pervision tokens. The positive weight is set to 
+
+w+ = pN0/N 1, where N0 and N1 are the corpus-level counts of zt = 0 and zt = 1 tokens, re-spectively. The square-root form moderates the over-weighting of critical points that naive inverse-frequency reweighting would induce. 
+
+3.3 Inference 
+
+Using the trained router with a hard binary deci-sion at each step is undesirable for two reasons: (i) raw non-deterministic router output pt may oscil-late between adjacent tokens or flip on ambiguous boundaries, destabilizing dispatch quality (Ding et al., 2024), and (ii) invoking the expert at every step incurs unnecessary per-step latency. We ad-dress both with momentum-based smoothing and 
+
+threshold-gated 3-way dispatch .
+
+Momentum-based Smoothing. Rather than using the raw pt, we maintain its exponential moving average mt to absorb short-range noise: 
+
+m0 = 0 , mt = αm t−1 + (1 − α)pt, (10) where α ∈ [0 , 1) is the momentum decay factor. We use α = 0 .5 as the default; larger α increases the inertia of past decisions. 
+
+Threshold-gated 3-way Dispatch. Based on mt,we introduce two thresholds τlow , τ high with 0 <τlow < τ high < 1 which partition the momentum value mt into three regimes that determine λt:
+
+λt =
+
+
+
+0 if mt < τ low ,mt if τlow ≤ mt ≤ τhigh ,
+
+1 if mt > τ high .
+
+(11) 4We use τlow = 0 .35 and τhigh = 0 .65 by default. The three regimes correspond to distinct dispatch behaviors: Hard Base regime ( λt = 0 ) and Hard Expert regime ( λt = 1 ) deterministically draw from pb and pe respectively. In the intermediate 
+
+Soft Blend regime ( λt = mt), the routing deci-sion is ambiguous; mt itself serves as the dispatch weight, yielding a convex combination of pb and 
+
+pe that softly interpolates between the two models. 
+
+Selective Expert Invocation. The 3-way dispatch yields an inference-efficiency benefit beyond rout-ing quality. Because the base hidden state hBt feeds the router, the base model is always run; the expert, however, is only executed in the Soft Blend and Hard Expert regimes. Thus, unlike collaborative decoding approaches such as ensembling and con-trastive decoding that execute both models at every step, CPR reduces the number of sequential ex-pert forward passes by handling skipped positions in a single batched KV cache catch-up pass. For instance, suppose the expert remains inactive for seven consecutive decoding steps and is invoked at the next step. It first synchronizes its KV cache for the seven skipped positions in a single batched catch-up pass and then computes the current step. If it remains active, subsequent tokens use ordinary per-step expert decoding with the synchronized cache. Thus, skipped positions do not require sepa-rate sequential expert passes. Although this catch-up can make the total FLOPs comparable to those of collaborative decoding, reducing sequential ex-pert passes substantially lowers wall-clock latency because autoregressive LLM decoding is largely memory-bandwidth-bound. 
+
+4 Experiments 
+
+We evaluate CPR across math and medical domains and analyze its components, robustness to training-data scale, inference efficiency, routing behavior, and generalization to external experts. Additional evaluations in Appendix B include comparisons with intra-model routing baselines, experiments on finance and open-ended instruction following, and a lightweight LoRA expert configuration. 
+
+4.1 Setups Models. We evaluate CPR on two representa-tive open-source LLMs: Gemma3-4B (Team et al., 2025) and Llama3.1-8B (Grattafiori et al., 2024). For each base model, we construct a domain expert by vanilla SFT on two domains, math and medical, yielding four model-domain combinations in total. The math expert is trained on the GSM8K train-ing set (approximately 8K examples), while the medical expert is trained on a size-matched sample drawn from the PubMedQA artificial split. To pre-vent label-distribution bias, we sample the medical training set with a balanced split between the yes and no classes (4,000 examples each). Math train-ing data are formatted as 0-shot chain-of-thought (CoT), and medical data are formatted as 2-shot CoT with answer options randomly shuffled to prevent positional bias; 2-shot demonstrations are drawn from MMLU. 
+
+Benchmarks. Each setting is evaluated on six benchmarks covering both domain and gen-eral capabilities. The general capability is mea-sured uniformly across all settings as the average over MMLU (Hendrycks et al., 2021), Common-senseQA (Talmor et al., 2019), and ARC-C (Clark et al., 2018). Domain capability is measured as the average over GSM8K (Cobbe et al., 2021), AS-Div (Miao et al., 2020), and SVAMP (Patel et al., 2021) for the math setting, and over PubMedQA (Jin et al., 2019), MedQA (Jin et al., 2021), and CareQA (Arias-Duart et al., 2025) for the medical setting. For the evaluation, we adopt CoT prompt-ing; following the same protocol as training, math benchmarks use 0-shot CoT, while medical and general benchmarks use 2-shot CoT with MMLU CoT demonstrations. We report the overall average as the arithmetic mean of the general and domain averages, providing a single metric for how well the two capabilities are jointly attained. 
+
+Baselines. We consider two groups of state-of-the-art baselines. The first group consists of single-model baselines that integrate both capabilities into one weight set. This group first includes the base and SFT expert model, which define the two ex-tremes that any routing scheme operates between, corresponding to the references for general and do-main capability respectively. Next, regularization-based methods that modify the SFT loss to mitigate forgetting are considered: DFT (Wu et al., 2026), EAFT (Diao et al., 2026), and LfU (Nam et al., 2026). The second group consists of multi-model collaboration baselines that route or combine the base and the expert. Within this group, routing-based methods dispatch at different granularities: query-level (Ong et al., 2025) and patch-level (Feng et al., 2026). We used the officially released check-points rather than re-training on our SFT data, as 5Math Domain General Domain Overall Method GSM8K ⋆ ASDiv SVAMP Average MMLU CSQA ARC-C Average Average                                                                                                                                                                                            
+
+> Gemma3-4B
+> Base 29.11 44.51 48.67 40.76 54.16 59.13 64.42 59.24 50.00 SFT (Expert) 51.25 58.00 50.67 53.31 (+12.55) 49.17 52.91 55.38 52.49 (-6.75) 52.90 (+2.90) DFT 32.84 48.55 42.33 41.24 (+0.48) 45.95 57.66 47.59 50.40 (-8.84) 45.82 (-4.18) EAFT 50.04 61.92 57.67 56.54 (+15.78) 51.15 48.87 54.10 51.37 (-7.87) 53.95 (+3.95) LfU 37.39 53.67 43.33 44.80 (+4.04) 50.41 53.56 53.94 52.64 (-6.60) 48.72 (-1.28) Switch Generation 46.93 57.43 49.67 51.34 (+10.58) 50.90 52.90 57.25 53.68 (-5.56) 52.51 (+2.51) RouteLLM 49.63 57.87 50.67 52.72 (+11.96) 49.91 52.99 56.01 52.97 (-6.27) 52.85 (+2.85) Ensemble 53.08 60.38 54.00 55.82 (+15.06) 52.98 59.95 61.95 58.29 (-0.95) 57.06 (+7.06) Contrastive Decoding 45.41 50.28 52.00 49.23 (+8.47) 54.63 59.71 65.87 60.07 (+0.83) 54.65 (+4.65) CPR (Ours) 49.58 62.60 56.00 56.06 (+15.30) 55.89 61.10 67.24 61.41 (+2.17) 58.74 (+8.74)
+> Llama3.1-8B
+> Base 34.72 35.84 44.33 38.30 57.23 61.18 71.67 63.36 50.83 SFT (Expert) 45.87 58.79 60.00 54.89 (+16.59) 44.57 52.74 49.40 48.90 (-14.46) 51.90 (+1.07) DFT 41.67 57.91 59.87 53.15 (+14.85) 47.90 60.52 46.28 51.57 (-11.79) 52.36 (+1.53) EAFT 47.23 62.43 63.00 57.55 (+19.25) 43.20 53.07 45.17 47.15 (-16.21) 52.35 (+1.52) LfU 56.56 61.87 58.67 59.03 (+20.73) 56.36 65.50 67.49 63.12 (-0.24) 61.08 (+10.25) Switch Generation 46.10 58.27 60.33 54.90 (+16.60) 47.47 52.98 51.01 50.49 (-12.87) 52.69 (+1.86) RouteLLM 45.72 59.56 61.00 55.43 (+17.13) 45.43 53.33 49.23 49.33 (-14.03) 52.38 (+1.55) Ensemble 51.30 62.80 64.00 59.37 (+21.07) 52.39 60.14 56.71 56.41 (-6.95) 57.89 (+7.06) Contrastive Decoding 49.60 60.89 61.33 57.27 (+18.97) 51.61 59.28 60.05 56.98 (-6.38) 57.13 (+6.30) CPR (Ours) 51.80 62.70 66.67 60.39 (+22.09) 58.97 64.26 65.25 62.83 (-0.53) 61.61 (+10.78)
+
+Table 1: Main results on the math domain. Test accuracy (%) on in-domain math benchmarks and out-of-domain general benchmarks. ⋆ marks the SFT training source and parentheses show change (%) relative to the base model. Overall Average is the mean of the math and general averages. The best and second best scores are highlighted in 
+
+bold and underline. 
+
+the latter underperforms in our preliminary experi-ments (see Appendix B.1). Decoding-based meth-ods mix the two output distributions at every de-coding step with static weights, always invoking both models: Ensemble and Contrastive Decoding (Li et al., 2023). All baselines share the same base model and SFT expert model. Full implementation details including training and inference hyperpa-rameters are deferred to Appendix A.3. 
+
+4.2 Main Results 
+
+The results are presented in Tables 1 and 2. Here, CPR attains the highest overall average across all model-domain combinations, improving over the base model by 4.2% to 10.8%. It recovers nearly all of the general-capability drop incurred by SFT expert model while simultaneously surpassing the expert in domain performance. For instance, on Llama3.1-8B math, the SFT expert loses 14.5% on general capability, whereas CPR loses only 0.5%; on the domain side, the expert improves by 16.6% over the base, while CPR improves by 22.1%, an additional 5.5% gain over the expert. At the same time, regularization-based meth-ods are observed to exhibit a clear domain-general trade-off. Across four settings, they reduce forget-ting compared to SFT expert slightly yet still incur up to 16.2% general-capability drop, whereas CPR is the only method that improves both axes simulta-neously, indicating that the trade-off is intrinsic to single-weight regularization and can be removed by decoupling two capabilities at the model level. In addition, we observe that existing routing methods, RouteLLM (query-level) and Switch Gen-eration (patch-level), underperform CPR. On the math domain, both improve the overall average by 1.6-2.9% over the base, whereas CPR improves it by 8.7-10.8%. Since all routing baselines share the same base model and the same SFT expert, this controlled comparison empirically establishes that the proposed token-level routing is a more effective remedy for catastrophic forgetting than coarser-granularity alternatives. Lastly, while Ensemble and Contrastive Decod-ing are effective by doubling per-token compute, CPR is more effective and efficient (see Section 4.3 for efficiency results). In the math domain, CPR outperforms both baselines by 1.7-4.5% in overall average across the two backbones. Similarly, in the medical domain, CPR achieves the highest overall average in every setting. 6Medical Domain General Domain Overall Method PubMedQA ⋆ MedQA CareQA Average MMLU CSQA ARC-C Average Average 
+
+Gemma3-4B 
+
+Base 54.30 27.97 38.13 40.13 54.16 59.13 64.42 59.24 49.69 SFT (Expert) 75.70 41.08 39.29 52.02 (+11.89) 51.89 56.67 58.96 55.84 (-3.40) 53.93 (+4.24) DFT 56.50 38.10 40.39 45.00 (+4.87) 50.41 59.38 61.36 57.05 (-2.19) 51.03 (+1.34) EAFT 73.80 34.60 37.24 48.55 (+8.42) 45.39 55.22 56.71 52.44 (-6.80) 50.49 (+0.80) LfU 66.10 34.25 39.20 46.52 (+6.39) 49.92 57.00 62.95 56.62 (-2.62) 51.57 (+1.88) Switch Generation 75.80 40.61 40.09 52.17 (+12.04) 51.97 57.27 58.79 56.01 (-3.23) 54.09 (+4.40) RouteLLM 59.58 30.77 38.72 43.02 (+2.89) 53.04 60.85 64.59 59.49 (+0.25) 51.26 (+1.57) Ensemble 71.20 46.95 43.39 53.85 (+13.72) 56.12 60.03 67.67 61.27 (+2.03) 57.56 (+7.87) Contrastive Decoding 67.30 45.09 39.82 50.74 (+10.61) 55.39 58.31 68.77 60.82 (+1.58) 55.78 (+6.09) CPR (Ours) 66.80 48.20 45.19 53.40 (+13.27) 54.82 61.26 69.67 61.92 (+2.68) 57.66 (+7.97) 
+
+Llama3.1-8B 
+
+Base 68.00 43.99 50.84 54.28 57.23 61.18 71.67 63.36 58.82 SFT (Expert) 75.20 52.00 50.40 59.20 (+4.92) 53.31 59.38 57.94 56.88 (-6.48) 58.04 (-0.78) DFT 75.00 47.27 45.73 56.00 (+1.72) 54.23 64.13 64.72 61.03 (-2.33) 58.52 (-0.30) EAFT 75.50 52.70 50.82 59.67 (+5.39) 56.30 63.43 64.02 61.25 (-2.11) 60.46 (+1.64) LfU 75.60 53.05 52.60 60.42 (+6.14) 59.04 66.31 69.26 64.87 (+1.51) 62.65 (+3.83) Switch Generation 75.30 51.37 49.60 58.76 (+4.48) 54.80 59.85 59.01 57.89 (-5.47) 58.32 (-0.50) RouteLLM 70.20 43.83 52.36 55.46 (+1.18) 57.55 60.02 70.82 62.80 (-0.56) 59.13 (+0.31) Ensemble 76.00 54.22 53.98 61.40 (+7.12) 57.06 66.55 61.16 61.59 (-1.77) 61.50 (+2.68) Contrastive Decoding 74.80 53.15 55.78 61.24 (+6.96) 58.35 65.98 68.85 64.39 (+1.03) 62.82 (+4.00) CPR (Ours) 74.60 53.86 56.62 61.69 (+7.41) 58.89 68.93 65.27 64.36 (+1.00) 63.03 (+4.21) 
+
+Table 2: Main results on the medical domain. Test accuracy (%) on in-domain medical benchmarks and out-of-domain general benchmarks. ⋆ marks the SFT training source and parentheses show change (%) relative to the base model. Overall Average is the mean of the medical and general averages. The best and second best scores are highlighted in bold and underline.                                          
+
+> Method Math Average General Average Overall Average
+> Base 39.53 61.30 50.42
+> Router Architecture
+> w/o Macro 57.52 60.67 59.10 w/o Micro 49.63 61.28 55.45 Hierarchical (Default) 58.23 62.12 60.18
+> Momentum Decay αα= 0.0 55.97 60.55 58.26
+> α= 0.5 (Default) 58.23 62.12 60.18
+> α= 0.9 46.32 62.71 54.52
+> Dispatch Thresholds (τlow , τ high )
+> (0.5, 0.5) 51.98 62.35 57.16 (0.35, 0.65) (Default) 58.23 62.12 60.18
+> (0.0, 1.0) 58.07 62.26 60.17
+
+Table 3: Ablation studies of CPR. Test accuracy (%) averaged over Gemma3-4B and Llama3.1-8B on in-domain math and out-of-domain general benchmarks, under variations in (a) router architecture, (b) momen-tum decay α, and (c) thresholds (τlow , τ high ). The best score is highlighted in bold .
+
+4.3 Analyses Ablation Study. To understand how each com-ponent contributes to CPR, we ablate (a) router architecture, (b) momentum decay factor α, and (c) dispatch thresholds (τlow , τ high ), with results summarized in Table 3 (See full benchmark num-bers in Appendix B.3). (a) Both components of the hierarchical router contribute complementar-ily. Removing the macro encoder degrades overall accuracy with 1.5% drop on the general domain, in-dicating that the query-level signal acts as a domain prior that suppresses spurious expert calls on out-of-domain queries. Removing the micro router causes an 8.6% drop on the math domain, showing that token-level dispatch is essential for precisely identi-fying critical points where the expert is needed. (b) For the momentum factor in Eq.10, where larger α
+
+puts more weight on past decisions, the default α =0.5 consistently performs best. α = 0.0 ignores pre-vious history and causes dispatch to oscillate near the boundary, while α = 0.9 over-relies on previous history and delays switching into the expert at the onset of critical regions, leading to a large domain drop with 11.9% on math average. The asymme-try suggests that over-reliance on past decisions is more harmful than ignoring them when critical points are sparse and abrupt. (c) For the thresholds in Eq.11, collapsing the gate to hard switching at 
+
+(0 .5, 0.5) removes the Soft Blend regime and drops domain accuracy with 6.3% drop on math average, whereas expanding to (0 .0, 1.0) attains compara-ble accuracy on both axes but always invokes the expert that leads to increased latency. Overall, the three components play complementary roles, and the default configuration generalizes without per-setting tuning. 7Method GSM8K MMLU Average Base 29.11 54.16 41.64 SFT (1K) 36.32 (+7.21) 53.91 (-0.25) 45.12 (+3.48) CPR (1K) 39.73 (+10.62) 55.64 (+1.48) 47.69 (+6.05) SFT (2K) 38.44 (+9.33) 49.56 (-4.60) 44.00 (+2.36) CPR (2K) 41.61 (+12.50) 54.76 (+0.60) 48.19 (+6.55) SFT (4K) 45.41 (+16.30) 52.32 (-1.84) 48.87 (+7.23) CPR (4K) 45.26 (+16.15) 55.73 (+1.57) 50.50 (+8.86) SFT (8K) 51.25 (+22.14) 49.17 (-4.99) 50.21 (+8.58) CPR (8K) 49.58 (+20.47) 55.89 (+1.73) 52.74 (+11.11) 
+
+Table 4: Robustness to training-data scale. Results with Gemma3-4B under 1K, 2K, 4K, and 8K GSM8K training subsets, evaluated on GSM8K and MMLU. Math Domain Medical Domain 15 20 25 30 35 40 45 50   
+
+> Invocation Rate (%)
+> Gemma3-4B
+> 12.4% 10.8%
+> Math Domain Medical Domain
+> Llama3.1-8B
+> Benchmark Type
+> Domain General Δ Gap
+> 10.4% 8.4%
+
+Figure 3: Expert invocation rate (%). Average percent-age of critical tokens routed to the expert on in-domain vs. out-of-domain general benchmarks, with ∆ gap line indicating the difference between them. 
+
+Robustness to Training Data Scale. We examine CPR’s robustness as the amount of domain training data decreases. Using Gemma3-4B, we train both the expert and the router on 1K, 2K, 4K, and 8K subsets of GSM8K, where smaller subsets jointly weaken the expert and reduce the amount of router supervision. As shown in Table 4, CPR remains effective across all data scales. Even with only 1K examples, where the SFT expert improves GSM8K by 7.21% over the base, CPR improves domain ac-curacy by 10.62% while maintaining MMLU above the base level. Across all scales, CPR achieves the highest overall average and keeps MMLU at or above the base performance. 
+
+Inference Efficiency. Another goal of CPR is to minimize the latency overhead inherent to token-level routing. Figure 3 visualizes the fraction of tokens routed to the expert on domain and general benchmarks across both math and medical domains. The expert is invoked on only about one-third of tokens across overall benchmarks, confirming that critical points are sparse. More importantly, a con-sistent domain vs. general gap is observed across all four settings, showing that the router concen-trates expert calls where they are actually needed 
+
+Method Latency (s) Tokens/sec 
+
+Gemma3-4B 
+
+Expert 5.581 (1.00 ×) 17.4 Ensemble 10.548 (1.89 ×) 9.4 CPR (Ours) 7.826 (1.40 ×) 13.4 
+
+Llama3.1-8B 
+
+Expert 2.286 (1.00 ×) 37.2 Ensemble 5.147 (2.25 ×) 19.0 CPR (Ours) 3.302 (1.44 ×) 25.5 
+
+Table 5: Decoding runtime comparison. Latency and throughput on GSM8K with Gemma3-4B and Llama3.1-8B, measured on 100 samples per method. 
+
+rather than thresholding noise. This selectivity is also the mechanism by which CPR preserves gen-eral capability: on general queries, the router de-faults to the base for most tokens, sidestepping the distributional shift introduced by the expert. Table 5 reports measured wall-clock latency and throughput on GSM8K for both Gemma3-4B and Llama3.1-8B. For Gemma3-4B, CPR incurs 1.40 ×
+
+latency relative to expert-only decoding, substan-tially below Ensemble at 1.89 ×. The same advan-tage holds for Llama3.1-8B despite its higher ex-pert invocation rate, with CPR at 1.44 × compared with 2.25 × for Ensemble. These measurements include the full KV-cache catch-up cost described in Section 3.3. 
+
+Token-level Analysis of Routing Behavior. To complement the quantitative invocation statistics, we visualize CPR’s per-token routing decisions in Figure 4. One can observe that the expert is invoked predominantly on numeric tokens and arithmetic operators that drive multi-step calculation, while connective and explanatory tokens are left to the base. This token-level selectivity provides a mecha-nistic explanation for the invocation patterns shown in Figure 3: CPR preserves general capability not by uniformly damping expert influence, but by rout-ing the expert precisely to tokens where domain knowledge is required. 
+
+Generalization to External Experts. In our pri-mary experiments, we evaluated CPR using domain experts fine-tuned via a controlled, vanilla SFT pro-cess. A natural question is whether CPR relies on this specific expert construction or if the framework generalizes to independently produced experts. To investigate this, we replace the SFT-trained expert with publicly available experts while keeping the base model, labeling procedure, router training, and 8Math Domain General Domain Overall Method GSM8K ASDiv SVAMP Average MMLU CSQA ARC-C Average Average                                                              
+
+> Llama3.1-8B (OpenMath2-Llama3.1-8B)
+> Base 34.72 35.84 44.33 38.30 57.23 61.18 71.67 63.36 50.83 Expert 85.67 83.38 87.00 85.35 (+47.05) 38.49 49.22 47.78 45.16 (-18.20) 65.26 (+14.43) CPR (Ours) 70.76 72.93 75.33 73.00 (+34.70) 56.14 68.22 67.92 64.09 (+0.73) 68.55 (+17.72)
+> Qwen2.5-1.5B (Qwen2.5-Math-1.5B)
+> Base 64.06 76.44 74.33 71.61 53.20 69.62 68.26 63.69 67.65 Expert 71.80 81.26 85.00 79.35 (+7.74) 40.15 31.45 49.49 40.36 (-23.33) 59.86 (-7.79) CPR (Ours) 68.89 78.70 79.67 75.75 (+4.14) 53.10 68.30 67.94 63.11 (-0.58) 69.43 (+1.78)
+
+Table 6: Generalization to external experts. CPR paired with external math experts instead of our SFT experts on Llama3.1-8B and Qwen2.5-1.5B. Math benchmarks for Qwen use 2-shot CoT due to limited 0-shot capacity; all other settings are identical to the main experiments. The best score is highlighted in bold .
+
+> Query 1
+> Query 2
+
+Figure 4: Token-level routing examples on GSM8K with Gemma3-4B. Critical points routed to the expert are in red; base-generated tokens in green; soft-blend tokens in intermediate shades (approaching white as mt
+
+→ 0.5). Additional examples in Appendix C.1. 
+
+all inference-time settings unchanged. Specifically, we consider two configurations on math task: 
+
+◦ OpenMath2-Llama3.1-8B (Toshniwal et al., 2025) paired with the Llama3.1-8B base model. 
+
+◦ Qwen2.5-Math-1.5B (Yang et al., 2024), asmaller-scale math expert, paired with the Qwen2.5-1.5B base model. As shown in Table 6, the external experts exhibit the same pattern of catastrophic forgetting observed in our main experiments. Across both settings, the external experts replicate the forgetting pat-tern from our main experiments: general capa-bility drops by 18.2% (Llama3.1-8B) and 23.3% (Qwen2.5-1.5B), with the latter even resulting in a net overall -7.8% loss. In contrast, CPR recovers these drops to +0.7% and -0.6% respectively, while retaining most of the domain gains, yielding over-all improvements of +17.7% and +1.8% over the respective base models. Notably, CPR makes the Qwen expert beneficial even when it underperforms the base on its own. Overall, these results clearly demonstrate that CPR is not inherently tied to a specific SFT set-ting. As long as the expert outperforms the base model on a meaningful subset of tokens, the router can successfully identify these critical points and dispatch generation accordingly. This decoupling from the expert’s training pipeline suggests that CPR can serve as a post-hoc remedy applicable to arbitrary third-party domain experts. 
+
+5 Conclusion 
+
+In this work, we propose CPR (Critical-Point 
+
+Routing), a token-level routing framework that mit-igates catastrophic forgetting in domain-specific SFT, by decoupling domain and general capabil-ities at the model level. A lightweight hierarchi-cal router, trained on automatically labeled criti-cal points, invokes the SFT expert only where the base model fails, while momentum smoothing and threshold-gated 3-way dispatch stabilize inference. Across four model-domain settings, CPR consis-tently surpasses SFT in domain performance while fully recovering its general-capability drop. In ad-dition, CPR selectively invokes the expert, substan-tially reducing latency compared with always-on collaborative decoding. Token-level analyses fur-ther show that expert calls concentrate on domain-relevant tokens, providing a mechanistic view of how CPR preserves general capability while retain-ing domain specialization. CPR also generalizes to external experts without additional SFT. These results indicate that catastrophic forgetting is bet-ter addressed as an architectural problem than as a loss-level trade-off. 9Limitations 
+
+CPR effectively decouples domain and general ca-pabilities, yet requires holding both the base model and the domain expert simultaneously, increasing GPU memory overhead relative to single-model approaches. In addition, although the expert is invoked on only ~30% of tokens overall, the base model must always run to produce the hidden states that feed the router, leaving residual per-step la-tency above single-model inference; complemen-tary techniques such as prefix-only routing may fur-ther reduce this cost. Beyond this, each expert invo-cation after skipped tokens incurs a key-value cache catch-up cost, yet CPR remains faster than ensem-ble and contrastive decoding since LLM decoding is memory-bound and weight loads are amortized across catch-up tokens within a single forward call. CPR also assumes access to an expert that outper-forms the base on a meaningful subset of tokens for constructing critical-point labels, so its effec-tiveness may degrade when this gap is narrow or when domain training data is scarce. 
+
+Broader Impact and Ethical Implications 
+
+CPR offers a practical way to deploy domain-specialized LLMs without sacrificing general ca-pabilities, which is particularly valuable in high-stakes domains where brittleness in general reason-ing can lead to harmful outputs. However, CPR inherits the biases and failure modes of both the base model and the domain expert model, and rout-ing does not correct errors common to both. Since CPR can be applied post-hoc to arbitrary third-party experts, careful vetting of expert models is essential before deployment. The medical domain experiments in this work are intended solely for research evaluation on public benchmarks and do not constitute clinical validation. All datasets and models used are publicly available and were used in accordance with their respective licenses. 
+
+Acknowledgement 
+
+Jaehyung Kim is affiliated with the Department of Artificial Intelligence at Yonsei University. This research was supported in part by Institute for Infor-mation & communications Technology Planning & Evaluation (IITP) grant funded by the Korea government (MSIT) (No. RS-2020-II201361, Arti-ficial Intelligence Graduate School Program (Yon-sei University); No. RS-2026-25522672, Develop-ment of Unified Reasoning Technology Mimicking Human Cognition for Hierarchical Understanding and Unbounded Problem Solving). 
+
+References 
+
+Anna Arias-Duart, Pablo Agustin Martin-Torres, Daniel Hinjos, Pablo Bernabeu-Perez, Lucia Urcelay Ganza-bal, Marta Gonzalez Mallo, Ashwin Kumar Gurura-jan, Enrique Lopez-Cuena, Sergio Alvarez-Napagao, and Dario Garcia-Gasulla. 2025. Automatic evalua-tion of healthcare llms beyond question-answering. In Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies (NAACL-HLT) , pages 108– 130. Lingjiao Chen, Matei Zaharia, and James Zou. 2024. Frugalgpt: How to use large language models while reducing cost and improving performance. In Trans-actions on Machine Learning Research (TMLR) .Zhiyu Chen, Wenhu Chen, Charese Smiley, Sameena Shah, Iana Borova, Dylan Langdon, Reema Moussa, Matt Beane, Ting-Hao Huang, Bryan R Routledge, and 1 others. 2021. Finqa: A dataset of numeri-cal reasoning over financial data. In Conference on Empirical Methods in Natural Language Processing (EMNLP) , pages 3697–3711. Peter Clark, Isaac Cowhey, Oren Etzioni, Tushar Khot, Ashish Sabharwal, Carissa Schoenick, and Oyvind Tafjord. 2018. Think you have solved question an-swering? try arc, the ai2 reasoning challenge. arXiv preprint arXiv:1803.05457 .Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, and 1 others. 2021. Training verifiers to solve math word problems. arXiv preprint arXiv:2110.14168 .Muxi Diao, Lele Yang, Wuxuan Gong, Yutong Zhang, Zhonghao Yan, Yufei Han, Kongming Liang, Weiran Xu, and Zhanyu Ma. 2026. Entropy-adaptive fine-tuning: Resolving confident conflicts to mitigate for-getting. arXiv preprint arXiv:2601.02151 .Dujian Ding, Ankur Mallick, Chi Wang, Robert Sim, Subhabrata Mukherjee, Victor Rühle, Laks Laksh-manan, and Ahmed H Awadallah. 2024. Hybrid llm: Cost-efficient and quality-aware query routing. In In-ternational Conference on Learning Representations (ICLR) , volume 2024, pages 41348–41366. Shihan Dou, Enyu Zhou, Yan Liu, Songyang Gao, Wei Shen, Limao Xiong, Yuhao Zhou, Xiao Wang, Zhi-heng Xi, Xiaoran Fan, and 1 others. 2024. Loramoe: Alleviating world knowledge forgetting in large lan-guage models via moe-style plugin. In Annual Meet-ing of the Association for Computational Linguistics (ACL) , pages 1932–1945. 
+
+10 Yann Dubois, Balázs Galambosi, Percy Liang, and Tat-sunori B Hashimoto. 2024. Length-controlled al-pacaeval: A simple way to debias automatic evalua-tors. arXiv preprint arXiv:2404.04475 .Shangbin Feng, Wenhao Yu, Yike Wang, Hongming Zhang, Yulia Tsvetkov, and Dong Yu. 2026. Don’t throw away your pretrained model. In International Conference on Learning Representations (ICLR) .Aaron Grattafiori, Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey, Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman, Akhil Mathur, Alan Schelten, Alex Vaughan, and 1 others. 2024. The llama 3 herd of models. arXiv preprint arXiv:2407.21783 .Tianyu Han, Lisa C Adams, Jens-Michalis Papaioannou, Paul Grundmann, Tom Oberhauser, Alexei Figueroa, Alexander Löser, Daniel Truhn, and Keno K Bressem. 2023. Medalpaca–an open-source collection of medi-cal conversational ai models and training data. arXiv preprint arXiv:2304.08247 .Dan Hendrycks, Collin Burns, Steven Basart, Andy Zou, Mantas Mazeika, Dawn Song, and Jacob Steinhardt. 2021. Measuring massive multitask language under-standing. In International Conference on Learning Representations (ICLR) .Di Jin, Eileen Pan, Nassim Oufattole, Wei-Hung Weng, Hanyi Fang, and Peter Szolovits. 2021. What disease does this patient have? a large-scale open domain question answering dataset from medical exams. Ap-plied Sciences , 11(14):6421. Qiao Jin, Bhuwan Dhingra, Zhengping Liu, William Cohen, and Xinghua Lu. 2019. Pubmedqa: A dataset for biomedical research question answering. In Con-ference on Empirical Methods in Natural Language Processing (EMNLP) , pages 2567–2577. Takeshi Kojima, Shixiang Shane Gu, Machel Reid, Yu-taka Matsuo, and Yusuke Iwasawa. 2022. Large lan-guage models are zero-shot reasoners. In Advances in Neural Information Processing Systems (NeurIPS) ,volume 35, pages 22199–22213. Suhas Kotha, Jacob Springer, and Aditi Raghunathan. 2024. Understanding catastrophic forgetting in lan-guage models via implicit inference. In International Conference on Learning Representations (ICLR) , vol-ume 2024, pages 24110–24139. Xiang Lisa Li, Ari Holtzman, Daniel Fried, Percy Liang, Jason Eisner, Tatsunori B Hashimoto, Luke Zettle-moyer, and Mike Lewis. 2023. Contrastive decoding: Open-ended text generation as optimization. In An-nual Meeting of the Association for Computational Linguistics (ACL) , pages 12286–12312. Jiacheng Lin, Zhongruo Wang, Kun Qian, Tian Wang, Arvind Srinivasan, Hansi Zeng, Ruochen Jiao, Xie Zhou, Jiri Gesi, Dakuo Wang, and 1 others. 2026. Sft doesn’t always hurt general capabilities: Revisiting domain-specific fine-tuning in llms. In International Conference on Learning Representations (ICLR) .Chengyuan Liu, Yangyang Kang, Shihang Wang, Lizhi Qing, Fubang Zhao, Chao Wu, Changlong Sun, Kun Kuang, and Fei Wu. 2024. More than catas-trophic forgetting: Integrating general capabilities for domain-specific llms. In Conference on Empirical Methods in Natural Language Processing (EMNLP) ,pages 7531–7548. Elita Lobo, Chirag Agarwal, and Himabindu Lakkaraju. 2025. On the impact of fine-tuning on chain-of-thought reasoning. In Conference of the North American Chapter of the Association for Computa-tional Linguistics: Human Language Technologies (NAACL-HLT) , pages 11679–11698. Yun Luo, Zhen Yang, Fandong Meng, Yafu Li, Jie Zhou, and Yue Zhang. 2025. An empirical study of catas-trophic forgetting in large language models during continual fine-tuning. IEEE Transactions on Audio, Speech and Language Processing .Shen-Yun Miao, Chao-Chun Liang, and Keh-Yih Su. 2020. A diverse corpus for evaluating and develop-ing english math word problem solvers. In Annual Meeting of the Association for Computational Lin-guistics (ACL) , pages 975–984. Yunhun Nam, Jaehyung Kim, and Jongheon Jeong. 2026. Learning from the undesirable: Robust adap-tation of language models without forgetting. In 
+
+Proceedings of the AAAI Conference on Artificial Intelligence , volume 40, pages 32537–32545. Isaac Ong, Amjad Almahairi, Vincent Wu, Wei-Lin Chiang, Tianhao Wu, Joseph E Gonzalez, M Waleed Kadous, and Ion Stoica. 2025. Routellm: Learning to route llms with preference data. In International Conference on Learning Representations (ICLR) .Arkil Patel, Satwik Bhattamishra, and Navin Goyal. 2021. Are nlp models really able to solve simple math word problems? In Conference of the North American Chapter of the Association for Computa-tional Linguistics: Human Language Technologies (NAACL-HLT) , pages 2080–2094. Zejiang Shen, Hunter Lang, Bailin Wang, Yoon Kim, and David Sontag. 2024. Learning to decode collab-oratively with multiple language models. In Annual Meeting of the Association for Computational Lin-guistics (ACL) , pages 12974–12990. Alon Talmor, Jonathan Herzig, Nicholas Lourie, and Jonathan Berant. 2019. Commonsenseqa: A question answering challenge targeting commonsense knowl-edge. In Conference of the North American Chapter of the Association for Computational Linguistics: Hu-man Language Technologies (NAACL-HLT) , pages 4149–4158. Rohan Taori, Ishaan Gulrajani, Tianyi Zhang, Yann Dubois, Xuechen Li, Carlos Guestrin, Percy Liang, and Tatsunori B. Hashimoto. 2023. Stan-ford alpaca: An instruction-following llama model. https://github.com/tatsu-lab/ stanford_alpaca .
+
+11 Gemma Team and 1 others. 2025. Gemma 3 technical report. arXiv preprint arXiv:2503.19786 .Shubham Toshniwal, Wei Du, Ivan Moshkov, Branislav Kisacanin, Alexan Ayrapetyan, and Igor Gitman. 2025. Openmathinstruct-2: Accelerating ai for math with massive open-source instruction data. In Inter-national Conference on Learning Representations (ICLR) , volume 2025, pages 19243–19275. Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny Zhou, and 1 others. 2022. Chain-of-thought prompting elic-its reasoning in large language models. In Advances in Neural Information Processing Systems (NeurIPS) ,volume 35, pages 24824–24837. Xun Wu, Shaohan Huang, and Furu Wei. 2024. Mix-ture of lora experts. In International Conference on Learning Representations (ICLR) .Yongliang Wu, Yizhou Zhou, Zhou Ziheng, Yingzhe Peng, Xinyu Ye, Xinting Hu, Wenbo Zhu, Lu Qi, Ming-Hsuan Yang, and Xu Yang. 2026. On the gener-alization of sft: A reinforcement learning perspective with reward rectification. In International Confer-ence on Learning Representations (ICLR) .Nuoya Xiong, Yuhang Zhou, Hanqing Zeng, Zhaorun Chen, Furong Huang, Shuchao Bi, Lizhu Zhang, and Zhuokai Zhao. 2026. Token-level llm collaboration via fusionroute. arXiv preprint arXiv:2601.05106 .An Yang, Beichen Zhang, Binyuan Hui, Bofei Gao, Bowen Yu, Chengpeng Li, Dayiheng Liu, Jianhong Tu, Jingren Zhou, Junyang Lin, and 1 others. 2024. Qwen2.5-math technical report: Toward mathemat-ical expert model via self-improvement. arXiv preprint arXiv:2409.12122 .
+
+12 A More Details of Experimental Setups 
+
+This section provides additional details about the experiments in Section 4, organized as follows: datasets (Appendix A.1), baselines (Appendix A.2), implementation details (Appendix A.3), and prompt templates (Appendix A.4). 
+
+A.1 Datasets Training Data. We construct domain experts via vanilla SFT on two domains, math and medical. • Math Domain. We use the official training split of GSM8K (Cobbe et al., 2021), which consists of approximately 8K grade-school math word problems with step-by-step ratio-nales. Training instances are formatted as 0-shot chain-of-thought (CoT), with the ratio-nale and the final boxed answer as the target. • Medical Domain. We sample from the arti-ficial split of PubMedQA (Jin et al., 2019), a biomedical research question-answering dataset whose answers are categorized as yes ,
+
+no , or maybe . To prevent label-distribution bias and to match the math training size, we sample 4,000 yes and 4,000 no examples (8K total). Training instances are formatted as 2-shot CoT with the answer options randomly shuffled to prevent positional bias, and the 2-shot demonstrations are drawn from MMLU (Hendrycks et al., 2021) so that the medical expert learns to use a CoT format that trans-fers naturally to multiple-choice evaluation. 
+
+Evaluation Benchmarks. We evaluate on the full test set of every benchmark used in this work, without any subsampling. The benchmarks are grouped into three categories. • GSM8K (Cobbe et al., 2021): grade-school math word problems requiring multi-step arithmetic reasoning; in-domain for the math expert. • ASDiv (Miao et al., 2020): diverse English math word problems covering a broader range of problem types than GSM8K. • SVAMP (Patel et al., 2021): math word prob-lems constructed by applying simple varia-tions to existing problems to test robustness. • PubMedQA (Jin et al., 2019): biomedical yes/no/maybe question answering on research abstracts; in-domain for the medical expert. • MedQA (Jin et al., 2021): multiple-choice questions from professional medical board ex-aminations. • CareQA (Arias-Duart et al., 2025): a health-care LLM evaluation suite spanning multiple clinical and biomedical topics. • MMLU (Hendrycks et al., 2021): a broad multitask evaluation suite spanning 57 sub-jects from humanities to STEM. • CommonsenseQA (Talmor et al., 2019): multiple-choice questions targeting common-sense reasoning. • ARC-C (Clark et al., 2018): the Challenge split of the AI2 Reasoning Challenge, consist-ing of grade-school science questions filtered to be difficult for retrieval-based methods. 
+
+Evaluation Protocol. Following the same proto-col as training, math benchmarks (GSM8K, ASDiv, SVAMP) are evaluated with 0-shot CoT prompting, while medical (PubMedQA, MedQA, CareQA) and general (MMLU, CommonsenseQA, ARC-C) benchmarks are evaluated with 2-shot CoT prompt-ing. The 2-shot CoT demonstrations are drawn from MMLU and held fixed across all evaluated methods within a setting, ensuring a controlled comparison. For multiple-choice medical bench-marks, the answer options follow the natural or-dering of the benchmark; the random shuffling of options is applied only during medical SFT train-ing to prevent positional bias in the expert. The exact prompt templates used for each benchmark are provided, in Appendix A.4. 
+
+A.2 Baselines 
+
+This section provides additional details on the base-lines compared in our experiments (Section 4). All baselines share the same base model fB and the same vanilla SFT expert fE for a controlled com-parison, and are organized into two groups: single-model baselines that integrate domain and general capabilities into one weight set, and multi-model collaboration baselines that route or combine the base and the expert. 
+
+Single-model Baselines. 
+
+• Base refers to the original pre-trained LLM without any domain adaptation (Gemma3-4B or Llama3.1-8B). It serves as the reference 13 for general capability and the upper bound of forgetting-free behavior. • SFT (Expert) is the domain expert obtained by vanilla supervised fine-tuning of the base model on the domain training set (GSM8K for math; PubMedQA artificial split for medical). It serves as the reference for domain capability and the lower bound for general capability under standard SFT. • DFT (Wu et al., 2026) rescales the per-token cross-entropy loss by the model’s own pre-dicted probability of the target token, with the goal of neutralizing an implicit inverse-probability reward that standard SFT gradi-ents encode. This single-line modification of the SFT loss is shown to improve gener-alization relative to vanilla SFT. We include DFT as a representative regularization-based method that modifies the SFT loss at the token level. It shares all training hyperparameters with vanilla SFT. • EAFT (Diao et al., 2026) addresses catas-trophic forgetting by identifying Confident Conflict tokens, where the model assigns low probability and low entropy to the ground-truth token (i.e., it is confident in its own di-vergent prediction). EAFT uses token-level entropy as a soft gate: tokens with low en-tropy are down-weighted to suppress destruc-tive gradient updates, while tokens with high entropy retain the standard SFT signal to en-able genuine learning. We include EAFT as a state-of-the-art entropy-guided regulariza-tion baseline. Training hyperparameters are identical to vanilla SFT. • LfU (Nam et al., 2026) regularizes the SFT process to favor solutions that are resilient to undesirable updates, simulated by a one-step gradient-ascent direction on an auxiliary model. It enforces consistency between the internal representations of the original model and those of the undesirably-updated model, encouraging robust adaptation without for-getting. The original paper provides two auxiliary-model variants: a LoRA-based vari-ant and a representation-steering variant. We adopt the LoRA-based variant, which gener-ally yields stronger performance in the origi-nal paper, and follow the default LoRA config-uration and training hyperparameters reported therein. 
+
+Multi-model Collaboration Baselines. 
+
+• RouteLLM (Ong et al., 2025) dispatches an entire query to either a strong or aweak LLM based on a router trained on human preference data. Among the four router variants proposed in the original paper, we adopt the Causal LLM classifier, which is reported as the strongest approach on GSM8K when trained on preference data augmented with an LLM judge. We use the officially released checkpoint 
+
+routellm/causal_llm_gpt4_augmented 
+
+on Hugging Face, trained on Chatbot Arena preference data augmented with GPT-4 judgments, which the original paper reports to outperform the Arena-only variant. The router is used without any re-training to ensure faithful reproduction, with fB and fE
+
+substituted as the weak and strong models, respectively. RouteLLM represents the 
+
+query-level routing granularity. • Switch Generation (Feng et al., 2026) al-ternates between multiple checkpoints (e.g., pre-trained, fine-tuned, aligned) at the patch level during generation, recovering skills that may have been lost during alignment or do-main adaptation. We use the officially re-leased bunsenfeng/PFA_switcher_1 
+
+switcher that learned from diverse tasks, con-texts, and model collaboration pattern, applied without re-training. Switch Generation repre-sents the patch-level routing granularity, sit-uated between query-level dispatch and our token-level routing. • Ensemble computes the next-token distribu-tion as a uniform average of the base and ex-pert distributions, pt = 12 (pb + pe), at ev-ery decoding step. It serves as the simplest collaborative-decoding baseline and provides a reference point for fixed-weight mixture de-coding. • Contrastive Decoding (Li et al., 2023) com-putes the next-token distribution by subtract-ing the log-probability of an amateur LM from that of an expert LM, subject to a plausi-bility constraint: log pt ∝ log pexp −log pama .Following the assumption that the SFT model 14 is stronger on the target domain than the base, we fix the SFT expert fE as the expert and the base fB as the amateur in all settings and use the default threshold of α = 0 .1 for the plau-sibility constraint. Both Ensemble and Con-trastive Decoding invoke fB and fE at every decoding step, doubling per-token compute, in contrast to CPR’s selective expert invocation. 
+
+A.3 Implementation Details 
+
+This section provides the detailed information needed to reproduce our main experiments. 
+
+Compute. All experiments are conducted on NVIDIA RTX A6000 GPUs. Each model fits on a single A6000, and we parallelize over multiple A6000s to run different models concurrently. 
+
+SFT and Full Fine-tuning Baselines. We re-implement DFT and EAFT under matched training settings with the vanilla SFT expert to ensure a controlled comparison. All three share identical hyperparameters across both domains: maximum sequence length 1024, per-device batch size 4, gra-dient accumulation steps 4 (effective batch size 16), learning rate 2e −5, constant learning-rate schedule, and 6 training epochs. 
+
+LoRA-based Baseline. For LfU, we re-implement it following the default LoRA configuration and training hyperparameters of the original paper (Nam et al., 2026). 
+
+Router Training (CPR). We freeze both fB and 
+
+fE and train only the hierarchical router parame-ters ϕ. The router’s hidden dimension is dh = 256 
+
+for both the macro encoder and the micro router, both implemented as 2-layer ReLU MLPs (Sec-tion 3). Training uses maximum sequence length 1024, batch size 16, learning rate 1e −4, warmup ra-tio 0.1, and 6 epochs, applied uniformly across both domains. For prompts that include few-shot demon-strations, the macro encoder pooling is restricted to the question span so that the macro summary re-flects the domain of the actual query rather than the fixed few-shot demonstrations, which are shared across queries within a benchmark and would oth-erwise dilute the domain signal. 
+
+Critical-point Labeling. Critical-point labels are constructed via teacher-forcing comparison be-tween fB and fE on the same training data used for vanilla SFT (Appendix A.1), i.e., GSM8K for math and the balanced PubMedQA sample for medical. At each generation step, we compare the greedy predictions of both models against the ground-truth token and assign labels zt ∈ { 0, 1, ∅} as defined in Eq.7. No additional data beyond the SFT training set is used to construct router supervision. 
+
+Inference Settings. All compared methods (CPR and all baselines) share the same inference con-figuration to control for the generation environ-ment: greedy decoding with temperature 0, with a sufficiently large maximum generation length to avoid truncation. For routing-based baselines (RouteLLM, Switch Generation), we use the of-ficially released router checkpoints without any re-training. For CPR, we use the default values 
+
+α = 0 .5, τlow = 0 .35 , and τhigh = 0 .65 unless otherwise specified. 
+
+A.4 Prompt Templates 
+
+We provide the exact prompt templates used for each benchmark in Listings 1-9. Math bench-marks (GSM8K, ASDiv, SVAMP) use 0-shot CoT prompting, while medical (PubMedQA, MedQA, CareQA) and general (MMLU, CommonsenseQA, ARC-C) benchmarks use 2-shot CoT with demon-strations drawn from MMLU and held fixed across all methods. For 2-shot demonstrations, we se-lect examples from MMLU categories relevant to each benchmark domain: medical-related cat-egories (e.g., clinical knowledge, medical genetics, anatomy) for medical benchmarks, and a broad mix of categories for general benchmarks. Within each domain-relevant category pool, demonstrations are sampled randomly and held fixed across all com-pared methods. The same templates are applied consistently throughout all stages of our pipeline in-cluding SFT training, router-training critical-point labeling, and evaluation, ensuring no prompt mis-match between training and evaluation. • Math Benchmarks (0-shot CoT): GSM8K (Listing 1), ASDiv (Listing 2), SVAMP (List-ing 3). • Medical Benchmarks (2-shot CoT): Pub-MedQA (Listing 4), MedQA (Listing 5), CareQA (Listing 6). • General Benchmarks (2-shot CoT): MMLU (Listing 7), CommonsenseQA (Listing 8), ARC-C (Listing 9). 15 Math Domain General Domain Overall Method GSM8K ⋆ ASDiv SVAMP Average MMLU CSQA ARC-C Average Average                                                        
+
+> Gemma3-4B
+> Base 29.11 44.51 48.67 40.76 54.16 59.13 64.42 59.24 50.00 Switch Generation-ours 48.07 57.96 49.67 51.90 50.98 49.39 57.47 52.61 52.23 Switch Generation-official 46.93 57.43 49.67 51.34 50.90 52.90 57.25 53.68 52.51 RouteLLM-ours 51.33 57.61 50.00 52.98 47.97 48.81 56.31 51.03 52.01 RouteLLM-official 49.63 57.87 50.67 52.72 49.91 52.99 56.01 52.97 52.85 CPR (Ours) 49.58 62.60 56.00 56.06 55.89 61.10 67.24 61.41 58.74
+
+Table 7: Re-trained routing-based baselines. Comparison between officially released router checkpoints and variants re-trained on our SFT data for RouteLLM and Switch Generation, evaluated on math domain for Gemma3-4B.                                    
+
+> Domain Benchmark Gemma3-4B Llama3.1-8B
+> Math GSM8K 34.8 37.9 ASDiv 35.4 41.6 SVAMP 31.8 40.2 Average 34.00 39.90 MMLU 24.4 20.6 CSQA 13.1 32.3 ARC-C 27.3 35.5 Average 21.60 29.47 Medical PubMedQA 14.8 41.6 MedQA 42.0 55.0 CareQA 35.9 41.3 Average 30.90 45.96 MMLU 22.6 27.7 CSQA 12.8 43.9 ARC-C 24.8 41.0 Average 20.07 37.53
+
+Table 8: Full benchmark numbers of expert invoca-tion rate (%). Full benchmark numbers of Figure 3. 
+
+B Additional Quantitative Results 
+
+This section provides additional quantitative results that complement the main experiments in Section 4. We report a comparison between officially re-leased and re-trained routing baselines (Appendix B.1), full benchmark-level expert invocation rates in Figure 3 (Appendix B.2), full per-benchmark numbers for the ablation studies summarized in Ta-ble 3 (Appendix B.3), comparison with MoE-style routing baselines (Appendix B.4), evaluation on the finance domain (Appendix B.5) and open-ended instruction following setting (Appendix B.6), and a lightweight LoRA configuration (Appendix B.7). 
+
+B.1 Re-trained Routing-based Baselines 
+
+The routing-based baselines in our main experi-ments (RouteLLM, Switch Generation) use offi-cially released checkpoints. To examine whether re-training their routers on our SFT data could im-prove performance, we re-trained both following the settings specified in each paper, except that the rollout for Switch Generation was set to 8 due to computational constraints. As shown in Table 7, the re-trained variants underperform the official checkpoints on both baselines, likely because our ~8K SFT-scale data is insufficient to learn an effec-tive query-level or patch-level router. We therefore adopt the official checkpoints in the main results (Tables 1-2). 
+
+B.2 Additional Efficiency Results 
+
+Table 8 provides the per-benchmark breakdown of the expert invocation rates aggregated in Figure 3. The rate remains around one-third of tokens across all benchmarks, and a clear in-domain vs. out-of-domain gap is observed in every setting, confirming that the router concentrates expert calls where do-main knowledge is genuinely required. 
+
+B.3 Additional Ablation Results 
+
+Table 3 in the main text reports averages aggre-gated across two backbones in the math setting. Tables 9-13 provide the full per-benchmark num-bers, separately for math and medical domains and for both backbones. The conclusions in Section 4.3 hold across all benchmarks: (i) the hierarchical router design, combining a query-level macro en-coder and a token-level micro router, outperforms either component alone, (ii) α = 0 .5 outperforms both α = 0 .0 and α = 0 .9, and (iii) the 3-way dispatch with (τlow , τ high ) = (0 .35 , 0.65) outper-forms both hard switching (0 .5, 0.5) and fully soft blending (0 .0, 1.0) .
+
+B.4 Comparison with MoE-style Routing Baselines 
+
+We further compare CPR with intra-model MoE-style approaches that also aim to mitigate catas-16 Math Domain General Domain Overall Method GSM8K ⋆ ASDiv SVAMP Average MMLU CSQA ARC-C Average Average                                                                                
+
+> Gemma3-4B
+> Base 29.11 44.51 48.67 40.76 54.16 59.13 64.42 59.24 50.00 w/o Macro 48.82 62.56 55.00 55.46 (+14.70) 54.90 61.83 62.06 59.60 (+0.36) 57.53 (+7.53) w/o Micro 37.53 55.49 45.67 46.23 (+5.47) 53.22 61.67 67.49 60.79 (+1.55) 53.51 (+3.51) Hierarchical (Default) 49.58 62.60 56.00 56.06 (+15.30) 55.89 61.10 67.24 61.41 (+2.17) 58.74 (+8.74)
+> Llama3.1-8B
+> Base 34.72 35.84 44.33 38.30 57.23 61.18 71.67 63.36 50.83 w/o Macro 51.55 62.52 64.67 59.58 (+21.28) 58.74 64.62 61.86 61.74 (-1.62) 60.66 (+9.83) w/o Micro 43.52 58.87 56.66 53.02 (+14.72) 55.38 66.26 63.65 61.76 (-1.60) 57.39 (+6.56) Hierarchical (Default) 51.80 62.70 66.67 60.39 (+22.09) 58.97 64.26 65.25 62.83 (-0.53) 61.61 (+10.78)
+
+Table 9: Ablation study on router architecture. Effect of removing each component (macro encoder, micro router) from the hierarchical router, evaluated on math domain for both backbones.                                                                                            
+
+> Medical Domain General Domain Overall Method PubMedQA ⋆MedQA CareQA Average MMLU CSQA ARC-C Average Average
+> Gemma3-4B
+> Base 54.30 27.97 38.13 40.13 54.16 59.13 64.42 59.24 49.69 w/o Macro 66.30 47.05 44.89 52.75 (+12.62) 55.01 60.85 69.27 61.71 (+2.47) 57.23 (+7.54) w/o Micro 70.80 46.19 44.98 53.99 (+13.86) 55.05 60.69 69.39 61.71 (+2.47) 57.85 (+8.16) Hierarchical (Default) 66.80 48.20 45.19 53.40 (+13.27) 54.82 61.26 69.67 61.92 (+2.68) 57.66 (+7.97)
+> Llama3.1-8B
+> Base 68.00 43.99 50.84 54.28 57.23 61.18 71.67 63.36 58.82 w/o Macro 75.90 53.10 56.36 61.79 (+7.51) 58.21 68.02 63.87 63.37 (+0.01) 62.58 (+3.76) w/o Micro 76.20 52.39 55.29 61.29 (+7.01) 57.61 69.51 61.08 62.73 (-0.63) 62.01 (+3.19) Hierarchical (Default) 74.60 53.86 56.62 61.69 (+7.41) 58.89 68.93 65.27 64.36 (+1.00) 63.03 (+4.21)
+
+Table 10: Ablation study on router architecture. Same setting as Table 9 on the medical domain. 
+
+trophic forgetting. Specifically, we evaluate Lo-RAMoE (Dou et al., 2024) and MoLE (Wu et al., 2024) under our single-domain math adaptation set-ting with Gemma3-4B. For LoRAMoE, we omit its localized balancing constraint, which is designed to balance expert groups across multiple labeled data types and is therefore not applicable to our single-domain SFT protocol. As shown in Table 14, CPR achieves the highest overall average. While Lo-RAMoE improves the target-domain performance, it incurs a large degradation in general capabil-ity. MoLE alleviates this degradation, but CPR provides a stronger balance between domain im-provement and general-capability preservation. 
+
+B.5 Generalization to Finance Domain 
+
+To evaluate whether CPR generalizes beyond the math and medical domains considered in our main experiments, we conduct an additional experiment on the finance domain using FinQA (Chen et al., 2021). We train the expert on the FinQA train-ing set and evaluate on the FinQA test set as the in-domain benchmark and MMLU as an out-of-domain general benchmark. For FinQA, predic-tions are regarded as correct when they fall within a 1% numerical relative tolerance of the gold an-swer under the oracle-retrieval setting. As shown in Table 15, SFT and EAFT substantially improve FinQA performance but suffer severe degradation on MMLU. In contrast, CPR retains most of the domain improvement while substantially recover-ing general capability, yielding the highest overall average. This result indicates that CPR is well generalized to finance domain as well. 
+
+B.6 Open-ended Instruction Following 
+
+To evaluate CPR beyond benchmarks with deter-ministic target answers, we consider an open-ended instruction-following setting. We construct an SFT set using the top 8K examples from the Alpaca dataset (Taori et al., 2023), following the same adaptation protocol as in our main experiments. We evaluate 200 examples from AlpacaEval (Dubois et al., 2024), using pairwise comparisons against responses from the base model with Llama-3.1-70B-Instruct as the judge. We additionally report MMLU to assess preservation of general capabil-ity after instruction tuning. As shown in Table 16, CPR is preferred over the base model in 67.0% of AlpacaEval comparisons, indicating that token-17 Math Domain General Domain Overall Method GSM8K ⋆ ASDiv SVAMP Average MMLU CSQA ARC-C Average Average                                                                                       
+
+> Gemma3-4B
+> Base 29.11 44.51 48.67 40.76 54.16 59.13 64.42 59.24 50.00
+> α= 0.0 48.82 59.09 51.00 52.97 (+12.21) 55.24 60.95 66.13 60.77 (+1.53) 56.87 (+6.87)
+> α= 0.5 (Default) 49.58 62.60 56.00 56.06 (+15.30) 55.89 61.10 67.24 61.41 (+2.17) 58.74 (+8.74)
+> α= 0.9 38.82 51.24 46.00 45.35 (+4.59) 55.59 60.69 68.00 61.43 (+2.19) 53.39 (+3.39)
+> Llama3.1-8B
+> Base 34.72 35.84 44.33 38.30 57.23 61.18 71.67 63.36 50.83
+> α= 0.0 51.08 63.51 62.33 58.97 (+20.67) 58.81 60.20 61.95 60.32 (-3.04) 59.65 (+8.82)
+> α= 0.5 (Default) 51.80 62.70 66.67 60.39 (+22.09) 58.97 64.26 65.25 62.83 (-0.53) 61.61 (+10.78)
+> α= 0.9 41.32 54.23 46.33 47.29 (+8.99) 57.34 68.86 65.78 63.99 (+0.63) 55.64 (+4.81)
+
+Table 11: Ablation study on momentum decay α. Effect of varying α in mt = αm t−1 + (1 − α)pt, evaluated on math domain for both backbones. α = 0.0 ignores history and oscillates; α = 0.9 over-relies on history and delays switching. The default α = 0.5 achieves the strongest overall accuracy.                                                                                                  
+
+> Medical Domain General Domain Overall Method PubMedQA ⋆MedQA CareQA Average MMLU CSQA ARC-C Average Average
+> Gemma3-4B
+> Base 54.30 27.97 38.13 40.13 54.16 59.13 64.42 59.24 49.69
+> α= 0.0 66.70 47.29 43.73 52.57 (+12.44) 54.38 61.47 67.94 61.26 (+2.02) 56.92(+7.23)
+> α= 0.5 (Default) 66.80 48.20 45.19 53.40 (+13.27) 54.82 61.26 69.67 61.92 (+2.68) 57.66 (+7.97)
+> α= 0.9 58.60 39.80 43.56 47.32 (+7.19) 55.18 60.36 68.00 61.18 (+1.94) 54.25 (+4.56)
+> Llama3.1-8B
+> Base 68.00 43.99 50.84 54.28 57.23 61.18 71.67 63.36 58.82
+> α= 0.0 76.20 49.96 55.11 60.42 (+6.14) 58.30 68.22 62.97 63.16 (-0.20) 61.79 (+2.97)
+> α= 0.5 (Default) 74.60 53.86 56.62 61.69 (+7.41) 58.89 68.93 65.27 64.36 (+1.00) 63.03 (+4.21)
+> α= 0.9 75.80 49.02 52.18 59.00 (+4.72) 59.60 69.08 68.69 65.79 (+2.43) 62.40 (+3.58)
+
+Table 12: Ablation study on momentum decay α. Same setting as Table 11 on the medical domain. 
+
+level routing remains effective for free-form gen-eration. Although the SFT expert obtains a higher AlpacaEval win rate, it reduces MMLU by 6.47 points. CPR instead limits the MMLU drop to only 0.66 points, demonstrating a substantially more favorable balance between adaptation and general-capability preservation. 
+
+B.7 CPR with Lightweight LoRA Expert 
+
+A practical limitation of CPR is that the default configuration keeps both the base and expert mod-els resident in GPU memory. We therefore evaluate a lightweight variant in which the domain expert is parameterized as a LoRA adapter over the shared frozen backbone. This allows CPR to reuse a single copy of the backbone weights while activating the domain-specific adapter when expert computation is required. The LoRA adapter is loaded once and toggled off for base computation and on for expert computation. Base and expert KV caches are main-tained separately, with skipped expert positions synchronized using the same batched catch-up pro-cedure described in Section 3.3. As shown in Table 17, the LoRA variant retains most of CPR’s accuracy gain, achieving an overall average of 56.87 compared with 58.74 for the full expert. More importantly, Table 18 shows that its GPU memory footprint decreases from 16.60 GB to 8.83 GB, close to the 8.07 GB single-expert footprint, with only a modest latency increase from 1.40 × to 1.49 ×.
+
+C Additional Qualitative Results 
+
+This section provides additional qualitative results that complement the quantitative results in Sec-tion 4, organized as follows: additional token-level routing examples that visualize CPR’s dispatch be-havior (Appendix C.1), and a trade-off plot that empirically supports the claim that single-weight regularization-based methods operate along an in-herent domain-generality trade-off (Appendix C.2). 
+
+C.1 Additional Token-level Routing Examples 
+
+Figures 5-7 provide additional token-level routing examples. Color coding follows Figure 4: expert to-kens in red, base tokens in green, and Soft Blend to-18 Math Domain General Domain Overall Method GSM8K ⋆ ASDiv SVAMP Average MMLU CSQA ARC-C Average Average                                                                                                    
+
+> Gemma3-4B
+> Base 29.11 44.51 48.67 40.76 54.16 59.13 64.42 59.24 50.00
+> τlow = 0.5, τhigh = 0.5 43.21 60.43 55.33 52.99 (+12.23) 55.36 61.83 67.06 61.42 (+2.18) 57.20 (+7.20)
+> τlow = 0.35, τhigh = 0.65 (Default) 49.58 62.60 56.00 56.06 (+15.30) 55.89 61.10 67.24 61.41 (+2.17) 58.74 (+8.74)
+> τlow = 0.0, τhigh = 1.0 49.91 63.64 56.33 56.63 (+15.87) 54.57 61.15 66.69 60.80 (+1.56) 58.72 (+8.72)
+> Llama3.1-8B
+> Base 34.72 35.84 44.33 38.30 57.23 61.18 71.67 63.36 50.83
+> τlow = 0.5, τhigh = 0.5 45.51 54.07 53.33 50.97 (+12.67) 59.04 64.21 66.57 63.27 (-0.09) 57.12 (+6.29)
+> τlow = 0.35, τhigh = 0.65 (Default) 51.80 62.70 66.67 60.39 (+22.09) 58.97 64.26 65.25 62.83 (-0.53) 61.61 (+10.78)
+> τlow = 0.0, τhigh = 1.0 52.92 63.59 62.00 59.50 (+21.20) 58.15 65.19 67.83 63.72 (+0.36) 61.61 (+10.78)
+
+Table 13: Ablation study on dispatch thresholds (τlow , τ high ). Effect of varying (τlow , τ high ) in the threshold-gated 3-way dispatch, evaluated on math domain for both backbones. Hard switching (0 .5, 0.5) removes the soft-blend regime; fully soft (0 .0, 1.0) always invokes the expert, increasing latency. The default (0 .35 , 0.65) 
+
+achieves the strongest overall accuracy. 
+
+kens in intermediate shades. On in-domain queries (Figures 4, 6), expert calls concentrate on domain-specific tokens such as numerals and arithmetic operators in math, and biomedical terminology in medical. On out-of-domain queries (Figures 5, 7), expert invocation is markedly sparser. These pat-terns provide a mechanistic view of the invocation gap in Figure 3: CPR preserves general capabil-ity by routing the expert precisely to tokens where domain knowledge is needed, not by uniformly damping its influence. 
+
+C.2 Trade-off Figure 
+
+Figure 8 plots the domain vs. general averages of all single-model baselines across the four settings. In every panel, a linear fit yields a negative slope, indicating that gains in domain accuracy come at the cost of general accuracy. No single-model base-line escapes this trade-off and each merely trades a different point along it. This empirically substan-tiates the claim in Section 1 and motivates CPR’s architectural decoupling, which steps outside the trade-off rather than relocating along it. 
+
+D Usage of AI Assistants 
+
+We used AI assistants for surface-level writing sup-port, including grammar correction, light rephras-ing, and LaTeX formatting. All research ideas, experimental design, implementations, analyses, and claims were conceived and verified by the au-thors, who take full responsibility for the content of this paper. 19 Math Domain General Domain Overall Method GSM8K ASDiv SVAMP Avg. MMLU CSQA ARC-C Avg. Avg. Base 29.11 44.51 48.67 40.76 54.16 59.13 64.42 59.24 50.00 LoRAMoE 45.94 60.30 52.00 52.75 (+11.99) 47.17 47.50 49.32 48.00 (-11.24) 50.38 (+0.38) MoLE 46.15 63.07 57.33 55.52 (+14.76) 53.56 53.40 61.01 55.99 (-3.25) 55.75 (+5.75) CPR (Ours) 49.58 62.60 56.00 56.06 (+15.30) 55.89 61.10 67.24 61.41 (+2.17) 58.74 (+8.74) 
+
+Table 14: Comparison with MoE-style routing baselines. Test accuracy (%) on math and general benchmarks using Gemma3-4B. 
+
+Method FinQA MMLU Average Base 23.80 54.16 38.98 SFT (Expert) 55.80 (+32.00) 25.26 (-28.90) 40.53 (+1.55) EAFT 53.93 (+30.13) 26.99 (-27.17) 40.46 (+1.48) CPR (Ours) 45.90 (+22.10) 46.87 (-7.29) 46.39 (+7.41) 
+
+Table 15: Generalization to the finance domain. Results with Gemma3-4B on FinQA as the in-domain benchmark and MMLU as the out-of-domain general benchmark. 
+
+Method AlpacaEval Win Rate (%) MMLU (%) Base – 54.16 
+
+SFT (Expert) 76.50 47.69 (-6.47) CPR (Ours) 67.00 53.50 (-0.66) 
+
+Table 16: Open-ended instruction-following results. Results with Gemma3-4B on AlpacaEval, reporting the win rate against the base model, and MMLU as the out-of-domain general benchmark.                                          
+
+> Math Domain General Domain Overall Method GSM8K ASDiv SVAMP Avg. MMLU CSQA ARC-C Avg. Avg. Base 29.11 44.51 48.67 40.76 54.16 59.13 64.42 59.24 50.00 CPR (Ours) 49.58 62.60 56.00 56.06 (+15.30) 55.89 61.10 67.24 61.41 (+2.17) 58.74 (+8.74) CPR (LoRA) 44.50 61.48 54.33 53.44 (+12.68) 53.81 60.36 66.72 60.30 (+1.06) 56.87 (+6.87)
+
+Table 17: Accuracy comparison with a lightweight LoRA expert. Test accuracy (%) with Gemma3-4B on math and general benchmarks, comparing CPR with the full expert and the LoRA-parameterized expert. 
+
+Method Latency (s) Tokens/s GPU Mem. (GB) Expert 5.581 (1.00 ×) 17.4 8.07 Ensemble 10.548 (1.89 ×) 9.4 16.21 CPR (Ours) 7.826 (1.40 ×) 13.4 16.60 CPR (LoRA) 8.298 (1.49 ×) 13.3 8.83 
+
+Table 18: Runtime and memory comparison. Measured inference costs on GSM8K with Gemma3-4B, reporting wall-clock latency, throughput, and GPU memory usage. 
+
+20 Query 1 
+
+Query 2 
+
+Figure 5: Token-level routing examples on CSQA with Gemma3-4B (math domain). Color coding follows Figure 4. Expert calls are sparse on out-of-domain queries. 
+
+Query 1 
+
+Query 2 
+
+Figure 6: Token-level routing examples on PubMedQA with Gemma3-4B (medical domain). Color coding follows Figure 4. 
+
+Query 1 
+
+Query 2 
+
+Figure 7: Token-level routing examples on CSQA with Gemma3-4B (medical domain). Color coding follows Figure 4. Expert calls are sparse on out-of-domain queries. 40 45 50 55 60                  
+
+> Domain Accuracy (%)
+> 48 50 52 54 56 58 60 62
+> General Accuracy (%)
+> slope = -0.20
+> (a) Gemma3-4B / Math
+> Base SFT DFT EAFT LfU
+> 40 45 50 55 60
+> Domain Accuracy (%)
+> 45.0 47.5 50.0 52.5 55.0 57.5 60.0 62.5 65.0
+> General Accuracy (%)
+> slope = -0.44
+> (b) Llama3.1-8B / Math
+> Base SFT DFT EAFT LfU
+> 38 40 42 44 46 48 50 52 54
+> Domain Accuracy (%)
+> 50 52 54 56 58 60
+> General Accuracy (%)
+> slope = -0.39
+> (c) Gemma3-4B / Medical
+> Base SFT DFT EAFT LfU
+> 54 56 58 60 62
+> Domain Accuracy (%)
+> 56 58 60 62 64 66
+> General Accuracy (%)
+> slope = -0.14
+> (d) Llama3.1-8B / Medical
+> Base SFT DFT EAFT LfU
+> Linear fit Base SFT DFT EAFT LfU
+
+Figure 8: Trade-off of single-model baselines. Domain vs. general accuracy across four model–domain settings. The dashed line is a linear fit (slope shown per panel); consistently negative slopes confirm that regularization-based methods operate along an inherent trade-off that cannot be eliminated within a single weight set. 
+
+21 Question: {question} Answer: Let's think step by step. 
+
+Listing 1: Prompt template for GSM8K (0-shot CoT). 
+
+Question: {question} Answer: Let's think step by step. 
+
+Listing 2: Prompt template for ASDiv (0-shot CoT). 
+
+Question: {question} Answer: Let's think step by step. 
+
+Listing 3: Prompt template for SVAMP (0-shot CoT). 
+
+Question: Glucose is transported into the muscle cell: (A) via protein transporters called GLUT4. (B) only in the presence of insulin. (C) via hexokinase. (D) via monocarbylic acid transporters. Answer: Let's think step by step. Glucose (also known as the blood sugar) is the main sugar found in the human body. It is transported into the muscle cell via diffusion through protein transporters called GLUT4. The answer is (A). Question: In a genetic test of a newborn, a rare genetic disorder is found that has X-linked recessive transmission. Which of the following statements is likely true regarding the pedigree of this disorder? (A) All descendants on the maternal side will have the disorder. (B) Females will be approximately twice as affected as males in this family. (C) All daughters of an affected male will be affected. (D) There will be equal distribution of males and females affected. Answer: Let's think step by step. Let's recall first that females have two Xchromosomes, while males have one X and one Y chromosome. This is an important fact we need to know before answering this question. Because a male can only pass his only one X chromosome to a daughter, if he is affected by this rare genetic disorder, then we know for sure that he will pass this rare genetic disorder to all his future-born daughters. The answer is (C). Question: {context} {question} Options: (A) yes (B) no (C) maybe Answer: Let's think step by step. 
+
+Listing 4: Prompt template for PubMedQA (2-shot CoT). Demonstrations are drawn from MMLU and held fixed across all methods. 
+
+22 Question: Glucose is transported into the muscle cell: (A) via protein transporters called GLUT4. (B) only in the presence of insulin. (C) via hexokinase. (D) via monocarbylic acid transporters. Answer: Let's think step by step. Glucose (also known as the blood sugar) is the main sugar found in the human body. It is transported into the muscle cell via diffusion through protein transporters called GLUT4. The answer is (A). Question: In a genetic test of a newborn, a rare genetic disorder is found that has X-linked recessive transmission. Which of the following statements is likely true regarding the pedigree of this disorder? (A) All descendants on the maternal side will have the disorder. (B) Females will be approximately twice as affected as males in this family. (C) All daughters of an affected male will be affected. (D) There will be equal distribution of males and females affected. Answer: Let's think step by step. Let's recall first that females have two Xchromosomes, while males have one X and one Y chromosome. This is an important fact we need to know before answering this question. Because a male can only pass his only one X chromosome to a daughter, if he is affected by this rare genetic disorder, then we know for sure that he will pass this rare genetic disorder to all his future-born daughters. The answer is (C). Question: {question} Options: (A) {option_A} (B) {option_B} (C) {option_C} (D) {option_D} Answer: Let's think step by step. 
+
+Listing 5: Prompt template for MedQA (2-shot CoT). Demonstrations are drawn from MMLU and held fixed across all methods. 
+
+Question: Glucose is transported into the muscle cell: (A) via protein transporters called GLUT4. (B) only in the presence of insulin. (C) via hexokinase. (D) via monocarbylic acid transporters. Answer: Let's think step by step. Glucose (also known as the blood sugar) is the main sugar found in the human body. It is transported into the muscle cell via diffusion through protein transporters called GLUT4. The answer is (A). Question: In a genetic test of a newborn, a rare genetic disorder is found that has X-linked recessive transmission. Which of the following statements is likely true regarding the pedigree of this disorder? (A) All descendants on the maternal side will have the disorder. (B) Females will be approximately twice as affected as males in this family. (C) All daughters of an affected male will be affected. (D) There will be equal distribution of males and females affected. Answer: Let's think step by step. Let's recall first that females have two Xchromosomes, while males have one X and one Y chromosome. This is an important fact we need to know before answering this question. Because a male can only pass his only one X chromosome to a daughter, if he is affected by this rare genetic disorder, then we know for sure that he will pass this rare genetic disorder to all his future-born daughters. The answer is (C). Question: {question} Options: (A) {option_A} (B) {option_B} (C) {option_C} (D) {option_D} Answer: Let's think step by step. 
+
+Listing 6: Prompt template for CareQA (2-shot CoT). Demonstrations are drawn from MMLU and held fixed across all methods. 
+
+23 Question: When an arguer causes confusion during refutation because of real or feigned lack of an ability to engage in refutation, that arguer may have committed the fallacy of (A) poor sportsmanship (B) appeal to compassion (C) argument against the person (D) ignorance of refutation Answer: Let's think step by step. Ignorance of refutation, one of Aristotle's original list of logical fallacies in his Organon, is when someone causes confusion in an argument through real or feigned inability to engage in refutation, in order to win the argument. The answer is (D). Question: When older adults move to a new state after retirement, which of the following is the more likely destination? (A) Texas (B) California (C) Hawaii (D) Vermont Answer: Let's think step by step. Texas does not have state tax, and has low cost of living compared with the other three options. The answer is (A). Question: {question} (A) {option_A} (B) {option_B} (C) {option_C} (D) {option_D} Answer: Let's think step by step. 
+
+Listing 7: Prompt template for MMLU (2-shot CoT). Demonstrations are drawn from MMLU and held fixed across all methods. 
+
+Question: When an arguer causes confusion during refutation because of real or feigned lack of an ability to engage in refutation, that arguer may have committed the fallacy of (A) poor sportsmanship (B) appeal to compassion (C) argument against the person (D) ignorance of refutation Answer: Let's think step by step. Ignorance of refutation, one of Aristotle's original list of logical fallacies in his Organon, is when someone causes confusion in an argument through real or feigned inability to engage in refutation, in order to win the argument. The answer is (D). Question: When older adults move to a new state after retirement, which of the following is the more likely destination? (A) Texas (B) California (C) Hawaii (D) Vermont Answer: Let's think step by step. Texas does not have state tax, and has low cost of living compared with the other three options. The answer is (A). Question: {question} (A) {option_A} (B) {option_B} (C) {option_C} (D) {option_D} (E) {option_E} Answer: Let's think step by step. 
+
+Listing 8: Prompt template for CommonsenseQA (2-shot CoT). Demonstrations are drawn from MMLU and held fixed across all methods. 
+
+24 Question: When an arguer causes confusion during refutation because of real or feigned lack of an ability to engage in refutation, that arguer may have committed the fallacy of (A) poor sportsmanship (B) appeal to compassion (C) argument against the person (D) ignorance of refutation Answer: Let's think step by step. Ignorance of refutation, one of Aristotle's original list of logical fallacies in his Organon, is when someone causes confusion in an argument through real or feigned inability to engage in refutation, in order to win the argument. The answer is (D). Question: When older adults move to a new state after retirement, which of the following is the more likely destination? (A) Texas (B) California (C) Hawaii (D) Vermont Answer: Let's think step by step. Texas does not have state tax, and has low cost of living compared with the other three options. The answer is (A). Question: {question} (A) {option_A} (B) {option_B} (C) {option_C} (D) {option_D} Answer: Let's think step by step. 
+
+Listing 9: Prompt template for ARC-C (2-shot CoT). Demonstrations are drawn from MMLU and held fixed across all methods. 
+
+25
