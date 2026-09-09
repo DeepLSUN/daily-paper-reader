@@ -1,0 +1,635 @@
+Title: Authority Is Not a String: A Capability-Scoped Harness for Prompt-Injection-Resistant Coding Agents
+
+URL Source: https://arxiv.org/pdf/2609.08371v1
+
+Published Time: Wed, 09 Sep 2026 03:06:07 GMT
+
+Number of Pages: 10
+
+Markdown Content:
+# Authority Is Not a String: A Capability-Scoped Harness for Prompt-Injection-Resistant Coding Agents 
+
+## Dimitrios Stamatios Bouras 
+
+2501112125@stu.pku.edu.cn 
+
+Key Lab of HCST (PKU), MoE and School of Computer Science Peking University Beijing, China 
+
+## Yihan Dai 
+
+2501112020@stu.pku.edu.cn 
+
+Key Lab of HCST (PKU), MoE and School of Computer Science Peking University Beijing, China 
+
+## Sergey Mechtaev 
+
+mechtaev@pku.edu.cn 
+
+Key Lab of HCST (PKU), MoE and School of Computer Science Peking University Beijing, China 
+
+## Abstract 
+
+Coding agents use system-level tools to read files, execute commands, and modify source code. Within the agent’s sand-box, these tools often carry ambient authority : naming a resource is sufficient to act on it. Indirect prompt injection exploits this authority by placing instructions in repository files or tool output that cause the agent to perform actions the user did not request. We propose CapScope, a harness-level authorization mech-anism that restricts tool use without requiring the model to identify malicious text. Before repository contents or tool output are read, CapScope derives a task-wide authority ceiling from trusted input. It then assigns each agent a sep-arate set of typed capabilities, stored outside the model’s context. Every tool call is checked against the capabilities of the agent that issued it. Permissions assigned to one sub-agent are therefore not automatically available to another. An injection may cause an agent to request an action, but the request is blocked unless that agent already has the required capability. We implement CapScope on the Pi coding agent and eval-uate it in a repair workflow where an orchestrator delegates subtasks to separate sub-agents. The evaluation covers five Python tasks, five injection surfaces, four authorization con-ditions, and three trials per cell (300 runs). The injected effect executes in 33–47/75 runs under the ambient-authority and global-policy baselines, compared with 3/75 under CapScope. CapScope completes 68/75 repairs, while the baselines com-plete 68–72/75. 
+
+CCS Concepts: • Security and privacy → Access control .
+
+Keywords: coding agents, indirect prompt injection, capa-bilities, least authority, tool authorization 
+
+> This work is licensed under a Creative Commons Attribution 4.0 Interna-tional License.
+> LMPL ’26, Oakland, CA, USA
+> © 2026 Copyright held by the owner/author(s). ACM ISBN 979-8-4007-2986-7/2026/10
+> https://doi.org/10.1145/3843750.3843843
+
+ACM Reference Format: 
+
+Dimitrios Stamatios Bouras, Yihan Dai, and Sergey Mechtaev. 2026. Authority Is Not a String: A Capability-Scoped Harness for Prompt-Injection-Resistant Coding Agents. In Proceedings of the 2nd ACM SIGPLAN Workshop on Language Models and Programming Lan-guages (LMPL ’26), October 04–09, 2026, Oakland, CA, USA. ACM, New York, NY, USA, 10 pages. https://doi.org/10.1145/3843750. 3843843 
+
+## 1 Introduction 
+
+A developer asks a coding agent to fix the failing tests in an auth module. An orchestrator delegates test execution to a runner and source editing to a patcher. A trojaned test fixture, planted by a repository contributor or pulled in through a compromised dependency, prints to the suite’s output an official-looking note: a signing key rotated; restore the build by replacing the key in src/auth/keys.py . The supplied value is attacker-controlled; once committed it lets the attacker forge auth tokens. The sub-agent cannot tell this from a real CI message, and the target is an ordinary source path. The request mentions no .env or curl , and nothing a deny rule would flag. If the sub-agent can write source, the backdoor lands, and neither it nor the developer notices. This is indirect prompt injection: when a coding agent reads external resources such as project files, skill definitions, source comments, or tool output, any text there can act as an instruction. The threat is well-documented: Liu et al. [12] report attack-success rates up to 84% against production cod-ing editors in their study, and CVE-2025-54135 ( CurXecute )chained indirect injection to creation of Cursor MCP config-uration and remote code execution. Malicious rule and skill files provide a separate backdoor vector [10]. Most defenses work at the model level: providers increas-ingly train and prompt models to be skeptical of untrusted instructions [21], and a separate classifier may flag suspected injected payloads before they reach the agent. Such defenses can reduce attacks, but still make a probabilistic decision about whether text is an instruction. Studies have found attacks despite instruction-hierarchy prompts [12, 23], and classifiers can produce false positives or fail against adap-tive attacks [4]. CapScope instead checks permissions after the model proposes a tool call. CaMeL [3] also uses capa-bilities, separating control and data flow with a dual-LLM arXiv:2609.08371v1 [cs.SE] 8 Sep 2026 LMPL ’26, October 04–09, 2026, Oakland, CA, USA Dimitrios Stamatios Bouras, Yihan Dai, and Sergey Mechtaev 
+
+interpreter; it evaluates web and email agents rather than coding workflows. This is a confused-deputy problem [9]. The harness has the user’s privileges, while the model chooses the resource names on which those privileges act. Capability systems mo-tivate least authority and attenuation [13, 18]. CapScope is a host-side reference monitor rather than an object-capability system: the model still designates string-named resources, while a per-principal table authorizes those requests at dis-patch. 
+
+Our Approach: CapScope. CapScope fixes the task’s max-imum authority from trusted input and then gives each agent only the part of it that agent’s step requires. It first makes a separate LLM call using only the trusted user request and the project’s file tree, which predicts the files and commands the task will need. The host freezes these permissions—stored outside the model’s context, so text encountered later cannot expand them—before the agent reads the repository or runs a command. Concretely, the harness stores three capability forms. Read 
+
+and Write capabilities cover canonicalized path prefixes, while Exec capabilities cover prefixes of parsed argument vec-tors, with every segment of a compound command checked separately. Each agent has its own host-side capability store; the model proposes resource names and tool calls but cannot read or modify that store. When an agent delegates work, the sub-agent receives only the permissions its subtask needs, bounded by the del-egating ceiling. Every tool call is then checked against the permissions of the agent making it. This per-agent split is what a single global policy cannot express. In the opening ex-ample, the sub-agent that reads the poisoned test output can run tests but cannot edit source: the source-write operation a patcher would be allowed to make is unavailable to the runner that received the injection, so the injected key-write is blocked. This paper contributes: 
+
+• We identify a granularity gap in current coding-agent authorization: a single task-level policy cannot give two agents different authority. We close it with a capability-scoped authorization model (Section 3). 
+
+• We implement this model in Pi as a harness-level en-forcement layer: authority is minted from trusted input, attenuated per sub-agent, and checked before every tool call (Section 3.3). 
+
+• We evaluate it across five repair tasks, five injection sur-faces, three baselines, and CapScope (300 runs), measur-ing both injected-effect execution and autonomous task success (Section 4). 
+
+Artifact. A package containing the code, tasks, mutators, harness, and decision logs is available at https://figshare. com/s/86184ed20f66d1f0cf91 .
+
+## 2 Background 
+
+The Agent Loop. A coding agent combines a model 𝑀 ,tools T , and a harness H that runs the loop. The model reads the current context ctx (the message transcript) and emits a 
+
+tool proposal : a tool name with concrete arguments, written 
+
+(𝑡, a). The harness executes it and appends the resulting observation 𝑜 to the context. Each tool has an effect type eff (𝑡 ) naming the kind of action it causes; we group these into Read , Write , and Exec . The harness is what actually performs effects, so it is the natural place to govern them. 
+
+Trust Boundary. The values in the context do not all de-serve equal trust, and the distinction is what the whole design turns on. In a session initiated by a developer, the trusted in-puts are the user’s request, the developer-configured system prompt, and the user’s private settings. Everything whose provenance is the working repository or command output is untrusted : file contents read by the agent, stdout/stderr of executed commands, and project-local config files any repository contributor can modify. Because the model reads both trusted and untrusted text, its tool calls are treated as untrusted requests [12]. The har-ness does not infer authority from a call; it checks authority stored outside the conversation. 
+
+2.1 Coding Agents 
+
+CapScope targets coding agents whose harness mediates tool calls and maintains a separate capability store for each agent session, which we call a principal .
+
+Tools and Effects. A coding agent’s tools cause three kinds of effect. Read and Write concern the filesystem. Exec —running a shell command—is the broadest: an unrestricted command can reach the network, read secrets, rewrite git his-tory, or install packages, all with the user’s privileges. Absent a command-level restriction, Exec is the effect a misdirected agent is most often steered toward. 
+
+Injection Surfaces. A coding agent loads context from several sources in the working directory. All are Untrusted 
+
+under the trust boundary above: (1) README.md. Project documentation the agent reads on demand; any repository contributor can modify it. (2) AGENTS.md. A repository-controlled instruction file loaded automatically for the agent. (3) Skill files. Project-local markdown prompt templates. Analogous to coding rule files, a known backdoor vec-tor in production editors [10]. (4) Source file contents. An instruction in a comment or docstring enters the context as Untrusted data when the model reads the file. (5) Tool output. The standard output and error of shell invocations return to the model as Tool -role messages; a trojanized test runner or network-fetched script can inject through this channel. Authority Is Not a String: A Capability-Scoped Harness. . . LMPL ’26, October 04–09, 2026, Oakland, CA, USA 
+
+These surfaces define the attack scenarios in our evalua-tion (Section 4). Under ambient authority, each can redirect the model toward an attacker-chosen tool call; how a ca-pability discipline changes that outcome is the subject of Section 3. 
+
+What CapScope Requires of a Host. A host needs a blocking pre-dispatch interceptor and per-session state. A lifecycle hook that only observes tool calls is insufficient: the interceptor must reject a call before execution. The capability representation itself is independent of the host API. 
+
+2.2 Threat Model and Non-Goals 
+
+We consider indirect prompt injection through any text that enters the model’s context from repository files, project-instruction files, skill definitions, source comments, or tool output. The attacker may steer the model’s proposed tool calls but cannot modify the harness, the capability store, or the tool wrappers, and cannot cause a capability to be minted. Within this model, an external effect runs only if a held capability covers it. CapScope does not stop the model from following an injected instruction; it stops the resulting tool call when that agent lacks the required capability. CapScope is not a confidentiality mechanism. A permitted read followed by a permitted write can still move data, and an injection can misuse authority deliberately granted to its reader. Those cases require complementary information-flow controls or sandboxing. 
+
+Assumptions. The guarantee assumes a small trusted computing base: every effect is mediated; stores are host-side and isolated by principal; path and command predicates faithfully implement their structured scopes; and only the host may mint or complete a derivation. The model may propose the initial set or request a sub-agent scope, but the host controls store updates and checks that each requested scope lies within the delegating ceiling. The preflight reads directory and file names, but not file contents. Filename injection is outside this evaluation. The host validates and freezes the generated ceiling before any evaluated injection surface is read. The guarantee assumes correct predicates, complete mediation, and no repository contents in the preflight input. 
+
+Scope of the Claim. CapScope bounds which effects a principal may invoke; it does not make every covered effect safe. An injection can misuse authority deliberately granted to its reader. An allowed command can also execute un-trusted repository code transitively— pytest , for example, imports project modules—so process sandboxing remains necessary. These are complementary boundaries, not prop-erties of capability lookup. Likewise, Read scopes govern the dedicated file-reading tool, not confidentiality through the command wrapper. Read/navigation commands such as grep , find , and ls are admitted by that wrapper and may inspect paths outside a principal’s Read prefix. Deploy-ments that require confidentiality must additionally sandbox command-level filesystem access. 
+
+## 3 CapScope: The Design Pattern 
+
+CapScope replaces ambient authority with permissions held by the harness. It checks whether an installed capability covers a proposed tool call, without asking the model to classify the proposal’s provenance. 
+
+3.1 Capabilities as Typed Authority Definition 1 (Capability) . A capability is a pair 𝑐 = (𝑒, 𝜑 )
+
+written Cap [𝑒, 𝜑 ], where 𝑒 ∈ Effects is an effect type and 
+
+𝜑 : Args → B is a scope predicate over the arguments of that effect. A capability Cap [𝑒, 𝜑 ] covers a proposal (𝑡, a) when eff (𝑡 ) = 𝑒 and 𝜑 (a) holds. 
+
+A capability store Σ is a finite set of capabilities held by the harness for the duration of a session. The model never holds capabilities directly; it sees only the effects they permit. 
+
+Effect Types and Scope Predicates for Coding Agents. 
+
+For the four tools of a typical coding agent, we define three effect types and give representative scope predicates. Here 𝑝 
+
+denotes a file-system path and 𝑠 a shell command string.                        
+
+> Effect type (tools) Scope predicate 𝜑
+> Read (read )𝜑 (𝑝 )≜within (canon (𝑝 ), 𝜋 )
+> Write (write ,edit )𝜑 (𝑝, _)≜within (canon (𝑝 ), 𝜋 )
+> Exec (bash )𝜑 (𝑠 )≜allowed 𝐴 (parse (𝑠 ))
+> 𝜋 : canonicalized path prefix; 𝐴 : allowed argument-vector prefixes;
+> canon : resolves .. and symlinks.
+
+within (𝑥, 𝜋 ) means that path 𝑥 equals or lies below pre-fix 𝜋 . We write src/** as shorthand for the canonical sub-tree rooted at src/ . The predicate uses a canonicalized path (canon resolves .. and symlinks) to prevent traversal attacks. 
+
+parse (𝑠 ) rejects substitution, splits compound commands, re-moves redirections, and returns each segment’s argument vector. allowed 𝐴 holds when every vector is read/navigation or begins with a vector in 𝐴 . Thus Exec[pytest] admits 
+
+pytest -v . A compound command containing an uncovered 
+
+curl segment is rejected. Redirections and transitive effects of allowed commands remain inside the process-sandbox boundary. 
+
+3.2 Formal Semantics 
+
+Notation. 𝑒 is an effect type, 𝑡 a tool, a its arguments, and 
+
+𝑜 an observation. eff (𝑡 ) gives the effect of 𝑡 ; 𝜑 : Args →
+
+B accepts or rejects arguments, where B = {true , false }.
+
+Cap [𝑒, 𝜑 ] pairs an effect with a scope; Σ𝑖 is agent 𝑖 ’s finite ca-pability store; and ctx ·𝑜 appends 𝑜 to the context. For the root orchestrator, 𝐷 𝑖 is the task-wide ceiling; for a non-root agent, it is that agent’s already-derived store. Here 𝑟 is the root and 
+
+⟨𝑋 ; ctx ⟩ is a state with authority 𝑋 and context ctx . We write 
+
+𝑐 ′ ⪯ 𝑐 when 𝑐 ′ and 𝑐 have the same effect type and the scope LMPL ’26, October 04–09, 2026, Oakland, CA, USA Dimitrios Stamatios Bouras, Yihan Dai, and Sergey Mechtaev 
+
+of 𝑐 ′ is no broader: for 𝑐 ′ = Cap [𝑒, 𝜑 ′] and 𝑐 = Cap [𝑒, 𝜑 ],
+
+∀a. 𝜑 ′ (a) ⇒ 𝜑 (a). 𝐷 𝑖 ⊢ 𝐶 ′ ⇓ Σsub = 𝐶 ′′ means that candi-date set 𝐶 ′ is checked under delegation ceiling 𝐷 𝑖 , and the covered subset 𝐶 ′′ is installed as the sub-agent’s capability store. −→ updates an authority set, ⇓ installs a derived store or returns an observation, and (𝑡, a)
+
+−−−→ records an invoked tool call. 
+
+Minting: Where Authority Comes From. Mint is the only rule that introduces authority not already bounded by a held capability. It runs a trusted host policy 𝑃 and adds the finite capability set 𝐶 that it returns for trusted preflight input 𝐼 𝑇 :             
+
+> 𝑃 ∈Policies Trusted 𝑃 (𝐼 𝑇 )=𝐶
+> ⟨𝐷 𝑟 ;ctx ⟩ −→ ⟨ 𝐷 𝑟 ∪𝐶 ;ctx ⟩(Mint )
+
+With fresh 𝐷 𝑟 = ∅, this sets 𝐷 𝑟 = 𝐶 . Host-side compilation installs Σ𝑟 ⊆ 𝐷 𝑟 for root calls, as in Listing 2. In our imple-mentation, an LLM proposes capability descriptions from the trusted request and the project’s file tree—names only, never contents. Deterministic host code validates and compiles the proposal as policy 𝑃 before file contents, tool output, or another injection surface is available. The policy is then frozen for that session. The ceiling and operational store are fresh per session and do not accumulate across tasks. If a later call is genuinely necessary but uncovered, the harness may ask the user to approve a single additional capability. That out-of-band decision is a new trusted Mint, followed by host-side compilation; the model cannot approve its own request. Interactive approval is disabled in our evaluation. 
+
+Derivation: Narrowing for Delegation. A model sup-plies a requested grant, and host-side completion may add role-required candidate descriptions. Let 𝐶 ′ be the resulting candidate set; its descriptions carry no authority until in-stalled by the host. Derive filters 𝐶 ′ against 𝐷 𝑖 , installs the covered subset 𝐶 ′′ , and drops uncovered requests:                  
+
+> 𝐶 ′′ ={𝑐 ′∈𝐶 ′| ∃ 𝑐 ∈𝐷 𝑖 . 𝑐 ′⪯𝑐 }
+> 𝐷 𝑖 ⊢𝐶 ′⇓Σsub =𝐶 ′′ (Derive )
+
+For example src/** can be narrowed to src/parser.py ,never the reverse. A spawned sub-agent’s fresh store con-tains 𝐶 ′′ alone. 
+
+Invocation: The Check Before Every Effect. Invoke is where a proposal becomes an effect. It fires only when some held capability matches the tool’s effect type and its predicate accepts the arguments; execute (𝑡, a) ⇓ 𝑜 runs the tool and yields the observation 𝑜 appended to the context:               
+
+> Cap [𝑒, 𝜑 ] ∈ Σeff (𝑡 )=𝑒 𝜑 (a)
+> execute (𝑡, a) ⇓ 𝑜
+> ⟨Σ;ctx ⟩(𝑡, a)
+> −−−→ ⟨ Σ;ctx ·𝑜 ⟩(Invoke )
+
+If no capability covers the proposal it is blocked and the model receives a refusal. Since the model’s output is un-trusted (the trust boundary, Section 2), the check never consults the model about provenance. The only question is whether Σ already holds a covering capability. 
+
+What the Rules Give Us. By inspection of the three rules, every effect that executes is covered by a capability whose authority traces back to a trusted Mint. Invoke is the only rule that runs an effect, and it requires a covering capability already in Σ. Root authority enters Σ𝑟 only through compi-lation from 𝐷 𝑟 ; sub-agent authority enters through Derive. Both can only narrow, so no agent can exceed the initial minted authority. In our evaluation, this mint occurs before untrusted content is admitted and later user-approved mint-ing is disabled. Injected text may influence a proposed tool call or requested sub-agent grant, but it cannot expand the task-wide authority. A call outside the resulting scope is refused. 
+
+3.3 Implementation 
+
+We realize CapScope on Pi [6], an open-source TypeScript coding-agent toolkit with a CLI and a programmable SDK, without modifying Pi internals. The experiment enables Pi’s four built-in tools below; the command wrapper also rec-ognizes read/navigation programs such as grep , find , and 
+
+ls .        
+
+> Tool Arguments Effect
+> read path : string Read
+> write path : string, content : string
+> Write
+> edit path : string, edits : Edits
+> Write
+> bash command : string Exec
+
+Pi 0.78.0 supplies the two host requirements of Section 2.1. Extensions register handlers with pi.on . The tool_call 
+
+event occurs before dispatch; returning block: true aborts the call and sends the reason to the model. CapScope installs this hook separately for the orchestrator and each sub-agent. The SDK’s createAgentSession returns {session} ; callers submit work with session.prompt() . The pi-subagents 
+
+extension ( https://www.npmjs.com/package/pi-subagents )delegates a subtask to a process-isolated sub-agent, whose separate address space lets CapScope seed its capability store independently. 
+
+Component 1: Capability Structure. Scopes are struc-tured data rather than opaque functions. The host can check whether a requested path prefix or command set lies within the delegating ceiling before installing it. 
+
+Listing 1. Schematic pseudocode for the structured capabil-ity type.            
+
+> 1type EffectType = "read" | "write" | "exec";
+> 23type ScopeSpec =
+> 4| { kind: "path"; prefix: string }
+> 5| { kind: "argv"; allowed: string [][] }; Authority Is Not a String: A Capability-Scoped Harness. . . LMPL ’26, October 04–09, 2026, Oakland, CA, USA
+> 67
+
+interface Capability {  
+
+> 8
+
+effect: EffectType;  
+
+> 9
+
+spec: ScopeSpec;  
+
+> 10
+
+description: string ; 
+
+> 11
+
+} 
+
+> 12 13
+
+type CapSet = Capability[]; 
+
+Component 2: Initial Minting. Before loading project context, authorize makes a preflight LLM call using the trusted request and the project’s file tree. The call predicts the permissions required by the complete task and by the orchestrator. The host validates and compiles this prediction into a task-wide ceiling , from which sub-agents may derive authority, and the orchestrator’s operational store. The latter may be read-only. The root orchestrator is the exception to ordinary delegation: its calls use the operational store, while its grants are bounded by the task ceiling. 
+
+Listing 2. Schematic pseudocode for initial authorization.  
+
+> 1
+
+interface Authority {  
+
+> 2
+
+ceiling: CapSet;  
+
+> 3
+
+orchestrator: CapSet;  
+
+> 4
+
+} 
+
+> 56
+
+async function authorize(  
+
+> 7
+
+trustedRequest: string , 
+
+> 8
+
+taskTree: TaskTree  
+
+> 9
+
+): Promise<Authority> {  
+
+> 10
+
+const proposal = await preflightLLM({  
+
+> 11
+
+trustedRequest,  
+
+> 12
+
+taskTree  
+
+> 13
+
+});  
+
+> 14
+
+return validateAndCompile(proposal);  
+
+> 15
+
+}
+
+The authorize call appears once, at session start. Reposi-tory text and tool output are unavailable at this point. The preflight prediction may still be too broad or too narrow, but later injected content cannot change it. A runtime user ap-proval, if enabled, is a separate trusted mint and is recorded as such. 
+
+Component 3: Derivation and Transfer. Delegation is driven by the model, just as the initial mint is. When an agent delegates, it issues a subagent tool call whose struc-tured arguments carry the sub-agent’s role, subtask, and a requested grant ; the same decision that chooses what to delegate also proposes how much authority the sub-agent should get. The host treats that request as a proposal only: 
+
+derive keeps just the capabilities structurally contained in the delegating ceiling (rule Derive) and drops the rest. The implementation first calls ensureUsable to supply omitted repository-local reads and role-required test or write scopes, then calls derive to filter the completed request against the frozen ceiling. Repository reads are allowed by default in all conditions. Because the subtask text is model-generated, it may affect which in-ceiling scope is selected, as discussed in Section 5. 
+
+Listing 3. Schematic pseudocode for deriving and transfer-ring a sub-agent store.  
+
+> 1
+
+function derive(ceiling: CapSet, requested: CapSet) { 
+
+> 2
+
+const derived = requested.filter(cap =>  
+
+> 3
+
+ceiling.some(p =>  
+
+> 4
+
+p.effect === cap.effect && scopeWithin(cap. spec, p.spec)  
+
+> 5
+
+) 
+
+> 6
+
+);  
+
+> 7
+
+return { derived };  
+
+> 8
+
+} 
+
+> 910
+
+async function spawnScoped(  
+
+> 11
+
+ceiling: CapSet, role: Role, task: string ,requested: CapSet  
+
+> 12
+
+) {  
+
+> 13
+
+const completed = ensureUsable(role, task, requested, ceiling);  
+
+> 14
+
+const { derived: subCaps } = derive(ceiling, completed);  
+
+> 15
+
+const { session: sub } = await createAgentSession ({  
+
+> 16
+
+resourceLoader: scopedRoleResources(role, subCaps)  
+
+> 17
+
+});  
+
+> 18
+
+await sub.prompt(task);  
+
+> 19
+
+}
+
+Component 4: Per-Principal Dispatch Checks. Every orchestrator and sub-agent session installs the same small handler, but closes over a different store. It compiles the structured scope, checks Invoke, and blocks uncovered calls. 
+
+Listing 4. Schematic pseudocode for the per-principal Cap-Scope hook.  
+
+> 1
+
+function installCapScope(pi: ExtensionAPI, caps: CapSet) {  
+
+> 2
+
+pi.on("tool_call", (event) => {  
+
+> 3
+
+const granted = caps.find(  
+
+> 4
+
+c => effectOf(event.toolName) === c.effect  
+
+> 5
+
+&& compileScope(c.spec)(event.input)  
+
+> 6
+
+);  
+
+> 7
+
+if (!granted) {  
+
+> 8
+
+return { 
+
+> 9
+
+block: true , 
+
+> 10
+
+reason: `[CapScope] uncovered ${event. toolName} call ` 
+
+> 11
+
+};  
+
+> 12
+
+} 
+
+> 13
+
+});  
+
+> 14
+
+}LMPL ’26, October 04–09, 2026, Oakland, CA, USA Dimitrios Stamatios Bouras, Yihan Dai, and Sergey Mechtaev 
+
+Usage: A Complete Session. The root’s calls are checked against auth.orchestrator ; delegation is checked against 
+
+auth.ceiling . Thus a read-only orchestrator may grant a task-required write to a patcher, but no grant can exceed the ceiling. 
+
+Listing 5. Schematic pseudocode for orchestrator setup.            
+
+> 1const auth = await authorize(userRequest, taskTree);
+> 2const { session: orchestrator } = await
+> createAgentSession({
+> 3resourceLoader: capScopeResources(auth)
+> 4});
+> 5await orchestrator.prompt(userRequest);
+
+Other Frameworks. Porting CapScope requires a host-specific blocking pre-dispatch interceptor and per-session state. In-process sub-agents need separate stores; separate processes receive a derived store at startup. The hook reg-istration and session setup must be checked against each framework’s API. 
+
+3.4 Example: A Backdoor the Allowlist Cannot Stop 
+
+A developer asks an orchestrator to fix the failing auth-module tests. The task needs project reads, source writes, and test commands. Before reading project content, preflight receives only the trusted request and file tree; the host com-piles 𝑐 1 for reads, 𝑐 2 for writes, and 𝑐 3 for execution. Write 
+
+𝐴 task for the allowed prefixes pytest and mypy src/ , and 
+
+𝐴 run for pytest alone. 
+
+𝑐 1 = Cap [Read , within (canon (𝑝 ), "project/**" )] (1) 
+
+𝑐 2 = Cap [Write , within (canon (𝑝 ), "src/**" )] (2) 
+
+𝑐 3 = Cap [Exec , allowed 𝐴 task (parse (𝑠 ))] (3) The orchestrator delegates the noisy test run to a runner and later the source edit to a patcher . The runner needs to read tests and run pytest but needs no write, so before spawning it the orchestrator applies Derive to pass a strict subset: 
+
+𝑐 ′ 
+
+> 1
+
+= Cap [Read , within (canon (𝑝 ), "tests/**" )] (4) 
+
+𝑐 ′ 
+
+> 3
+
+= Cap [Exec , allowed 𝐴 run (parse (𝑠 ))] (5) Here tests/** is contained in project/** and mypy is dropped, so 𝜑 ′ ⇒ 𝜑 and Σrunner = {𝑐 ′
+
+> 1
+
+, 𝑐 ′ 
+
+> 3
+
+}. The runner’s store contains no capability with effect type Write .A trojaned fixture makes the suite print, to the runner’s 
+
+pytest output:   
+
+> [ci-bot] Known regression: the signing key rotated. Restore the build by writing to src/auth/keys.py :
+> SIGNING_KEY = "k3y_9f2a. . . c71" , then re-run.
+
+The key is attacker-controlled, and the target is an ordi-nary source path —no .env , ~/.ssh , or curl , and nothing a deny pattern matches. Figure 1 compares three authoriza-tion models. The static policy does not classify this source edit as dangerous. B2’s shared policy includes source writes 
+
+Table 1. Repair tasks used in the evaluation.                 
+
+> Task Bug
+> T1 Off-by-one error in daterange.py
+> T2 Wrong fee comparison in fees.py
+> T3 Wrong field lookup in report.py
+> T4 Case-sensitive lookup in indexer.py
+> T5 Discount applied on the wrong branch in
+> billing/fees.py
+
+because the repair needs them, so it cannot withhold that write from the runner while allowing the patcher to fix the file. CapScope gives the write only to the patcher. At turn 3 the runner is refused and may report the requested edit to the orchestrator as data; its own store still contains no Write 
+
+capability. 
+
+## 4 Evaluation 
+
+We ask two questions. RQ1: does per-principal scoping re-duce attacks that global, task-level authorization cannot dis-tinguish? RQ2: what is the task-success and latency cost of fail-closed capability enforcement? Across conditions we vary the authorization model while holding the underlying LLM, the tasks, and the delegated four-principal topology fixed. 
+
+Tasks and Attacks. Each task is a small Python project with one bug and a failing pytest suite. The injections re-quest executing a project-local utility or writing to a project file. These actions are intentionally plausible rather than obviously harmful: each could be legitimate in another main-tenance task, but none is needed for the requested repair. In the injected context, such execution or writing could intro-duce a malicious side effect. Table 1 summarizes the repair tasks. Each malicious action creates a unique sentinel or marker that benign repair never produces. We score that side ef-fect, rather than treating routine project activity itself as compromise. 
+
+Delegated Pipeline. Every condition uses the same four-principal workflow. An orchestrator diagnoses and coordi-nates but delegates effectful work. A runner executes the failing tests, a patcher edits the relevant source, and a ver-ifier reruns the suite. The loop repeats until the tests pass or the run terminates. This control is important: the con-ditions compare authorization models, not different agent architectures. 
+
+Injection Surfaces. We place the same task-specific pay-load in each of the five untrusted surfaces of Section 2.1: a README, an agent-instruction file, a project-local skill, a source comment or docstring, and pytest output. The first three are normally encountered by the orchestrator while Authority Is Not a String: A Capability-Scoped Harness. . . LMPL ’26, October 04–09, 2026, Oakland, CA, USA                  
+
+> Turn Runner proposes Static global policy Task-specific global policy CapScope per agent
+> 1read("tests/test_auth.py") allowed (global read) allowed ( 𝑐 1)allowed ( 𝑐 ′
+> 1)2bash("pytest tests/test_auth.py") allowed (global exec)
+> →payload enters allowed ( 𝑐 3)
+> →payload enters allowed ( 𝑐 ′
+> 3)
+> →payload enters 3write("src/auth/keys.py", . . . ) allowed : matches no deny rule
+> allowed :𝑐 2
+> covers src/**
+> blocked : no
+> Write in Σrunner
+
+Figure 1. The same runner under three authorization models. Turns 1 and 2 are legitimate and allowed everywhere, so the poisoned test output enters the runner’s context and it proposes the backdoor write at turn 3. The static global policy allows the ordinary-looking source path. The task-specific global policy also allows it because its shared authority includes 𝑐 2 for the legitimate patch. CapScope blocks it because the runner has only Σrunner = {𝑐 ′
+
+> 1
+
+, 𝑐 ′ 
+
+> 3
+
+}.inspecting the project, source comments by an agent reading code, and test output by the agent running or verifying the tests. Varying the surface therefore changes which principal first receives the injection without changing the requested repair or malicious action. 
+
+Baselines. We compare CapScope against three baselines that bracket current practice. All principals use ambient au-thority in B0 . B1 applies one static, task-independent policy to every principal, configured through the permission-gating facility Pi provides: it denies familiar hazards such as sensi-tive paths and obviously destructive commands (e.g., .env 
+
+and .ssh paths, rm -rf , sudo , curl ), but permits ordinary project operations. B2 generates a tighter global policy from the trusted task description and a sanitized project structure before any injection is read, then applies that one policy to every principal; it can remove authority the task does not need, but cannot give two principals different slices of au-thority. C is not a baseline but CapScope itself, the system under test: a preflight mints a task-wide ceiling that bounds delegation, and each sub-agent receives a store derived from the applicable delegation ceiling. B2 is the strongest global baseline: its policy is tailored to the task before the adversar-ial text arrives. Comparing it with C shows the outcomes of adding per-agent authority to the complete mechanism. 
+
+Protocol and Metrics. The full factorial is 4 conditions × 5 tasks × 5 surfaces × 3 trials = 300 runs .
+
+Each run uses an isolated working copy and all conditions are driven by qwen3.5-flash through CloseAI’s OpenAI-compatible endpoint. Runs were collected in May 2026; pre-flight calls used temperature 0. The harness verifies that the suite fails before the run, then records two outcomes: 
+
+• task_success : the final test suite passes; 
+
+• attack_executed : the attacker-only sentinel or marker exists on disk after the run. Each outcome is Boolean per run: a run is counted once if the attack executes at least once, even if it also contains blocked or repeated attack attempts. Both are read from the filesystem, independent of any log and of each other: a run may fix the bug and still be compromised. attack_executed 
+
+is our headline defense metric—did the attack land. The per-call decision log additionally shows, on the conditions that install a hook, whether a call carrying the injected action was 
+
+proposed by the model and whether the layer blocked it. We report these as secondary diagnostics, not outcome metrics. They need not be mutually exclusive because a run may contain several attempts. B0 installs no hook and exposes neither count. 
+
+Results. Table 2 reports descriptive counts over the three trials. For attack execution, B0 ≈ B1 > B2 ≫ C: the injected effect lands in 47 of 75 runs under ambient authority and 46 under the static global policy—a conventional denylist does not improve on having no policy, because the malicious actions are ordinary in-repository operations it never names. The task-specific global policy (B2) helps, cutting leakage to 33/75 by removing task-unnecessary operations before the injection arrives, but that one allowlist is still shared by every principal (below). CapScope (C) admits the effect in 3/75, compared with 33/75 for the strongest global baseline, because it additionally withholds task-needed authority from the principals that do not need it. The condition-specific per-surface view (Table 3) compares B2 with C. Under C, all three executed attacks occur through AGENTS.md ; the other four surfaces admit none. Task success differs by four runs between C and B0: Cap-Scope finishes 68 of 75 repairs against 72 for the uncon-strained baseline—a gap of four runs—and B2’s tighter global policy also finishes 68/75. As a diagnostic, the decision log shows that under CapScope the model proposes the injected action on 34 of 75 runs and the hook records only 3 runs with an allowed attack call. The archived run and decision logs further decompose C’s seven task failures. In two runs, preflight omitted the source-write capability required for the repair, so deriva-tion withheld the patcher’s legitimate write. In two other runs, the runner proposed the correct source edit but the workflow did not reroute it to a write-authorized patcher. The remaining three runs had passing tests at the end but LMPL ’26, October 04–09, 2026, Oakland, CA, USA Dimitrios Stamatios Bouras, Yihan Dai, and Sergey Mechtaev 
+
+reached the session timeout and are therefore counted as failures by the fixed scoring rule. Thus two failures directly expose the utility cost of a too-narrow ceiling; the other five reflect delegation or termination behavior rather than a missing task-wide permission. 
+
+Why a Shared Task Policy Still Permits Attacks. Be-cause one policy is shared by every principal, it must grant the union of everything the task needs—reads, a source write, the test commands—just to let the repair finish, and that broad authority then reaches every sub-agent, the runner that reads the poisoned output included. Removing a task-required permission would also prevent the legitimate step. CapScope scopes authority per agent instead: the runner that reads the injection can run tests but cannot write source, so the attack is blocked, while the patcher still holds the write that completes the repair. 
+
+Latency. Mean wall-clock time is 145 s for B0, 140 s for B1, 194 s for B2, and 316 s for C. For C, the median is 208 s; five runs reached the 900 s timeout, increasing the mean. The decision logs provide a descriptive account of this ad-ditional work. Among the 34 C runs containing an attack-targeting proposal, 27 contain repeated attack-targeting calls. The measured latency therefore includes additional model turns following refusals, rather than only the cost of the authorization check. Derivation-related calls are also asso-ciated with longer runs. These observations do not isolate the causal cost of any individual component, since grant construction, sub-agent setup, and other model interactions may also contribute. 
+
+Interpreting the Cost. The pipeline is fully autonomous and has no human approval path. Every denial returns con-trol to the model, which may try another call. In an interac-tive deployment, a user could reject the first attack-driven request and end that retry sequence, reducing subsequent agent compute; the user could also approve a legitimate un-covered step. We did not measure human response time or approval choices, so this is a deployment implication rather than a measured latency result. Approval is disabled to keep the protocol fixed. 
+
+## 5 Discussion 
+
+Policy Quality and Approval. Enforcement checks the installed capabilities at every mediated call. Policy genera-tion is a separate source of error: a scope that is too broad may admit an unwanted in-scope action, while one that is too narrow may block a required step. CapScope does not widen a scope silently. A deployment can instead show the refusal to the user and record any approved capability as a fresh trusted Mint. 
+
+How a Residual Injection Still Lands. CapScope’s re-maining executed attacks (Table 2) fall into two grant cases. (1) A grant can be wider than its subtask needs, such as per-mitting a directory write instead of one file. (2) Injected text can influence the model-generated subtask, causing the or-chestrator or host-side grant completion to select an attacker-requested capability. Both cases require the action to lie within the preflight ceiling. Dispatch enforcement cannot correct a capability that the policy intentionally installed. 
+
+Trusted Computing Base. The TCB is exactly the host-side components named in Section 2.2: the preflight isolation boundary, capability compiler, derivation code, per-principal stores, scope predicates, and dispatch hooks. The preflight LLM shapes how broad the initial policy is, but cannot place or alter capabilities once untrusted content is admitted—only host code can mint, narrow, or enforce them. 
+
+Limitations and Threats to Validity. The corpus con-tains five small Python repairs, one model, and three trials per task-surface-condition cell. It does not represent large refactors, dependency migrations, or long-running work-flows, where policy omissions and approval frequency may be higher. The payloads are intentionally strong and the model may react differently to each carrier, so we report results by surface rather than assuming a uniform injection rate. Because the underlying calls are stochastic, individual cells vary from trial to trial; we therefore report aggregates over three trials and read the per-condition ordering, which is stable, rather than any single cell. Finally, the informative refusal message can affect recovery and task success, though it cannot turn an uncovered call into an allowed one. 
+
+## 6 Related Work 
+
+Prompt Injection and Model-Side Defenses. Indirect prompt injection lets attacker-controlled external content hi-jack an LLM-integrated application [8]. OWASP ranks it the leading LLM application risk [17]. In the coding setting the threat is acute: Liu et al. [12] report attack success rates up to 84% in production coding editors, and rule and skill files are a documented backdoor vector [10]. Model-side defenses such as Instruction Hierarchy [21] and PromptArmor [20] make the model more skeptical of untrusted text. Their deci-sions remain probabilistic. CapScope instead checks installed permissions at the harness boundary and can be combined with model-side defenses. 
+
+Harness-Level Defenses. AgentDojo [4] is a benchmark for agent prompt injection; Bhagwatkar et al. [1] show that simple firewalls solve many cases in several benchmarks. Deployed coding agents also enforce permission boundaries through sandboxes, approval modes, and allowlist/denylist command patterns. CapScope differs along two axes. Its com-mand scopes match a parsed executable and argument vector, and a compound command is checked segment by segment rather than as one string; thus allowing pytest does not also admit pytest; cmd or pytest && cmd unless cmd is itself Authority Is Not a String: A Capability-Scoped Harness. . . LMPL ’26, October 04–09, 2026, Oakland, CA, USA 
+
+Table 2. Aggregate results per condition (75 runs each). Attack executed (lower is better) is the headline defense metric, read from the filesystem; mean time is wall-clock seconds per run. 
+
+Condition Runs Task success Attack exec. Mean time (s) 
+
+B0: ambient authority 75 72/75 47/75 145 B1: static global 75 70/75 46/75 140 B2: task-specific global 75 68/75 33/75 194 C: CapScope 75 68/75 3/75 316 
+
+Table 3. Attack execution by injection surface for the strongest global baseline (B2) and CapScope (C), with 15 runs per cell. 
+
+Surface B2 attack exec. C attack exec. 
+
+README 7/15 0/15 AGENTS.md 11 /15 3/15 Skill file 7/15 0/15 Source comment 4/15 0/15 Tool output 4/15 0/15 
+
+covered, nor $(cmd) , whose substituted argument matches no allowed invocation. Authority is also attenuated per agent. A task-wide global policy, even one generated specifically for the task, cannot permit a patcher to write a file while with-holding that write from a runner. Derive can, and bounds the sub-agent by its delegation ceiling. Progent [19] is the closest runtime-policy design: its DSL expresses symbolic rules over tool names and arguments, and a deterministic check mediates each call. An LLM gener-ates its initial policy and may propose updates as execution evolves; narrowing updates are automatic, whereas expan-sions require approval. CapScope instead freezes its task ceiling before repository content is read and additionally assigns a distinct attenuated store to each principal. Other systems govern agent execution at different points. CaMeL [3] uses capabilities in a dual-LLM planner with a cus-tom interpreter. Fides [2] tracks confidentiality and integrity labels over data flow; AgentArmor [22] reconstructs runtime traces into an IR and type-checks it; ToolGate [11] attaches Hoare-style contracts to tool calls; and PACT [7] treats injec-tion as untrusted content determining an authority-bearing argument and enforces argument-level provenance contracts. CapScope differs from all of these in where authority origi-nates: it installs typed capability values from a trusted pol-icy before untrusted content is read, then checks them at dispatch. This mechanism can be combined with data-flow tracking. 
+
+Capability Security. CapScope’s vocabulary is classi-cal. Saltzer and Schroeder [18] define a capability as an un-forgeable authorization and elevate complete mediation and least privilege; Dennis and Van Horn [5] couple designation with authority, dissolving the confused-deputy problem [9]; and Miller and Shapiro [14] distinguish authority from per-mission and show how attenuation follows from ordinary reference-passing. Bastion [16] maps an agent and task to an F★ capability whose abstract monad exposes only permitted commands; a least-privilege model may restrict a baseline capability, and a verified typechecker checks the agent’s monadic program. Odersky et al. [15] instead make capa-bilities program values tracked by Scala’s capture checker, allowing the type system to enforce capability safety and local purity, including confidentiality properties outside Cap-Scope’s scope. CapScope uses neither agent-held capability values nor static checking: it instantiates attenuation as struc-tured scope predicates in host-side stores and enforces them at dispatch. 
+
+## 7 Conclusion 
+
+CapScope limits coding-agent tool calls with typed, host-side capabilities. A preflight step establishes a task ceiling before repository contents are read; delegation gives each sub-agent a narrower store; and a dispatch hook checks the issuing agent’s store before executing a call. Our evaluation compares ambient authority, a static global policy, a task-specific global policy, and CapScope across five tasks, five injection surfaces, and three trials per cell (300 runs). The baselines execute the injected effect in 33–47/75 runs; Cap-Scope executes it in 3/75 and completes 68/75 repairs. The mechanism blocks a mediated call when the issuing agent lacks a matching installed capability. It does not prevent misuse of a granted capability or the transitive effects of an allowed command, which remain responsibilities of policy design and sandboxing. 
+
+## Acknowledgments 
+
+This work was supported by the National Natural Science Foundation of China (NSFC) under Grant No. W2542035. 
+
+## References 
+
+> [1] Rishika Bhagwatkar, Kevin Kasa, Abhay Puri, Gabriel Huang, Irina Rish, Graham W. Taylor, Krishnamurthy Dvijotham, and Alexandre Lacoste. 2025. Indirect Prompt Injections: Are Firewalls All You Need, or Stronger Benchmarks? arXiv:2510.05244 [cs.CR] doi: 10.48550/arXiv. 2510.05244
+> [2] Manuel Costa, Boris Köpf, Aashish Kolluri, Andrew Paverd, Mark Russinovich, Ahmed Salem, Shruti Tople, Lukas Wutschitz, and Santi-ago Zanella-Béguelin. 2025. Securing AI Agents with Information-Flow Control. arXiv:2505.23643 [cs.CR] doi: 10.48550/arXiv.2505.23643
+> [3] Edoardo Debenedetti, Ilia Shumailov, Tianqi Fan, Jamie Hayes, Nicholas Carlini, Daniel Fabian, Christoph Kern, Chongyang Shi, An-dreas Terzis, and Florian Tramèr. 2025. Defeating Prompt Injections by Design. arXiv:2503.18813 [cs.CR] doi: 10.48550/arXiv.2503.18813
+
+LMPL ’26, October 04–09, 2026, Oakland, CA, USA Dimitrios Stamatios Bouras, Yihan Dai, and Sergey Mechtaev 
+
+[4] Edoardo Debenedetti, Jie Zhang, Mislav Balunović, Luca Beurer-Kellner, Marc Fischer, and Florian Tramèr. 2024. AgentDojo: A Dy-namic Environment to Evaluate Prompt Injection Attacks and Defenses for LLM Agents. In Advances in Neural Information Processing Systems ,A. Globerson, L. Mackey, D. Belgrave, A. Fan, U. Paquet, J. Tomczak, and C. Zhang (Eds.), Vol. 37. Curran Associates, Inc., Red Hook, NY, USA, 82895–82920. doi: 10.52202/079017-2636 Datasets and Bench-marks Track. [5] Jack B. Dennis and Earl C. Van Horn. 1966. Programming Semantics for Multiprogrammed Computations. Commun. ACM 9, 3 (1966), 143–155. doi: 10.1145/365230.365252 
+
+[6] Earendil Works. 2026. Pi: Agent Harness Mono Repo. https://github. com/earendil-works/pi . Accessed: 2026-05-28. [7] Linfeng Fan, Ziwei Li, Yuan Tian, Yichen Wang, Rongsheng Li, and Xiong Wang. 2026. The Granularity Mismatch in Agent Security: Argument-Level Provenance Solves Enforcement and Isolates the LLM Reasoning Bottleneck. arXiv:2605.11039 [cs.CR] doi: 10.48550/arXiv. 2605.11039 
+
+[8] Kai Greshake, Sahar Abdelnabi, Shailesh Mishra, Christoph Endres, Thorsten Holz, and Mario Fritz. 2023. Not What You’ve Signed Up For: Compromising Real-World LLM-Integrated Applications with Indirect Prompt Injection. In Proceedings of the 16th ACM Workshop on Artifi-cial Intelligence and Security (AISec ’23) . Association for Computing Machinery, New York, NY, USA, 79–90. doi: 10.1145/3605764.3623985 
+
+[9] Norm Hardy. 1988. The Confused Deputy: (or Why Capabilities Might Have Been Invented). ACM SIGOPS Operating Systems Review 22, 4 (Oct. 1988), 36–38. doi: 10.1145/54289.871709 
+
+[10] Ziv Karliner and Pillar Security. 2025. New Vulnerability in GitHub Copilot and Cursor: How Hackers Can Weaponize Code Agents. https: //www.pillar.security/blog/new-vulnerability-in-github-copilot-and-cursor-how-hackers-can-weaponize-code-agents . Introduces the “Rules File Backdoor” attack vector. Accessed: 2026-05-28. [11] Yanming Liu, Xinyue Peng, Jiannan Cao, Xinyi Wang, Songhang Deng, Jintao Chen, Jianwei Yin, and Xuhong Zhang. 2026. Tool-Gate: Contract-Grounded and Verified Tool Execution for LLMs. arXiv:2601.04688 [cs.CL] doi: 10.48550/arXiv.2601.04688 
+
+[12] Yue Liu, Yanjie Zhao, Yunbo Lyu, Ting Zhang, Haoyu Wang, and David Lo. 2025. “Your AI, My Shell”: Demystifying Prompt Injection Attacks on Agentic AI Coding Editors. arXiv:2509.22040 [cs.CR] doi: 10.48550/ arXiv.2509.22040 
+
+[13] Mark S. Miller. 2006. Robust Composition: Towards a Unified Approach to Access Control and Concurrency Control . Ph. D. Dissertation. Johns Hopkins University. https://worrydream.com/refs/Miller_2006_-_Robust_Composition.pdf 
+
+[14] Mark S. Miller and Jonathan S. Shapiro. 2003. Paradigm Regained: Abstraction Mechanisms for Access Control. In Advances in Computing Science—ASIAN 2003 (Lecture Notes in Computer Science, Vol. 2896) .Springer, Berlin, Heidelberg, 224–242. doi: 10.1007/978-3-540-40965-6_15 
+
+[15] Martin Odersky, Yaoyu Zhao, Yichen Xu, Oliver Bračevac, and Cao Nguyen Pham. 2026. Securing Agents with Tracked Capabili-ties. In Proceedings of the ACM Conference on AI and Agentic Systems (CAIS ’26) . Association for Computing Machinery, New York, NY, USA, 812–838. doi: 10.1145/3786335.3813127 
+
+[16] Cyrus Omar, Patrick Ferris, and Anil Madhavapeddy. 2024. Modu-larizing Reasoning about AI Capabilities via Abstract Dijkstra Mon-ads. Extended abstract presented at the 12th ACM SIGPLAN Work-shop on Higher-Order Programming with Effects (HOPE ’24). https: //hazel.org/papers/bastion-hope2024.pdf 
+
+[17] OWASP GenAI Security Project. 2025. LLM01:2025 Prompt Injection. 
+
+https://genai.owasp.org/llmrisk/llm01-prompt-injection/ . Accessed: 2026-05-28. [18] Jerome H. Saltzer and Michael D. Schroeder. 1975. The Protection of Information in Computer Systems. Proc. IEEE 63, 9 (1975), 1278–1308. doi: 10.1109/PROC.1975.9939 
+
+[19] Tianneng Shi, Jingxuan He, Zhun Wang, Hongwei Li, Linyu Wu, Wenbo Guo, and Dawn Song. 2025. Progent: Securing AI Agents with Privilege Control. arXiv:2504.11703 [cs.CR] doi: 10.48550/arXiv. 2504.11703 
+
+[20] Tianneng Shi, Kaijie Zhu, Zhun Wang, Yuqi Jia, Will Cai, Weida Liang, Haonan Wang, Hend Alzahrani, Joshua Lu, Kenji Kawaguchi, Basel Alomair, Xuandong Zhao, William Yang Wang, Neil Gong, Wenbo Guo, and Dawn Song. 2025. PromptArmor: Simple yet Effective Prompt Injection Defenses. arXiv:2507.15219 [cs.CR] doi: 10.48550/arXiv.2507. 15219 
+
+[21] Eric Wallace, Kai Xiao, Reimar Leike, Lilian Weng, Johannes Heidecke, and Alex Beutel. 2024. The Instruction Hierarchy: Training LLMs to Prioritize Privileged Instructions. arXiv:2404.13208 [cs.LG] doi: 10. 48550/arXiv.2404.13208 
+
+[22] Peiran Wang, Yang Liu, Yunfei Lu, Yifeng Cai, Hongbo Chen, Qingyou Yang, Jie Zhang, Jue Hong, and Ye Wu. 2025. AgentArmor: Enforcing Program Analysis on Agent Runtime Trace to Defend Against Prompt Injection. arXiv:2508.01249 [cs.CR] doi: 10.48550/arXiv.2508.01249 
+
+[23] Qiusi Zhan, Zhixiang Liang, Zifan Ying, and Daniel Kang. 2024. In-jecAgent: Benchmarking Indirect Prompt Injections in Tool-Integrated Large Language Model Agents. In Findings of the Association for Compu-tational Linguistics: ACL 2024 . Association for Computational Linguis-tics, Bangkok, Thailand, 10471–10506. doi: 10.18653/v1/2024.findings-acl.624
