@@ -6,80 +6,95 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-16
-- 运行时间：2026-09-16 22:57:14 UTC
+- 最新运行日期：2026-09-17
+- 运行时间：2026-09-17 22:11:53 UTC
 - 运行状态：成功
-- 本次总论文数：20
-- 精读区：5
+- 本次总论文数：25
+- 精读区：10
 - 速读区：15
 
 ### 今日简报（AI）
-今日筛选 20 篇 AI 论文，精读 5 篇、速读 15 篇，聚焦智能体自我进化与推理效率。最值得看的是 9.0 分的 RSIAgent，探索新环境中的递归自我改进；以及 8.0 分的自编排语言模型，用语义依赖关系降低推理成本。普通读者可先从 RSIAgent 入手，理解智能体如何自主探索并迭代自身能力。
-- 详情：[/202609/16/README](/202609/16/README)
+今日精读10篇、速读15篇共25篇，焦点集中在LLM深度剪枝与多轮智能体蒸馏。最值得看的是《Forward-Free LLM Depth Pruning via Weight Redundancy》和《Know When to Stop, Where to Restart》两篇9分工作，前者免前向剪枝降深度，后者用停止/重启策略加速多轮on-policy蒸馏。普通读者可先从这两篇入手，再顺着速读里的Data-free On-policy Distillation和AdaVSkip理解效率优化思路。
+- 详情：[/202609/17/README](/202609/17/README)
 
 ### 精读区论文标签
-1. [RSIAgent: Autonomous Exploration for Recursive Self-improvement in New Environments](/202609/16/2609.15364v1-rsiagent-autonomous-exploration-for-recursive-self-improvement-in-new-environments)  
+1. [Forward-Free LLM Depth Pruning via Weight Redundancy](/202609/17/2609.09883v2-forward-free-llm-depth-pruning-via-weight-redundancy)  
+   标签：评分：9.0/10、query:llm
+   evidence：无需前向的深度剪枝降低LLM推理成本
+2. [Know When to Stop, Where to Restart: Accelerating Multi-Turn Agentic On-Policy Distillation](/202609/17/2609.14636v1-know-when-to-stop-where-to-restart-accelerating-multi-turn-agentic-on-policy-distillation)  
+   标签：评分：9.0/10、query:post-train
+   evidence：面向智能体的在线策略蒸馏加速
+3. [RSIAgent: Autonomous Exploration for Recursive Self-improvement in New Environments](/202609/17/2609.15364v1-rsiagent-autonomous-exploration-for-recursive-self-improvement-in-new-environments)  
    标签：评分：9.0/10、query:agent
-   evidence：免训练多智能体框架实现自主探索与自我改进
-2. [Self-Orchestrating Language Models: Leveraging Semantic Dependence for Efficient Inference](/202609/16/2609.14850v1-self-orchestrating-language-models-leveraging-semantic-dependence-for-efficient-inference)  
-   标签：评分：8.0/10、query:llm
-   evidence：通过语义依赖编排实现LLM高效推理
-3. [Dynamic Semantic Compression for Efficient Latent-Space Inference in Large Language Models](/202609/16/2609.15338v1-dynamic-semantic-compression-for-efficient-latent-space-inference-in-large-language-models)  
-   标签：评分：8.0/10、query:llm
-   evidence：面向大语言模型的高效潜空间推理
-4. [AlgoEvo: Self-Evolving Agentic Search for Automated Algorithm Discovery](/202609/16/2609.15820v1-algoevo-self-evolving-agentic-search-for-automated-algorithm-discovery)  
+   evidence：免训练多智能体自主探索与自我改进框架
+4. [Beyond Token-Local Imitation: Reward-Compatible Temporal Credit Assignment for On-Policy Distillation](/202609/17/2609.16937v1-beyond-token-local-imitation-reward-compatible-temporal-credit-assignment-for-on-policy-distillation)  
+   标签：评分：9.0/10、query:post-train
+   evidence：面向大模型后训练的在线蒸馏时序信用分配
+5. [NeMo Data Designer: An Extensible Framework for Multimodal Synthetic Data Generation](/202609/17/2609.17699v1-nemo-data-designer-an-extensible-framework-for-multimodal-synthetic-data-generation)  
+   标签：评分：9.0/10、query:llm-synth
+   evidence：多模态合成数据生成框架
+6. [Toward Self-Adaptive Physical AI: Can LLM Agents Manage Long-Horizon Physical Tasks?](/202609/17/2609.13436v1-toward-self-adaptive-physical-ai-can-llm-agents-manage-long-horizon-physical-tasks)  
    标签：评分：8.0/10、query:agent
-   evidence：自主智能体依据运行时反馈检查、诊断并编辑代码
-5. [Using Agentic AI for contextualized and multifaceted code review at Ericsson](/202609/16/2609.15877v1-using-agentic-ai-for-contextualized-and-multifaceted-code-review-at-ericsson)  
+   evidence：面向自主长时程任务的多智能体框架
+7. [Drift-Constrained Optimization: Only Direction Matters in Fine-Tuning Instruct Models](/202609/17/2609.13680v1-drift-constrained-optimization-only-direction-matters-in-fine-tuning-instruct-models)  
+   标签：评分：8.0/10、query:llm
+   evidence：带行为漂移约束的指令模型微调
+8. [EMR: Self-Evolving Medical Multi-Agent System via Experience Mining and Reuse](/202609/17/2609.15161v1-emr-self-evolving-medical-multi-agent-system-via-experience-mining-and-reuse)  
    标签：评分：8.0/10、query:agent
-   evidence：面向代码评审的多智能体方案与专门智能体技能
+   evidence：自演化LLM多智能体医疗系统
+9. [Spurious Tool Use: When RL Agents Learn the Wrong Reason to Act](/202609/17/2609.16268v1-spurious-tool-use-when-rl-agents-learn-the-wrong-reason-to-act)  
+   标签：评分：8.0/10、query:agent
+   evidence：LLM智能体交错使用工具，RL学到虚假工具选择策略
+10. [AgentGuard: Learning Execution Guardrails from Anomalous Coding-Agent Trajectories](/202609/17/2609.16287v1-agentguard-learning-execution-guardrails-from-anomalous-coding-agent-trajectories)  
+   标签：评分：8.0/10、query:agent
+   evidence：面向编码智能体的执行护栏
 
 ### 速读区论文标签
-1. [NeoHorse-1: Towards Recursive Self-Improvement via Agentic Post-Training with Routing Harness](/202609/16/2609.08183v1-neohorse-1-towards-recursive-self-improvement-via-agentic-post-training-with-routing-harness)  
+1. [Data-free On-policy Distillation](/202609/17/2609.14193v1-data-free-on-policy-distillation)  
+   标签：评分：8.0/10、query:post-train
+   evidence：后训练流程中在线策略蒸馏的数据效率
+2. [AdaVSkip: Adaptive Visual Token Skipping Across Layers For Efficient MLLMs Inference](/202609/17/2609.15131v1-adavskip-adaptive-visual-token-skipping-across-layers-for-efficient-mllms-inference)  
+   标签：评分：8.0/10、query:llm
+   evidence：面向高效多模态大模型推理的自适应视觉token跳层
+3. [Towards Scalable RLVR: Multimodal Instruction Following Data Synthesis and Distillation](/202609/17/2609.16059v1-towards-scalable-rlvr-multimodal-instruction-following-data-synthesis-and-distillation)  
+   标签：评分：8.0/10、query:llm-synth
+   evidence：多模态指令跟随的数据合成与蒸馏流程
+4. [Style-Debiased DPO: Updating LLM Knowledge with Factuality-Aware Synthetic Preference Data](/202609/17/2609.16532v1-style-debiased-dpo-updating-llm-knowledge-with-factuality-aware-synthetic-preference-data)  
+   标签：评分：8.0/10、query:post-train
+   evidence：用事实性感知合成偏好数据做偏好优化以对齐大模型
+5. [FlexEE: Self-Speculative and KV-Compatible Early Exiting for Offloading-Aware LLM Inference](/202609/17/2609.17008v1-flexee-self-speculative-and-kv-compatible-early-exiting-for-offloading-aware-llm-inference)  
+   标签：评分：8.0/10、query:llm
+   evidence：面向大模型推理优化的提前退出
+6. [BRACE: Anchored Bellman-Residual Correction for Stale Critics in Asynchronous RL](/202609/17/2609.09783v2-brace-anchored-bellman-residual-correction-for-stale-critics-in-asynchronous-rl)  
+   标签：评分：7.0/10、query:post-train
+   evidence：面向LLM训练的异步强化学习价值校正
+7. [Residual Vector-based Reconstruction as Long-Context Recall Regardless of Context Window Size](/202609/17/2609.12686v1-residual-vector-based-reconstruction-as-long-context-recall-regardless-of-context-window-size)  
+   标签：评分：7.0/10、query:llm
+   evidence：大模型长上下文高效推理
+8. [FLoKD: Adaptive Knowledge Distillation for Federated Low-Rank LLM over Wireless Networks](/202609/17/2609.13580v1-flokd-adaptive-knowledge-distillation-for-federated-low-rank-llm-over-wireless-networks)  
+   标签：评分：7.0/10、query:post-train
+   evidence：面向大模型压缩的知识蒸馏
+9. [An Efficient and Modular Framework for Targeted Harm Mitigation in LLMS](/202609/17/2609.13624v1-an-efficient-and-modular-framework-for-targeted-harm-mitigation-in-llms)  
+   标签：评分：7.0/10、query:post-train
+   evidence：面向大模型对齐的模块化危害缓解框架
+10. [Trustworthy Agentic AI: A Comprehensive Cybersecurity and Systems Survey on Threat Landscapes, Defense Architectures, and Open Challenges](/202609/17/2609.13731v1-trustworthy-agentic-ai-a-comprehensive-cybersecurity-and-systems-survey-on-threat-landscapes-defense-architectures-and-open-challenges)  
    标签：评分：7.0/10、query:agent
-   evidence：通过智能体化后训练实现递归自改进的智能体原生模型
-2. [Benchmark Radar: A Living Database and Search Engine for AI Benchmarks and Evaluation](/202609/16/2609.11115v2-benchmark-radar-a-living-database-and-search-engine-for-ai-benchmarks-and-evaluation)  
-   标签：评分：7.0/10、query:llm
-   evidence：可检索的AI与大模型评测基准数据库
-3. [Beyond Confidence: Stability-Aware Test-Time Adaptation for LLM Reasoning](/202609/16/2609.11393v1-beyond-confidence-stability-aware-test-time-adaptation-for-llm-reasoning)  
-   标签：评分：7.0/10、query:llm
-   evidence：面向LLM推理的测试时自适应，替代昂贵的后训练
-4. [AIM: A Privacy-Aware Interoperable Memory Framework for Multi-Agent Multi-User LLM Systems](/202609/16/2609.12320v1-aim-a-privacy-aware-interoperable-memory-framework-for-multi-agent-multi-user-llm-systems)  
-   标签：评分：7.0/10、query:agent
-   evidence：面向多智能体多用户LLM系统的记忆框架
-5. [What Drives Recovery in Agentic Text-to-Cypher? LAST-CQ: An LLM Agent Self-Refinement Framework](/202609/16/2609.12746v1-what-drives-recovery-in-agentic-text-to-cypher-last-cq-an-llm-agent-self-refinement-framework)  
-   标签：评分：7.0/10、query:agent
-   evidence：五智能体LLM自精炼框架
-6. [SAS: Simple Attention Sparsification via End-to-End Optimization of Context Ranking](/202609/16/2609.13141v1-sas-simple-attention-sparsification-via-end-to-end-optimization-of-context-ranking)  
-   标签：评分：7.0/10、query:llm
-   evidence：后训练注意力稀疏化以降低预训练Transformer推理开销
-7. [Task-Aware Federated Fine-Tuning for MoE-based Large Language Models](/202609/16/2609.13395v1-task-aware-federated-fine-tuning-for-moe-based-large-language-models)  
-   标签：评分：7.0/10、query:llm
-   evidence：面向MoE大模型的联邦微调方法
-8. [From Token Probabilities to Semantic Constraints: Towards Declarative Probabilistic Evaluation of Language Models](/202609/16/2609.13520v1-from-token-probabilities-to-semantic-constraints-towards-declarative-probabilistic-evaluation-of-language-models)  
-   标签：评分：7.0/10、query:llm
-   evidence：面向语言模型预训练评估的声明式概率框架
-9. [Individual Text Corpora Predict User-Specific Knowledge: Benchmarks of Individualized Knowledge Simulation](/202609/16/2609.08532v1-individual-text-corpora-predict-user-specific-knowledge-benchmarks-of-individualized-knowledge-simulation)  
-   标签：评分：6.0/10、query:llm
-   evidence：用LoRA微调LLM并构建个性化知识基准
-10. [Can LLMs Normalize Databases? A Benchmark and Multi-Agent Framework for Schema Normalization](/202609/16/2609.11141v1-can-llms-normalize-databases-a-benchmark-and-multi-agent-framework-for-schema-normalization)  
+   evidence：自主智能体系统与多智能体协作综述
+11. [Can LLMs Normalize Databases? A Benchmark and Multi-Agent Framework for Schema Normalization](/202609/17/2609.11141v1-can-llms-normalize-databases-a-benchmark-and-multi-agent-framework-for-schema-normalization)  
    标签：评分：6.0/10、query:agent
-   evidence：面向LLM的多智能体框架与基准
-11. [Preference Optimization with LALM Feedback for Continuous Autoregressive Non-Verbal Vocalization Generation](/202609/16/2609.11260v1-preference-optimization-with-lalm-feedback-for-continuous-autoregressive-non-verbal-vocalization-generation)  
-   标签：评分：6.0/10、query:post-train
-   evidence：偏好优化、DPO与拒绝采样微调对齐方法
-12. [SEAR: Segment-Evidence-Aware Routing for Weak-to-Strong Multilingual Speech MCQ](/202609/16/2609.11355v1-sear-segment-evidence-aware-routing-for-weak-to-strong-multilingual-speech-mcq)  
-   标签：评分：6.0/10、query:llm-synth
-   evidence：用大模型合成选择题并做监督微调
-13. [RetroThinker: Enabling Retrospective Thinking in Speech LLMs](/202609/16/2609.11864v1-retrothinker-enabling-retrospective-thinking-in-speech-llms)  
-   标签：评分：6.0/10、query:post-train
-   evidence：面向语音大模型推理的多阶段后训练
-14. [Representation-based Masked Diffusion Model](/202609/16/2609.12382v1-representation-based-masked-diffusion-model)  
+   evidence：面向LLM数据库规范化的多智能体框架与基准
+12. [LILA: Calibration-Free Structured Pruning of Large Language Models via Latent Spectral Geometry](/202609/17/2609.11163v1-lila-calibration-free-structured-pruning-of-large-language-models-via-latent-spectral-geometry)  
    标签：评分：6.0/10、query:llm
-   evidence：表示引导并行生成的掩码扩散语言建模
-15. [Generalized Agent Iteration: One Formal Framework for Iterative Policy Improvement and Recursive Self-Improvement](/202609/16/2609.13406v1-generalized-agent-iteration-one-formal-framework-for-iterative-policy-improvement-and-recursive-self-improvement)  
+   evidence：免校准结构化剪枝压缩大模型
+13. [Debate-to-Skill: Capability-Bound Process Supervision for Industrial Query-to-Agent Annotation](/202609/17/2609.11176v1-debate-to-skill-capability-bound-process-supervision-for-industrial-query-to-agent-annotation)  
    标签：评分：6.0/10、query:agent
-   evidence：统一迭代策略改进与递归自我改进的Agent形式框架
+   evidence：查询到智能体匹配的标注监督
+14. [Beyond Confidence: Stability-Aware Test-Time Adaptation for LLM Reasoning](/202609/17/2609.11393v1-beyond-confidence-stability-aware-test-time-adaptation-for-llm-reasoning)  
+   标签：评分：6.0/10、query:post-train
+   evidence：作为昂贵后训练轻量替代的测试时自适应以提升大模型推理
+15. [RetroThinker: Enabling Retrospective Thinking in Speech LLMs](/202609/17/2609.11864v1-retrothinker-enabling-retrospective-thinking-in-speech-llms)  
+   标签：评分：6.0/10、query:post-train
+   evidence：多阶段后训练框架使语音大模型动态修正推理
 
 
 <div class="dpr-home-promo-card">
