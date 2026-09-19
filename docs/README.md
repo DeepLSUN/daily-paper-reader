@@ -6,97 +6,89 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-18
-- 运行时间：2026-09-18 22:38:45 UTC
+- 最新运行日期：2026-09-19
+- 运行时间：2026-09-19 21:32:24 UTC
 - 运行状态：成功
-- 本次总论文数：25
-- 精读区：10
+- 本次总论文数：23
+- 精读区：8
 - 速读区：15
 
 ### 今日简报（AI）
-2026-09-18日报速览：25篇中精读10篇、速读15篇，多智能体协作与可信Agent安全最抢眼。  
-最值得看的是9.0分《Rethinking Multi-Agent Collaboration: When More Is Less》和8.0分《Trustworthy Agentic AI》，前者反思“更多智能体未必更好”，后者系统梳理威胁、防御与开放挑战。  
-普通读者可先读这两篇，再按兴趣扫速读中的搜索智能体、危害缓解和多模态视觉Token选择。
-- 详情：[/202609/18/README](/202609/18/README)
+2026-09-19 日报完成 23 篇筛选，精读 8 篇、速读 15 篇。最值得关注的是 BlueLM-GUI 用真实设备数据飞轮自改进移动 GUI 智能体（8.0/10），以及探索 LLM 智能体能否管理长周期物理任务（8.0/10）。普通读者可优先了解 GUI 智能体与物理 AI 两条线，再按兴趣补读个性化对齐和提示脚手架等速读方向。
+- 详情：[/202609/19/README](/202609/19/README)
 
 ### 精读区论文标签
-1. [Rethinking Multi-Agent Collaboration: When More Is Less](/202609/18/2609.19759v1-rethinking-multi-agent-collaboration-when-more-is-less)  
-   标签：评分：9.0/10、query:agent
-   evidence：分析多智能体协作何时优于单智能体方案
-2. [Trustworthy Agentic AI: A Comprehensive Cybersecurity and Systems Survey on Threat Landscapes, Defense Architectures, and Open Challenges](/202609/18/2609.13731v1-trustworthy-agentic-ai-a-comprehensive-cybersecurity-and-systems-survey-on-threat-landscapes-defense-architectures-and-open-challenges)  
+1. [BlueLM-GUI Technical Report: A Real-Device-Centric Flywheel for Self-Improving Mobile GUI Agents](/202609/19/2609.12394v1-bluelm-gui-technical-report-a-real-device-centric-flywheel-for-self-improving-mobile-gui-agents)  
    标签：评分：8.0/10、query:agent
-   evidence：自主智能体系统与多智能体协作的综述
-3. [Temporal Self-Distillation: Faster Inference in Discrete Diffusion Language Models](/202609/18/2609.15177v1-temporal-self-distillation-faster-inference-in-discrete-diffusion-language-models)  
+   evidence：以真实设备为中心的移动GUI智能体自改进飞轮
+2. [Toward Self-Adaptive Physical AI: Can LLM Agents Manage Long-Horizon Physical Tasks?](/202609/19/2609.13436v1-toward-self-adaptive-physical-ai-can-llm-agents-manage-long-horizon-physical-tasks)  
+   标签：评分：8.0/10、query:agent
+   evidence：自适应物理AI大模型智能体
+3. [Trustworthy Agentic AI: A Comprehensive Cybersecurity and Systems Survey on Threat Landscapes, Defense Architectures, and Open Challenges](/202609/19/2609.13731v1-trustworthy-agentic-ai-a-comprehensive-cybersecurity-and-systems-survey-on-threat-landscapes-defense-architectures-and-open-challenges)  
+   标签：评分：8.0/10、query:agent
+   evidence：关于自主智能体与多智能体协作的综述
+4. [EvoOntology: A Self-Evolving Ontology Layer for Data Agents](/202609/19/2609.15779v1-evoontology-a-self-evolving-ontology-layer-for-data-agents)  
+   标签：评分：8.0/10、query:agent
+   evidence：带自我演化本体层的数据智能体
+5. [Towards Scalable RLVR: Multimodal Instruction Following Data Synthesis and Distillation](/202609/19/2609.16059v1-towards-scalable-rlvr-multimodal-instruction-following-data-synthesis-and-distillation)  
    标签：评分：8.0/10、query:post-train
-   evidence：面向扩散语言模型加速推理的在策略自蒸馏
-4. [Towards Scalable RLVR: Multimodal Instruction Following Data Synthesis and Distillation](/202609/18/2609.16059v1-towards-scalable-rlvr-multimodal-instruction-following-data-synthesis-and-distillation)  
-   标签：评分：8.0/10、query:llm-synth
-   evidence：合成并蒸馏RL就绪的多模态指令数据
-5. [Spurious Tool Use: When RL Agents Learn the Wrong Reason to Act](/202609/18/2609.16268v1-spurious-tool-use-when-rl-agents-learn-the-wrong-reason-to-act)  
+   evidence：面向多模态指令跟随的RLVR数据合成与蒸馏
+6. [Algebraic Retrieval: Composable Search for Agents](/202609/19/2609.19482v1-algebraic-retrieval-composable-search-for-agents)  
    标签：评分：8.0/10、query:agent
-   evidence：使用网页搜索与代码执行工具的LLM智能体，经强化学习优化
-6. [A Large-Scale Empirical Study of Quality Assurance Practices and Gaps in AI Agents](/202609/18/2609.17698v1-a-large-scale-empirical-study-of-quality-assurance-practices-and-gaps-in-ai-agents)  
+   evidence：面向AI智能体的可组合搜索策略
+7. [Rethinking Multi-Agent Collaboration: When More Is Less](/202609/19/2609.19759v1-rethinking-multi-agent-collaboration-when-more-is-less)  
    标签：评分：8.0/10、query:agent
-   evidence：LLM智能体质量保障实践的大规模实证研究
-7. [Reflections on Trusting Trust, Revisited: Contaminating Self-Modifying AI Coding Agents with Poisoned Benchmarks](/202609/18/2609.17817v1-reflections-on-trusting-trust-revisited-contaminating-self-modifying-ai-coding-agents-with-poisoned-benchmarks)  
+   evidence：系统分析多智能体协作何时优于单智能体
+8. [Not All AI Agents Are Equal: Characterizing Resource and Performance Dynamics](/202609/19/2609.19947v1-not-all-ai-agents-are-equal-characterizing-resource-and-performance-dynamics)  
    标签：评分：8.0/10、query:agent
-   evidence：用被污染基准攻击自我修改的AI编程智能体
-8. [Symbolic Temporal Supervision of LLM Agents Using Contracts](/202609/18/2609.18128v1-symbolic-temporal-supervision-of-llm-agents-using-contracts)  
-   标签：评分：8.0/10、query:agent
-   evidence：基于契约的LLM智能体符号时序监督框架
-9. [Preventing Model Collapse: A Fisher-Rao Perspective on the Dynamics of Training with Synthetic Data](/202609/18/2609.18878v1-preventing-model-collapse-a-fisher-rao-perspective-on-the-dynamics-of-training-with-synthetic-data)  
-   标签：评分：8.0/10、query:llm-synth
-   evidence：合成数据训练LLM防止崩溃的理论
-10. [Layer-wise Curriculum Learning for Efficient LLM Compression](/202609/18/2609.19213v1-layer-wise-curriculum-learning-for-efficient-llm-compression)  
-   标签：评分：8.0/10、query:post-train
-   evidence：通过分层课程学习进行知识蒸馏以压缩LLM
+   evidence：刻画LLM搜索与编码智能体的资源动态
 
 ### 速读区论文标签
-1. [Characterizing Web Search by Conversational LLM Agents: From Search Decisions and Strategies to Results and Responses](/202609/18/2609.19244v1-characterizing-web-search-by-conversational-llm-agents-from-search-decisions-and-strategies-to-results-and-responses)  
-   标签：评分：8.0/10、query:agent
-   evidence：对话式LLM智能体网络搜索行为研究
-2. [An Efficient and Modular Framework for Targeted Harm Mitigation in LLMS](/202609/18/2609.13624v2-an-efficient-and-modular-framework-for-targeted-harm-mitigation-in-llms)  
+1. [Toward Robust Personalized Alignment for LLMs: Mitigating Persona Drift in Multi-Turn Dialogue](/202609/19/2609.12373v1-toward-robust-personalized-alignment-for-llms-mitigating-persona-drift-in-multi-turn-dialogue)  
    标签：评分：7.0/10、query:post-train
-   evidence：面向人类偏好的LLM对齐与危害缓解
-3. [StepPrune: Adaptive Sequential Visual Token Selection across Multimodal Large Language Models](/202609/18/2609.13804v1-stepprune-adaptive-sequential-visual-token-selection-across-multimodal-large-language-models)  
-   标签：评分：7.0/10、query:llm
-   evidence：自适应视觉token剪枝以加速多模态大模型推理
-4. [What Does an LLM Learn from Reinforcement Learning? A Mechanistic Interpretability Perspective with Fixed-SAE Track](/202609/18/2609.15064v1-what-does-an-llm-learn-from-reinforcement-learning-a-mechanistic-interpretability-perspective-with-fixed-sae-track)  
+   evidence：大模型个性化偏好对齐
+2. [Not All Prompts Are Equal: Exploration-Guided Prompt Scaffolding for Multimodal Reinforcement Post-Training](/202609/19/2609.15051v1-not-all-prompts-are-equal-exploration-guided-prompt-scaffolding-for-multimodal-reinforcement-post-training)  
    标签：评分：7.0/10、query:post-train
-   evidence：机制可解释性视角研究RL如何重塑LLM
-5. [MoME: Mixture-of-Memory Embeddings for Context-Aware Sparse Lookup](/202609/18/2609.15126v1-mome-mixture-of-memory-embeddings-for-context-aware-sparse-lookup)  
-   标签：评分：7.0/10、query:llm
-   evidence：面向LLM扩展的上下文感知稀疏记忆嵌入架构
-6. [The Imitation Game: When LLMs Learn to Reason Like Programs via Code-Centric Reasoning Data Synthesis](/202609/18/2609.16076v1-the-imitation-game-when-llms-learn-to-reason-like-programs-via-code-centric-reasoning-data-synthesis)  
-   标签：评分：7.0/10、query:llm-synth
-   evidence：以代码为中心的推理数据合成与代码插桩奖励
-7. [LLMs as Master Forgers: Generating Synthetic Time Series Data for Manufacturing](/202609/18/2609.16155v1-llms-as-master-forgers-generating-synthetic-time-series-data-for-manufacturing)  
-   标签：评分：7.0/10、query:llm-synth
-   evidence：利用LLM生成合成时间序列数据
-8. [Agentic Search Spaces for Tabular Machine Learning](/202609/18/2609.16309v1-agentic-search-spaces-for-tabular-machine-learning)  
+   evidence：多模态大模型强化学习后训练
+3. [CITECHOICE: A Causal Audit of How Document Presentation Redistributes Citation Credit in Agentic Search](/202609/19/2609.15164v1-citechoice-a-causal-audit-of-how-document-presentation-redistributes-citation-credit-in-agentic-search)  
    标签：评分：7.0/10、query:agent
-   evidence：LLM智能体生成代码为表格机器学习设计HPO搜索空间
-9. [Skill-based Agentic Evaluation for Real-time Data Science Tasks](/202609/18/2609.16487v1-skill-based-agentic-evaluation-for-real-time-data-science-tasks)  
+   evidence：智能体搜索中引用分配的因果审计
+4. [Skill-based Agentic Evaluation for Real-time Data Science Tasks](/202609/19/2609.16487v1-skill-based-agentic-evaluation-for-real-time-data-science-tasks)  
    标签：评分：7.0/10、query:agent
-   evidence：面向实时数据科学智能体的技能化评估
-10. [A Framework for Generating Valid Context-Specific Benchmarks through Expert Guidance](/202609/18/2609.16592v1-a-framework-for-generating-valid-context-specific-benchmarks-through-expert-guidance)  
-   标签：评分：7.0/10、query:llm-synth
-   evidence：专家引导的LLM基准合成数据生成
-11. [Distribution-aware Language Neuron Identification in Multilingual Large Language Models](/202609/18/2609.10993v1-distribution-aware-language-neuron-identification-in-multilingual-large-language-models)  
+   evidence：在实时数据上评估数据科学智能体的框架
+5. [Interactive Memory Learning for Long-Term Conversations](/202609/19/2609.17088v1-interactive-memory-learning-for-long-term-conversations)  
+   标签：评分：7.0/10、query:agent
+   evidence：多智能体框架将记忆变为可学习交互策略
+6. [Symbolic Separation: Grounding Deep Agents in Knowledge Graphs for Trustworthy Operational Data Analytics](/202609/19/2609.17107v1-symbolic-separation-grounding-deep-agents-in-knowledge-graphs-for-trustworthy-operational-data-analytics)  
+   标签：评分：7.0/10、query:agent
+   evidence：以知识图谱为根基的可信工具型深度智能体
+7. [Mo' Models, Mo' Problems: How to best select model pools when designing Multi-Agent Systems](/202609/19/2609.17306v1-mo-models-mo-problems-how-to-best-select-model-pools-when-designing-multi-agent-systems)  
+   标签：评分：7.0/10、query:agent
+   evidence：多智能体系统中模型选择策略的系统评测
+8. [A Large-Scale Empirical Study of Quality Assurance Practices and Gaps in AI Agents](/202609/19/2609.17698v1-a-large-scale-empirical-study-of-quality-assurance-practices-and-gaps-in-ai-agents)  
+   标签：评分：7.0/10、query:agent
+   evidence：对开源LLM智能体项目质量保证实践的大规模实证研究
+9. [Chopthin-Consensus Power Sampling: A Diversity-Preserving Approach to LLM Decoding](/202609/19/2609.12243v1-chopthin-consensus-power-sampling-a-diversity-preserving-approach-to-llm-decoding)  
    标签：评分：6.0/10、query:llm
-   evidence：识别多语言大模型架构中的语言特异神经元
-12. [VikingRAG: Accurate and Token-efficient Retrieval-augmented Generation over Structured Documents](/202609/18/2609.11390v1-vikingrag-accurate-and-token-efficient-retrieval-augmented-generation-over-structured-documents)  
+   evidence：推理阶段的SMC幂采样提升大模型推理
+10. [SynthSentry: Detecting Synthetic Data Contamination in Language Model Training Data](/202609/19/2609.12353v1-synthsentry-detecting-synthetic-data-contamination-in-language-model-training-data)  
+   标签：评分：6.0/10、query:llm-synth
+   evidence：筛查大模型训练语料中的合成数据污染
+11. [Parameter-Efficient Retrievers for Polish and European Languages](/202609/19/2609.12913v1-parameter-efficient-retrievers-for-polish-and-european-languages)  
+   标签：评分：6.0/10、query:post-train
+   evidence：关系知识蒸馏与对比微调构建紧凑检索器
+12. [Attention Quantization for Tabular Foundation Models](/202609/19/2609.13031v1-attention-quantization-for-tabular-foundation-models)  
+   标签：评分：6.0/10、query:llm
+   evidence：FP8注意力量化加速推理
+13. [Mixture-of-Experts Language Models Can Be Strong and Efficient Retrievers](/202609/19/2609.13486v1-mixture-of-experts-language-models-can-be-strong-and-efficient-retrievers)  
+   标签：评分：6.0/10、query:llm
+   evidence：混合专家LLM架构与效率
+14. [North Small Translate: Advanced Cost-Effective Translation (Cohere CAT+)](/202609/19/2609.13916v1-north-small-translate-advanced-cost-effective-translation-cohere-cat)  
+   标签：评分：6.0/10、query:post-train
+   evidence：五步训练流程融合监督微调、DPO与在线强化学习
+15. [Moral Rebel Agents: Decision-Making Under Conflicting Obligations](/202609/19/2609.14716v1-moral-rebel-agents-decision-making-under-conflicting-obligations)  
    标签：评分：6.0/10、query:agent
-   evidence：面向结构化文档的多轮检索智能体
-13. [Mixture-of-Experts Language Models Can Be Strong and Efficient Retrievers](/202609/18/2609.13486v1-mixture-of-experts-language-models-can-be-strong-and-efficient-retrievers)  
-   标签：评分：6.0/10、query:llm
-   evidence：将MoE大模型架构用作高效检索器
-14. [Carbon-Aware Routing for Function Calling in Edge-Cloud LLM Systems](/202609/18/2609.13559v1-carbon-aware-routing-for-function-calling-in-edge-cloud-llm-systems)  
-   标签：评分：6.0/10、query:llm
-   evidence：面向智能体函数调用的碳感知推理路由
-15. [Bypass Observation: A Conceptual Design of a Non-Intrusive Layer-Wise Semantic Extraction Architecture](/202609/18/2609.13807v1-bypass-observation-a-conceptual-design-of-a-non-intrusive-layer-wise-semantic-extraction-architecture)  
-   标签：评分：6.0/10、query:llm
-   evidence：面向Transformer大模型的逐层读取架构
+   evidence：形式化自主智能体的决策架构
 
 
 <div class="dpr-home-promo-card">

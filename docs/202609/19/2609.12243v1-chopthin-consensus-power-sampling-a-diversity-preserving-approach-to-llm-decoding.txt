@@ -1,0 +1,873 @@
+Title: Chopthin-Consensus Power Sampling: A Diversity-Preserving Approach to LLM Decoding
+
+URL Source: https://arxiv.org/pdf/2609.12243v1
+
+Published Time: Mon, 14 Sep 2026 00:18:17 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+Published at the COLM 2026 Workshop on Efficient Reasoning. 
+
+# Chopthin-Consensus Power Sampling: A Diversity-Preserving Approach to LLM Decoding 
+
+Minoo Ahmadi Seyedarmin Azizi Erfan Baghaei Potraghloo Mehdi Kamal Massoud Pedram 
+
+University of Southern California, Los Angeles, USA 
+
+{minooahm, seyedarm, baghaeip, mehdi.kamal, pedram }@usc.edu 
+
+## Abstract 
+
+Inference-time power sampling via Sequential Monte Carlo (SMC) can substantially improve large language model (LLM) reasoning without re-quiring post-training. However, many existing SMC approaches rely on equal-weight resampling, which can aggressively prune low-weight tra-jectories, discarding potentially correct reasoning paths and degrading the genealogical diversity of the search space. To address this, we introduce Chopthin-Consensus Power Sampling (CCPS). Our method applies the Chopthin resampler to LLM decoding: rather than equalizing weights and forcing unnecessary particle duplication, it enforces an upper bound on the ratio between the largest and smallest weights and carries the unequal weights forward. This targeted intervention preserves a richer set of distinct reasoning paths, keeps the weighted SMC approximation unchanged in con-ditional expectation, and guarantees a lower bound on the post-resampling effective sample size (ESS). To fully exploit this enriched population, we em-ploy a semantic-majority selection mechanism that merges token-identical final trajectories, clusters semantically equivalent answers, and returns the answer supported by the largest number of distinct trajectories. Evaluating across three open-weight models and five reasoning benchmarks, we show that Chopthin increases oracle coverage in 13 of 15 settings. Combined with semantic-majority selection, CCPS matches or exceeds the final-answer ac-curacy of the Power-SMC baseline in 14 of 15 settings, delivering absolute gains of up to 10.6 percentage points. These findings demonstrate that diversity-preserving resampling and diversity-aware selection are comple-mentary mechanisms for training-free LLM reasoning. Code is available at github.com/MinooAhmadii/chopthin-consensus-power-sampling. 
+
+## 1 Introduction 
+
+Reinforcement-learning (RL) post-training has driven much of the recent progress in the reasoning ability of large language models (Shao et al., 2024). However, these performance gains come at a high cost: the post-training process requires a dedicated training pipeline, complex reward signals or verifiers, and substantial computational resources, ultimately freezing the improvements into a static set of new model parameters. Fortunately, emerging research suggests that these resource-intensive training steps may not be strictly necessary to achieve similar reasoning capabilities. The improvements observed from RL post-training actually result, in large part, from increasing the probability of success-ful reasoning trajectories that already exist within the base model’s output distribution (Yue et al., 2025). This pivotal observation has motivated the development of power sampling , an inference-time technique that completely bypasses training by amplifying these valid paths (Karan & Du, 2026). By targeting a distribution in which each complete output sequence has a probability proportional to its base-model probability raised to an exponent greater than 1, power sampling recovers much of the gain of RL post-training. We refer to this resulting distribution over complete sequences as the power distribution .1arXiv:2609.12243v1 [cs.CL] 10 Sep 2026 Published at the COLM 2026 Workshop on Efficient Reasoning. Exact power sampling is computationally intractable because it requires calculating the probabilities of all possible sequence completions (Karan & Du, 2026; Azizi et al., 2026). To approximate this target distribution, initial approaches relied on Metropolis–Hastings, a Markov Chain Monte Carlo method. Metropolis–Hastings operates by iteratively proposing full sequences and probabilistically accepting or rejecting them based on a target ratio; however, this repeated propose-and-reject cycle creates a severe serialization bottleneck, resulting in prohibitive inference latency (Karan & Du, 2026). To avoid this inefficiency, Power-SMC (Azizi et al., 2026) reformulates the problem using Sequential Monte Carlo (SMC) sampling. Rather than generating and evaluating complete sequences one by one, SMC builds solutions incrementally by maintaining a population of N parallel particles ,each representing a partial token trajectory . At each decoding step, the algorithm samples tokens from a proposal distribution and assigns an importance weight to each particle. By dy-namically evaluating and weighing these partial paths in parallel, SMC successfully targets the sequence-level power distribution, eliminating the latency bottlenecks of Metropolis– Hastings while maintaining competitive reasoning performance. As Power-SMC progresses through the decoding steps, it encounters a major challenge: 
+
+weight degeneracy (Liu & Chen, 1998). Some particles inevitably accumulate the vast majority of the importance weight, while the rest drop near zero. To counteract this and restore the effective sample size (ESS), standard SMC employs equal-weight resampling, which removes low-weight particles, duplicating high-weight ones, and resetting all surviving weights to equality. However, mitigating weight concentration in this manner introduces a distinct problem: the severe loss of genealogical diversity . By aggressively cloning the highest-weighted particles and dropping the rest, standard equal-weight resampling drastically reduces the number of unique ancestral paths that survive to the end of the decoding process. While the weight-based ESS is restored, this increase can mask a substantial loss of genealogical diversity. This loss of path diversity is particularly detrimental in language model decoding because importance weights are a poor proxy for eventual correctness. The weight of a particle reflects its prefix’s relative mass under the power target and the proposal distribution; it does not evaluate whether that unfinished trajectory is logically sound or will yield the right answer. Consequently, standard weight-based resampling risks permanently deleting low-weight particles that actually contain the correct reasoning path, simply because they currently carry little importance mass. To address the destructive nature of standard resampling, we replace it with Chopthin (Gandy & Lau, 2016). Rather than strictly equalizing the weights in the population, Chopthin enforces a bounded ratio between the largest and smallest output weights, allowing the particles to carry these unequal weights forward in subsequent decoding steps (Figure 1). By categorizing particles by their current mass, Chopthin thus applies a much gentler, targeted intervention: light particles are probabilistically thinned , middle-weight particles pass through entirely unperturbed, and only excessively heavy particles are chopped into equal-weight subdivisions. This approach is designed to preserve more low-weight (yet potentially correct) trajectories, mitigating genealogical diversity loss while retaining unbiasedness, exact particle count, and weight conservation (Section 4.1). Preserving this richer ancestral population can increase the probability that at least one complete trajectory successfully navigates to a correct answer. We define this metric as 
+
+oracle coverage , which denotes the fraction of problems for which the final population contains at least one correct answer. Although maximizing oracle coverage establishes theoretical headroom for model accuracy, this potential can only be realized if the final selection mechanism reliably identifies the correct answer among the surviving candidates. Unfortunately, standard selection rules often fail in this regard (Brown et al., 2024). For instance, Power-SMC relies by default on a weight draw strategy, which selects a final particle with a probability that is proportional to its accumulated weight. Under this rule, the low-weight, highly diverse trajectories that Chopthin preserves are the least likely to be chosen, highlighting a critical mismatch between trajectory generation and final answer selection (Section 4.3). To bridge this critical gap between trajectory generation and final answer selection, we introduce a novel decoding framework: Chopthin-Consensus Power Sampling (CCPS). CCPS fundamentally upgrades Power-SMC with two interrelated innovations that help uncover 2Published at the COLM 2026 Workshop on Efficient Reasoning.                        
+
+> ABCDE
+> ⋆
+> AABBCDAAABBB⋆
+> a1
+> a1
+> a1
+> a2
+> a⋆
+> a2
+> R=6R=4R=2a⋆×1initial population resampling 1 resampling 2 answers
+> (a) Systematic resampling (weights reset to 1/ N)
+> chop keep thin ABCDE
+> ⋆
+> AABCD
+> ⋆
+> AABBC
+> ⋆
+> a1
+> a⋆
+> a2
+> a3
+> a⋆
+> a⋆
+> R=6R=5R=4a⋆×3initial population resampling 1 resampling 2 answers
+> (b) Chopthin resampling (weights carried, ratio ≤η)
+
+Figure 1: One illustrative example of systematic and Chopthin resampling on the same toy population of N = 6 weighted particles (circle area ∝ weight; color/letter = founding ancestor; × = killed; R = surviving root lineages). The ⋆ particle is low-weight but would reach the correct answer a⋆; token-identical copies are merged before voting. (a) In this realization, systematic resampling resets all weights to 1/ N: ⋆ dies at the first event, R
+
+collapses 6 → 4 → 2 ( particle impoverishment ), and the majority vote fails even though the population contains a⋆. (b) In this realization, Chopthin carries unequal weights forward: ⋆
+
+survives, R falls only to 4, and the vote is correct. Neither resampler guarantees preservation of a trajectory that would eventually reach the correct answer; the figure illustrates a possible mechanism, not an expected outcome. Here η bounds the ratio between the largest and smallest output weight (Section 4.1), and a1, a2, a3 are distinct incorrect answers, with equal tags denoting equal answers. the full potential of diverse reasoning paths. First, it replaces standard equal-weight resam-pling with Chopthin to preserve genealogical diversity. Second, to overcome the limitations of weight-based selection, CCPS introduces a semantic majority voting mechanism to extract the correct answer from the enriched population. This mechanism first merges token-identical final trajectories so that each exact duplicate contributes one count vote, while its pooled weight is retained for tie-breaking. It then clusters semantically equivalent answers by comparing candidate solutions only with one another, without consulting a gold reference. Finally, CCPS returns the answer supported by the largest coalition of distinct 
+
+reasoning trajectories. This design extends self-consistency (Wang et al., 2023) to particle-based decoding. Furthermore, the framework is highly adaptable: for code generation tasks, CCPS seamlessly clusters answers based on their functional execution on self-generated test inputs (Chen et al., 2023a), providing a robust and generalizable solution to the LLM reasoning bottleneck. Our contributions are as follows. • We identify equal-weight resampling as a source of genealogical diversity loss in SMC-based reasoning and distinguish this loss from the weight concentration summarized by the ESS. • We introduce the Chopthin resampler to language-model decoding , bounding the ratio between the largest and smallest output weights and carrying the unequal weights forward, while preserving the SMC approximation in conditional expectation and guar-anteeing a lower bound on post-resampling ESS. • We pair it with a deduplicate-then-cluster semantic-majority selector that prevents ex-act duplicate final trajectories from receiving repeated count votes and clusters programs by execution behavior for code. • We evaluate across three open models and five reasoning benchmarks : Chopthin raises oracle coverage in 13 of 15 settings, and CCPS matches or improves final-answer accuracy over Power-SMC in 14 of 15, with ablations attributing the coverage gain to preserved trajectory diversity and the accuracy gain to the semantic-majority selector. 3Published at the COLM 2026 Workshop on Efficient Reasoning. 
+
+## 2 Background: Power sampling as sequential Monte Carlo 
+
+2.1 The sequence-level power distribution 
+
+Let pθ be a pretrained autoregressive language model over a vocabulary V. Given a prompt 
+
+x, it assigns to a sequence y = ( y1, . . . , yT ) terminating in an end-of-sequence (EOS) token the probability pθ (y | x) = ∏Tt=1 pθ (yt | x, y<t), where y<t := ( y1, . . . , yt−1) and “: =” means “is defined as”. For a sharpening exponent α > 1, the sequence-level power distribution is 
+
+πα(y | x) = pθ (y | x)α
+
+Zα(x) , Zα(x) = ∑
+
+> y
+
+pθ (y | x)α. (1) The exponent acts on the probability of the complete sequence, moving mass toward high-likelihood sequences without changing the model parameters. Recent analyses attribute much of the reasoning gain from RL post-training to this kind of sharpening (Yue et al., 2025). Exact sampling is intractable: the normalizer in (1) sums over an exponentially large space of complete sequences. Sampling each token at temperature 1/ α renormalizes at every step, so the sequence distribution it induces is not πα (Karan & Du, 2026). 
+
+2.2 Sequential Monte Carlo over prefixes 
+
+Power sampling can instead be written as Sequential Monte Carlo (SMC) (Azizi et al., 2026), using the standard construction of (Del Moral et al., 2006). The sampler keeps N particles. Particle i holds a prefix y(i) 
+
+> 1: t
+
+and a weight, and all N prefixes are decoded together as one batch. After t tokens, the unnormalized intermediate target is 
+
+γt(y1: t | x) = pθ (y1: t | x)αt , αt = 1 + ( α − 1) min  t/Tramp , 1 , α0 := 1. (2) Here γt is the intermediate target after t tokens: the same power construction on the first t
+
+tokens, with partial exponent αt. That exponent is the α-ramp: it grows linearly from 1 to 
+
+α over the first Tramp tokens, then stays at α. The ramp mitigates weight degeneracy (the weight concentrating on a small number of particles) early in decoding (Azizi et al., 2026). At each step, every particle samples its next token from a proposal q(· | x, y<t): any distribution over the next token that depends only on the prompt and the tokens generated so far. Each particle carries a cumulative unnormalized weight U(i) 
+
+> t
+
+, starting from U(i) 
+
+> 0
+
+= 1. Let ω(i) 
+
+> t
+
+be the incremental importance weight of particle i at step t:
+
+U(i) 
+
+> t
+
+= U(i) 
+
+> t−1
+
+ω(i) 
+
+> t
+
+, ω(i) 
+
+> t
+
+= γt
+
+ y(i) 
+
+> 1: t
+
+| x
+
+γt−1
+
+ y(i) 
+
+> 1: t−1
+
+| x q y(i) 
+
+> t
+
+| x, y(i)
+
+> <t
+
+ . (3) Each increment connects one intermediate target to the next, so once the ramp is over, the weighted population targets the power distribution over reachable sequences. Appendix C gives the expanded form of (3), explains the weight updates during the ramp, and describes particles that finish early. A particle that emits EOS stops generating but remains in the population; its token-level increments become one, while the prefix-exponent correction continues during the ramp, so the population always contains N particles. 
+
+2.3 Effective sample size and the resampling interface 
+
+We monitor weight degeneracy using normalized weights and the effective sample size (ESS): 
+
+W(i) 
+
+> t
+
+= U(i)
+
+> t
+
+∑Nj=1 U(j)
+
+> t
+
+, ESS t =   ∑Ni=1(W(i) 
+
+> t
+
+)2−1 ∈ [1, N], (4) where i indexes the particle whose normalized weight is being computed and j is a summa-tion index running over the whole population. ESS is evaluated at block boundaries every 
+
+B decoded tokens, and the sampler resamples when ESS t < κN; κ is the trigger fraction. 4Published at the COLM 2026 Workshop on Efficient Reasoning. At a resampling event , write wi := W(i) 
+
+> t
+
+for the normalized weight of input particle i. The resampler returns N output particles, indexed by k, together with ancestor indices A1: N ,where Ak ∈ { 1, . . . , N}, and output weights w+ 
+
+> 1: N
+
+, where + denotes immediately after resampling. Output particle k continues the state of input particle Ak and takes cumulative weight w+ 
+
+> k
+
+. The offspring count of input particle i is Ci = ∑Nk=1 1{Ak = i}, so Ci = 0means particle i is deleted. Multinomial, stratified (Kitagawa, 1996), residual (Liu & Chen, 1998), and systematic resampling (Whitley, 1994; Carpenter et al., 1999) differ in resampling variance (Douc & Capp´ e, 2005), but all equalize the output weights: w+ 
+
+> k
+
+= 1/ N. Our method changes this resampling rule while leaving the rest of the SMC construction unchanged. 
+
+## 3 Motivation: weight balance is not trajectory diversity 
+
+3.1 Weight balance and trajectory diversity are different objectives 
+
+The ESS (4) measures weight balance, not how many distinct trajectories survive: an equal-weight population maximizes ESS yet may consist of many copies of a few ancestors. We track this second axis with two quantities. The first is Rt, the number of surviving root lineages : founding ancestors that still have a descendant at time t (the genealogical diversity of the population). The second is D, the number of token-distinct complete trajectories left after exact duplicates are merged at the end of decoding, so D ≤ N. The two are related but not interchangeable: separate lineages can converge to the same final trajectory, and descendants of one lineage can diverge. Token-distinct trajectories need not give distinct answers, but they preserve the opportunity for different solutions to emerge; answer-level effects are measured by our selector’s clusters and the coverage metric of Section 5. 
+
+3.2 Stochastic deletion and lineage collapse 
+
+Equal-weight resampling solves weight degeneracy, and in classical filtering it works well (Douc & Capp´ e, 2005). For preserving reasoning trajectories it has two costs. First, stochastic deletion . Under systematic resampling, a particle with Nw i < 1 receives either zero or one offspring, with average Nw i, so it is deleted with probability 1 − Nw i.Deleting by weight suits cases where current importance mass predicts future usefulness; here it does not reliably predict whether the completed trajectory will produce a correct answer, so resampling can delete trajectories that would otherwise have reached a correct solution. Second, lineage collapse . A high-weight particle receives several offspring, all starting from the same prefix, so the number of distinct prefixes can only shrink at an event; the copies begin to differ only as new tokens are sampled. Repeated events can therefore leave many particles but few independent lineages ( particle impoverishment ; Doucet et al., 2001): Rt can fall at every event, as illustrated by one possible realization in Figure 1a, and one equalizing event typically leaves far fewer unique ancestors than particles (Azizi et al., 2026). Underlying both costs is a single move: equal-weight resampling converts each particle’s continuous weight into an integer offspring count, discarding the weight information instead of carrying it forward. 
+
+3.3 Design objective 
+
+We therefore seek a resampling rule that preserves the weighted target and the particle budget, guarantees control of post-resampling weight concentration, and avoids perturbing moderate particles or erasing accumulated weight information. Equal-weight resampling meets the first two demands, but it controls weight concentration in the strongest possible way (exact equality) and perturbs the whole population to get there. Exact equality is stronger than necessary: a bound on the ratio between the largest and smallest output weights already guarantees a floor on the ESS. This weaker condition defines our method. 5Published at the COLM 2026 Workshop on Efficient Reasoning. Selection needs the same care: the standard rule draws one particle in proportion to its final weight, so a correct trajectory that survives at a low weight is rarely returned. The second component of our method is a selector that uses the whole population instead (Section 4.3). 
+
+## 4 Chopthin-Consensus Power Sampling 
+
+4.1 Chopthin preliminaries: bounded-weight resampling 
+
+Chopthin (Gandy & Lau, 2016) is an existing resampler from the bounded-weight family: instead of forcing equal output weights, it bounds how uneven they may be, max  
+
+> 1≤k≤N
+
+w+
+
+> k
+
+ min  
+
+> 1≤k≤N
+
+w+ 
+
+> k
+
+≤ η, (5) where η is a user-chosen ratio bound (for this resampler η ≥ 4; Appendix A explains the constraint). A small η forces the weights closer together; a large η leaves them more uneven and perturbs the population less. All results in this subsection are from (Gandy & Lau, 2016). A bounded ratio is enough to control weight degeneracy, because it forces a floor on the ESS: 
+
+Proposition 1 (ESS floor; Gandy & Lau, 2016, Lemma 2) If the output weights w + 
+
+> 1: N
+
+> 0 sat-isfy (5) , then 
+
+ESS (w+) :=
+
+  ∑Nk=1 w+
+
+> k
+
+2
+
+∑Nk=1(w+ 
+
+> k
+
+)2 ≥ 4 ηN + 1 − η2
+
+(η + 1)2 . (6) Chopthin takes the input weights w1: N and η, computes a threshold a > 0 from the current weights at every event ( a is not a user choice), and gives particle i the expected offspring count hη 
+
+> a
+
+(wi), acting on each particle as shown: 
+
+hη 
+
+> a
+
+(wi) = 
+
+
+
+wi/a, wi < a thin : survive with probability wi/a, at weight a,1, a ≤ wi < ηa/2 keep : one offspring, weight unchanged, 2wi/(ηa), wi ≥ ηa/2 chop : split into equal-weight pieces. (7) The threshold is set so that the expected total matches the budget: 
+
+∑Ni=1 hη 
+
+> a
+
+(wi) = N; (8) a solution exists because the total decreases as a grows. Every output weight lies in [a, ηa],which gives (5). Particles in the keep band pass through unchanged, and if all input weights are equal, Chopthin returns every particle unchanged: the resampler perturbs the population only where the weights are uneven. The exact integer offspring counts and the weight-conservation correction are in Appendix A. The thin band is where Chopthin departs most from an equalizing scheme. The resampler returns N particles, each of weight at least a, and conserves the total weight, so Na ≤
+
+∑k w+ 
+
+> k
+
+= ∑i wi = 1 and hence a ≤ 1/ N. A light particle therefore survives with probability 
+
+wi/a ≥ Nw i, exactly its survival probability under systematic resampling (Section 3.2), so none is more likely to be deleted under Chopthin than under the equalizing baseline. Chopthin keeps the statistical validity that Section 3.3 asks for: it is unbiased (on average, the offspring of particle i carry exactly its weight wi), returns exactly N output particles, and conserves the total weight (Proposition 2, Appendix A.5). Unbiasedness means the weighted target is unchanged in expectation, so Chopthin alters the resampling variance and genealogy, not the target (Proposition 3). 
+
+4.2 Carried weights and integration 
+
+CCPS carries Chopthin’s output weights forward, U(k) 
+
+> t
+
+← w+ 
+
+> k
+
+for k = 1, . . . , N, instead of any uniform reset. SMC weights are defined only up to a common constant, so adopting the 6Published at the COLM 2026 Workshop on Efficient Reasoning. normalized outputs as the new cumulative weights is valid. Later increments (3) multiply the carried values, so the weights at the end of decoding keep information from before the last event. Decoding runs as in Section 2. At a triggered event, Chopthin is called on W(1: N) 
+
+> t
+
+, the particle states (sequences, termination flags, and cached model state) are reordered by A1: N ,and the weights are carried forward as above. Algorithm 2 (Appendix B) lists the complete procedure. We set η = 3 + √8 ≈ 5.83, chosen so that the asymptotic ESS floor is N/2, asymptotically matching the trigger fraction κ = 0.5 (Section 5.1); at our experimental N = 32 the exact guaranteed floor is 13.17 (0.412 N). The derivation and finite-N values are in Appendix A.6. 
+
+4.3 Semantic-majority selection 
+
+A standard SMC rule is the weight draw : pick one particle with probability proportional to its normalized final weight W(i) 
+
+> final
+
+(4), and return the answer parsed from it (Doucet et al., 2001). Particle-based decoding methods for language models inherit this rule (Azizi et al., 2026; Nguyen et al., 2026). CCPS instead aggregates over the whole population. Selection proceeds in three steps: merge, cluster, and vote. 
+
+Step 1: Merge. Combine token-identical final trajectories (for code, those with identical ex-tracted programs) into a set T of distinct trajectories, so that each exact duplicate contributes one count vote; pool their final weights for tie-breaking. Each u ∈ T has an answer au
+
+parsed from its trajectory (parsing details in Appendix D). 
+
+Step 2: Cluster. Group answers the task grader judges equivalent, comparing candidates only with one another, never with the gold answer. For code, we cluster programs by their exact behavioral signatures on a fixed ordered set of test inputs generated once per problem and base model and shared across both resampling arms. Call the resulting set of clusters C.
+
+Step 3: Vote. Return the answer of the cluster supported by the largest number of distinct trajectories (distinct programs, for code), 
+
+C∗ = arg max  
+
+> C∈C
+
+{u ∈ T : au ∈ C} , ˆamaj = rep (C∗), (9) where rep (C) is the cluster representative of Appendix D, with ties between clusters broken by the sum of the pooled weights of their supporting trajectories, ∑u∈T : au ∈C ¯Wu, where ¯Wu = ∑i: y(i) =u W(i)
+
+> final
+
+. The output is a consensus point estimate, not a sample from the power distribution. 
+
+## 5 Experiments 
+
+5.1 Setup Models and benchmarks. We evaluate Qwen2.5-Math-7B (Yang et al., 2024), Qwen2.5-7B (Qwen et al., 2024), and Qwen3-4B (Yang et al., 2025) on MATH500 (Lightman et al., 2024), GSM8K (Cobbe et al., 2021), AIME 2022–2024 (AI-MO, 2024), GPQA Diamond (Rein et al., 2023), and HumanEval (Chen et al., 2021) without additional fine-tuning. Appendix A.7 gives model, benchmark, and prompting details. 
+
+Method settings. The Power-SMC and Chopthin generation arms use N = 32, α = 2, proposal temperature τ = 0.5, and ESS trigger κ = 0.5. They use identical decoding configurations and differ only in the resampler; the Chopthin arm uses η = 3 + √8. For final selection, Power-SMC uses a weight draw, whereas CCPS uses semantic-majority selection. Complete settings appear in Appendix A.7. 7Published at the COLM 2026 Workshop on Efficient Reasoning. Model Resampler + selector MATH500 GSM8K AIME GPQA HumanEval Qwen2.5-Math-7B Systematic + weight draw (Power-SMC) 77.0 89.5 15.6 30.3 58.5 Systematic + majority 79.4 91.5 15.6 31.3 61.0 Chopthin + weight draw 78.0 88.8 15.6 31.8 58.5 Chopthin + majority (CCPS, ours) 81.4 90.8 16.7 33.8 61.6                                                         
+
+> Qwen2.5-7B Systematic +weight draw (Power-SMC) 74.2 91.0 10.4 29.3 73.2 Systematic +majority 76.6 91.5 11.1 31.3 76.2 Chopthin +weight draw 73.2 90.7 11.5 27.8 75.0 Chopthin +majority (CCPS, ours) 76.0 91.4 12.2 30.3 76.8
+> Qwen3-4B Systematic +weight draw (Power-SMC) 79.0 90.1 15.6 29.8 71.3
+> Systematic +majority 81.0 91.7 15.6 34.3 70.7 Chopthin +weight draw 81.8 89.8 16.7 34.3 70.7 Chopthin +majority (CCPS, ours) 81.8 92.1 15.6 40.4 70.7
+
+Table 1: Selector ablation: final-answer accuracy (%) for each resampler × selector combination. Green rows reproduce the corresponding entries of Table 2; bold marks the best value per column within each model block.      
+
+> −2 0246
+> ∆oracle coverage (pp) MATH500 GSM8K AIME GPQA HumanEval
+> +2.4 +1.8 +1.0 +0.4 +0.7 +0.2 +4.4 0.0 +2.2 +4.0 −1.5 +5.6 +4.3 +1.3 +1.2
+
+Figure 2: Oracle-coverage difference between Chopthin and systematic re-sampling across all settings. Color encodes the model: Qwen2.5-Math-7B, Qwen2.5-7B, Qwen3-4B. Table 2: Final-answer accuracy (%) for CCPS against Power-SMC and training-free decoding baselines. Model Method MATH500 GSM8K AIME GPQA HumanEval Qwen2.5-Math-7B Baseline decoding 65.0 80.0 11.1 20.7 20.7 Low-temperature decoding ( τ=1/ α) 69.8 88.2 8.9 32.8 30.5 MH power sampling (Karan & Du, 2026) 74.8 † 81.5 ‡ 9.5 § 38 .9† 57.3 †
+
+Power-SMC (systematic) 77.0 89.5 15.6 30.3 58.5 
+
+CCPS (ours) 81.4 90.8 16.7 33.8 61.6 
+
+Qwen2.5-7B Baseline decoding 50.8 82.2 1.1 30.3 28.0 Low-temperature decoding ( τ=1/ α) 61.2 88.4 6.7 29.3 7.9 MH power sampling (Karan & Du, 2026) 70.6 † 84.5 ‡ 8.2 § 31 .8† 62.2 †
+
+Power-SMC (systematic) 74.2 91.0 10.4 29.3 73.2 
+
+CCPS (ours) 76.0 91.4 12.2 30.3 76.8 
+
+Qwen3-4B Baseline decoding 82.0 91.8 18.9 39.9 63.4 Low-temperature decoding ( τ=1/ α) 80.4 91.2 21.1 36.4 55.5 MH power sampling (Karan & Du, 2026) 76.2 ‡ 90.6 ‡ 9.5 36.4 ‡ 45.7 ‡
+
+Power-SMC (systematic) 79.0 90.1 15.6 29.8 71.3 CCPS (ours) 81.8 92.1 15.6 40.4 70.7 
+
+Bold numeric entries mark the highest reported value in each model–benchmark block. Green rows indicate our method. †Reported by (Karan & Du, 2026) ( α = 4). ‡Reported by (Azizi et al., 2026) (α = 4). §Reported by (Zhou et al., 2026) on AIME. 
+
+Correctness and coverage. An answer is correct if it is equivalent to the gold answer under the task-specific grader of Appendix D. To measure what the final population contains, independently of any selector, we report for each problem the coverage indicator c =
+
+max i g a(i), a⋆, where a⋆ is the gold answer and g ∈ { 0, 1 } is the task grader; the oracle coverage is the average of c over problems. Oracle coverage is the at-least-one-correct rate over the correlated population of a single fixed-compute run. The final trajectories share ancestry through resampling and can include exact duplicates, so this is not an i.i.d. pass@ N.It is a ceiling for any selector that must return one of the final answers. For HumanEval, which has no symbolic grader, we score a program correct when it passes the held-out tests; the selector never sees these tests (Section 4.3). 
+
+5.2 Comparison study 
+
+Chopthin raises oracle coverage : Figure 2 shows it lifts the ceiling over Power-SMC in thirteen of the fifteen cells, ties in one, and dips in only one, by at most 1.5 percentage points (absolute values in Table 3, Appendix E.1). The semantic-majority selector then converts that headroom into accuracy: together they match or improve final-answer accuracy over the full Power-SMC pipeline (systematic resampling + weight draw) in 14 of 15 cells, by up to 10.6 points (Qwen3-4B on GPQA); the single exception is Qwen3-4B on HumanEval ( −0.6). Table 2 reports these results alongside Power-SMC and training-free decoding baselines. Table 1 reports the full resampler × selector grid. No single selector is best in every cell, but the pattern is selector-robust: semantic majority matches or improves on the weight draw under both resamplers in 28 of 30 comparisons (the exceptions are Qwen3-4B on 8Published at the COLM 2026 Workshop on Efficient Reasoning.         
+
+> 78 82 86 Accuracy / coverage (%)  87.0 85.4
+> 81.4%
+> 80.0 81.2 Majority acc. Oracle coverage 12 15 18
+> D14.7 15.2 15.4 16.0 17.2 4
+> ρ=0.64 3+√8
+> ρ=0.50 7.87
+> ρ=0.40 11.24
+> ρ=0.30 24.99
+> ρ=0.148 ratio bound η
+
+(a) sensitivity to η         
+
+> 78 82 86 Accuracy / coverage (%) 84.6 85.8 87.0
+> 81.4%
+> 79.4 80.6 Majority acc. Oracle coverage 12 15 18
+> D13.0 15.2 15.2
+> Systematic Chopthin
+> +reset Chopthin carried (ours) resampler
+
+(b) carried weights vs. uniform reset 
+
+Figure 3: Ablations on the primary cell (Qwen2.5-Math-7B, MATH500). (a) The green marker is the default η = 3 + √8. Top: final-answer accuracy of CCPS (blue) and oracle coverage (dark squares); bottom: distinct final trajectories D out of N. Accuracy varies within 1.4 points and coverage within 1.6 across the range. (b) The hybrid applies Chopthin’s allocation (7) then resets every weight to 1/ N: a diagnostic, not a valid resampler. Bold marks the best value per column. HumanEval under systematic resampling and on AIME under Chopthin). Chopthin’s contribution, by contrast, is the ceiling : it places a correct answer among the N trajectories more often (Figure 2), and with the selector held at majority it wins 9 of 15 cells, ties 2, and loses 4. Baseline decoding (temperature 1) and low-temperature decoding ( τ = 1/ α)are single-sample references with no resampling. The Metropolis–Hastings (MH) row collects reference values reported at α = 4 in the literature, marked per source in the table footnote. We do not tabulate methods available only at other sampling configurations or without public code (Ji et al., 2026; Nguyen et al., 2026). Reported GRPO reference values are collected in Appendix E.2 (Shao et al., 2024; Nguyen et al., 2026). 
+
+5.3 Discussion Resampling and selection play distinct roles. A higher ceiling is not automatically a better answer. Under the weight draw, Chopthin’s final-answer accuracy tracks Power-SMC’s and sometimes falls below it despite higher oracle coverage: the weights the draw follows do not, on these benchmarks, favor the correct trajectories. The semantic-majority selector counts distinct trajectories instead of trusting the weights, which is what turns the higher coverage into the gains of Table 2. Chopthin’s more consistent effect is on oracle coverage. Qwen3-4B on MATH500 shows the limit: baseline decoding scores 82.0, above Power-SMC’s 79.0 and CCPS’s 81.8 (Table 2), yet CCPS oracle coverage is 84.8, the final population holds correct trajectories the current selector does not return. Arzhantsev et al. (2026) report a similar pattern for Metropolis–Hastings. 
+
+## 6 Ablations 
+
+Chopthin has two degrees of freedom: the ratio bound η, and the choice to carry the unequal output weights forward instead of resetting them. We ablate both on the primary cell (Qwen2.5-Math-7B on MATH500), using the configuration of Section 5.1. 
+
+6.1 Sensitivity to the ratio bound η
+
+The bound is set by inverting the ESS floor of Proposition 1 at a target fraction ρ (Ap-pendix A.6), so we sweep ρ and report the induced η (Figure 3), with the trigger fixed at 
+
+κ = 0.5. All arms are identical to CCPS except η.The method is robust to its one free parameter: every value of η keeps oracle coverage above the systematic baseline of Figure 3(b) (84.6, a margin of +0.8 to +2.4). A looser bound perturbs the population less and preserves more distinct trajectories, which is the 9Published at the COLM 2026 Workshop on Efficient Reasoning. mechanism the method relies on. The trigger-matched default ρ = 0.5 attains the best majority accuracy, so the theoretically motivated choice of Section 4.1 is also the empirical optimum; we tuned η no further. 
+
+6.2 Carried weights versus uniform reset 
+
+Chopthin changes both who survives a resampling event (probabilistic survival of low-weight particles and the untouched keep band) and what the survivors remember (the carried weights). A hybrid that applies Chopthin’s offspring allocation (7) but resets every output weight to 1/ N disentangles the two. Chopthin’s unbiasedness holds for the product of offspring count and output weight (Eq. 10), so resetting the weights to 1/ N without adjusting the counts breaks that unbiasedness. Figure 3(b) reports the comparison. In this diagnostic, roughly half of the observed gain over the equalizing baseline comes from the offspring allocation alone: the hybrid preserves the same mean number of dis-tinct trajectories as carried-weight Chopthin (15.2), compared with 13.0 under systematic resampling, and lifts both final-answer accuracy and oracle coverage. Carrying the unequal weights adds a further increment ( +0.8 majority accuracy and +1.2 oracle coverage). 
+
+## 7 Related work 
+
+Particle-based inference-time methods for LLMs. Twisted SMC (Zhao et al., 2024), SMC steering and controlled generation (Lew et al., 2023; Loula et al., 2025), reward-guided parti-cle filtering (Puri et al., 2025), and SMC power sampling (Azizi et al., 2026) all re-equalize the particle weights at every resampling event. 1 To our knowledge, no existing particle-based inference-time method for language models bounds post-resampling weight unevenness or guarantees a post-resampling effective sample size. Recent diversity-preserving efforts act 
+
+around an equalizing resampler rather than replacing it, by tempering the weights before re-sampling (Giannone et al., 2025), adding rollout- or value-based auxiliary weights (Nguyen et al., 2026), weighting by intrinsic uncertainty (Giannone et al., 2026), enlarging the eligible pool with reward-scored historical prefixes (Tran et al., 2026), or restoring diversity after an equalizing resample with Metropolis–Hastings rejuvenation moves (Markovic-Voronov et al., 2026). These approaches change which particles are favored; we change how much the population is perturbed, with no extra rollouts, learned potentials, or reward models. 
+
+Answer selection. Self-consistency returns the most common answer among independent samples (Wang et al., 2023); universal self-consistency and semantic-uncertainty methods cluster free-form answers by meaning before aggregating (Chen et al., 2023b; Kuhn et al., 2023). For code, AlphaCode clusters programs by their behavior on generated inputs (Li et al., 2022), and CodeT selects candidates by agreement on model-generated tests (Chen et al., 2023a). (Brown et al., 2024) show that the coverage of repeated sampling grows with the number of samples while common selectors often fail to realize it. Most recently, marginal sharpening (Arzhantsev et al., 2026) makes the sharpened marginal distribution over answers itself the inference-time target, with self-consistency as its limiting case. We keep Power-SMC’s sequence-level target and act on the resampler and selector instead, so the approaches are complementary; our selector adapts these ideas to a resampled population, where duplicates must be merged before any vote is meaningful (Section 4.3). 
+
+## 8 Conclusion 
+
+We identified systematic resampling as an obstacle to reasoning performance in SMC-based power sampling. It equalizes particle weights and drops low-weight trajectories that, though unlikely early, can still reach the correct answer. Replacing it with Chopthin gives low-weight trajectories a greater chance of remaining represented and increases 
+
+> 1The nearest exception is the without-replacement scheme of (Lew et al., 2023), related to (Fearn-head & Clifford, 2003).
+
+10 Published at the COLM 2026 Workshop on Efficient Reasoning. observed oracle coverage in 13 of 15 settings across three open models and five benchmarks. Pairing Chopthin with the semantic-majority selector matches or improves final-answer accuracy over the Power-SMC baseline in 14 of 15 settings, by up to 10.6 percentage points. Because the resampling change is independent of how tokens are proposed and operates at the standard resampling interface, it may be combined with other SMC-based decoding methods. Evaluating such combinations is future work. 
+
+## LLM usage 
+
+LLMs were used only for editing assistance; the authors take full responsibility for all content. 
+
+## References 
+
+AI-MO. AIMO validation AIME. https://huggingface.co/datasets/AI-MO/ aimo-validation-aime , 2024. Hugging Face dataset; AIME 2022–2024 problems, sourced from the Art of Problem Solving. Aleksei Arzhantsev, Otmane Sakhi, and Nicolas Chopin. Self-consistency via marginal sharpening, 2026. Seyedarmin Azizi, Erfan Baghaei Potraghloo, Minoo Ahmadi, Souvik Kundu, and Massoud Pedram. Power-SMC: Low-latency sequence-level power sampling for training-free LLM reasoning, 2026. Bradley Brown, Jordan Juravsky, Ryan Ehrlich, Ronald Clark, Quoc V. Le, Christopher R´ e, and Azalia Mirhoseini. Large language monkeys: Scaling inference compute with repeated sampling, 2024. James Carpenter, Peter Clifford, and Paul Fearnhead. Improved particle filter for nonlinear problems. IEE Proceedings - Radar, Sonar and Navigation , 146(1):2–7, 1999. Bei Chen, Fengji Zhang, Anh Nguyen, Daoguang Zan, Zeqi Lin, Jian-Guang Lou, and Weizhu Chen. CodeT: Code generation with generated tests, 2023a. ICLR 2023. Mark Chen, Jerry Tworek, Heewoo Jun, Qiming Yuan, Henrique Ponde de Oliveira Pinto, Jared Kaplan, Harri Edwards, Yuri Burda, Nicholas Joseph, Greg Brockman, Alex Ray, et al. Evaluating large language models trained on code, 2021. Xinyun Chen, Renat Aksitov, Uri Alon, Jie Ren, Kefan Xiao, Pengcheng Yin, Sushant Prakash, Charles Sutton, Xuezhi Wang, and Denny Zhou. Universal self-consistency for large language model generation. arXiv preprint arXiv:2311.17311 , 2023b. Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, Christopher Hesse, and John Schulman. Training verifiers to solve math word problems, 2021. Pierre Del Moral. Feynman-Kac Formulae: Genealogical and Interacting Particle Systems with Applications . Springer, 2004. Pierre Del Moral, Arnaud Doucet, and Ajay Jasra. Sequential Monte Carlo samplers. Journal of the Royal Statistical Society: Series B (Statistical Methodology) , 68(3):411–436, 2006. Randal Douc and Olivier Capp´ e. Comparison of resampling schemes for particle filtering. In Proceedings of the 4th International Symposium on Image and Signal Processing and Analysis (ISPA) , pp. 64–69. IEEE, 2005. Arnaud Doucet, Nando de Freitas, and Neil Gordon (eds.). Sequential Monte Carlo Methods in Practice . Springer, 2001. 11 Published at the COLM 2026 Workshop on Efficient Reasoning. Paul Fearnhead and Peter Clifford. On-line inference for hidden Markov models via particle filters. Journal of the Royal Statistical Society: Series B (Statistical Methodology) , 65(4):887–899, 2003. Axel Gandy and F. Din-Houn Lau. The chopthin algorithm for resampling, 2016. IEEE Transactions on Signal Processing 64(16):4273–4281. Giorgio Giannone, Guangxuan Xu, Nikhil Shivakumar Nayak, Rohan Mahesh Awhad, Shivchander Sudalairaj, Kai Xu, and Akash Srivastava. Mitigating premature exploitation in particle-based monte carlo for inference-time scaling. arXiv preprint arXiv:2510.05825 ,2025. Giorgio Giannone, Mustafa Eyceoz, Shabana Baig, Shivchander Sudalairaj, Anna Clare Doris, Faez Ahmed, Akash Srivastava, and Kai Xu. Intrinsic selection and particle resampling for inference-time scaling beyond domain verifiability, 2026. Dan Hendrycks, Collin Burns, Saurav Kadavath, Akul Arora, Steven Basart, Eric Tang, Dawn Song, and Jacob Steinhardt. Measuring mathematical problem solving with the MATH dataset, 2021. Ari Holtzman, Jan Buys, Li Du, Maxwell Forbes, and Yejin Choi. The curious case of neural text degeneration. In International Conference on Learning Representations (ICLR) , 2020. Xiaotong Ji, Rasul Tutunov, Matthieu Zimmer, and Haitham Bou Ammar. Scalable power sampling: Unlocking efficient, training-free reasoning for LLMs via distribution sharpen-ing, 2026. Aayush Karan and Yilun Du. Reasoning with sampling: Your base model is smarter than you think. In The Fourteenth International Conference on Learning Representations (ICLR) ,2026. arXiv:2510.14901. Genshiro Kitagawa. Monte Carlo filter and smoother for non-Gaussian nonlinear state space models. Journal of Computational and Graphical Statistics , 5(1):1–25, 1996. Lorenz Kuhn, Yarin Gal, and Sebastian Farquhar. Semantic uncertainty: Linguistic in-variances for uncertainty estimation in natural language generation. In The Eleventh International Conference on Learning Representations (ICLR) , 2023. Alexander K. Lew, Tan Zhi-Xuan, Gabriel Grand, and Vikash K. Mansinghka. Sequential Monte Carlo steering of large language models using probabilistic programs, 2023. Aitor Lewkowycz, Anders Andreassen, David Dohan, Ethan Dyer, Henryk Michalewski, Vinay Ramasesh, Ambrose Slone, Cem Anil, Imanol Schlag, Theo Gutman-Solo, Yuhuai Wu, Behnam Neyshabur, Guy Gur-Ari, and Vedant Misra. Solving quantitative reasoning problems with language models. In Advances in Neural Information Processing Systems ,volume 35, 2022. Yujia Li, David Choi, Junyoung Chung, Nate Kushman, Julian Schrittwieser, R´ emi Leblond, Tom Eccles, James Keeling, Felix Gimeno, Agustin Dal Lago, Thomas Hubert, Peter Choy, Cyprien de Masson d’Autume, Igor Babuschkin, Xinyun Chen, Po-Sen Huang, Johannes Welbl, Sven Gowal, Alexey Cherepanov, James Molloy, Daniel J. Mankowitz, Esme Sutherland Robson, Pushmeet Kohli, Nando de Freitas, Koray Kavukcuoglu, and Oriol Vinyals. Competition-level code generation with AlphaCode. Science , 378(6624): 1092–1097, 2022. Hunter Lightman, Vineet Kosaraju, Yura Burda, Harrison Edwards, Bowen Baker, Teddy Lee, Jan Leike, John Schulman, Ilya Sutskever, and Karl Cobbe. Let’s verify step by step. In The Twelfth International Conference on Learning Representations (ICLR) , 2024. arXiv:2305.20050. Jun S. Liu and Rong Chen. Sequential Monte Carlo methods for dynamic systems. Journal of the American Statistical Association , 93(443):1032–1044, 1998. 12 Published at the COLM 2026 Workshop on Efficient Reasoning. Jo˜ ao Loula, Benjamin LeBrun, Li Du, Ben Lipkin, Clemente Pasti, Gabriel Grand, Tianyu Liu, Yahya Emara, Marjorie Freedman, Jason Eisner, Ryan Cotterell, Vikash Mansinghka, Alexander K. Lew, Tim Vieira, and Timothy J. O’Donnell. Syntactic and semantic control of large language models via sequential Monte Carlo. In The Thirteenth International Conference on Learning Representations (ICLR) , 2025. arXiv:2504.13139. Jelena Markovic-Voronov, Wenhui Zhu, Bo Long, Zhipeng Wang, Suyash Gupta, Kayhan Behdin, Bee-Chung Chen, and Deepak Agarwal. Sampling for quality: Training-free reward-guided LLM decoding via sequential Monte Carlo, 2026. Tu Nguyen, Matthieu Zimmer, Rasul Tutunov, Xiaotong Ji, and Haitham Bou Ammar. The model knows, the decoder finds: Future value guided particle power sampling, 2026. Isha Puri, Shivchander Sudalairaj, Guangxuan Xu, Kai Xu, and Akash Srivastava. A proba-bilistic inference approach to inference-time scaling of LLMs using particle-based Monte Carlo methods. In The Thirty-ninth Annual Conference on Neural Information Processing Systems (NeurIPS) , 2025. arXiv:2502.01618. Qwen, An Yang, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chengyuan Li, Dayiheng Liu, Fei Huang, et al. Qwen2.5 technical report, 2024. David Rein, Betty Li Hou, Asa Cooper Stickland, Jackson Petty, Richard Yuanzhe Pang, Julien Dirani, Julian Michael, and Samuel R. Bowman. GPQA: A graduate-level google-proof Q&A benchmark, 2023. Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, Y. K. Li, Y. Wu, and Daya Guo. Deepseekmath: Pushing the limits of mathematical reasoning in open language models, 2024. Dao Tran, Duc Anh Le, Ngoc Luu, Quan Pham, Tung Pham, and Hung Bui. Beyond the frontier: Stochastic backtracking for efficient test-time scaling, 2026. Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc V. Le, Ed H. Chi, Sharan Narang, Aakanksha Chowdhery, and Denny Zhou. Self-consistency improves chain of thought reasoning in language models. In The Eleventh International Conference on Learning Repre-sentations (ICLR) , 2023. Darrell Whitley. A genetic algorithm tutorial. Statistics and Computing , 4(2):65–85, 1994. An Yang, Beichen Zhang, Binyuan Hui, Bofei Gao, Bowen Yu, Chengpeng Li, Dayiheng Liu, Jianhong Tu, Jingren Zhou, Junyang Lin, Kai Dang, et al. Qwen2.5-Math technical report: Toward mathematical expert model via self-improvement, 2024. An Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao, Chengen Huang, Chenxu Lv, et al. Qwen3 technical report, 2025. Yang Yue, Zhiqi Chen, Rui Lu, Andrew Zhao, Zhaokai Wang, Yang Yue, Shiji Song, and Gao Huang. Does reinforcement learning really incentivize reasoning capacity in LLMs beyond the base model?, 2025. NeurIPS 2025. Stephen Zhao, Rob Brekelmans, Alireza Makhzani, and Roger Grosse. Probabilistic infer-ence in language models via twisted sequential Monte Carlo. In Proceedings of the 41st International Conference on Machine Learning (ICML) , 2024. Felix Zhou, Anay Mehrotra, and Quanquan C. Liu. Reasoning with sampling: Cutting at decision points, 2026. 
+
+## A Details of the Chopthin resampler 
+
+The main text uses only Chopthin’s interface (ancestor indices and output weights), the three-band behavior (7), and the guarantees of Propositions 2 and 1; the details here are what realize them. 13 Published at the COLM 2026 Workshop on Efficient Reasoning. 
+
+A.1 Expected-offspring function and threshold 
+
+The expected-offspring function hη 
+
+> a
+
+of (7) is valid for η ≥ 4; the map a 7 → ∑i hη 
+
+> a
+
+(wi) is continuous and non-increasing, diverges as a → 0+, and vanishes as a → ∞, so a solution of the threshold equation (8) exists. The threshold partitions the particles into light particles 
+
+L = {i : wi < a}, which are thinned, and heavy particles H = {i : wi ≥ a}, which are kept or chopped; particles with a ≤ wi < ηa/2 have hη 
+
+> a
+
+(wi) = 1 and pass through unchanged. When the solution set of (8) is an interval, our implementation takes its upper endpoint, so boundary particles with wi = a fall on the heavy side; the equal-weights property of Section 4.1 relies on this convention. In particular, for equal weights the upper end-point is a = wi: every particle falls in the keep band with expected offspring count one, deterministically, which yields the property. 
+
+A.2 Thinning and chopping Thinning. A light particle has hη 
+
+> a
+
+(wi) = wi/a < 1 and receives zero or one offspring. The survivors are drawn by a single systematic pass over the expected counts {wi/a}i∈L, so particle i survives with probability wi/a, and a survivor is assigned the weight a. Let NL be the number of survivors. 
+
+Chopping. A heavy particle receives Ci = ⌊hη 
+
+> a
+
+(wi)⌋ + mi offspring: the integer parts are guaranteed, and the residual NU = N − NL − ∑i∈H ⌊hη 
+
+> a
+
+(wi)⌋ offspring are allocated by a second systematic draw over the fractional parts {hη 
+
+> a
+
+(wi)}, giving mi ∈ { 0, 1 } (here 
+
+{x} := x − ⌊ x⌋ denotes the fractional part). Because NL is random, the weight transferred to the light side deviates from its expectation; the constant 
+
+ζ = ∑i∈L wi − aN L
+
+∑i∈H {hη 
+
+> a
+
+(wi)}
+
+redistributes this deviation over the heavy particles. A heavy particle with Ci = c > 0 is split into c equal pieces, each of weight ˆ wi/c with ˆ wi = wi + ζ{hη 
+
+> a
+
+(wi)}. Since E[ζ] = 0 the step stays unbiased, and the correction makes the total weight exactly conserved in exact arithmetic (weight conservation, Proposition 2); in implementation, conservation holds to numerical tolerance. Every output weight lies in [a, ηa], which gives the bounded ratio (5). 
+
+A.3 Pseudocode 
+
+Algorithm 1 assembles the steps above; it is adapted from (Gandy & Lau, 2016), in our notation and with an explicit guard for the case in which every heavy expected count is an integer (then NU = 0 and ζ is set to zero). 
+
+A.4 Why η ≥ 4The condition η ≥ 4 arises from requiring every admissible split to keep its pieces inside 
+
+[a, ηa]: the constraint 2 w/(ηa) ≤ ⌊ w/a⌋ for all w ≥ a, evaluated for w just below 2 a, forces 
+
+η ≥ 4 (Gandy & Lau, 2016). 
+
+A.5 Target preservation Proposition 2 (Chopthin guarantees) Given the input weights: unbiasedness ,
+
+E
+
+h
+
+∑k: Ak =i w+ 
+
+> k
+
+w1: N
+
+i
+
+= wi for every i (10) 
+
+(on average, the offspring of particle i carry exactly its weight); exact count , N output particles; and 
+
+weight conservation , ∑k w+ 
+
+> k
+
+= ∑i wi.
+
+Unbiasedness (10) implies that replacing the resampler does not change what the weighted population estimates. 14 Published at the COLM 2026 Workshop on Efficient Reasoning. 
+
+Algorithm 1 The Chopthin resampler, adapted from (Gandy & Lau, 2016). 
+
+Input: weights w1: N (sum > 0), ratio bound η ≥ 4, target count N
+
+Output: ancestors A1: N , weights w+ 
+
+> 1: N
+
+with max k w+ 
+
+> k
+
+/ min k w+ 
+
+> k
+
+≤ η 
+
+> 1:
+
+solve ∑i hη 
+
+> a
+
+(wi) = N for a ▷ upper endpoint  
+
+> 2:
+
+L ← { i : wi < a}; H ← { i : wi ≥ a} 
+
+> 3:
+
+draw u ∼ U (0, 1 ) ▷ thin: systematic over {wi/a}i∈L 
+
+> 4:
+
+for i ∈ L do  
+
+> 5:
+
+u ← u + wi/a 
+
+> 6:
+
+if u ≥ 1 then  
+
+> 7:
+
+emit (A = i, w+ = a); u ← u − 1 
+
+> 8:
+
+end if  
+
+> 9:
+
+end for  
+
+> 10:
+
+NL ← number of survivors  
+
+> 11:
+
+NU ← N − NL − ∑i∈H ⌊hη 
+
+> a
+
+(wi)⌋ 
+
+> 12:
+
+if ∑i∈H {hη 
+
+> a
+
+(wi)} = 0 then ▷ all heavy counts integral; then NU = 0 
+
+> 13:
+
+ζ ← 0; mi ← 0 for all i ∈ H 
+
+> 14:
+
+else  
+
+> 15:
+
+ζ ←   ∑i∈L wi − aN L
+
+ ∑i∈H {hη 
+
+> a
+
+(wi)} 
+
+> 16:
+
+allocate NU residual offspring mi ∈ { 0, 1 } by a systematic draw over {hη 
+
+> a
+
+(wi)}, i ∈ H 
+
+> 17:
+
+end if  
+
+> 18:
+
+for i ∈ H do  
+
+> 19:
+
+c ← ⌊ hη 
+
+> a
+
+(wi)⌋ + mi 
+
+> 20:
+
+if c > 0 then  
+
+> 21:
+
+emit c copies of  A = i, w+ = ( wi + ζ{hη 
+
+> a
+
+(wi)})/c 
+
+> 22:
+
+end if  
+
+> 23:
+
+end for Proposition 3 (Target preservation) Let w 1: N be the input weights of particles X 1: N , let F =
+
+σ(X1: N , w1: N ) be the pre-resampling σ-field, and let (A1: N , w+ 
+
+> 1: N
+
+) be Chopthin’s output. For any bounded test function φ,
+
+E
+
+h N
+
+# ∑
+
+> k=1
+
+w+ 
+
+> k
+
+φ(XAk ) F
+
+i
+
+=
+
+> N
+
+# ∑
+
+> i=1
+
+wi φ(Xi). (11) 
+
+Proof. All offspring of parent i carry the same weight, say vi, and there are Ci of them. Grouping the output sum by parent gives ∑k w+ 
+
+> k
+
+φ(XAk ) = ∑i Civi φ(Xi); each φ(Xi) is F -measurable. The resampler uses only the weights and external randomness, so unbiasedness holds conditional on F : E[Civi | F ] = wi, which yields (11). The same argument applies to any unbiased resampler. □
+
+Thus Chopthin leaves the weighted empirical approximation of the intermediate targets unchanged in conditional expectation; it changes the resampling variance and the genealogy, not the target (Del Moral, 2004; Douc & Capp´ e, 2005). A finite population remains an approximation of πα, not an exact draw from it. 
+
+A.6 Our choice of η
+
+The floor of Proposition 1 has leading term 4 ηN/(η + 1)2 for large N. Setting this equal to a target fraction ρN of the population and solving for η gives η = ( 2 − ρ + 2p1 − ρ)/ρ. We target ρ = 0.5, which yields η = 3 + √8 ≈ 5.83 and satisfies the validity condition η ≥ 4. Setting η = 4 in the inversion gives ρ = 16/25, so target fractions ρ > 16/25 would require 
+
+η < 4 and are not attainable under (7). The finite-N floor sits a constant 2 √2 ≈ 2.83 particles below the asymptote: at η = 3 + √8 the bound is exactly N/2 − 2√2, so at N = 32 it is ESS ≥ 13.17 (0.412 N), approaching 0.5 N as N grows. 15 Published at the COLM 2026 Workshop on Efficient Reasoning. 
+
+A.7 Solver and integration into Power-SMC Models, benchmarks, and prompting. We use the Hugging Face releases 
+
+Qwen/Qwen2.5-Math-7B and Qwen/Qwen2.5-7B (base variants) and Qwen/Qwen3-4B (the post-trained release; the separate -Base checkpoint is not used), in bfloat16; Qwen3-4B is prompted through its chat template with the thinking mode disabled. The five benchmarks are MATH500 (500 problems) and GSM8K (1319) for mathematics, AIME (competition mathematics; the 90 problems of AIME 2022–2024), GPQA (graduate-level science, four-way multiple choice; the Diamond split, 198 problems), and HumanEval (code, 164 problems). 
+
+Decoding configuration. The proposal is q(· | x, y<t) ∝ pθ (· | x, y<t)1/ τ with τ = 1/ α =
+
+0.5, under nucleus truncation (Holtzman et al., 2020) at top-p = 0.9. The exponent is ramped from 1 to 2 over the first 100 tokens, decoding runs for up to 4096 new tokens, and the ESS trigger κ = 0.5 is evaluated at block boundaries every B = 64 tokens. The Power-SMC (systematic) and Chopthin arms are identical except for the resampler; Chopthin uses 
+
+η = 3 + √8. We use α = 2 rather than a larger exponent because at N = 32 it sharpens the target while leaving the weight dispersion that resampling acts on; all method components are otherwise independent of α.We solve the threshold equation (8) by bisection on the predicate ∑i hη 
+
+> a
+
+(wi) ≥ N: an enclosing bracket is obtained by doubling and halving from max i wi, and the bisection converges to a tolerance of 10 −12 to the supremum of the solution set, i.e., to the upper endpoint when the set is an interval; the weights are processed in double precision on the host. (Gandy & Lau, 2016) give an algorithm that solves (8) in expected linear time, but at our population sizes ( N ≤ 128) the simpler bisection suffices. Measured at N = 32 across three weight regimes, the full Chopthin call (root solve, thinning, and chopping) takes 0.19–0.26 ms per event, against roughly 10–15 ms per batched token step and at least 
+
+B = 64 token steps between events; the resampling step therefore costs about 2% of one forward step and under 5 × 10 −4 of the wall-clock time of the block it serves (systematic resampling is simpler still). Both resamplers expose the same ancestor-index interface, so all downstream state management is shared verbatim: particle sequences, termination flags, and the Transformer KV caches are reordered by A1: N , and the copy-on-write cache handling of (Azizi et al., 2026) applies to Chopthin without modification. Two further decoding details apply to all runs: the end-of-sequence token is masked in the proposal for the first 100 generated tokens, and the boxed-answer stopping rule is evaluated at every step over a trailing window of 256 tokens, so a particle may stop before the length cap. Nucleus truncation, EOS masking, and the stopping rule restrict the sampler’s support, so it targets πα over the reachable trajectories rather than all sequences; both arms share these choices, so the comparison is unaffected. All runs use single NVIDIA RTX A6000 GPUs (48 GB), PyTorch 2.5.1, and Transformers 4.45.0. 
+
+Paired randomness. The token-sampling and resampling streams (the latter covering the resampler’s internal draws and the final weight draw) are initialized identically per problem in both arms, so the two arms produce identical token streams until their first divergent resampling event and comparisons are paired at the problem level. 
+
+## B CCPS pseudocode 
+
+Algorithm 2 gives the complete sampler. It differs from Power-SMC in exactly two places: the resampling step (lines 9–11), which invokes Chopthin and carries its output weights, and the selection stage (lines 15–18). 16 Published at the COLM 2026 Workshop on Efficient Reasoning. 
+
+Algorithm 2 Chopthin-Consensus Power Sampling (CCPS, ours). 
+
+Input: prompt x; model pθ ; exponent α; particles N; ratio bound η; trigger κ; block size B; ramp Tramp ;max tokens Tmax ; proposal q(· | x, y<t) ∝ pθ (· | x, y<t)1/ τ , τ = 1/ α, nucleus-truncated 
+
+Output: answer ˆ amaj 
+
+1: y(i) ← ∅; U(i) ← 1; done (i) ← false for i = 1, . . . , N
+
+2: for t = 1 to Tmax do ▷ decode N particles as one batch 3: while the ramp is active, multiply each particle absorbed before step t by the prefix factor 
+
+pθ (y(i) | x)αt −αt−1 ▷ Appendix C 4: for each active particle i do 
+
+5: sample y(i) 
+
+> t
+
+∼ q(· | x, y(i)
+
+> <t
+
+); U(i) ← U(i) · ω(i) 
+
+> t
+
+▷ Eq. (3) 6: if EOS or stopping rule then done (i) ← true ▷ stops generating; stays in the population 7: end for 
+
+8: if t mod B = 0 and ESS t < κN then ▷ Eq. (4) 9: (A1: N , w+ 
+
+> 1: N
+
+) ← CHOPTHIN 
+
+ W(1: N) 
+
+> t
+
+, η, N ▷ Alg. 1 10: reorder sequences, flags, and KV caches by A1: N
+
+11: U(k) ← w+ 
+
+> k
+
+for all k ▷ carry the weights; no uniform reset 12: end if 
+
+13: end for 
+
+14: W(i) 
+
+> final
+
+← U(i)/ ∑j U(j) for all i ▷ normalize final weights 15: T ← deduplicate token-identical trajectories; pool weights ¯ Wu
+
+16: C ← cluster answers by grader or behavioral equivalence 17: C∗ ← arg max C∈C |{ u ∈ T : au ∈ C}| ▷ ties by ∑u∈T : au ∈C ¯Wu; Sec. 4.3 18: return ˆamaj ← rep (C∗)
+
+## C Power-SMC incremental weights and the α-ramp 
+
+This appendix restates the weight construction of (Azizi et al., 2026) in our notation; nothing here is new. The incremental weight (3) expands, using γt(y1: t | x) = pθ (y1: t | x)αt , as 
+
+ωt = pθ (y1: t−1 | x)αt −αt−1 pθ (yt | x, y<t)αt
+
+q(yt | x, y<t) . (12) The first factor reweights the whole prefix from exponent αt−1 to αt; it is computable from the accumulated base log-probability of the prefix. In the absence of resampling, the accumulated weight telescopes by induction to the sequential-importance-sampling identity 
+
+U(i) 
+
+> t
+
+= ∏
+
+> s≤t
+
+ω(i) 
+
+> s
+
+= pθ (y(i) 
+
+> 1: t
+
+| x)αt
+
+∏s≤t q(y(i) 
+
+> s
+
+| x, y(i)
+
+> <s
+
+) = γt(y(i) 
+
+> 1: t
+
+| x)
+
+∏s≤t q(y(i) 
+
+> s
+
+| x, y(i)
+
+> <s
+
+) ,the exact importance weight for the intermediate target γt. With resampling, this identity holds between consecutive resampling events; at the population level, the weighted empiri-cal approximation of the intermediate targets is preserved by the resampler’s unbiasedness (Proposition 3). Once the ramp completes ( αt = α), the population targets πα over the reach-able sequences (exactly πα only under a full-support proposal and EOS-only termination) in the stopping-policy sense of Section 2 (Del Moral et al., 2006; Azizi et al., 2026), and the incremental weight reduces to ωt = pθ (yt | x, y<t)α/q(yt | x, y<t).Absorbed particles are handled by the same identity. A particle that stops at step t0 con-tributes unit token-level increments for t > t0, but the prefix factor pθ (y1: t0 | x)αt −αt−1
+
+continues to be applied while the ramp is active, with a final catch-up to the full exponent at the end of decoding. An absorbed particle’s trajectory therefore also carries weight 
+
+pθ (y1: t0 | x)α divided by its proposal mass, and stopping during the ramp does not distort the final target. 
+
+## D Selector definitions 
+
+All selectors operate post hoc on the same saved final population of N weighted particles; no selector invokes the model after the final populations and behavioral test inputs have been 17 Published at the COLM 2026 Workshop on Efficient Reasoning. generated. The behavioral test inputs used on HumanEval are synthesized once per problem and per base model, before selection, and are shared verbatim by both resampling arms and all selectors, so any accuracy difference between selectors is attributable to selection alone. Let a(i) be the parsed answer of particle i, W(i) 
+
+> final
+
+its normalized final weight, and g(a, a⋆) ∈{0, 1 } the task grader against the gold answer a⋆. Power-SMC’s default rule and two baselines are the weight draw (Section 4.3), which returns a(I) with I ∼ Categorical (W(1: N) 
+
+> final
+
+);
+
+> ARGMAX
+
+, which returns the answer of the single highest-weight particle; and ORACLE ,max i g(a(i), a⋆), the population ceiling used in the main text. The semantic-majority selector MAJ , defined in Section 4.3, aggregates over the distinct trajectories T , each carrying a pooled weight ¯ Wu = ∑i: y(i) =u W(i) 
+
+> final
+
+used only to break ties; it is the selector we report throughout. For the symbolic-answer benchmarks, rep (C) is the first parsed answer that creates cluster C under the greedy clustering procedure; for HumanEval, it is the distinct program in C with the largest pooled final weight. Other aggregations of the same clusters are possible, for example weighting each vote by its pooled weight or by an entropy or confidence score, or scoring with a process-reward model, but we use plain majority. A single equivalence check e(a, b) underlies both scoring and clustering: scoring compares a candidate to the gold answer, g(a, a⋆) = e(a, a⋆), while clustering compares candidates to one another and never consults the gold answer. Per benchmark, e combines, for MATH500, Hendrycks-style normalization (Hendrycks et al., 2021) with sympy simplification of the difference in the manner of Minerva (Lewkowycz et al., 2022) and the PRM800K grader (Lightman et al., 2024), with strict matching required when the reference argument is an integer; absolute difference below 10 −6 after comma stripping for GSM8K; strict integer equality for AIME; and single-letter comparison after uppercasing for GPQA. Answers are extracted by a three-tier ladder: a boxed expression; otherwise an “answer is” pattern in the final 300 characters; otherwise a tail fallback, which for GPQA is a standalone capital letter A–D in the final 200 characters. Clustering is greedy match-to-representative: each answer joins the first cluster whose representative it grades equivalent to, with a string-equality shortcut, so no transitive closure is computed. Particles whose answers fail to parse are excluded from the vote; if no particle parses, the problem is scored incorrect for the majority selector. For HumanEval, programs are clustered by exact behavioral signatures on a fixed ordered set of model-generated inputs (Section 4.3), adapting the execution-based clustering of AlphaCode (Li et al., 2022) and the generated-test agreement of CodeT (Chen et al., 2023a). The signature records the serialized output on each input; when evaluation of an individual input raises an exception, the exception type is recorded as part of the signature. Programs whose sandboxed execution fails or times out before producing a signature are excluded. The selector falls back to the final-weight draw if no generated inputs are available or if no program produces a usable behavioral signature (this fallback exists only on HumanEval). 
+
+Table 1 details. On HumanEval the “majority” selector is behavioral majority (Section 4.3); exact counts out of 164, per (Qwen2.5-Math-7B, Qwen2.5-7B, Qwen3-4B): systematic +
+
+weight draw (96, 120, 117 ); systematic + behavioral (100, 125, 116 ); Chopthin + weight draw (96, 123, 116 ); Chopthin + behavioral (101, 126, 116 ).
+
+## E Additional results 
+
+E.1 Oracle coverage values 
+
+Table 3 reports the absolute oracle coverage underlying the differences of Figure 2. Compar-ing each resampler’s coverage against its majority-selector accuracy in Table 1, coverage exceeds accuracy in every cell (median gap 4.2 points; smallest gap +1.5, Qwen2.5-7B on AIME under Chopthin), so selector headroom remains even after majority voting. 18 Published at the COLM 2026 Workshop on Efficient Reasoning. Table 3: Oracle coverage (%): fraction of problems whose final population contains at least one correct trajectory, per resampler. Bold marks the higher value per column within each block; green rows mark the Chopthin arm (ours). Coverage is measured over the correlated population of a single run and is a ceiling for any selector, not i.i.d. pass@ N.                                       
+
+> Model Resampler MATH500 GSM8K AIME GPQA HumanEval Systematic 84.6 94.4 17.8 50.5 64.0 Qwen2.5-Math-7B Chopthin 87.0 94.8 22.2 54.5 68.3
+> Systematic 81.2 94.1 13.7 50.5 83.5 Qwen2.5-7B Chopthin 83.0 94.8 13.7 49.0 84.8
+> Systematic 83.8 93.7 17.8 39.9 72.6 Qwen3-4B Chopthin 84.8 93.9 20.0 45.5 73.8
+
+E.2 Reported GRPO reference values 
+
+Table 4 situates CCPS against reported GRPO post-training results under unmatched evalua-tion protocols. Training-free CCPS is competitive on MATH500 and stronger on HumanEval, while GRPO retains a clear advantage on GPQA on both models. Table 4: Reported post-training reference values for GRPO (Shao et al., 2024), as reported by (Karan & Du, 2026) and tabulated by (Nguyen et al., 2026), alongside CCPS. The evaluation protocol (prompts, checkpoints, graders, budgets) is not matched to ours; these numbers are context, not a controlled comparison.                   
+
+> Model Method MATH500 GPQA HumanEval Qwen2.5-Math-7B GRPO (post-training, reported) 78.5 39.9 53.7 CCPS (training-free, ours) 81.4 33.8 61.6
+> Qwen2.5-7B GRPO (post-training, reported) 74.0 35.4 56.1 CCPS (training-free, ours) 76.0 30.3 76.8
+> Bold marks the higher value per model and benchmark; green rows are our method.
+
+19
