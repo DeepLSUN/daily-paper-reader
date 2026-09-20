@@ -1,0 +1,1619 @@
+Title: Beyond Truncation: Rethinking LLM Decoding as Ensemble Pruning
+
+URL Source: https://arxiv.org/pdf/2609.18723v1
+
+Published Time: Thu, 17 Sep 2026 01:17:09 GMT
+
+Number of Pages: 25
+
+Markdown Content:
+# Beyond Truncation: Rethinking LLM Decoding as Ensemble Pruning 
+
+Dunyao Xue 1, Chengshuo Du 1, Zhengbo Wang 1, Wenlin Dai 1,2,† , Cheng Meng 1,3,† 
+
+> 1
+
+Institute of Statistics and Big Data, Renmin University of China, Beijing, China 
+
+> 2
+
+Big Data and Responsible Artificial Intelligence for National Governance, Renmin University of China, Beijing, China 
+
+> 3
+
+Center for Applied Statistics, Institute of Statistics and Big Data, Renmin University of China, Beijing, China 
+
+{xuedunyao1202,duchengshuo,zhengbowang,wenlin.dai,chengmeng}@ruc.edu.cn 
+
+Abstract 
+
+We introduce Mahalanobis-Ensemble Decod-ing (ME-Decoding), a novel Large Language Model (LLM) decoding framework that frames candidate token selection as ensemble pruning. Existing selection strategies rely predominantly on scalar probabilities, ignoring geometric se-mantic relationships and causing candidate re-dundancy. Meanwhile, current geometry-aware methods often require complex optimization or directly reweighting the original token probabil-ities, leading to significant computational over-head or inference instability. To address this, we formulate decoding as a subset optimiza-tion problem using a Mahalanobis distance-driven objective to enhance semantic diversity while preserving high probabilities. Specifi-cally, we dynamically discount redundant gen-eration paths using a token similarity matrix, constructed via an adaptive-bandwidth kernel over token embeddings. We further devise an efficient greedy selection algorithm with near-linear complexity in the candidate size under early stopping, while establishing its theoretical approximation guarantees. This renders ME-Decoding a robust, plug-and-play module with negligible inference overhead. Extensive exper-iments across diverse reasoning and generation tasks demonstrate that our method consistently achieves strong performance. 
+
+1 Introduction 
+
+Large Language Models (LLMs) have demon-strated strong capabilities in mathematical reason-ing, instruction following, and open-ended gener-ation (Brown et al., 2020; Touvron et al., 2023; Chowdhery et al., 2023; OpenAI, 2023). Besides model scaling and post-training alignment, the inference-time decoding strategy also plays a cru-cial role in determining generation quality. At each step, an autoregressive LLM produces a next-token 
+
+> †Corresponding authors.
+
+distribution, from which the decoder selects or sam-ples the next token. Deterministic methods such as greedy decoding and beam search (Holtzman et al., 2020) favor high-probability continuations but often produce repetitive or overly conserva-tive outputs. Sampling-based methods introduce stochasticity and improve generation diversity, but they may also assign non-negligible probability to low-quality tokens, increasing inference uncer-tainty and potentially leading to illogical continua-tions or hallucinations. To control this quality–diversity trade-off, many decoding methods perform probability-based trun-cation and reshaping of the next-token distribution. Classical approaches such as Top-k and nucleus sampling restrict sampling to high-probability to-kens (Fan et al., 2018; Holtzman et al., 2020), while later methods such as Min-p, entropy-aware sam-pling, and p-less adapt the truncation rule accord-ing to model confidence or distributional statistics (Hewitt et al., 2022; Nguyen et al., 2025; Tan et al., 2026). Despite their effectiveness, these methods mainly operate on token probabilities and treat can-didates as independent categorical outcomes. As a result, they overlook the semantic geometry among tokens, which may retain redundant candidates and limit the effectiveness of the selected sampling sup-port (Yang et al., 2026). Although recent geometry-aware methods in-corporate token-space structure, they continue to face significant challenges. For example, Top-W
+
+formulates a Wasserstein-regularized distribution-matching problem (Davoodi et al., 2026), which re-quires approximating the Wasserstein objective and careful hyperparameter tuning, while not explicitly optimizing redundancy within the selected token support. Alternatively, CraEG penalizes tokens in crowded regions via a lightweight reweighting mechanism (Yang et al., 2026). However, the ap-proach still relies on an auxiliary decoding method for post-processing, making its behavior dependent arXiv:2609.18723v1 [cs.AI] 16 Sep 2026 Table 1: Comparison of different decoding methods.                                    
+
+> Method Decoding Geometry Adaptive Redundancy Strategy Aware 1Selection Control 2
+> Greedy Determin. ✗✗✗
+> Top-kProb. Trunc. ✗✗✗
+> Min-pProb. Trunc. ✗✗✗
+> p-less Prob. Trunc. ✗✓✗
+> Top-WDist. Match. ✓✓✗
+> CraEG Reweighting ✓✗✓
+> Ours Ensemble ✓✓✓
+> 1Embedding Geometry : Uses token embedding geome-try in the decoding process.
+> 2Redundancy Control : Explicitly controls redundancy among candidate tokens.
+
+on the properties of the downstream method. These limitations motivate our key question: 
+
+How can we design a simple and efficient framework that selects a compact yet informative token set while preserving high-confidence candidates? 
+
+In this work, we address this question from the perspective of ensemble pruning, a paradigm that entails selecting a compact subset of learners from a larger pool to optimize predictive outcomes. This paradigm closely mirrors the token selection prob-lem in LLM decoding. Extensive research in en-semble learning shows that effective ensembles should balance individual accuracy with collec-tive complementarity (Krogh and Vedelsby, 1994; Opitz and Maclin, 1999). Consequently, simply se-lecting the highest-scoring learners may introduce redundancy and hurt overall performance (Zhou et al., 2002; Li et al., 2012). Similarly, LLM de-coding encounters an analogous challenge of token redundancy. Building on this insight, we introduce ME-Decoding, a novel framework that incorporates token geometry to reformulate decoding as a subset maximization problem driven by the Mahalanobis distance. By approximately solving this objective with an efficient greedy procedure, ME-Decoding mitigates redundancy within the selected token set during generation with negligible inference over-head, thereby improving token selection quality while maintaining reasoning performance. Our contributions are summarized as follows: • We reformulate LLM decoding through the novel lens of ensemble pruning. • We define a Mahalanobis distance-driven ob-jective to adaptively select a compact, infor-mative candidate set while preserving token probabilities. • We devise an efficient greedy selection algo-rithm with candidate-linear complexity under early stopping, while establishing its trajec-tory unimodality and theoretical approxima-tion guarantees. • Extensive experiments across diverse reason-ing and generation tasks show that our method consistently outperforms strong existing base-lines. 
+
+2 Motivation 
+
+2.1 Background of LLM Decoding 
+
+Large Language Models (LLMs) generate text au-toregressively by predicting the next token from the preceding context. At each step, an LLM out-puts a probability distribution P ∈ ∆|Ω|− 1 over the full vocabulary Ω. To avoid sampling from the unreliable long tail, modern decoding methods usually first form a candidate pool Vt ⊆ Ω, then select a final subset S ⊆ V t and sample from the renormalized distribution: 
+
+pS (i) = pi1{i ∈ S}
+
+P 
+
+> j∈S
+
+pj
+
+.
+
+This process can be viewed as a subset selection problem aiming to preserve the original distribution under a probability-based criterion: 
+
+S⋆ = arg min 
+
+> S⊆V t
+
+f (pS ),
+
+s.t. S = {i : pi ≥ τ (P)},
+
+where f (·) denotes a generalized decoding objec-tive and τ (P) is a probability-based truncation threshold. Most prevailing decoding methods follow this probability-driven paradigm. Top-k and nucleus sampling truncate the distribution using fixed prob-ability or cumulative-mass thresholds, while adap-tive methods such as p-less and entropy-aware sam-pling adjust the threshold based on distributional statistics. Despite different truncation rules, these methods remain probability-centric and treat can-didate tokens as independent outputs. They there-fore overlook semantic dependencies among to-kens, motivating us to incorporate inter-token se-mantics into the subset selection objective. ...                       
+
+> MES = 0.57 x1
+> MES = 0.62
+> x1x3x4
+> ⋮
+> x2x3
+> x3x1
+> Renormalized Prob
+> (b) ME-Decoding
+> 0.24 0.30
+> MES = 0.41
+> x1
+> p = 0.51 x3
+> p = 0.38 x4
+> p = 0.11
+> p(token)
+> 0.32
+> x1
+> 0.30
+> 0.24 0.07 0.04 0.01 x2x3x4x5x6...
+> Similarity Matrix K
+> 0.32
+> x1
+> 0.07
+> x2x3x4x5x6
+> 0.01 0.04
+> (a) Probability-based Truncation
+> p(token)
+> Probability-based Threshold
+> 0.32
+> x1
+> 0.30 0.24
+> 0.07 0.04 0.01 p = 0.37
+> x2
+> p = 0.35
+> x3
+> p = 0.28 x2x3x4x5x6
+> Renormalized Prob
+> x1
+> ...
+> p(token) MES Computation
+
+Figure 1: Comparison between probability-based truncation methods (left) and our ME-Decoding framework (right). ME-Decoding extends standard probability-only token selection by incorporating embedding-based similarity into the MES score and selecting a compact geometry-aware subset for sampling. 
+
+2.2 Connection to Ensemble Pruning 
+
+Ensemble pruning aims to select a compact sub-ensemble that preserves or improves the predictive performance of the full ensemble. Classical error analysis (Breiman, 2001) characterizes ensemble performance as a trade-off between individual ac-curacy and inter-model diversity. Following this idea, Zhang et al. (2006) formulate pruning as a quadratic subset-selection problem. Given a binary error indicator matrix E, they construct the error co-occurrence matrix C = E⊤E, where diagonal entries measure individual errors and off-diagonal entries measure shared failures. After normaliza-tion, the pruning objective can be written as 
+
+min  
+
+> s
+
+s⊤ bCs s.t. X
+
+> i
+
+si = N, s i ∈ { 0, 1}. (1) This objective selects a size-N sub-ensemble by jointly penalizing individual inaccuracy and pair-wise redundancy. This paradigm naturally parallels token selection in LLM decoding. Candidate tokens can be viewed as ensemble members: their probabilities mea-sure individual confidence, while their embedding-space similarities measure semantic redundancy. Therefore, an ideal decoding subset should retain high-likelihood tokens while suppressing redun-dant candidates, mirroring the accuracy–diversity trade-off in ensemble pruning. 
+
+2.3 Generalizing Ensemble Pruning to LLM Decoding via Mahalanobis Distance 
+
+The quadratic objective in Eq. 1 leverages second-order statistics to penalize redundant candidates. Motivated by this, we aim to extend this diversity-aware framework to LLM decoding. To achieve this, we observe that for any representation vec-tor p and a symmetric positive definite matrix, this quadratic structure naturally corresponds to the Ma-halanobis distance. In machine learning, the Mahalanobis distance is widely used to construct discriminative representa-tions, such as in metric learning, out-of-distribution detection, and representation regularization (Wein-berger and Saul, 2009; Lee et al., 2018; Wan et al., 2018; Kang et al., 2026). Formally, given two vec-tors x, y ∈ Rd and a symmetric positive definite matrix M ≻ 0, it is defined as 
+
+DM (x, y; M ) := 
+
+q
+
+(x − y)⊤M −1(x − y).
+
+In particular, setting y = 0 and letting M be the token similarity matrix K gives the Mahalanobis norm 
+
+∥x∥K := 
+
+p
+
+x⊤K−1x.
+
+Mathematically, by explicitly incorporating the inverse matrix K−1, the Mahalanobis norm inher-ently downweights correlated directions and sepa-rates information along non-redundant axes. This geometric property aligns perfectly with our overar-ching goal: to suppress repetitive generation paths and enhance token diversity during decoding. 
+
+3 Method: ME-Decoding 
+
+In this section, we propose Mahalanobis-Ensemble Decoding (ME-Decoding), a geometry-aware de-coding framework inspired by ensemble pruning. ME-Decoding selects a compact token subset by optimizing a Mahalanobis-style objective that com-bines token probabilities with embedding-based similarities. The overall structure of ME-Decoding is illustrated on the right side of Figure 1. 3.1 Mahalanobis-Ensemble Score. 
+
+Inspired by ensemble pruning, we view the can-didate tokens at each decoding step as a pool of weak semantic predictors. Instead of retaining a fixed number of high-probability tokens, our goal is to construct a compact token ensemble that pre-serves high-confidence candidates while reducing redundancy in the token embedding space. At each decoding step, ME-Decoding is applied to a probability-based candidate pool Vt ⊆ Ω; for simplicity, we omit t and write V hereafter. We first define the Mahalanobis-Ensemble En-ergy (MEE ) for a selected token subset S ⊆ V 
+
+as 
+
+MEE( S) = p⊤ 
+
+> S
+
+K−1 
+
+> S
+
+pS ,
+
+where pS denotes the vector of token probabili-ties indexed by S, and KS is the token similarity matrix restricted to S. The inverse matrix K−1 
+
+> S
+
+dis-counts redundant tokens and rewards subsets with high collective quality. However, unlike standard ensemble pruning, the optimal subset size in decoding is unknown a pri-ori. This requires us to maximize the MEE of the selected tokens while avoiding unnecessarily large subsets, thereby filtering out redundant tokens that contribute only marginally to the overall MEE .To this end, we define the Mahalanobis-Ensemble Score (MES ) as follows: 
+
+MES λ(S) = MEE( S)
+
+1 + λH T 
+
+> 2
+
+(p)|S| ,
+
+where HT 
+
+> 2
+
+(p) = 1 − P 
+
+> i∈V
+
+p2 
+
+> i
+
+is the order-2 Tsal-lis entropy measuring the uncertainty of the next-token distribution, and λ > 0 controls the entropy-dependent size penalty. Intuitively, the numerator rewards tokens with large non-redundant contributions, while the de-nominator discourages excessive subset expansion. When the distribution is flat, the unregularized 
+
+MEE may keep increasing by accumulating weak marginal gains from many uncertain candidates. The entropy-dependent penalty raises the inclusion threshold, retaining only tokens with sufficiently large non-redundant contributions. Consequently, the decoding objective is given by: 
+
+S⋆ = arg max  
+
+> S⊆V
+
+MES λ(S). (2) By optimizing the MES , we can effectively extract a highly representative token subset from the can-didate distribution. 
+
+3.2 Construction of Similarity Matrix 
+
+To measure token similarity in the embedding space while maintaining numerical stability, we construct 
+
+K using a Gaussian kernel on normalized token embeddings. Let ei ∈ Rd denote the normalized embedding of token i. We define 
+
+Cij = 1 − e⊤ 
+
+> i
+
+ej , Kij = exp {− Cij /ϵ }. (3) Here, Cij measures the semantic distance be-tween tokens, and ϵ > 0 is a bandwidth parameter controlling the smoothness of the kernel. In our implementation, the bandwidth ϵ is chosen adaptively according to the probability-weighted semantic dispersion of the candidate tokens: 
+
+ϵ = 12
+
+X
+
+> i,j ∈V
+
+pipj Cij ,
+
+where P 
+
+> i,j ∈V
+
+pipj Cij is the expected pairwise se-mantic distance between tokens sampled from the candidate distribution. When the candidate tokens are semantically concentrated, the adaptive band-width becomes smaller, yielding a localized kernel and making the selection more probability-driven. Conversely, when the candidates are semantically dispersed, the bandwidth becomes larger, preserv-ing semantic relations over a broader range and making the selection more geometry-aware. Thus, the adaptive bandwidth balances probability and semantic structure according to the local geometry of the decoding distribution. 
+
+3.3 Optimization Strategy 
+
+Directly solving the maximization problem for-mulated in Eq. 2 is an NP-hard combinatorial task. To maintain computational feasibility, we use a greedy forward-selection procedure and maintain the inverse Cholesky factor of K−1 
+
+> S
+
+incrementally (Golub and Van Loan, 2013), which avoids re-peated matrix inversions during subset construc-tion. The greedy selection in Algorithm 1 is conceptu-ally related to Orthogonal Matching Pursuit (OMP) (Pati et al., 1993). At each step, (pj − α⊤ 
+
+> j
+
+z) repre-sents the conditional residual score of token j after accounting for its correlation with the selected to-kens, while rj normalizes it by the corresponding conditional variance. The marginal contribution is therefore measured by 
+
+h
+
+rj (pj − α⊤ 
+
+> j
+
+z)
+
+i2
+
+. The algorithm selects the token with the largest contri-bution and accepts it only when the penalized MES Algorithm 1 Greedy Algorithm for ME-Decoding  
+
+> 1:
+
+Input: Candidate token pool V with N =
+
+|V| ; candidate token scores p ∈ RN ; nor-malized candidate token embeddings E =[e1, . . . , eN ]⊤ ∈ RN ×d; MES penalty λ. 
+
+> 2:
+
+Initialize S = ∅. 
+
+> 3:
+
+Set cλ ← 1 + λH T 
+
+> 2
+
+(p). 
+
+> 4:
+
+Select the first token j1 = arg max i pi and update S ← { j1}. 
+
+> 5:
+
+Compute KS,S using Eq. 3.  
+
+> 6:
+
+R ← (K1/2 
+
+> S,S
+
+)−1, z ← Rp S . 
+
+> 7:
+
+MES g ← ∥ z∥22/c |S|  
+
+> λ
+
+. 
+
+> 8:
+
+for t = 1 to N − 1 do  
+
+> 9:
+
+for j ∈ { 1, . . . , N } \ S do  
+
+> 10:
+
+Compute βj ← [Kij ]i∈S using Eq. 3, and set bj ← Kjj . 
+
+> 11:
+
+αj ← Rβ j , rj ← (bj − ∥ αj ∥22)−1/2. 
+
+> 12:
+
+Compute the MEE after adding token j: 
+
+> 13:
+
+cj ← ∥ z∥22 +
+
+h
+
+rj (pj − α⊤ 
+
+> j
+
+z)
+
+i2
+
+. 
+
+> 14:
+
+end for  
+
+> 15:
+
+Select j⋆ = arg max j / ∈S cj , let c⋆ = cj⋆ . 
+
+> 16:
+
+Compute the candidate MES score:  
+
+> 17:
+
+MES g 
+
+> cand
+
+← c⋆/c |S| +1  
+
+> λ
+
+. 
+
+> 18:
+
+if MES g 
+
+> cand
+
+≤ MES g then  
+
+> 19:
+
+break  
+
+> 20:
+
+end if  
+
+> 21:
+
+γ ← − rj⋆ R⊤αj⋆ . 
+
+> 22:
+
+vj⋆ ← rj⋆
+
+
+
+pj⋆ − α⊤ 
+
+> j⋆
+
+z
+
+
+
+. 
+
+> 23:
+
+Update R and z:
+
+R ←
+
+ R 0
+
+γ⊤ rj⋆
+
+
+
+, z ←
+
+ z
+
+vj⋆
+
+
+
+. 
+
+> 24:
+
+S ← S ∪ { j⋆}, MES g ← MES g
+
+> cand
+
+. 
+
+> 25:
+
+end for  
+
+> 26:
+
+Output: Selected token set S.objective improves, favoring high-probability to-kens while discounting redundant candidates. 
+
+3.4 Theoretical Properties 
+
+Furthermore, to rigorously validate the effective-ness of our proposed strategy, we establish theoret-ical properties of the greedy algorithm, showing its unimodality along the search path and deriving an approximation bound to the global optimum. The following theorem states that, under a condi-tioning assumption on the token-similarity matrix, the greedy MES sequence cannot increase again once it stops increasing. 
+
+Theorem 3.1 (Greedy Unimodality of Maha-lanobis-Ensemble Decoding) . Let |V| = N and 
+
+MES gt = MES λ(St), where {S t}Nt=0 is the greedy path generated by Algorithm 1. For any T ⊆V, let KT = ( Kij )i,j ∈T and define κN (K) = max T ⊆V , |T |≤ N λmax (KT )  
+
+> λmin (KT)
+
+. If κN (K) ≤ 1 + 
+
+λH T 
+
+> 2
+
+(p), once for some t < N ,
+
+MES gt+1 ≤ MES gt ,
+
+then for all s ≥ t, MES gs+1 ≤ MES gs . Conse-quently, with τ = min {t : MES gt+1 ≤ MES gt }, we have 
+
+MES gτ = max  
+
+> 0≤r≤N
+
+MES gr .
+
+Theorem 3.1 justifies the early stopping rule in Algorithm 1: the greedy search can terminate once the MES score drops, without traversing all candidates. Appendix B.3 complements this sufficient-condition result by disabling early stop-ping and recording complete greedy trajectories on Qwen2.5-1.5B. All 512 trajectories on each of GSM8K and GPQA are unimodal, providing em-pirical support for the stopping behavior character-ized by Theorem 3.1. The next theorem compares the stopped greedy value with the global optimum, showing that it provides an effective approximation to the optimal subset. 
+
+Theorem 3.2 (Approximation Guarantee for Ma-halanobis-Ensemble Decoding) . Let 
+
+MES ⋆λ = max  
+
+> S⊆V
+
+MES λ(S), |V| = N. 
+
+Let {S t}Nt=0 be the greedy path generated by Al-gorithm 1, and let τ be the stopping time defined in Theorem 3.1. Under the assumptions of Theo-rem 3.1, we have 
+
+MES gτ ≥ (1 − exp {− λmin (K, N )}) MES ⋆λ,
+
+where λmin (K, r ) ≜ min T ⊆V , |T |=r λmin (KT )
+
+denotes the smallest eigenvalue among all r × r
+
+principal submatrices of K.
+
+Theorem 3.2 establishes the relation between the optimal greedy value and the globally optimal 
+
+MES value. The approximation factor depends on the restricted minimum eigenvalue of K, which reflects the non-redundancy and conditioning of the selected token representations. Qwen3-4B-Inst. Phi-4-mini-Inst. Mistral-7B-Inst. Method T = 1 .0 T = 1 .5 T = 2 .0 T = 1 .0 T = 1 .5 T = 2 .0 T = 1 .0 T = 1 .5 T = 2 .0 Avg. Min-p 70.74 62.02 54.06 79.68 70.81 30.86 48.67 36.32 17.97 52.35 Top-p 68.01 55.19 21.00 80.06 11.75 0.30 48.90 23.05 0.45 34.30                                         
+
+> p-less 78.92 72.71 63.15 84.05 83.09 69.52 54.06 50.80 46.47 66.97 Top-H76.80 67.17 58.53 81.65 73.77 34.65 52.01 46.78 22.52 57.10 Top-W77.71 76.65 74.98 82.64 83.24 82.18 53.98 53.15 51.02 70.62
+> Ours 80.67 79.76 80.06 84.08 84.23 82.41 55.34 53.45 53.90 72.66
+
+Table 2: GSM8K accuracy (%) across different temperatures and decoding methods. The Avg. column reports the average accuracy over all models and temperatures. The best result is in bold and the second best is underlined.                                                                                  
+
+> Qwen3-4B-Inst. Phi-4-mini-Inst. Mistral-7B-Inst. Method T= 1 .0T= 1 .5T= 2 .0T= 1 .0T= 1 .5T= 2 .0T= 1 .0T= 1 .5T= 2 .0Avg. Min-p34.38 32.59 35.04 27.01 29.02 26.56 26.12 28.12 25.22 29.34 Top-p34.60 35.49 30.58 31.25 27.01 15.40 25.89 26.41 14.06 26.74
+> p-less 35.27 34.82 35.49 33.26 33.26 27.90 27.68 27.01 24.78 31.08 Top-H34.38 33.93 34.15 34.38 33.93 29.91 28.12 27.23 23.88 31.10 Top-W34.82 36.83 35.27 31.70 29.46 31.47 27.23 29.02 28.23 31.56
+> Ours 35.49 35.49 35.71 34.38 36.16 33.93 28.35 28.79 28.35 32.96
+
+Table 3: GPQA accuracy (%) across different temperatures and decoding methods. The Avg. column reports the average accuracy over all models and temperatures. The best result is in bold and the second best is underlined. 
+
+4 Experiments 
+
+4.1 Experimental Details Models and Baselines. We evaluate ME-Decoding on three instruction-tuned language mod-els: Qwen3-4B-Instruct (Yang et al., 2025), Phi-4-mini-Instruct (Abouelenin et al., 2025), and Mistral-7B-Instruct (Jiang et al., 2023). We com-pare our method with several representative de-coding methods, including Min-p (Nguyen et al., 2025), Top-p (Holtzman et al., 2020), p-less (Tan et al., 2026), Top-H (Baghaei Potraghloo et al., 2025), and Top-W (Davoodi et al., 2026). For a fair comparison, all methods are evaluated under the same prompts, temperature settings, maximum generation length, and stopping criteria. Unless otherwise specified, we evaluate all methods at temperatures T ∈ { 1.0, 1.5, 2.0}. All reported experiments use N = 512 . We additionally imple-ment CraEG (Yang et al., 2026) and combine its post-softmax reweighting with p-less, following its plug-in formulation. Repeated results for selected methods are reported in Appendix B.1. 
+
+Benchmarks and Metrics. We consider two types of tasks. First, for reasoning benchmarks, we evaluate on GSM8K (Cobbe et al., 2021) and GPQA (Rein et al., 2024), where performance is measured by answer accuracy after extracting the final answer. These benchmarks test whether a de-coding method can maintain reliable reasoning per-formance under different sampling temperatures. Second, for instruction-following and chat-style generation, we evaluate on AlpacaEval (Li et al., 2023) and MT-Bench (Zheng et al., 2023). For AlpacaEval, we report the candidate win-rate (%), and for MT-Bench, we report the average judge score. Since these tasks involve open-ended gen-eration, we use DeepSeek-V4-Pro (DeepSeek-AI, 2026) as the judge to compare the generated re-sponses under a fixed evaluation protocol. For re-producibility, AlpacaEval compares each response with a fixed reference for the same prompt, whereas MT-Bench independently scores each response on a 1–10 scale. Appendix B.7 reports an additional evaluation using GLM-5.2 as a second judge, to-gether with paired prompt-level bootstrap confi-dence intervals. 
+
+ME-Decoding Configuration. ME-Decoding se-lects a compact token subset by optimizing a Mahalanobis-style objective that balances token probability and embedding geometry. For Top-
+
+W and ME-Decoding, both of which require an explicit candidate pool, we use the same top-N pool with N = 512 . Except for the candidate-pool size, Top-W uses its default hy-perparameters. Top-p, Min-p, and Top-H fol-low Davoodi et al. (2026), and p-less is evalu-ated under its original parameter-free rule. ME-Decoding uses λ = 0 .9 by default, following Ap-pendix B. The official implementation is available at https://github.com/sapphirexdy/ME_decoding. 
+
+Temperature Placement. At temperature T , ev-ery method operates on the same distribution pT =softmax( z/T ). ME-Decoding uses pT for candi-date scoring and samples from the renormalized se-lected support, while each baseline applies its trun-cation or reweighting rule to the same temperature-adjusted distribution. 
+
+4.2 Main Results Reasoning Benchmarks. We first evaluate ME-Decoding on GSM8K and GPQA across three mod-els and three temperatures. The results are re-ported in Tables 2 and 3. Overall, ME-Decoding achieves the best average performance across both datasets. Appendix B.1 reports three-seed repe-titions as mean ± sample standard deviation and includes CraEG combined with p-less following its plug-in formulation. Figure 2 further shows the accuracy–temperature curves of different decoding methods. Compared with existing baselines, ME-Decoding maintains a more stable accuracy profile as the temperature in-creases. Higher temperatures enlarge the sampling space, making probability-only truncation meth-ods more prone to noisy tokens. By incorporat-ing token geometry, ME-Decoding better preserves high-confidence candidates while filtering out unin-formative ones, leading to a better balance between exploration and reasoning reliability. 
+
+Instruction-following and Chat. We further evaluate ME-Decoding on instruction-following and chat-style generation tasks using MT-Bench and AlpacaEval. Experiments are conducted on Qwen3-4B, Phi-4-mini, and Mistral-7B under T ∈{1.0, 1.5, 2.0}. Figure 3 summarizes the results. The left and middle panels report the average Al-pacaEval win rate and MT-Bench score over the three models at each temperature, while the right panel presents the overall average rank across all models, temperatures, and benchmarks. Detailed numerical results are provided in the Appendix. As shown in Figure 3, ME-Decoding achieves strong performance on both open-ended bench-marks. It obtains the best averaged AlpacaEval win rate and MT-Bench score. The overall rank com-parison further shows that ME-Decoding attains the best average rank among all compared decod-ing methods, indicating its stable advantage across models, temperatures, and benchmarks. These results suggest that ME-Decoding is not limited to accuracy-oriented reasoning tasks, but also im-proves open-ended generation by selecting a com-pact and informative token set. The same conclu-sion holds under a second automatic judge. Paired prompt-level bootstrap intervals against Top-W , p-less, and Top-H are positive for both benchmarks and both judges, as reported in Appendix B.7. 
+
+4.3 Analysis Complexity Analysis. We analyze the time com-plexity of ME-Decoding in Algorithm 1. Let N
+
+be the candidate-pool size, d the embedding di-mension, and τ the number of selected tokens be-fore early stopping. The kernel computation costs 
+
+O(N τ d ), and the greedy evaluation costs O(N τ 3),leading to O N τ (d + τ 2). Since early stopping usually yields a small τ with τ ≪ N , the practical cost scales nearly linearly with N and approaches 
+
+O(N d ) when τ is treated as a small constant. A detailed analysis is provided in Appendix B.4. 
+
+Efficiency Analysis. To compare inference-time efficiency, we use a CPU-only synthetic log-its benchmark that isolates sampling and logits-processing overhead. We measure the average time for filtering logits and sampling one token under two settings: Medium with vocabulary size 32 ,000 ,embedding dimension 256 , and top-N = 512 ; and Large with vocabulary size 128 ,000 , embedding dimension 1024 , and top-N = 2048 . All experi-ments use batch size 1, one CPU thread, tempera-ture 1.0, 50 warm-up steps, and 500 measured steps over 10 repeats. Results are reported in Table 4. As shown in Table 4, ME-Decoding intro-duces moderate overhead compared with purely probability-based methods due to its use of to-ken embeddings, but remains highly efficient. It is about 2.7× faster than Top-W in the Medium setting and 7.4× faster in the Large setting. In the Large setting, its overhead is also compara-ble to Top-p and Top-H, demonstrating that ME-Decoding can exploit token-geometry informa-tion with substantially lower cost than existing geometry-aware decoding methods. Appendix B.4 additionally reports end-to-end GPU latency and shows that model inference remains the dominant cost under the measured settings. 
+
+Diversity Analysis. We analyze the accuracy– diversity trade-off on GSM8K with Qwen3-4B. For each method, we randomly sample 500 questions 0.5 0.75 1.0 1.25 1.5 1.75 2.0 
+
+Temperature 
+
+> 0.30 0.45 0.60 0.75 0.85
+> Accuracy
+
+GSM8K       
+
+> ME-Decoding
+> p-less Top-W
+> Top-H
+> Min-p
+> 0.5 0.75 1.0 1.25 1.5 1.75 2.0
+
+Temperature 
+
+> 0.26 0.30 0.34 0.37
+> Accuracy
+
+GPQA 
+
+> ME-Decoding
+> p-less Top-W
+> Top-H
+> Min-p
+
+Figure 2: Accuracy vs. temperature curves of different decoding methods on GSM8K and GPQA. T=1 T=1.5 T=2 Avg. 0510 15 20 
+
+> Win-Rate (%)
+> 14.41 14.06 10.66 13.04 14.60 14.35 13.47 14.14 14.69
+> 14.70
+> 13.69 14.36 14.32 14.40 14.27 14.33 14.14 14.19 14.10 14.14
+> 15.09
+> 14.48
+> 14.83 14.80
+
+AlpacaEval    
+
+> T=1 T=1.5 T=2 Avg. 0246810
+> Score
+> 7.06 6.60 5.34 6.34
+> 7.20
+> 6.97 6.40 6.86 7.09 7.04 6.50 6.88 7.01 7.00 6.81 6.94 7.06 7.08 7.10 7.08 7.18
+> 7.14 7.20 7.17
+
+MT-Bench   
+
+> 0.0 2.5 5.0
+> 1.94
+> 3.14 3.47 3.61 3.83 5.00
+
+Average Rank      
+
+> Top-p Min-pTop-Hp-less Top-WME-Decoding
+
+Figure 3: Open-ended generation performance and overall ranking comparison. The left and middle panels report AlpacaEval win rate and MT-Bench score across different temperatures, averaged over three models and aggregated over 3 runs. The right panel summarizes the average rank of each decoding method across all models, temperatures, and benchmarks, with bold numbers indicating the best overall rank. 
+
+and generate 10 responses per question. Accuracy is computed over all generations, and diversity is measured by Distinct-1/2 (Li et al., 2016) and Self-BLEU (Zhu et al., 2018). We further average the min-max normalized Distinct-1, Distinct-2, and 
+
+1 − Self -BLEU within each temperature as an ag-gregated diversity score. Figure 4 shows a clear accuracy–diversity trade-off. More exploratory methods, such as Top-p,achieve higher diversity, especially at high tempera-tures, but suffer from notable accuracy degradation. In contrast, ME-Decoding consistently achieves the highest accuracy and maintains stronger reasoning performance at comparable diversity levels. This suggests that the proposed Mahalanobis-Ensemble objective improves token selection reliability by constructing a compact and informative sampling support, rather than simply increasing output ran-domness. Detailed results are provided in Table 14. To further test whether ME-Decoding constructs an informative geometry-aware support rather than merely truncating more aggressively, we compare 0.00 0.05 0.10 0.15 0.20 0.25 
+
+Diversity 
+
+> 60 65 70 75 80 85 90
+> Accuracy
+> Method Min-pp-less Top-H
+> Top-p
+> Top-W
+> ME-Decoding( λ=0.9) ME-Decoding( λ=0.8) ME-Decoding( λ=0.7) Temp T=1.0 T=1.5 T=2.0
+
+Figure 4: Accuracy–diversity trade-off on GSM8K us-ing Qwen3-4B. Each method generates 10 responses for 500 sampled questions under each temperature. 
+
+it with probability-only controls calibrated on in-dependent prompts to match its average support size, post-pruning entropy, or support-level pair-wise cosine. At each step with |S| ≥ 2, Cos. is the mean cosine over all unordered pairs of L2-Setting Statistic Top-p Min-p p-less Top-H Top-W ME-Decoding Large Mean s/token 0.01407 0.00196 0.00314 0.01493 0.13337 0.01799 Standard Deviation 0.00006 0.00002 0.00000 0.00009 0.00098 0.00560 
+
+Medium Mean s/token 0.00335 0.00054 0.00080 0.00330 0.00487 0.00179 Standard Deviation 0.00003 0.00001 0.00001 0.00005 0.00003 0.00010 
+
+Table 4: Average CPU sampling overhead per token on synthetic logits. Large : vocabulary size 128K, embedding dimension 1024, top-N = 2048 . Medium : vocabulary size 32K, embedding dimension 256, top-N = 512 .
+
+normalized selected-token embeddings; we then average it across eligible steps. Table 5 reports results on Qwen2.5-1.5B at T = 1 .0 over three generation seeds.                                                 
+
+> Dataset Method Acc. (%) Avg. |S|Cos. MES
+> GSM8K
+> ME-Decoding 63 .20 ±0.57 1.076 0.151 0.756
+> Size-matched 61 .79 ±1.26 1.067 0.210 0.707 Entropy-matched 61 .79 ±0.99 1.070 0.208 0.708 Cosine-matched 62 .70 ±0.35 1.014 0.198 0.715 GPQA
+> ME-Decoding 32 .66 ±1.05 1.134 0.243 0.589
+> Size-matched 28 .47 ±1.17 1.106 0.289 0.558 Entropy-matched 28 .47 ±1.17 1.106 0.289 0.558 Cosine-matched 29 .25 ±0.91 1.084 0.259 0.537
+
+Table 5: ME-Decoding and approximately matched probability-only controls on Qwen2.5-1.5B at T = 1 .0.Accuracy is reported as mean ± sample standard devia-tion over three seeds. 
+
+Across both datasets, ME-Decoding achieves the highest accuracy and MES under approximately matched support size, entropy, or pairwise cosine. This result is consistent with our design goal of selecting a high-confidence support whose mem-bers provide complementary geometric informa-tion, and supports the effectiveness of directly opti-mizing MES . Appendix B.6 reports the complete diagnostics, including retained probability mass and entropy before pruning. Appendix B.2 further isolates the contribution of correctly aligned token geometry using identity- and permuted-kernel con-trols. 
+
+5 Conclusion 
+
+In this paper, we introduce ME-Decoding, a de-coding framework that reformulates LLM token selection as ensemble pruning. ME-Decoding max-imizes the Mahalanobis-Ensemble Score (MES )to select a compact token subset, combining token probabilities with an embedding-based similarity matrix to discount semantic redundancy. We fur-ther develop an efficient greedy algorithm with theoretical guarantees, including greedy-trajectory unimodality and an approximation bound. Exper-iments on reasoning and open-ended generation tasks show that ME-Decoding improves over rep-resentative probability-based and geometry-aware baselines with low inference overhead. These results demonstrate the potential of en-semble pruning as a principled perspective for con-structing compact, diverse, and reliable token candi-date sets. Future work includes developing simpler and more effective objectives under this perspec-tive, and extending ME-Decoding to broader sce-narios such as long-form generation, multi-sample reasoning, and verification-augmented decoding. 
+
+Limitations 
+
+Although ME-Decoding introduces an ensemble-pruning perspective for LLM decoding and achieves strong performance on several tasks, it still has several limitations. First, its performance depends on the construction of the similarity ma-trix, which controls the trade-off between token confidence and redundancy. While we provide a practical geometry-based kernel, more effective and adaptive similarity designs may further im-prove performance. The current kernel uses static token embeddings as a soft redundancy signal and may not capture all context-dependent seman-tic distinctions. Contextualized or hidden-state-conditioned kernels are therefore a useful direction for future work. Second, although ME-Decoding consistently achieves higher accuracy than compet-ing methods under comparable diversity levels, its output diversity is not always the highest among all decoding strategies. This suggests that the cur-rent kernel construction may still be conservative in promoting diverse generations. How to further improve generation diversity while preserving the accuracy gains of ME-Decoding remains an impor-tant direction for future work. Third, determining the optimal subset size remains challenging, as in existing truncation-based decoding methods. The proposed MES criterion provides a principled se-lection rule, but it may not be optimal for all token distributions. Exploring adaptive subset-size rules and alternative objectives is another promising di-rection. 
+
+Ethical Considerations 
+
+This work proposes ME-Decoding, a geometry-aware decoding framework that reformulates can-didate token selection from the perspective of en-semble pruning. By selecting compact yet infor-mative token sets, ME-Decoding aims to improve generation quality and reasoning performance with-out modifying model parameters or requiring addi-tional training. A potential positive impact is that such plug-and-play inference-time methods may improve the usability of existing language models with limited computational overhead, thereby re-ducing deployment costs and the need for repeated model retraining. At the same time, improved decoding and rea-soning performance may also amplify downstream risks associated with generative systems. These risks include misinformation generation, halluci-nated but plausible outputs, biased or harmful con-tent, and the automation of low-quality or mali-cious text at scale. Since ME-Decoding operates at inference time and can be applied to a wide range of pretrained language models, its broader impact depends strongly on the deployment context, ac-cess control, and downstream use cases. We encourage practitioners to use ME-Decoding together with established responsible deployment practices, including safety evaluation, bias and tox-icity assessment, hallucination analysis, usage poli-cies, and rate limits in open-ended settings. For high-stakes applications such as medical, legal, fi-nancial, or educational decision-making, model outputs should be carefully verified by qualified human experts. In addition, when ME-Decoding is applied to models trained on copyrighted, pri-vate, or sensitive data, developers should follow appropriate data governance, documentation, and licensing practices. All datasets, models, and evaluation tools used in this work are publicly available. We follow their respective licenses and terms of use, and use them solely for research evaluation purposes. Our use of these artifacts is consistent with their intended use as benchmarks, pretrained models, and evaluation tools for research. We do not redistribute or repur-pose any artifact beyond the scope allowed by its original access conditions, and we cite the original creators of all benchmarks, models, and baseline methods used in our experiments. We do not collect any new user data or person-ally identifying information. The datasets used in our experiments are publicly available benchmarks released for research evaluation. We use them only under their standard evaluation settings and do not attempt to identify individuals or recover private information from any dataset. 
+
+Acknowledgments 
+
+This work was supported by the Outstanding Inno-vative Talents Cultivation Funded Programs 2026 of Renmin University of China and the National Natural Science Foundation of China under Grant No. 12571301. 
+
+References            
+
+> Abdelrahman Abouelenin, Atabak Ashfaq, Adam Atkin-son, Hany Awadalla, Nguyen Bach, Jianmin Bao, Alon Benhaim, Martin Cai, Vishrav Chaudhary, Con-gcong Chen, Dong Chen, Dongdong Chen, Junkun Chen, Weizhu Chen, Yen-Chun Chen, Yi-ling Chen, Qi Dai, Xiyang Dai, Ruchao Fan, and 55 others. 2025. Phi-4-mini technical report: Compact yet powerful multimodal language models via mixture-of-LoRAs.
+> arXiv preprint arXiv:2503.01743 .Erfan Baghaei Potraghloo, Seyedarmin Azizi, Souvik Kundu, and Massoud Pedram. 2025. Top-H de-coding: Adapting the creativity and coherence with bounded entropy in text generation. In Advances in Neural Information Processing Systems , volume 38, pages 28482–28513. Leo Breiman. 2001. Random forests. Machine Learn-ing , 45(1):5–32. Tom B. Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared Kaplan, Prafulla Dhariwal, Arvind Neelakantan, Pranav Shyam, Girish Sastry, Amanda Askell, Sandhini Agarwal, Ariel Herbert-Voss, Gretchen Krueger, Tom Henighan, Rewon Child, Aditya Ramesh, Daniel M. Ziegler, Jeffrey Wu, Clemens Winter, and 12 others. 2020. Language models are few-shot learners. In Advances in Neural Information Processing Systems , volume 33, pages 1877–1901. Aakanksha Chowdhery, Sharan Narang, Jacob Devlin, Maarten Bosma, Gaurav Mishra, Adam Roberts, Paul Barham, Hyung Won Chung, Charles Sutton, Sebastian Gehrmann, Parker Schuh, Kensen Shi, Sasha Tsvyashchenko, Joshua Maynez, Abhishek Rao, Parker Barnes, Yi Tay, Noam Shazeer, Vinod-kumar Prabhakaran, and 48 others. 2023. PaLM: Scaling language modeling with pathways. Journal of Machine Learning Research , 24(240):1–113.
+
+Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, Christopher Hesse, and John Schulman. 2021. Training verifiers to solve math word prob-lems. arXiv preprint arXiv:2110.14168 .Abhimanyu Das and David Kempe. 2018. Approximate submodularity and its applications: Subset selection, sparse approximation and dictionary selection. Jour-nal of Machine Learning Research , 19(3):1–34. Arash Gholami Davoodi, Navid Rezazadeh, Seyed Pouyan Mousavi Davoudi, and Pouya Pezeshkpour. 2026. Geometry-aware decoding with Wasserstein-regularized truncation and mass penalties for large language models. In Proceedings of the 43rd Inter-national Conference on Machine Learning .DeepSeek-AI. 2026. DeepSeek-V4: Towards highly efficient million-token context intelli-gence. https://huggingface.co/deepseek-ai/ DeepSeek-V4-Pro . Technical report. Angela Fan, Mike Lewis, and Yann Dauphin. 2018. Hierarchical neural story generation. In Proceedings of the 56th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) ,pages 889–898. Gene H Golub and Charles F Van Loan. 2013. Matrix Computations . JHU Press. John Hewitt, Christopher D Manning, and Percy Liang. 2022. Truncation sampling as language model desmoothing. In Findings of the Association for Com-putational Linguistics: EMNLP 2022 , pages 3414– 3427. Ari Holtzman, Jan Buys, Li Du, Maxwell Forbes, and Yejin Choi. 2020. The curious case of neural text de-generation. In International Conference on Learning Representations .Albert Q. Jiang, Alexandre Sablayrolles, Arthur Men-sch, Chris Bamford, Devendra Singh Chaplot, Diego de las Casas, Florian Bressand, Gianna Lengyel, Guil-laume Lample, Lucile Saulnier, Lélio Renard Lavaud, Marie-Anne Lachaux, Pierre Stock, Teven Le Scao, Thibaut Lavril, Thomas Wang, Timothée Lacroix, and William El Sayed. 2023. Mistral 7b. Preprint ,arXiv:2310.06825. Xinlai Kang, Dunyao Xue, Zhengbo Wang, Chengshuo Du, Xinghao Chen, Hang Zhou, Hanting Chen, and Cheng Meng. 2026. Breaking the echo chamber: A dynamic ensemble pruning perspective on MoE. In 
+
+Proceedings of the 43rd International Conference on Machine Learning .Anders Krogh and Jesper Vedelsby. 1994. Neural net-work ensembles, cross validation, and active learning. In Advances in Neural Information Processing Sys-tems , volume 7, pages 231–238. Kimin Lee, Kibok Lee, Honglak Lee, and Jinwoo Shin. 2018. A simple unified framework for detecting out-of-distribution samples and adversarial attacks. In 
+
+Advances in Neural Information Processing Systems ,volume 31, pages 7167–7177. Jiwei Li, Michel Galley, Chris Brockett, Jianfeng Gao, and William B Dolan. 2016. A diversity-promoting objective function for neural conversation models. In Proceedings of the 2016 conference of the North American chapter of the association for computa-tional linguistics: human language technologies ,pages 110–119. Nan Li, Yang Yu, and Zhi-Hua Zhou. 2012. Diversity regularized ensemble pruning. In Joint European conference on machine learning and knowledge dis-covery in databases , pages 330–345. Springer. Xuechen Li, Tianyi Zhang, Yann Dubois, Rohan Taori, Ishaan Gulrajani, Carlos Guestrin, Percy Liang, and Tatsunori B. Hashimoto. 2023. Alpacaeval: An au-tomatic evaluator of instruction-following models. 
+
+https://github.com/tatsu-lab/alpaca_eval .Nhat Minh Nguyen, Andrew Baker, Clement Neo, Allen G. Roush, Andreas Kirsch, and Ravid Shwartz-Ziv. 2025. Turning up the heat: Min-p sampling for creative and coherent LLM outputs. In International Conference on Learning Representations .OpenAI. 2023. GPT-4 technical report. arXiv preprint arXiv:2303.08774 .David Opitz and Richard Maclin. 1999. Popular en-semble methods: An empirical study. Journal of artificial intelligence research , 11:169–198. Yagyensh Chandra Pati, Ramin Rezaiifar, and Perinku-lam Sambamurthy Krishnaprasad. 1993. Orthogonal matching pursuit: Recursive function approximation with applications to wavelet decomposition. In Pro-ceedings of 27th Asilomar conference on signals, sys-tems and computers , pages 40–44. IEEE. David Rein, Betty Li Hou, Asa Cooper Stickland, Jack-son Petty, Richard Yuanzhe Pang, Julien Dirani, Ju-lian Michael, and Samuel R Bowman. 2024. GPQA: A graduate-level google-proof q&a benchmark. In 
+
+Proceedings of the First Conference on Language Modeling .Runyan Tan, Shuang Wu, and Phillip Howard. 2026. p-less sampling: A robust hyperparameter-free ap-proach for LLM decoding. In International Confer-ence on Learning Representations .Hugo Touvron, Thibaut Lavril, Gautier Izacard, Xavier Martinet, Marie-Anne Lachaux, Timothée Lacroix, Baptiste Rozière, Naman Goyal, Eric Hambro, Faisal Azhar, Aurelien Rodriguez, Armand Joulin, Edouard Grave, and Guillaume Lample. 2023. LLaMA: Open and efficient foundation language models. arXiv preprint arXiv:2302.13971 .Weitao Wan, Yuanyi Zhong, Tianpeng Li, and Jiansheng Chen. 2018. Rethinking feature distribution for loss functions in image classification. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition , pages 9117–9126. Kilian Q Weinberger and Lawrence K Saul. 2009. Dis-tance metric learning for large margin nearest neigh-bor classification. Journal of Machine Learning Re-search , 10(9):207–244. An Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao, Chengen Huang, Chenxu Lv, Chujie Zheng, Dayi-heng Liu, Fan Zhou, Fei Huang, Feng Hu, Hao Ge, Haoran Wei, Huan Lin, Jialong Tang, and 41 oth-ers. 2025. Qwen3 technical report. arXiv preprint arXiv:2505.09388 .Yixin Yang, Qingxiu Dong, and Zhifang Sui. 2026. De-coding in geometry: Alleviating embedding-space crowding for complex reasoning. arXiv preprint arXiv:2601.22536 .Aohan Zeng, Xin Lv, Zhenyu Hou, Zhengxiao Du, Qinkai Zheng, Bin Chen, Da Yin, Chendi Ge, Chenghua Huang, Chengxing Xie, et al. 2026. Glm-5: from vibe coding to agentic engineering. arXiv preprint arXiv:2602.15763 .Yi Zhang, Samuel Burer, and W. Nick Street. 2006. Ensemble pruning via semi-definite programming. 
+
+Journal of Machine Learning Research , 7(48):1315– 1338. Lianmin Zheng, Wei-Lin Chiang, Ying Sheng, Siyuan Zhuang, Zhanghao Wu, Yonghao Zhuang, Zi Lin, Zhuohan Li, Dacheng Li, Eric Xing, Hao Zhang, Joseph Gonzalez, and Ion Stoica. 2023. Judging LLM-as-a-judge with mt-bench and chatbot arena. In 
+
+Advances in Neural Information Processing Systems ,volume 36, pages 46595–46623. Curran Associates, Inc. Zhi-Hua Zhou, Jianxin Wu, and Wei Tang. 2002. En-sembling neural networks: many could be better than all. Artificial intelligence , 137(1-2):239–263. Yaoming Zhu, Sidi Lu, Lei Zheng, Jiaxian Guo, Weinan Zhang, Jun Wang, and Yong Yu. 2018. Texygen: A benchmarking platform for text generation models. In The 41st international ACM SIGIR conference on research & development in information retrieval ,pages 1097–1100. A Proofs of Theoretical Results 
+
+Proof of Theorem 3.1 . Let MEE( S) = p⊤ 
+
+> S
+
+K−1 
+
+> S
+
+pS and cλ = 1 + λH T 
+
+> 2
+
+(p). Write Ft = MEE( St) and 
+
+∆t = MEE( St+1 ) − MEE( St). Then the greedy objective is defined as MES gt = Ft
+
+> ctλ
+
+.We first show that the restricted condition number controls the conditional residual correlations. Fix any subset S ⊆ V and two indices i, k / ∈ S. Define the conditional residual covariance matrix of (i, k )
+
+given S as the Schur complement: 
+
+C{i,k }| S = K{i,k } − K{i,k },S K−1 
+
+> S
+
+KS, {i,k }.
+
+Write 
+
+C{i,k }| S =
+
+ vi cki |S
+
+cki |S vk
+
+
+
+,
+
+where vi = Kii − KiS K−1 
+
+> S
+
+KSi , vk = Kkk − KkS K−1 
+
+> S
+
+KSk , and cki |S = Kki − KkS K−1 
+
+> S
+
+KSi . The corresponding conditional residual correlation is 
+
+ρki |S = cki |S
+
+√vivk
+
+.
+
+Since C{i,k }| S is the Schur complement of KS in KS∪{ i,k }, its eigenvalues are bounded by those of 
+
+KS∪{ i,k }. More precisely, 
+
+λmin (KS∪{ i,k }) ≤ λmax (C{i,k }| S ) ≤ λmax (KS∪{ i,k }).
+
+These inequalities follow from the variational characterization of eigenvalues and the Schur-complement residualization argument. Therefore, 
+
+κ(C{i,k }| S ) ≤ κ(KS∪{ i,k }) ≤ κN (K).
+
+On the other hand, for any 2 × 2 positive definite matrix 
+
+C =
+
+vi cc vk
+
+
+
+,
+
+with correlation ρ = c√vivk , we have: 
+
+|ρ| ≤ κ(C) − 1
+
+κ(C) + 1 ,
+
+which gives 
+
+κ(C) ≥ 1 + |ρ|
+
+1 − | ρ| .
+
+Applying this to C{i,k }| S gives 
+
+1 + |ρki |S |
+
+1 − | ρki |S | ≤ κ(C{i,k }| S ) ≤ κN (K).
+
+By the assumption κN (K) ≤ cλ, we obtain 
+
+1 + |ρki |S |
+
+1 − | ρki |S | ≤ cλ. (4) Next, we prove the one-step growth control of greedy marginal gains. Fix a greedy step t, let S = St, and let i be the element added at step t, i.e., St+1 = St ∪ { i}. For any remaining token k / ∈ S ∪ { i}, define the standardized residual scores 
+
+zi = pi − KiS K−1 
+
+> S
+
+pS
+
+q
+
+Kii − KiS K−1 
+
+> S
+
+KSi 
+
+,and define zk analogously. By the Schur-complement formula, ∆MEE( i | S) = z2 
+
+> i
+
+and ∆MEE( k | S) = 
+
+z2
+
+> k
+
+. Since i is selected greedily, z2 
+
+> k
+
+≤ z2 
+
+> i
+
+. If zi = 0 , then all remaining marginal gains are zero and the conclusion is immediate. Otherwise, define rk = zk 
+
+> zi
+
+, where |rk| ≤ 1. After adding i, the marginal gain of 
+
+k is 
+
+∆MEE( k | S ∪ { i}) = (zk − ρki |S zi)2
+
+1 − ρ2
+
+> ki |S
+
+.
+
+Hence 
+
+∆MEE( k | S ∪ { i})∆MEE( i | S) = (rk − ρki |S )2
+
+1 − ρ2
+
+> ki |S
+
+≤ (1 + |ρki |S |)2
+
+1 − ρ2
+
+> ki |S
+
+= 1 + |ρki |S |
+
+1 − | ρki |S | ≤ cλ, (5) where the last inequality follows from (4). Taking the maximum over all remaining k gives 
+
+∆t+1 ≤ cλ∆t. (6) Now suppose MES gt+1 ≤ MES gt . Since MES gt = Ft
+
+> ctλ
+
+, this is equivalent to 
+
+Ft+1 
+
+ct+1 
+
+> λ
+
+≤ Ft
+
+ctλ
+
+.
+
+Using Ft+1 = Ft + ∆ t, we get Ft + ∆ t ≤ cλFt. Define Rt = ∆t 
+
+> Ft
+
+. Then 
+
+MES gt+1 ≤ MES gt ⇐⇒ Rt ≤ cλ − 1. (7) Using (6), we have 
+
+Rt+1 = ∆t+1 
+
+Ft+1 
+
+= ∆t+1 
+
+Ft + ∆ t
+
+≤ cλ∆t
+
+Ft + ∆ t
+
+= cλRt
+
+1 + Rt
+
+.
+
+The function h(R) = cλR 
+
+> 1+ R
+
+is increasing for R ≥ 0. Therefore, if Rt ≤ cλ − 1, then 
+
+Rt+1 ≤ h(Rt) ≤ h(cλ − 1) = cλ − 1.
+
+By induction, Rs ≤ cλ − 1 for all s ≥ t. Using (7), we obtain 
+
+MES gs+1 ≤ MES gs , ∀s ≥ t. 
+
+Finally, define 
+
+τ = min {t ∈ { 0, . . . , N − 1} : MES gt+1 ≤ MES gt },
+
+the sequence increases strictly before τ and is nonincreasing after τ . Hence 
+
+MES gτ = max  
+
+> 0≤r≤N
+
+MES gr .
+
+This completes the proof. 
+
+Lemma A.1 (Approximation Guarantee for Greedy Selection) . Let f : 2 U → R≥0 be a normalized (f (∅) = 0 ), nonnegative, monotone set function, and let OPT = max |S|≤ k f (S) denote the maximum value obtained by any set of size at most k. Let S be the set selected by the Greedy algorithm. Then, the solution satisfies the following approximation guarantee: 
+
+f (S) ≥  1 − e−γU,k  · OPT , (8) 
+
+where γU,k is the submodularity ratio of f . Formally, γU,k is defined as the minimum ratio of the marginal gain of a set to the marginal gain of its individual elements: 
+
+γU,k = min 
+
+> L⊆U, A :|A|≤ k, L ∩A=∅
+
+P 
+
+> x∈A
+
+(f (L ∪ { x}) − f (L)) 
+
+f (L ∪ A) − f (L) . (9) 
+
+The ratio is taken over pairs (L, A ) such that f (L ∪ A) > f (L); if the denominator is zero, the ratio is defined as 1.Proof. This is the standard approximation guarantee for greedy maximization of a nonnegative monotone set function with submodularity ratio γU,k . Proof can be found in Das and Kempe (2018). While Lemma A.1 offers a general guarantee, the ratio γV,k is typically intractable. We further provide a concrete bound for our Mahalanobis-Ensemble Energy ( MEE ) by considering the specific objective 
+
+f (S) = MEE( S) = p⊤ 
+
+> S
+
+K−1 
+
+> S
+
+pS .
+
+The following lemma bounds γV,k via the restricted minimum eigenvalue of the kernel matrix K.
+
+Lemma A.2 (Schur Complement Preserves the Minimum Eigenvalue) . Let K ∈ Rn×n be a symmetric positive definite matrix. Write 
+
+K =
+
+K11 ss⊤ Knn 
+
+
+
+, K11 ∈ R(n−1) ×(n−1) , s ∈ R(n−1) ×1, K nn > 0.
+
+Define the Schur complement 
+
+K′ = K11 − 1
+
+Knn 
+
+ss ⊤.
+
+Then 
+
+λmin (K) ≤ λmin (K′).
+
+Proof. Let λ′ 
+
+> 1
+
+= λmin (K′), and choose a nonzero eigenvector e′ ∈ Rn−1 such that K′e′ = λ′
+
+> 1
+
+e′. We construct e =
+
+e′
+
+en
+
+
+
+, where en = − 1 
+
+> Knn
+
+s⊤e′. Using the block form of K, we have: 
+
+Ke =
+
+ K11 e′ + sen
+
+s⊤e′ + Knn en
+
+
+
+.
+
+By the definition of en, the lower block becomes s⊤e′ + Knn en = 0 . For the upper block, we have K11 e′ + sen = K11 e′ − 1 
+
+> Knn
+
+ss ⊤e′ =
+
+
+
+K11 − 1 
+
+> Knn
+
+ss ⊤
+
+
+
+e′ = K′e′ = λ′
+
+> 1
+
+e′. Therefore, 
+
+Ke =
+
+λ′
+
+> 1
+
+e′
+
+0
+
+
+
+.By the Rayleigh quotient, we know λmin (K) = min x̸=0 x⊤Kx x⊤x ≤ e⊤Ke e⊤e . Since e⊤Ke = λ′
+
+> 1
+
+∥e′∥22
+
+and e⊤e = ∥e′∥22 + e2 
+
+> n
+
+≥ ∥ e′∥22, we can bound the quotient as follows: 
+
+λmin (K) ≤ e⊤Ke e⊤e = λ′
+
+> 1
+
+∥e′∥22
+
+∥e′∥22 + e2
+
+> n
+
+≤ λ′
+
+> 1
+
+.
+
+Since K′ ≻ 0, we have λ′ 
+
+> 1
+
+> 0, which implies λ′ 
+
+> 1
+
+= λmin (K′). This proves the claim. 
+
+Lemma A.3 (Spectral Bound on Submodularity Ratio) . Assume that K ≻ 0 is a correlation ma-trix. For f (S) = p⊤ 
+
+> S
+
+K−1 
+
+> S
+
+pS and disjoint sets L, A , let KL∪A be partitioned naturally into blocks 
+
+KL, KA, KLA , KAL . We define the residual statistics ˜p and ˜K (Schur complement) as: 
+
+˜p = pA − KAL K−1 
+
+> L
+
+pL, ˜K = KA − KAL K−1 
+
+> L
+
+KLA .
+
+The submodularity ratio γV,k , which involves minimizing the term ˜p⊤[diag( ˜K)] −1 ˜p   
+
+> ˜p⊤˜K−1˜p
+
+, is bounded from below by the eigenvalues of K:
+
+γV,k ≥ min 
+
+> L⊆V , A ⊆V\ L
+> |A|≤ k
+
+λmin (K, |L ∪ A|) ≥ λmin (K, N ),
+
+where λmin (K, k ) ≜ min S:|S|=k λmin (KS ) denotes the smallest eigenvalue among all k × k principal submatrices of K, and N = |V| .Proof. Consider disjoint L and A. Using the block inverse formula for K−1
+
+> L∪A
+
+, one obtains the decompo-sition 
+
+f (L ∪ A) = p⊤ 
+
+> L
+
+K−1 
+
+> L
+
+pL + ˜ p⊤ ˜K−1 ˜p,
+
+hence 
+
+f (L ∪ A) − f (L) = ˜ p⊤ ˜K−1 ˜p.
+
+For a singleton a ∈ A, the same calculation with |A| = 1 gives 
+
+f (L ∪ { a}) − f (L) = ˜p2
+
+> a
+
+˜Kaa 
+
+.
+
+Therefore, for any L ⊆ V and A with |A| ≤ k and A ∩ L = ∅, the ratio appearing in the definition of the submodularity ratio becomes 
+
+P
+
+> a∈A
+
+ f (L ∪ { a}) − f (L)
+
+f (L ∪ A) − f (L) = ˜p⊤diag( ˜K)−1 ˜p
+
+˜p⊤ ˜K−1 ˜p .
+
+Then, let D = diag( ˜K) and define the correlation matrix ˜Kρ = D−1/2 ˜KD −1/2. Let v = D−1/2 ˜p.Then 
+
+˜p⊤D−1 ˜p = ∥v∥22, ˜p⊤ ˜K−1 ˜p = v⊤ ˜K−1 
+
+> ρ
+
+v.
+
+Hence the ratio equals v⊤vv⊤ ˜K−1  
+
+> ρv
+
+. By Rayleigh–Ritz, v⊤ ˜K−1 
+
+> ρ
+
+v ≤ λmax ( ˜K−1 
+
+> ρ
+
+) v⊤v = 1 
+
+> λmin ( ˜Kρ)
+
+v⊤v,so 
+
+˜p⊤D−1 ˜p
+
+˜p⊤ ˜K−1 ˜p ≥ λmin ( ˜Kρ).
+
+We can eliminate the elements of L one by one via residualization; each elimination replaces the current covariance by the covariance of residuals. By Lemma A.2, each such residualization step cannot decrease the smallest eigenvalue. After eliminating all of L, we obtain the Schur complement ˜K corresponding to conditioning on L, and thus 
+
+λmin (KL∪A) ≤ λmin ( ˜K).
+
+Finally, normalizing ˜K to unit variance gives ˜Kρ, and λmin ( ˜K) ≤ λmin ( ˜Kρ). Combining the last two displays: 
+
+λmin ( ˜Kρ) ≥ λmin (KL∪A) ≥ λmin (K, |L ∪ A|).
+
+By definition of γV,k , we conclude 
+
+γV,k ≥ min 
+
+> L⊆V , A ⊆V\ L
+> |A|≤ k
+
+λmin (K, |L ∪ A|).
+
+Since KL∪A is a principal submatrix of K, Cauchy’s interlacing theorem gives 
+
+λmin (KL∪A) ≥ λmin (K).
+
+In our notation, λmin (K) = λmin (K, N ), which naturally completes the proof. Lemma A.4 (Approximation Bound for Greedy MEE ). Assume that K ≻ 0 is a correlation matrix defined on ground set V (|V| = N ). Let Sk be the greedy set after k steps. Then the approximation bound holds: 
+
+f (Sk) ≥ (1 − exp {− λmin (K, N )}) max 
+
+> S⊆V |S|≤ k
+
+f (S).
+
+Proof. Let OPT ≜ max S⊆V , |S|≤ k MEE( S).First, since the Mahalanobis-Ensemble Energy objective MEE( S) = p⊤ 
+
+> S
+
+K−1 
+
+> S
+
+pS is a normalized, nonnegative, and monotone set function, we can apply the general greedy guarantee from Lemma A.1. This yields: 
+
+MEE( Sk) ≥  1 − e−γV,k  · OPT ,
+
+where γV,k is the submodularity ratio of MEE on the ground set V.Next, we lower bound the submodularity ratio γV,k . By Lemma A.3, the submodularity ratio satisfies: 
+
+γV,k ≥ min 
+
+> L⊆V , A ⊆V\ L
+> |A|≤ k
+
+λmin (K, |L ∪ A|).
+
+Since L ∪ A ⊆ V , we have |L ∪ A| ≤ N . By the interlacing theorem, every principal submatrix of K
+
+has a minimum eigenvalue at least λmin (K, N ). Hence: 
+
+γV,k ≥ λmin (K, N ).
+
+Substituting this spectral lower bound back into the greedy approximation guarantee gives: 
+
+MEE( Sk) ≥  1 − e−λmin (K,N ) · OPT .
+
+This completes the proof. 
+
+Proof of Theorem 3.2 . Let MEE( S) = p⊤ 
+
+> S
+
+K−1 
+
+> S
+
+pS and cλ = 1 + λH T 
+
+> 2
+
+(p). The objective can be written as MES λ(S) = MEE( S)
+
+> c|S|
+> λ
+
+. Define the greedy approximation factor as αN = 1 − exp {− λmin (K, N )}.By Lemma A.4, for every k = 1 , . . . , N , the greedy set Sk satisfies: 
+
+MEE( Sk) ≥ αN max  
+
+> S⊆V | S|≤ k
+
+MEE( S). (10) Fix any k ∈ { 1, . . . , N }. Dividing both sides of (10) by ckλ gives: 
+
+MES λ(Sk) = MEE( Sk)
+
+ckλ
+
+≥ αN
+
+max S⊆V ,|S|≤ k MEE( S)
+
+ckλ
+
+≥ αN
+
+max S⊆V ,|S|=k MEE( S)
+
+ckλ
+
+= αN max 
+
+> S⊆V |S|=k
+
+MEE( S)
+
+c|S|
+
+> λ
+
+= αN max 
+
+> S⊆V |S|=k
+
+MES λ(S).
+
+Taking the maximum over all subset sizes k = 1 , . . . , N on both sides, we obtain the global bound for the greedy trajectory: 
+
+max  
+
+> 1≤k≤N
+
+MES λ(Sk) ≥ αN max  
+
+> 1≤k≤N
+
+max  
+
+> S⊆V | S|=k
+
+MES λ(S). (11) By Theorem 3.1, the greedy saturation stopping point τ achieves the exact maximum of the entire greedy sequence, meaning MES gτ = max 0≤r≤N MES gr . Since MES gr = MES λ(Sr), we have: MES gτ ≥ max  
+
+> 1≤k≤N
+
+MES λ(Sk).
+
+Combining this with (11) and substituting the definition of αN , we arrive at our final conclusion: 
+
+MES gτ ≥ (1 − exp {− λmin (K, N )}) max  
+
+> ∅̸ =S⊆V
+
+MES λ(S).
+
+This completes the proof. B Additional Experiments 
+
+This section provides repeated evaluations, con-trolled ablations, diagnostic analyses, and effi-ciency measurements. All experiments in this work were conducted on a single NVIDIA GeForce RTX 4090 GPU. Unless stated otherwise, repeated gen-eration results use three shared seeds and report the mean ± sample standard deviation. 
+
+B.1 Additional Results for Reasoning Benchmarks 
+
+Tables 6 and 7 repeat the reasoning evaluation over three seeds and report CraEG combined with p-less. This composition follows CraEG’s plug-in role as a post-softmax reweighting module rather than a standalone support-selection rule, while the tables use CraEG as the concise method name. Across the nine model–temperature settings, ME-Decoding achieves the highest average accu-racy on both GSM8K and GPQA. It leads in eight of the nine settings on each benchmark, support-ing stable improvements across seeds and tempera-tures. 
+
+B.2 Ablation Studies Probability and Kernel Controls. We use Greedy decoding to test whether repeatedly select-ing the locally most probable token is sufficient. At T = 1.0, ME-Decoding improves GSM8K accuracy from 61 .41% to 63 .20 ± 0.57% and GPQA accuracy from 32 .37% to 32 .66 ±1.05% on Qwen2.5-1.5B. Greedy is deterministic, whereas ME-Decoding results average three generation seeds. We then compare the semantic kernel with two controlled alternatives. The identity kernel 
+
+K = I removes pairwise geometry, reducing the MEE numerator to P 
+
+> i∈S
+
+p2 
+
+> i
+
+. The permuted kernel 
+
+Kperm = P K true P ⊤ preserves the eigenvalues, condition number, entry multiset, and numerical scale of the semantic kernel while disrupting its alignment with token identities. All variants use the same prompts, probabilities, generation seeds, and pruning hyperparameters. Dataset True K Permuted K K = I
+
+GSM8K 62.32 61.15 60.85 GPQA 32.64 32.09 29.81           
+
+> Table 8: Accuracy (%) averaged over T∈{1.0,1.5,2.0}in the Qwen2.5-1.5B kernel-control experiment. Both controls reduce accuracy relative to the correctly aligned semantic kernel.
+
+The correctly aligned semantic kernel achieves the highest average accuracy on both datasets, while removing or permuting the geometry reduces performance. 
+
+Component Ablations. We examine the contri-bution of the adaptive bandwidth ϵ and the kernel matrix K. Removing the adaptive bandwidth de-grades performance, especially at higher tempera-tures, which indicates that an appropriately scaled kernel is important for robust optimization. Re-placing K with the identity matrix removes the embedding-based similarity structure and also re-duces accuracy. Qwen3-4B-Instruct Phi-4-mini-Instruct Mistral-7B-Instruct Method T = 1 .0 T = 1 .5 T = 2 .0 T = 1 .0 T = 1 .5 T = 2 .0 T = 1 .0 T = 1 .5 T = 2 .0 Avg. 
+
+p-less 78 .82 ±0.24 72 .53 ±0.50 64 .47 ±1.00 82 .99 ±0.76 82 .99 ±0.39 71 .14 ±0.99 53 .53 ±0.73 51 .96 ±0.74 46 .07 ±1.30 67.17 Top-W 77 .63 ±0.35 76 .65 ±0.23 75 .54 ±0.72 83 .24 ±0.13 83 .52 ±0.23 82 .99 ±0.18 53 .07 ±0.40 53 .50 ±1.05 52 .44 ±1.26 70.95 CraEG 72 .23 ±1.71 65 .07 ±1.00 58 .12 ±1.32 83 .52 ±0.55 81 .91 ±1.07 65 .38 ±1.26 52 .72 ±0.12 50 .82 ±0.57 40 .56 ±1.64 63.37 
+
+Ours 80 .04 ±0.69 79 .56 ±0.35 80 .04 ±0.80 83 .90 ±0.24 83 .95 ±0.31 82 .44 ±0.12 54 .18 ±1.03 53 .55 ±0.12 53 .98 ±0.57 72.40 
+
+Table 6: GSM8K flexible-extract accuracy (%) over three generation seeds. Subscripts report sample standard deviations, and the Avg. column averages the nine model–temperature means. 
+
+Qwen3-4B-Instruct Phi-4-mini-Instruct Mistral-7B-Instruct Method T = 1 .0 T = 1 .5 T = 2 .0 T = 1 .0 T = 1 .5 T = 2 .0 T = 1 .0 T = 1 .5 T = 2 .0 Avg. 
+
+p-less 35 .57 ±2.29 35 .86 ±1.57 33 .85 ±1.35 32 .81 ±1.77 32 .66 ±0.78 30 .06 ±2.79 28 .42 ±1.44 28 .72 ±1.23 27 .68 ±1.39 31.74 Top-W 35 .49 ±0.45 34 .90 ±0.78 35 .86 ±0.26 31 .62 ±0.78 30 .58 ±0.77 30 .65 ±1.49 28 .79 ±1.02 29 .39 ±0.34 29 .39 ±1.49 31.85 CraEG 35 .71 ±1.24 34 .08 ±2.17 33 .93 ±0.97 32 .22 ±1.42 32 .14 ±0.80 29 .54 ±0.68 28 .65 ±0.68 28 .72 ±2.03 28 .20 ±1.23 31.46 
+
+Ours 36 .68 ±0.13 36 .76 ±0.68 36 .61 ±0.59 34 .30 ±0.68 34 .45 ±0.78 34 .08 ±0.56 29 .09 ±1.01 29 .84 ±0.34 29 .32 ±0.46 33.46 
+
+Table 7: GPQA accuracy (%) over three generation seeds. Subscripts report sample standard deviations, and the Avg. column averages the nine model–temperature means. 
+
+Dataset T ME-Decoding Without ϵ K = I
+
+GSM8K 1.0 84.08 −2.20 −0.15 
+
+1.5 84.23 −4.62 −0.83 
+
+2.0 82.41 −8.19 −1.36 
+
+GPQA 1.0 34.38 −0.22 −0.67 
+
+1.5 36.16 −1.56 −2.90 
+
+2.0 33.93 −0.22 −0.89 
+
+Table 9: Component ablations under different temper-atures. The ME-Decoding column reports absolute ac-curacy, while the remaining columns report changes relative to ME-Decoding. 
+
+B.3 Empirical Validation of Theorem 3.1 
+
+The condition in Theorem 3.1 is sufficient rather than necessary for trajectory unimodality. To exam-ine whether the predicted behavior occurs in prac-tice, we disable early stopping and record the com-plete greedy MES trajectory for a 512-trajectory probe from each benchmark using Qwen2.5-1.5B at T = 1 .0.Dataset Unimodal Trajectories Rate GSM8K 512/512 100% 
+
+GPQA 512/512 100% 
+
+Table 10: Empirical unimodality of complete greedy 
+
+MES trajectories. 
+
+The observation supports the practical relevance of the stopping behavior without replacing the the-orem’s sufficient-condition analysis. The approxi-mation result has a separate scope and depends on restricted minimum eigenvalues of selected kernel submatrices. 
+
+B.4 Efficiency and Complexity 
+
+We benchmark 200 GSM8K problems, generating 64 tokens per problem with T = 1 .5, batch size 1,and N = 512 . Each method therefore generates 12,800 tokens. ME-Decoding uses a custom Triton kernel, and all methods use identical filtering and sampling infrastructure. Model Method Model Inference (s) Decoding and Sampling (s) Other (s) Total (s) ms/token Qwen2.5-1.5B Top-p 233.20 4.29 0.99 238.48 18.63 Min-p 233.19 2.17 0.57 235.93 18.43                                         
+
+> p-less 233.23 2.17 0.63 236.03 18.44 Top-H233.56 4.68 1.00 239.25 18.69
+> ME-Decoding 242.85 5.64 1.03 249.52 19.49 Qwen3-4B Top-p358.20 2.89 0.50 361.58 28.25 Min-p356.42 1.97 0.55 358.94 28.04
+> p-less 356.63 1.97 0.59 359.18 28.06 Top-H359.14 2.91 0.63 362.68 28.33
+> ME-Decoding 360.29 3.01 1.15 364.45 28.47
+> Table 11: End-to-end GPU timing breakdown.
+
+Table 11 shows that ME-Decoding increases to-tal latency by approximately 5.8% on Qwen2.5-1.5B and 1.5% on Qwen3-4B relative to the fastest baseline, with model inference remaining the dom-inant cost. 
+
+Detailed Complexity Analysis. Let N denote the size of the candidate token pool, d denote the token embedding dimension, and τ denote the num-ber of tokens selected before the early stopping cri-terion is triggered. ME-Decoding does not explic-itly construct the full N × N similarity matrix. The adaptive bandwidth can also be computed without any pairwise construction. Since we use normal-ized token embeddings and Cij = 1 − e⊤ 
+
+> i
+
+ej , we have 
+
+ϵ = 12
+
+X
+
+> i,j ∈V
+
+pipj Cij = 12
+
+1 − X
+
+> i∈V
+
+piei
+
+> 22
+
+ ,
+
+where p is normalized over the candidate pool. Therefore, computing ϵ only requires a probability-weighted average of token embeddings, with com-plexity O(N d ).After obtaining ϵ, kernel entries are dynamically computed according to Eq. 3. Whenever a new to-ken is selected, the algorithm computes and caches its similarities to all candidate tokens, which costs 
+
+O(N d ) per selected token and therefore O(N τ d )
+
+in total. For the greedy selection stage, at the t-th step, the selected set has size t, and the algorithm evaluates at most N − t remaining candidates. For each candidate j, the dominant operation is com-puting αj = Rβj , where R ∈ Rt×t and βj ∈ Rt,which costs O(t2). Hence, the total greedy evalua-tion cost before stopping is  
+
+> τ−1
+
+X
+
+> t=1
+
+O (N − t)t2 ≤ 
+
+> τ−1
+
+X
+
+> t=1
+
+O(N t 2) = O(N τ 3).
+
+After each selected token, updating R and z
+
+through the block update costs O(t2) at step t, giv-ing an additional O(τ 3) cost, which is dominated by O(N τ 3) since τ ≤ N . Therefore, the overall time complexity of ME-Decoding is 
+
+O(N d + N τ d + N τ 3) = O N τ (d + τ 2).
+
+The memory overhead is O(N τ ) for cached kernel entries and O(τ 2) for maintaining R. In contrast, explicitly constructing the full kernel matrix would require O(N 2d) time and O(N 2) memory. Since the early stopping rule usually yields τ ≪ N , ME-Decoding avoids the quadratic dependence on the candidate pool size and remains efficient in prac-tice. 
+
+B.5 Hyperparameter Analysis 
+
+We study the sensitivity of ME-Decoding to the hyperparameter λ, which controls the compactness of the selected token set. A larger λ imposes a stronger penalty on the subset size and therefore encourages a tighter candidate set, while a smaller 
+
+λ allows more tokens to be retained. Table 12 re-ports the accuracy of ME-Decoding under different values of λ across three models, three temperatures, and two reasoning datasets. The results show that ME-Decoding is relatively stable over a range of 
+
+λ values and consistently achieves strong perfor-mance under different settings. Among the tested values, λ = 0 .9 obtains the best average accuracy on both GSM8K and GPQA. Therefore, unless oth-erwise specified, we use λ = 0 .9 as the default setting in the main experiments. 
+
+B.6 Diversity Analysis Support-Level Diversity Diagnostics. Table 13 shows that ME-Decoding achieves the highest ac-curacy and MES on both datasets, while retaining a λ Qwen3-4B-Inst. Phi-4-mini-Inst. Mistral-7B-Inst. Avg.                                                                                                  
+
+> T= 1 .0T= 1 .5T= 2 .0T= 1 .0T= 1 .5T= 2 .0T= 1 .0T= 1 .5T= 2 .0
+> GSM8K 1.0 81.20 81.35 79.76 83.78 84.38 82.03 52.84 52.77 53.45 72.39 0.9 80.67 79.76 80.06 84.08 84.23 82.41 55.34 53.45 53.90 72.66
+> 0.8 80.44 80.06 80.44 83.70 84.08 81.65 55.19 53.45 53.53 72.50 0.7 79.68 80.14 79.98 84.15 83.55 82.11 53.45 54.51 53.75 72.37 GPQA 1.0 34.82 34.15 34.82 35.04 35.27 35.71 27.90 28.79 27.23 32.64 0.9 35.49 35.49 35.71 34.38 36.16 33.93 28.35 28.79 28.35 32.96
+> 0.8 36.16 36.38 35.27 35.27 33.26 34.15 27.90 25.67 27.68 32.42 0.7 36.38 35.04 34.60 33.71 31.92 33.93 27.90 29.24 26.34 32.12
+
+Table 12: Detailed hyperparameter selection results for ME-Decoding. Accuracy is reported in percentage. The highlighted row corresponds to the selected setting, λ=0.9 , which achieves the best average performance on both GSM8K and GPQA. 
+
+compact support and comparable probability mass. None of the approximately matched probability-only controls reproduces both results, indicating that the gain is not explained solely by stronger truncation or one support statistic. 
+
+Detailed Diversity Results. Table 14 reports the detailed numerical results corresponding to the di-versity analysis in the main text. For each tem-perature, we report Acc, Distinct-1, Distinct-2, 
+
+1 − Self -BLEU , and the aggregated Diversity Avg. score. The diversity score is computed by min-max normalizing the three diversity metrics within each temperature and then taking their average. Although Top-p often obtains the highest diver-sity score, especially at high temperature, its accu-racy drops substantially. In contrast, ME-Decoding maintains the strongest accuracy across tempera-tures, showing that it provides a better accuracy– diversity trade-off for reasoning-oriented genera-tion. 
+
+B.7 Additional Results for Open-Ended Generation 
+
+In the main text, we report the averaged instruction-following and chat performance over three instruction-tuned models. Here, we provide the corresponding per-model visualizations and de-tailed numerical results. Figure 5 shows the per-formance curves on MT-Bench and AlpacaEval across temperatures for each model. Figure 6 fur-ther summarizes the relative ranking of each decod-ing method under every model-temperature setting, averaged over MT-Bench and AlpacaEval. Lower ranks indicate better performance. The heatmap shows that ME-Decoding obtains competitive ranks in multiple settings and achieves the best overall average rank, suggesting that its improvement is stable across models and temperatures. Tables 17 and 18 report the exact MT-Bench judge scores and AlpacaEval candidate win-rates, respectively. ME-Decoding achieves the highest overall averages, with 7.17 on MT-Bench and 14 .80% on AlpacaE-val, although individual baselines lead in several settings. All results are evaluated using the same judge-based evaluation protocol as in the main text and aggregated over 3 runs. 
+
+Evaluation Robustness. AlpacaEval-style eval-uation compares each generated response with a fixed reference for the same prompt, while MT-Bench-style evaluation independently assigns a score from 1 to 10. All methods use matched sam-ples at T ∈ { 1.0, 1.5, 2.0} over three generation runs. We evaluate the same outputs with DeepSeek-V4-Pro and GLM-5.2 (Zeng et al., 2026). Table 15 shows that ME-Decoding achieves the highest re-sult under both judges and evaluation protocols. Table 16 further reports positive paired 95% confi-dence intervals against Top-W , p-less, and Top-H,supporting the consistency of the gains beyond ag-gregate means. Additional length, style, and refusal diagnostics indicate that the gains are not explained by verbosity or conservative refusal behavior. Dataset Method Acc. (%) Mass Cos. Avg. |S| Hbefore Hafter MES 
+
+GSM8K 
+
+ME-Decoding 63 .20 ± 0.57 0.846 0.151 1.076 0.614 0.052 0.756 Top-W 61 .64 ± 1.19 0.841 0.208 1.093 0.692 0.057 0.688 
+
+p-less 61 .33 ± 0.23 0.842 0.179 1.164 0.659 0.075 0.689 Top-H 61 .16 ± 0.42 0.847 0.241 2.240 0.736 0.191 0.660 Approx. size-matched 61 .79 ± 1.26 0.850 0.210 1.067 0.615 0.044 0.707 Approx. entropy-matched 61 .79 ± 0.99 0.851 0.208 1.070 0.614 0.045 0.708 Approx. cosine-matched 62 .70 ± 0.35 0.840 0.198 1.014 0.598 0.010 0.715 GPQA 
+
+ME-Decoding 32 .66 ± 1.05 0.759 0.243 1.134 0.983 0.091 0.589 Top-W 27 .69 ± 0.91 0.692 0.185 1.213 1.454 0.124 0.498 
+
+p-less 28 .21 ± 1.05 0.770 0.192 1.265 1.002 0.144 0.553 Top-H 27 .52 ± 0.66 0.778 0.184 2.877 1.277 0.431 0.475 Approx. size-matched 28 .47 ± 1.17 0.760 0.289 1.106 0.947 0.069 0.558 Approx. entropy-matched 28 .47 ± 1.17 0.760 0.289 1.106 0.947 0.069 0.558 Approx. cosine-matched 29 .25 ± 0.91 0.737 0.259 1.084 1.018 0.055 0.537          
+
+> Table 13: Complete support diagnostics on Qwen2.5-1.5B at T= 1 .0. Cosine similarity is computed within the selected support at each decoding step and then averaged across steps. The approximately matched Min-pcontrols are calibrated on independent prompts. Accuracy reports the mean ±sample standard deviation over three seeds. Table 14: Accuracy and diversity comparison under different temperatures. Diversity Avg. is computed by first min-max normalizing Distinct-1, Distinct-2, and 1−Self -BLEU within each temperature, and then averaging the three normalized scores.
+
+T Method Acc ↑ Distinct-1 ↑ Distinct-2 ↑ 1 − Self -BLEU ↑ Diversity Avg. ↑
+
+1.0 Top-p 0.8484 0.0050 0.0695 0.2570 0.9842 Min-p 0.8596 0.0050 0.0705 0.2595 1.0000 
+
+p-less 0.8906 0.0046 0.0445 0.0607 0.1012 Top-H 0.8832 0.0045 0.0418 0.0614 0.0043 Top-W 0.8996 0.0049 0.0480 0.0686 0.3550 ME-Decoding ( λ = 0 .9) 0.9030 0.0049 0.0472 0.0588 0.3294 ME-Decoding ( λ = 0 .8) 0.9008 0.0049 0.0504 0.0813 0.4039 ME-Decoding ( λ = 0 .7) 0.9024 0.0049 0.0528 0.1014 0.4652 1.5 Top-p 0.6794 0.0224 0.1503 0.4136 1.0000 Min-p 0.7802 0.0054 0.0849 0.3421 0.3884 
+
+p-less 0.8682 0.0046 0.0546 0.1464 0.0783 Top-H 0.8224 0.0047 0.0585 0.1974 0.1434 Top-W 0.8982 0.0049 0.0542 0.1148 0.0516 ME-Decoding ( λ = 0 .9) 0.9026 0.0052 0.0526 0.0735 0.0112 ME-Decoding ( λ = 0 .8) 0.9058 0.0051 0.0564 0.1046 0.0528 ME-Decoding ( λ = 0 .7) 0.8996 0.0053 0.0592 0.1268 0.0879 2.0 Top-p 0.1886 0.2494 0.7750 0.9054 1.0000 Min-p 0.6600 0.0068 0.1122 0.4487 0.1833 
+
+p-less 0.8128 0.0049 0.0659 0.2454 0.0786 Top-H 0.7394 0.0053 0.0784 0.3209 0.1149 Top-W 0.8906 0.0047 0.0543 0.1397 0.0310 ME-Decoding ( λ = 0 .9) 0.9068 0.0050 0.0499 0.0668 0.0004 ME-Decoding ( λ = 0 .8) 0.9036 0.0051 0.0553 0.0959 0.0146 ME-Decoding ( λ = 0 .7) 0.9034 0.0052 0.0573 0.1187 0.0247 Judge Method AlpacaEval (%) MT-Bench DeepSeek-V4-Pro Top-p 13 .04 ± 2.07 6.34 ± 0.89 
+
+Min-p 14 .14 ± 0.60 6.86 ± 0.41 
+
+Top-H 14 .36 ± 0.58 6.88 ± 0.33 
+
+p-less 14 .33 ± 0.07 6.94 ± 0.11 
+
+Top-W 14 .14 ± 0.04 7.08 ± 0.02 
+
+ME-Decoding 14 .80 ± 0.30 7.17 ± 0.03 
+
+GLM-5.2 Top-H 9.48 ± 0.78 5.42 ± 0.23 
+
+p-less 10 .18 ± 0.24 5.54 ± 0.05 
+
+Top-W 10 .11 ± 0.20 5.58 ± 0.03 
+
+ME-Decoding 10 .63 ± 0.16 5.64 ± 0.01 
+
+Table 15: Open-ended evaluation under two automatic judges. Results average temperature-level aggregates over three generation runs. 
+
+Judge Baseline ∆ AlpacaEval (pp) 95% CI ∆ MT-Bench 95% CI DeepSeek-V4-Pro Top-W +0.656 [0 .320 , 0.980] +0.092 [0 .018 , 0.169] 
+
+p-less +0.469 [0 .115 , 0.810] +0.234 [0 .158 , 0.305] 
+
+Top-H +0.440 [0 .076 , 0.799] +0.297 [0 .221 , 0.373] 
+
+GLM-5.2 Top-W +0.529 [0 .239 , 0.819] +0.069 [0 .018 , 0.120] 
+
+p-less +0.456 [0 .138 , 0.782] +0.107 [0 .052 , 0.163] 
+
+Top-H +1.157 [0 .824 , 1.481] +0.221 [0 .162 , 0.281] 
+
+Table 16: Paired-bootstrap gains of ME-Decoding. Resampling preserves prompt, model, temperature, and generation-run matching. T=1 T=1.5 T=2 
+
+Qwen3-4B-Inst. 
+
+0246810 12 
+
+> Score
+> 8.76 8.69 8.47 8.71 8.73 8.51 8.70 8.65 8.62 8.70 8.62 8.75 8.62 8.72 8.64 8.84 8.76 8.87
+
+T=1 T=1.5 T=2 
+
+Phi-4-mini-Inst. 
+
+02468
+
+> Score
+> 5.79 4.85 2.37 6.19 5.63 4.61 5.97 5.79 4.63 5.91 5.91 5.15 6.12 5.96 6.16 5.93 5.94 6.05
+
+T=1 T=1.5 T=2 
+
+Mistral-7B-Inst. 
+
+02468
+
+> Score
+> 6.63 6.27 5.19 6.69 6.55 6.10 6.59 6.70 6.25 6.42 6.47 6.53 6.44 6.55 6.51 6.78 6.72 6.68
+
+Top-p Min-p Top-H p-less Top-W ME-Decoding T=1 T=1.5 T=2 
+
+Qwen3-4B-Inst. 
+
+010 20 30 40 
+
+> Win-Rate (%)
+> 32.08 31.28 27.00 31.72 31.21 29.80 32.85 32.23 30.45 31.93 31.68 32.09 32.26 32.05 31.76 34.00 31.93 33.42
+
+T=1 T=1.5 T=2 
+
+Phi-4-mini-Inst. 
+
+01234
+
+> Win-Rate (%)
+> 2.73 2.40 0.17 2.90 2.69 1.82 2.73 3.02 2.15 2.73 2.94 2.65 2.61 2.57 2.32 2.90 3.31 2.65
+
+T=1 T=1.5 T=2 
+
+Mistral-7B-Inst. 
+
+0246810 12 
+
+> Win-Rate (%)
+> 8.43 8.49 4.82 9.17 9.13 8.78 8.49 8.84 8.47 8.30 8.59 8.05 7.56 7.95 8.22 8.36 8.20 8.43
+
+Top-p Min-p Top-H p-less Top-W ME-Decoding 
+
+Figure 5: Detailed instruction-following and chat performance across temperatures. Top: MT-Bench judge scores. Bottom: AlpacaEval candidate win-rate. Results are reported for three instruction-tuned models and aggregated over 3 runs. Qwen3-4B-Inst. Phi-4-mini-Inst. Mistral-7B-Inst. Method T = 1 .0 T = 1 .5 T = 2 .0 T = 1 .0 T = 1 .5 T = 2 .0 T = 1 .0 T = 1 .5 T = 2 .0 Avg. Min-p 8.71 8.73 8.51 6.19 5.63 4.61 6.69 6.55 6.10 6.86 Top-p 8.76 8.69 8.47 5.79 4.85 2.37 6.63 6.27 5.19 6.34 
+
+p-less 8.70 8.62 8.75 5.91 5.91 5.15 6.42 6.47 6.53 6.94 Top-H 8.70 8.65 8.62 5.97 5.79 4.63 6.59 6.70 6.25 6.88 Top-W 8.62 8.72 8.64 6.12 5.96 6.16 6.44 6.55 6.51 7.08 
+
+Ours 8.84 8.76 8.87 5.93 5.94 6.05 6.78 6.72 6.68 7.17 
+
+Table 17: Detailed MT-Bench judge scores. Results are reported across three instruction-tuned models and three temperatures, aggregated over 3 runs. The Avg. column gives the unweighted average over all model-temperature combinations. Best results are shown in bold , and second-best results are underlined. 
+
+Qwen3-4B-Inst. Phi-4-mini-Inst. Mistral-7B-Inst. Method T = 1 .0 T = 1 .5 T = 2 .0 T = 1 .0 T = 1 .5 T = 2 .0 T = 1 .0 T = 1 .5 T = 2 .0 Avg. Min-p 31.72 31.21 29.80 2.90 2.69 1.82 9.17 9.13 8.78 14.14 Top-p 32.08 31.28 27.00 2.73 2.40 0.17 8.43 8.49 4.82 13.04 
+
+p-less 31.93 31.68 32.09 2.73 2.94 2.65 8.30 8.59 8.05 14.33 Top-H 32.85 32.23 30.45 2.73 3.02 2.15 8.49 8.84 8.47 14.36 Top-W 32.26 32.05 31.76 2.61 2.57 2.32 7.56 7.95 8.22 14.14 
+
+Ours 34.00 31.93 33.42 2.90 3.31 2.65 8.36 8.20 8.43 14.80 
+
+Table 18: Detailed AlpacaEval candidate win-rate (%). Results are reported across three instruction-tuned models and three temperatures, aggregated over 3 runs. The Avg. column gives the unweighted average over all model-temperature combinations. Best results are shown in bold , and second-best results are underlined. Qwen3-4B T=1 Qwen3-4B T=1.5 Qwen3-4B T=2 Phi-4-mini T=1 Phi-4-mini T=1.5 Phi-4-mini T=2 Mistral-7B T=1 Mistral-7B T=1.5 Mistral-7B T=2                                                 
+
+> Model and Temperature
+> Ours
+> Top-Wp-less Top-H
+> Min-p
+> Top-p
+> Method
+> 1.0 2.0 1.0 2.8 1.5 1.8 2.5 3.0 2.0
+> 4.5 2.5 3.0 4.0 3.0 2.0 5.5 4.5 3.5 5.0 5.0 2.0 4.2 3.0 2.2 5.5 4.0 3.5 3.0 3.0 4.0 3.2 3.0 4.0 3.0 2.0 3.0 4.5 4.0 5.0 1.2 4.5 5.0 1.5 2.5 3.0 3.0 4.5 6.0 5.5 6.0 6.0 3.0 5.0 6.0
+
+Rank by Model and Temperature 
+
+> 123456
+> Rank
+
+Figure 6: Detailed average-rank comparison on open-ended generation benchmarks. The heatmap reports the rank of each decoding method under each model-temperature setting, averaged over AlpacaEval and MT-Bench.

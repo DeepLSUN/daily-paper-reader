@@ -1,0 +1,638 @@
+Title: DA-DLM: Explicitly Modeling Token Dependencies in Diffusion Language Models
+
+URL Source: https://arxiv.org/pdf/2609.15070v1
+
+Published Time: Tue, 15 Sep 2026 01:57:27 GMT
+
+Number of Pages: 17
+
+Markdown Content:
+# DA-DLM: Explicitly Modeling Token Dependencies in Diffusion Language Models 
+
+Pengyu Ji ‡§ Zichen Zhang ‡§ Xiang Hu ¶ Kewei Tu ‡§ * ‡School of Information Science and Technology, ShanghaiTech University 
+
+> §
+
+Shanghai Engineering Research Center of Intelligent Vision and Imaging 
+
+{jipy2023, zhangzch2023, tukw}@shanghaitech.edu.cn 
+
+> ¶
+
+Tencent 
+
+shawnxxxhu@tencent.com 
+
+Abstract 
+
+Diffusion Language Models (DLMs) gener-ate text by iteratively denoising a masked se-quence, independently predicting multiple to-kens at each step. This conditional indepen-dence discards inter-token dependencies and degrades coherence—an issue that parallels the multi-modality problem in Non-Autoregressive Translation (NAT). Drawing on the Directed Acyclic Transformer (DAT), which tackles this problem in NAT via a Directed Acyclic Graph (DAG), we propose DA-DLM, a model that adapts DAG-based dependency modeling to DLMs’ iterative setting through a position-oriented DAG design. The position-oriented DAG binds node groups to fixed output posi-tions so that tokens fixed in earlier steps anchor neighboring predictions via learned transitions, and evolves with denoising to focus on remain-ing uncertainty as anchors accumulate. On lan-guage modeling, open-ended generation, and summarization, DA-DLM consistently outper-forms Block Diffusion, especially under fewer denoising steps, and matches autoregressive models while preserving the parallel genera-tion advantage. Our code is publicly available at https://github.com/jipy0222/DA-DLM .
+
+1 Introduction 
+
+Diffusion Language Models (DLMs) (Nie et al., 2025; Bie et al., 2025, 2026) have emerged as a promising paradigm for text generation. Most existing DLMs adopt a masked diffusion frame-work (Sahoo et al., 2024), with Block Diffusion (BD3LM) (Arriola et al., 2025) extending it to a block-wise setting. Starting from a fully masked sequence, they progressively recover the target text over multiple denoising steps, each predicting a set of tokens in parallel. Unlike autoregressive (AR) models that generate tokens sequentially, DLMs are not bound by a fixed generation order and can iteratively refine the sequence with bi-directional  
+
+> *Corresponding author.
+
+context, offering the potential for high-quality and high-speed parallel generation. However, realizing this potential remains chal-lenging in practice. At each denoising step, DLMs only model token-wise marginals, predicting multi-ple token independently without capturing depen-dencies among these simultaneously generated to-kens. This conditional independence assumption is a key structural limitation: without coordination, tokens predicted within the same step lack coher-ence at the sequence level. The problem further intensifies when fewer denoising steps are used to improve efficiency, as each step must predict more tokens in parallel (Liu et al., 2025; Wu et al., 2025; Li et al., 2026). This type of per-position independent prediction method, along with its associated problem, is not unique to DLMs. In machine translation, Non-Autoregressive Transformers (NATs) (Gu et al., 2018) also independently predict multiple target tokens given a masked or incomplete sequence. It is well-known that NATs suffer from the multi-modality problem (Gu et al., 2018; Huang et al., 2022a): per-position independent predictions mix fragments from different valid translations, mirror-ing the coherence issue observed in DLMs. The connection between DLMs and NATs suggests that techniques for handling the multi-modality problem in the latter can inform solutions to the associated issue in the former. In this work, we focus on a particular NAT technique, the Di-rected Acyclic Transformer (DAT) (Huang et al., 2022b), which tackles this problem by explicitly modeling token dependencies. It generates a Di-rected Acyclic Graph (DAG) that represents pos-sible tokens and probabilistic transitions between them. By finding a proper path through the DAG, DAT predicts all output tokens in a single step while ensuring they are mutually consistent. How-ever, directly transplanting DAT’s mechanism into DLMs is non-trivial. In DLMs’ iterative denoising, 1arXiv:2609.15070v1 [cs.CL] 14 Sep 2026 [M] Full  House  beats            
+
+> [M] [M] New Input
+> Construction
+> Path
+> Selection
+> Remasking
+> Full House beats
+> Full House Flush beats Two Pair Straight
+> DA-DLM Transformer
+> Current Block Input Previous Blocks
+> [M] [M]
+> Candidate Group
+> [M] [M]
+> Candidate Group Anchor
+> [M] [M]
+> Candidate Group
+> beats
+> Transition
+
+Figure 1: Overview of one denoising step in DA-DLM. Given the current block input with one anchor and three candidate groups (bottom), the model produces per-node emissions and inter-group transitions (middle), selects a path, remasks, and yields a new DAG for the next step. 
+
+each step resolves a portion of the remaining un-certainty, relying on tokens fixed in earlier steps to effectively anchor subsequent predictions (Sun et al., 2025; Hong et al., 2026), yet DAT’s depen-dency structure—a large DAG with unrestricted transitions—is tailored to single-step generation and weakens the ability of previously fixed tokens to guide subsequent predictions. Without effective anchoring, successive denoising steps drift apart rather than converge toward a coherent output. In this work, we propose the Directed Acyclic Diffusion Language Model (DA-DLM), which adapts the principle of dependency modeling origi-nated from DAT to DLMs’ iterative setting. Built upon BD3LM, DA-DLM constructs a position-oriented DAG at each denoising step, in which ev-ery node is tied to a specific output position: Tokens fixed in earlier steps are pinned at their positions as single-node anchors in the DAG, structurally guiding predictions at surrounding positions. Po-sitions still undetermined are each expanded into a group of candidates tied to it, capturing local modalities. Transitions between adjacent groups encode inter-token dependencies, so that jointly selecting one candidate from each group yields a transition path and hence coordinated predictions rather than independent token choices. As denois-ing progresses, the DAG evolves accordingly to re-flect the current state of generation: the number of anchors increases while fewer candidate groups re-main, gradually refining the graph to resolve the re-maining uncertainty. Figure 1 gives an overview of the model and illustrates how the position-oriented DAG evolves in one denoising step. We evaluate DA-DLM on language modeling, open-ended generation, and the downstream sum-marization task. Results show that DA-DLM con-sistently outperforms BD3LM baselines across all settings, with particularly large gains when fewer denoising steps are used, and matches the autore-gressive baseline on summarization while retaining the parallel decoding advantage. To summarize, this paper makes the following contributions: • We identify a connection between DLMs and NATs, which opens up a promising avenue for drawing inspiration from NAT research to improve DLMs. • Inspired by DAT, a NAT solution designed to address the conditional independence lim-itation, we propose DA-DLM, which intro-duces explicit token dependency modeling into DLMs’ denoising process, replacing in-dependent per-position prediction with coordi-nated joint modeling over a position-oriented DAG at each denoising step. • We evaluate DA-DLM across diverse tasks and inference scenarios, demonstrating con-sistent gains over the BD3LM baseline and competitive performance with autoregressive models. 
+
+2 Background and Motivation 
+
+2.1 Block Diffusion 
+
+Block Diffusion (BD3LM) (Arriola et al., 2025) is the backbone of leading DLMs (Bie et al., 2025, 2026), which we adopt as the foundation for our method. BD3LM partitions a sequence into B
+
+blocks of fixed size N and factorizes the likelihood autoregressively across blocks: 
+
+log pθ(x) = XBb=1 log pθ(xb | x<b ). (1) Within each block, pθ(xb | x<b ) is modeled via continuous-time masked diffusion. The forward noising process q(·) randomly masks tokens in the current block xb according to the noise schedule 
+
+αt, producing a partially masked block xbt at time 
+
+t. The preceding blocks x<b serve as conditioning that are not subject to masking. The denoiser reverses this process under the SUBS parameterization (Sahoo et al., 2024): it in-dependently predicts clean tokens at each masked 2position, while unmasked tokens are carried over unchanged. The training objective adopts the sim-plified NELBO of Sahoo et al. (2024): 
+
+LBD 3LM (x; θ)=
+
+> B
+
+X
+
+> b=1
+
+Et,q 
+
+α′
+
+> t
+
+1 − αt
+
+·X
+
+> i
+
+log pθ(xbi | xbt , x <b ), (2) where i ranges over all block positions, α′ 
+
+> t
+
+=dαt/dt; only masked positions contribute. At inference time, each block is generated by it-erative denoising from a fully masked sequence: at each step, the model predicts all masked positions in parallel, a subset of predictions is fixed based on a schedule or confidence criterion, and fixed tokens remain unchanged in subsequent steps. 
+
+2.2 Cost of Conditional Independence 
+
+BD3LM’s per-position factorized prediction mir-rors the approach of Non-Autoregressive Transla-tion (NAT) (Gu et al., 2018): both independently predict multiple tokens given a masked or incom-plete sequence. The cost of this conditional in-dependence has been formally characterized by Huang et al. (2022a) in the NAT literature. They show that for any model predicting M tokens inde-pendently given arbitrary conditioning X:
+
+min θ DKL [Pdata (Y |X)∥Pθ(Y |X)] ≥ C, (3) where C = PMi=1 H(yi|X) − H(Y |X) is the con-ditional total correlation: the dependency informa-tion among target tokens that factorized prediction necessarily discards. Since BD3LM employs the same factorized prediction per step, this analytical framework applies. The cost is inherent to per-position independent prediction instead of being specific to either NAT or DLM, manifesting as the multi-modality problem in NAT and as coherence degradation with fewer denoising steps in BD3LM. 
+
+2.3 Dependency Modeling as Missing Piece 
+
+Huang et al. (2022a) further extend their analysis to iterative NATs (Appendix A in Huang et al., 2022a), showing that iterative refinement progressively en-riches the per-step conditioning, reducing the con-ditional independence cost (Eq. 3) at each step; both iterative NATs (e.g., CMLM (Ghazvininejad et al., 2019)) and BD3LM already employ this ap-proach. Their main analysis, on the other hand, focuses on single-step NAT, where the Directed Acyclic Transformer (DAT) (Huang et al., 2022b) stands out by explicitly modeling inter-token de-pendencies: it constructs a Directed Acyclic Graph (DAG) over the output, where nodes carry token predictions and edges encode probabilistic transi-tions. The training objective maximizes the data likelihood marginalized over all paths through the DAG, and inference selects the most probable path, yielding coordinated predictions in a single genera-tion step. This dependency-based approach offers a complementary path to iterative refinement and is precisely what BD3LM currently lacks. However, the iterative setting of BD3LM intro-duces a requirement absent from single-step gener-ation. In BD3LM, tokens fixed in earlier denoising steps serve as anchors that guide subsequent predic-tions (Sun et al., 2025; Hong et al., 2026); succes-sive steps build upon previously committed tokens. DAT’s position-free DAG, in which paths may skip arbitrary nodes via unrestricted transitions, dilutes the influence of these anchors: fixed tokens cannot reliably anchor their surrounding predictions, caus-ing successive denoising steps to drift apart rather than converge toward a coherent output. Adapting dependency modeling to the iterative setting, there-fore, requires a structural redesign that respects position stability and the evolving masking state across steps. 
+
+3 DA-DLM: Directed Acyclic Diffusion Language Model 
+
+As established in §2.3, BD3LM already benefits from iterative refinement but lacks dependency modeling within each step’s predictor. We address this by constructing a position-oriented DAG at each denoising step, whose structure reflects the current masking state and evolves as tokens are progressively determined. 
+
+3.1 Position-Oriented DAG Group-wise structure. To incorporate a DAG into BD3LM’s per-step predictor, we require a sta-ble correspondence between nodes and output po-sitions that allows fixed tokens to consistently oc-cupy designated nodes across denoising steps. In a position-free DAG, transitions obey a left-to-right ordering but may skip arbitrary nodes. Fixed to-kens can be enforced as path waypoints—nodes that every valid path must pass through—yet the re-maining nodes between waypoints are not bound to fixed output positions and may still realign across denoising steps. The position-oriented DAG addresses this with a group-wise organization. For a block of N po-3sitions, the DAG consists of N groups, one per position. Each group i contains K candidate nodes 
+
+{v1 
+
+> i
+
+, . . . , v Ki }, each carrying an independent token prediction distribution. A path A = ( a1, . . . , a N ),with ai ∈ { 1, . . . , K }, selects exactly one node from each group, producing a sequence of N to-kens inherently aligned with the output positions. The group chain is bookended by a start-of-block and an end-of-block node that provide the initial transition distribution and fixed termination. 
+
+Anchors and candidate groups. The DAG dis-tinguishes two types of groups reflecting the de-noising state. A position whose token has been fixed in a previous step reduces to a single-node anchor: every path must pass through this node, pinning the known token at its position. A position still undetermined forms a candidate group with K
+
+active nodes, capturing plausible alternatives for that position. This structure evolves with denois-ing: as tokens are progressively fixed, candidate groups become anchors, and the DAG focuses on the remaining uncertainty, as illustrated in Figure 1. 
+
+Inter-group transitions. Token dependencies are explicitly modeled through transitions between adjacent groups: from each node in group i to the candidates in group i + 1 . The transition probabil-ity is computed via dot-product attention (Huang et al., 2022b), with softmax normalized over the next group’s candidates:          
+
+> T(vji→vki+1 ) = exp  (qji)⊤kki+1 /√dPKk′=1 exp  (qji)⊤kk′
+> i+1 /√d,(4)
+
+where qji and kki+1 are query and key projections of the hidden states at nodes vji and vki+1 , respectively. Since an anchor at position i is the sole node in its group, all incoming transitions from the preced-ing group converge to it with probability one. How-ever, its outgoing transitions form a learned distri-bution over the next group’s candidates, allowing the fixed token to directly shape which candidates are favored at the adjacent position in addition to serving as attention context for all positions. 
+
+Path probability. The joint probability of a tar-get sequence xb and a path A decomposes into per-node emission probabilities (i.e., token prediction distributions) and inter-group transition probabili-ties: 
+
+Pθ(xb, A |xbt , x <b )=
+
+> N
+
+Y
+
+> i=1
+
+pθ(xbi |vai 
+
+> i
+
+, x bt , x <b )· 
+
+> N−1
+
+Y
+
+> i=1
+
+T (vai 
+
+> i
+
+→vai+1  
+
+> i+1
+
+), (5) where xbt is the partially masked block at time t
+
+and x<b denotes the preceding blocks. Marginal-izing over all paths yields the model likelihood 
+
+pθ(xb | xbt , x <b ) = P 
+
+> A
+
+Pθ(xb, A | xbt , x <b ).In contrast to DAT’s position-free DAG, where a path selects M nodes from L ≫ M nodes via a global L × L transition matrix, DA-DLM restricts each transition to a local K ×K matrix between ad-jacent groups, and every path has length of exactly 
+
+N —a structural property that maintains position stability across denoising steps. 
+
+3.2 Training Training objective. DA-DLM retains BD3LM’s block-autoregressive factorization (Eq. 1) and re-places the per-position factorized predictor within each block with the DAG-based joint distribu-tion. Under the same noise-schedule weighting as BD3LM (Sahoo et al., 2024; Arriola et al., 2025), the training objective becomes: 
+
+LDA −DLM (x; θ)=
+
+> B
+
+X
+
+> b=1
+
+Et,q 
+
+α′
+
+> t
+
+1 − αt
+
+·log X
+
+> A
+
+Pθ(xb, A | xbt , x <b ).
+
+(6) Compared to BD3LM’s training objective (Eq. 2), the per-position independent log-probabilities P 
+
+> i
+
+log pθ(xbi | · ) are replaced by a single path-marginalized term log P 
+
+> A
+
+Pθ(xb, A | · ).
+
+Efficient marginalization via forward algorithm. 
+
+The objective requires marginalizing over all paths, which is expensive due to the combinatorial number of paths. We employ a forward algorithm analo-gous to that in hidden Markov models (details in Appendix A). Because transitions only connect ad-jacent groups, each recursion step aggregates over at most K predecessors within the preceding group, yielding O(N K 2) time complexity. In contrast, in a position-free DAG (Huang et al., 2022b) with 
+
+L=N K vertices, each node aggregates over all predecessors, resulting in O(N 3K2) complexity— a factor of N 2 higher. 
+
+Diffusion training regime. Following BD3LM’s training protocol (Sahoo et al., 2024; Arriola et al., 2025), each training step samples a timestep t for each block, and the forward masking process cor-rupts the target xb into a partially observed xbt by independently masking each token with probabil-ity 1 − αt. The resulting masking pattern directly instantiates the position-oriented DAG: unmasked positions form single-node anchors while masked 4positions expand into candidate groups, and the model is trained to optimize the path-marginalized objective (Eq. 6) over this structure. As t varies across training steps, the model encounters DAGs with different anchor densities—from mostly candi-date groups under heavy masking to predominantly anchors under light masking—naturally exposing the model to the full spectrum of partial context. 
+
+3.3 Inference 
+
+DA-DLM inherits BD3LM’s semi-autoregressive generation. Within each block, generation proceeds by iterative denoising over T steps, starting from a fully masked sequence. At each step, the model constructs a DAG from the current masking state, selects a path to obtain token predictions, applies a remasking strategy to determine which tokens become anchors, and optionally refines local pre-dictions via infilling (illustrated in Figure 1). 
+
+Path selection. Given emissions and transitions from a forward pass, two decoding strategies oper-ate on the position-oriented DAG. The Viterbi Strategy finds the jointly optimal path and token sequence (Shao et al., 2022). Anal-ogous to the training forward algorithm, we ap-ply a max-product recursion over the group chain with the same O(N K 2) complexity (details in Ap-pendix A). In a position-free DAG (Shao et al., 2022), the algorithm must additionally search over all possible path lengths and rerank candidates with a tuned length penalty. Our position-oriented struc-ture eliminates this overhead: the path length is fixed to N , requiring no length search or additional hyperparameters, and the time complexity reduces from O(N 3K2) to O(N K 2).The Sampling Strategy draws a path from the DAG’s distribution (Eq. 5) via ancestral sampling: starting from the start-of-block node, we sequen-tially draw each group’s candidate from the current node’s outgoing transitions and sample a token from the selected node’s emission. 
+
+Remasking. After predicting tokens along the se-lected path, a remasking strategy determines which predictions to fix as anchors for the next denois-ing step. Standard masked diffusion applies ran-dom remasking (Nie et al., 2025; Sahoo et al., 2024; Arriola et al., 2025), where the noise sched-ule determines the expected number of tokens to unmask at each step and the selection is random; confidence-aware parallel decoding—fixing tokens whose prediction confidence exceeds a threshold— is another widely adopted alternative (Wu et al., 2025). We adapt the confidence-based approach to the position-oriented DAG by defining a compos-ite score that incorporates both the emission and transition information along the selected path: 
+
+si = (1 − w) · pemit (i) + w · ptrans (i), (7) where pemit (i) is the emission probability of the predicted token, ptrans (i) is the average of the in-coming and outgoing transition probabilities at po-sition i along the selected path, and w is the ad-justed weight. Positions with si above a threshold are fixed as anchors; the rest are remasked. 
+
+Infilling. As denoising progresses, fixed anchors may partition the remaining masked positions into isolated gaps—contiguous spans bounded by an-chors on both sides. When a gap is sufficiently short, the bounding anchors highly constrain the generation space, so we directly fix predictions within such gaps without remasking. Infilling is governed by two parameters: gap_length k and 
+
+context_ratio r. It takes effect only when the fraction of already-fixed positions exceeds r; at that point, all gaps of length ≤ k are filled in a single step. 
+
+4 Experiments 
+
+We follow the architecture and training recipe of BD3LM (Arriola et al., 2025); all models are trained on OpenWebText (Gokaslan and Cohen, 2019) (context length 1024). DA-DLM uses K=4 
+
+candidates per group; the DAG-specific modules add ∼2.5M parameters ( ∼2% of the backbone), keeping the model size comparable to BD3LM. Full training details are in Appendix B. 
+
+4.1 Language Modeling Evaluation setup. Following BD3LM’s evalu-ation protocol (Arriola et al., 2025), we evalu-ate on two benchmarks: OpenWebText (Gokaslan and Cohen, 2019) (context length 1024) and One Billion Word (LM1B; (Chelba et al., 2013), con-text length 128). In addition to the OpenWeb-Text models described above, we train a sepa-rate set of models on LM1B following the same training procedure. For each dataset, we compare MDLM and BD3LM with block sizes ∈ { 16 , 8, 4},and the corresponding DA-DLM variants. For language modeling evaluation, we use the noise-schedule-weighted average of negative conditional 5Models Block Size Conditional Reconstruction ( ↓)LM1B OpenWebText                  
+
+> MDLM —3.47 3.15 BD3LM 16 3.46 3.11 83.43 3.09 43.39 3.04 DA-DLM 16 3.30 2.92
+> 83.28 2.89
+> 43.24 2.86
+
+Table 1: Conditional reconstruction results on lan-guage modeling benchmarks. We report the noise-schedule-weighted average of negative conditional log-likelihoods; lower values are better. 
+
+log-likelihoods to measure conditional block re-construction. Specifically, the metric averages, over ground-truth blocks xb and masking patterns, the negative log-likelihood of xb conditioned on the preceding blocks x<b and its partially masked version xbt , with weights determined by the noise schedule. MDLM and BD3LM compute this neg-ative conditional log-likelihood using token-wise factorization (following Eq. 2), whereas DA-DLM computes it by marginalizing over DAG paths (fol-lowing Eq. 6). Despite the difference in compu-tation, each matched BD3LM/DA-DLM pair uses the same target blocks, conditioning inputs, data, masking process, and noise-schedule weighting. The scores are therefore directly comparable, with lower values indicating better conditional recon-struction quality. For MDLM and BD3LM, the score computed using token-wise factorization ad-ditionally coincides with the negative evidence lower bound (NELBO), a variational upper bound on the true negative log-likelihood (NLL). This equivalence does not hold for DA-DLM, whose score is computed by marginalizing over DAG paths. We therefore do not convert the reported scores to perplexity or compare them with the AR baseline’s exact NLL. 
+
+Results. Table 1 reports language modeling per-formance on both benchmarks, as measured by the conditional reconstruction metric. Consistent with Arriola et al. (2025), smaller block sizes yield better performance; DA-DLM consistently outperforms BD3LM at every block size.This advantage stems from dependency modeling: whereas BD3LM predicts each position independently, DA-DLM’s transition probabilities couple adjacent predictions along paths, concentrating probability mass on co-herent token sequences.                                                                                                       
+
+> Denoising Infilling Adj. TPF ↑MAUVE: B=16 ↑
+> BD3LM DA-DLM BD3LM DA-DLM
+> FH –1.00 0.93 0.933 0.960
+> FH (2 ,0.5) 1.54 1.44 0.608 0.846
+> FH (2 ,0.0) 1.78 1.66 0.385 0.779
+> FH (3 ,0.5) 1.66 1.55 0.237 0.652
+> T= 16 –1.55 1.44 0.535 0.786
+> T= 16 (2 ,0.5) 1.99 1.85 0.168 0.567
+> T= 16 (2 ,0.0) 1.94 1.81 0.115 0.495
+> T= 16 (3 ,0.5) 2.18 2.03 0.083 0.377
+> T= 12 –1.78 1.66 0.335 0.653
+> T= 12 (2 ,0.5) 2.21 2.06 0.112 0.434
+> T= 12 (2 ,0.0) 2.18 2.03 0.069 0.358
+> T= 12 (3 ,0.5) 2.42 2.26 0.050 0.284
+> T= 8 –2.27 2.12 0.105 0.367
+> T= 6 –2.82 2.63 0.039 0.152
+> T= 4 –4.04 3.77 0.012 0.036
+
+Table 2: MAUVE–adjusted TPF comparison between BD3LM and DA-DLM on OpenWebText generation with block size B = 16 . The BD3LM column reports raw TPF, while the DA-DLM column reports latency-adjusted TPF (Adj. TPF) calibrated using the measured per-step latency ratio (§4.4). The MAUVE score of the AR model is 0.981 , for reference. 
+
+4.2 Open-Ended Generation Evaluation setup. We evaluate open-ended gen-eration quality with prefix-conditioned genera-tion on OpenWebText and measure the MAUVE score (Pillutla et al., 2021) (details in Appendix C). We compare an AR baseline, BD3LM with block sizes ∈ {16 , 8, 4}, and the corresponding DA-DLM variants. To map the quality–efficiency trade-off, we vary the number of denoising steps T per block and compute raw tokens per forward pass (TPF), defined as the average number of tokens determined per forward pass at runtime. For the quality–efficiency comparison, we report latency-adjusted TPF (Adj. TPF). At each block size, DA-DLM’s raw TPF is calibrated using the ratio of BD3LM’s per-step latency to that of DA-DLM, with BD3LM serving as the latency reference. The latency measurements are reported in §4.4. We evaluate two sampling mechanisms: (1) first-hitting sampling (FH) (Zheng et al., 2025), where each for-ward pass determines one token (raw TPF = 1 ); and (2) random remasking (Sahoo et al., 2024; Nie et al., 2025), where the noise schedule determines the expected number of tokens to unmask at each step. DA-DLM additionally employs the sampling path selection strategy (§3.3) to decode from the DAG at each denoising step. We also evaluate both models with and without the infilling mechanism (§3.3), parameterized by gap length k and context ratio r (reported as (k, r ) in Table 2). 61.0 1.5 2.0 2.5 3.0 3.5 4.0             
+
+> Latency-adjusted TPF ↑
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> MAUVE ↑
+> Block size = 16
+> BD3LM DA-DLM w/o infilling w/ infilling faded tail (dashed)
+> 1.0 1.5 2.0 2.5 3.0 3.5 4.0
+> Latency-adjusted TPF ↑
+> Block size = 8
+> 1.0 1.2 1.4 1.6 1.8 2.0 2.2
+> Latency-adjusted TPF ↑
+> Block size = 4
+
+Figure 2: MAUVE–adjusted-TPF trade-off across different block sizes. Each panel reports the Pareto frontier between generation quality (measured by MAUVE) and computational efficiency (measured by adjusted TPF). 
+
+Results. Table 2 reports detailed results for block size 16. Under first-hitting sampling (raw TPF =1 ), both models achieve comparable MAUVE scores. As decoding becomes more parallel, yielding higher adjusted TPF, BD3LM’s generation qual-ity drops sharply, while DA-DLM maintains sub-stantially higher MAUVE. When the number of denoising steps becomes very small, both models eventually degrade. Infilling further differentiates the two models: for BD3LM, infilling largely follows the existing quality–efficiency tradeoff curve, offering little ad-vantage beyond what reducing denoising steps al-ready provides. For DA-DLM, infilling yields a favorable tradeoff when gap regions are well-constrained by surrounding anchors—for instance, when combined with sufficient denoising steps or when the context ratio gates infilling on adequate surrounding context. DA-DLM’s transition prob-abilities propagate dependency information from anchors into gaps, making infilling an effective ac-celerator that expands DA-DLM’s Pareto frontier to higher adjusted TPF values. Figure 2 extends this analysis across all three block sizes (detailed numerical results in Tables 6– 8, Appendix F), where each panel plots the Pareto frontier between MAUVE and adjusted TPF. Solid lines trace the Pareto frontier, while dashed seg-ments mark the high-efficiency tail (both models eventually degrade when the number of denoising steps becomes very small); filled markers denote configurations without infilling, and open mark-ers denote infilling variants. The shaded region highlights DA-DLM’s operating regime—the range of adjusted TPF over which it maintains a favor-able quality–efficiency trade-off. The trends ob-served for block size 16 hold consistently: DA-DLM’s Pareto frontier surpasses BD3LM’s across all block sizes, and infilling configurations extend 
+
+Denoising Infilling LLM-as-a-Judge: B = 16 
+
+DA-DLM Win (%) ↑ 95% CI (%) 
+
+FH – 52.39 [50.31, 54.47] FH (2 , 0.5) 63.56 [61.48, 65.59] FH (2 , 0.0) 69.40 [67.45, 71.29] FH (3 , 0.5) 71.06 [69.04, 72.99] 
+
+T = 16 – 65.38 [63.33, 67.37] 
+
+T = 16 (2 , 0.5) 73.48 [71.53, 75.35] 
+
+T = 16 (2 , 0.0) 76.47 [74.58, 78.26] 
+
+T = 16 (3 , 0.5) 74.94 [72.98, 76.80] 
+
+T = 12 – 68.85 [66.83, 70.81] 
+
+T = 12 (2 , 0.5) 72.45 [70.45, 74.36] 
+
+T = 12 (2 , 0.0) 76.96 [75.07, 78.75] 
+
+T = 12 (3 , 0.5) 75.59 [73.59, 77.47] 
+
+T = 8 – 72.07 [70.01, 74.04] 
+
+T = 6 – 73.31 [71.20, 75.32] 
+
+T = 4 – 74.02 [71.66, 76.25] 
+
+Table 3: Pairwise LLM-as-a-judge evaluation of DA-DLM against BD3LM on OpenWebText generation with block size B = 16 . DA-DLM Win denotes the percent-age of DA-DLM wins among non-tied pairs. Confidence intervals are 95% Wilson intervals. 
+
+DA-DLM’s frontier further into regions with higher adjusted TPF. Faded markers indicate configura-tions dominated within each model’s own fron-tier. Smaller block sizes achieve higher absolute MAUVE under first-hitting sampling, but degrade more steeply under random remasking due to cross-block error compounding: smaller blocks partition the sequence into more blocks, so each block’s parallel generation errors accumulate more rapidly through the conditioning prefix, creating an increas-ing distribution shift from the ground-truth prefixes seen in training. DA-DLM mitigates this by main-taining higher per-block quality, reducing the error that propagates into downstream blocks. 
+
+LLM-as-a-Judge Evaluation. To complement MAUVE, we additionally assess the quality and coherence of generated continuations through an LLM-as-a-Judge evaluation. DeepSeek-V4-Flash 
+
+serves as the pairwise judge for the generations 7Models Strategy Summarization XSum CNN/DailyMail R-1 R-2 R-L Avg TPF R-1 R-2 R-L Avg TPF                                                      
+
+> AR Greedy 35.72 13.51 28.31 25.85 1.00 38.54 16.36 26.57 27.16 1.00 BD3LM Conf 0.9 36.05 13.26 27.64 25.65 1.07 38.21 16.85 25.95 27.00 1.81 Conf 0.9 + Infill 36.10 13.17 27.67 25.65 1.20 38.21 16.83 25.94 26.99 1.92 DA-DLM Conf 0.9 36.44 13.15 28.06 25.88 1.13 38.60 16.76 26.16 27.17 1.73 Conf 0.9 + Infill 36.55 13.14 28.09 25.93 1.50 38.53 16.72 26.10 27.12 2.56
+
+Table 4: Results on summarization tasks. ‘R-1/2/L’ denotes ROUGE-1 / ROUGE-2 / ROUGE-L scores. ‘Conf 0.9’ means confidence-aware parallel decoding with threshold 0.9, and ‘Infill’ denotes infilling enabled. 
+
+evaluated in §4.2. For each decoding configuration, the prompt and corresponding anonymized continu-ations from DA-DLM and BD3LM are presented in both A/B orders to control for position bias. Under conservative aggregation, a win is recorded only when both orders favor the same model, and we report DA-DLM’s win rate among non-tied pairs. Further details of the judging protocol and aggre-gation rule are provided in Appendix D. Table 3 reports the pairwise evaluation results for block size 16, while Tables 10–12 in Appendix F present the complete results across all three block sizes 
+
+∈ { 16 , 8, 4}. The judge consistently favors DA-DLM over BD3LM under matched decoding con-figurations across all block sizes, with the prefer-ence generally becoming stronger in more aggres-sively parallel decoding regimes and when infilling is enabled. This trend broadly aligns with MAUVE and provides complementary evidence that explicit dependency modeling improves generation quality and coherence. 
+
+4.3 Downstream Task: Summarization Evaluation setup. We evaluate on two summa-rization datasets—XSum (Narayan et al., 2018) and CNN/DailyMail (Nallapati et al., 2016). Mod-els pre-trained on OpenWebText are fine-tuned for this task. Based on the observation from §4.2 that models with smaller block sizes struggle to main-tain generation quality over long sequences, we select a block size of 16 for both BD3LM and DA-DLM. We report ROUGE (Lin and Hovy, 2003) and raw tokens per forward pass (TPF) as quality and efficiency metrics; decoding configurations are detailed in Appendix E. 
+
+Results. Table 4 reports ROUGE scores and raw TPF on both summarization benchmarks. DA-DLM outperforms BD3LM in average ROUGE on both datasets and remains competitive with the AR baseline, demonstrating that the benefits of de-pendency modeling transfer to task-specific gener-                                 
+
+> Model BLatency (ms) ↓Memory (MiB) Start End Peak ↓
+> BD3LM 16 27.59 1306 2440 3814 822.49 1306 2449 3136 420.51 1306 2457 2987 DA-DLM 16 29.60 1325 2459 3890 823.73 1324 2467 3183 421.48 1324 2475 3019
+
+Table 5: Per-step latency and allocated GPU memory for BD3LM and DA-DLM. Here B denotes the block size; Start and End denote memory allocation before prompt prefill and after generation, respectively, while Peak denotes the maximum allocation during generation. 
+
+ation after fine-tuning. The advantage concentrates on ROUGE-1 and ROUGE-L, suggesting that DA-DLM’s joint modeling over paths helps the model stay on topic and maintain sequential coherence. Both BD3LM and DA-DLM generate multiple tokens per forward pass under confidence-aware decoding alone, indicating strong task adaptation. Infilling consistently increases the degree of par-allelism on both datasets with minimal impact on quality: average ROUGE changes by less than 0.05 in either direction. 
+
+4.4 Inference Efficiency Setup. We profile BD3LM and DA-DLM on a single NVIDIA A800 GPU, following the open-ended generation setting in §4.2 with a batch size of 32. We evaluate block sizes ∈ { 16 , 8, 4}. Infilling is disabled; both models use first-hitting sampling, while DA-DLM additionally applies its sampling-based path selection. Per-step latency measures the complete denoising update, including model computation and the corresponding sampling and remasking operations. We average latency over 10 measured runs after 10 warm-up runs, with CUDA synchronization around each timed update. GPU memory is profiled separately, and we report the allocated memory before prompt prefill, after gen-eration, and at its peak. 8Results. As shown in Table 5, DA-DLM intro-duces modest per-step latency overheads of 2.01, 1.24, and 0.97 ms over BD3LM for block sizes 16, 8, and 4, respectively, corresponding to rela-tive increases of 7.3%, 5.5%, and 4.7%. Its addi-tional peak memory usage is at most 76 MiB, or 2.0%. The additional latency arises from candidate-transition modeling and path sampling in DA-DLM, but remains small relative to the denoising compu-tation. These results show that the two models have similar per-step inference costs under matched de-coding settings. The measured per-step latency ratios are used to calibrate raw TPF and obtain the adjusted TPF val-ues reported in §4.2. For example, at block size 16, DA-DLM’s raw TPF is scaled by 27 .59 /29 .60 = 0.932 . After applying the corresponding calibra-tion at each block size, DA-DLM retains its quality– efficiency advantage in the MAUVE comparisons reported in §4.2. 
+
+5 Related Work 
+
+5.1 Directed Acyclic Transformers 
+
+Since the introduction of DAT (Huang et al., 2022b), a number of follow-up works have im-proved its theoretical understanding (Huang et al., 2022a), decoding (Shao et al., 2022), architec-tures (Li et al., 2024, 2025), and training objec-tives (An et al., 2023; Ma et al., 2023). PreDAT (Huang et al., 2023) extends DAT from machine translation to diverse text generation tasks via pre-training, sharing our goal of broadening DAG-based generation beyond translation, yet it remains within the encoder-decoder paradigm. Diff-DAT (Nguyen-Tri et al., 2025), focusing on seq2seq machine translation, shares with our work the idea of extending DAT from single-step to iter-ative generation via a diffusion process. However, both PreDAT and Diff-DAT retain DAT’s position-free DAG, which dilutes the anchoring effect of fixed tokens across denoising steps. Consequently, PreDAT remains a single-step generator, and Diff-DAT reports that iterative decoding degrades be-yond two steps. DA-DLM addresses this limitation with the position-oriented DAG and further departs from the seq2seq paradigm by building on block diffusion (Arriola et al., 2025) in a decoder-only ar-chitecture for general-purpose language modeling. 
+
+5.2 Dependency Modeling in DLMs 
+
+Recent work on the conditional independence limi-tation in DLMs follows two lines. The first retains the factorized predictor and supplements it with an external or static depen-dency source: DCD (Liu et al., 2025) couples the diffusion model’s marginals with an external pre-trained autoregressive model at inference time, and CoDD (Li et al., 2026) augments the output dis-tribution with a static Probabilistic Circuit once trained. Neither condition the dependency informa-tion on the evolving denoising state. The second operates on the decoding side: DE-MASK (Ringel et al., 2026) and DAPD (Kim et al., 2026) estimate pairwise token dependencies and se-lectively unmask only approximately independent subsets at each step. DA-DLM differs from both: its DAG-based tran-sitions are produced by the same backbone con-ditioned on the current denoising state, making dependency modeling dynamic; and rather than avoiding co-prediction of dependent tokens, it ex-plicitly models their joint distribution through path marginalization. 
+
+6 Conclusion 
+
+We presented DA-DLM, which introduces explicit inter-token dependency modeling into diffusion lan-guage models by constructing a position-oriented DAG at each denoising step. By bridging the con-nection between DLMs and NATs, we adapted the DAG-based joint prediction mechanism from DAT to the iterative denoising setting. The key design is the position-oriented DAG, which binds each node group to a fixed output position so that to-kens fixed in earlier steps serve as anchors that reliably guide surrounding predictions—resolving the incompatibility of DAT’s position-free DAG with iterative denoising. Experiments on language modeling, open-ended generation, and summariza-tion show that DA-DLM consistently outperforms the BD3LM baseline, with particularly pronounced gains when fewer denoising steps are used, and achieves competitive performance with autoregres-sive models while retaining the parallel decoding advantage. 
+
+Limitations 
+
+Although DA-DLM can be obtained by up-training from an existing BD3LM checkpoint without train-ing from scratch, our experiments are conducted 9at a relatively small model scale due to compu-tational constraints. The evaluations focus on the traditional DLM benchmarks, conditional log-likelihood, open-ended generation quality, and a single downstream task, but do not yet extend to the broader set of capabilities expected of mod-ern language models, such as mathematical rea-soning or code generation. As larger open-source discrete diffusion models become available (Nie et al., 2025; Bie et al., 2025, 2026), up-training on these checkpoints and evaluating on a wider range of benchmarks would provide a more comprehen-sive validation of the approach. 
+
+Acknowledgments 
+
+This work was supported by the HPC platform of ShanghaiTech University, and the Core Facility Platform of Computer Science and Communica-tion, SIST, ShanghaiTech University. 
+
+References 
+
+Chenxin An, Jiangtao Feng, Fei Huang, Xipeng Qiu, and Lingpeng Kong. 2023. Optimizing non-autoregressive transformers with contrastive learning. 
+
+arXiv preprint arXiv:2305.13667 .Marianne Arriola, Aaron Gokaslan, Justin Chiu, Zhihan Yang, Zhixuan Qi, Jiaqi Han, Subham Sahoo, and Volodymyr Kuleshov. 2025. Block diffusion: Interpo-lating between autoregressive and diffusion language models. In International Conference on Learning Representations , volume 2025, pages 50726–50753. Tiwei Bie, Maosong Cao, Xiang Cao, Bingsen Chen, Fuyuan Chen, Kun Chen, Lun Du, Daozhuo Feng, Haibo Feng, Mingliang Gong, et al. 2026. Llada2. 1: Speeding up text diffusion via token editing. arXiv preprint arXiv:2602.08676 .Tiwei Bie, Maosong Cao, Kun Chen, Lun Du, Min-gliang Gong, Zhuochen Gong, Yanmei Gu, Jiaqi Hu, Zenan Huang, Zhenzhong Lan, et al. 2025. Llada2. 0: Scaling up diffusion language models to 100b. arXiv preprint arXiv:2512.15745 .Ciprian Chelba, Tomas Mikolov, Mike Schuster, Qi Ge, Thorsten Brants, Phillipp Koehn, and Tony Robin-son. 2013. One billion word benchmark for measur-ing progress in statistical language modeling. arXiv preprint arXiv:1312.3005 .Marjan Ghazvininejad, Omer Levy, Yinhan Liu, and Luke Zettlemoyer. 2019. Mask-predict: Parallel de-coding of conditional masked language models. In 
+
+Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing and the 9th International Joint Conference on Natural Lan-guage Processing (EMNLP-IJCNLP) , pages 6112– 6121, Hong Kong, China. Association for Computa-tional Linguistics. Aaron Gokaslan and Vanya Cohen. 2019. Open-webtext corpus. http://Skylion007.github.io/ OpenWebTextCorpus .Jiatao Gu, James Bradbury, Caiming Xiong, Victor OK Li, and Richard Socher. 2018. Non-autoregressive neural machine translation. In International Confer-ence on Learning Representations .Chunsan Hong, Sanghyun Lee, Chieh-Hsin Lai, Satoshi Hayakawa, Yuhta Takida, Yuki Mitsufuji, Seungry-ong Kim, and Jong Chul Ye. 2026. Understanding and accelerating the training of masked diffusion lan-guage models. arXiv preprint arXiv:2605.13026 .Fei Huang, Pei Ke, and Minlie Huang. 2023. Directed acyclic transformer pre-training for high-quality non-autoregressive text generation. Transactions of the Association for Computational Linguistics , 11:941– 959. Fei Huang, Tianhua Tao, Hao Zhou, Lei Li, and Minlie Huang. 2022a. On the learning of non-autoregressive transformers. In International conference on ma-chine learning , pages 9356–9376. PMLR. Fei Huang, Hao Zhou, Yang Liu, Hang Li, and Minlie Huang. 2022b. Directed acyclic transformer for non-autoregressive machine translation. In International Conference on Machine Learning , pages 9410–9428. PMLR. Bumjun Kim, Dongjae Jeon, Moongyu Jeon, and Albert No. 2026. Dapd: Dependency-aware parallel decod-ing via attention for diffusion llms. arXiv preprint arXiv:2603.12996 .Haoran Li, Zhanming Jie, and Wei Lu. 2024. Non-autoregressive machine translation as constrained HMM. In Findings of the Association for Computa-tional Linguistics: ACL 2024 , pages 12361–12372, Bangkok, Thailand. Association for Computational Linguistics. Ian Li, Zilei Shao, Benjie Wang, Rose Yu, Guy Van den Broeck, and Anji Liu. 2026. Breaking the factor-ization barrier in diffusion language models. arXiv preprint arXiv:2603.00045 .Shijie Li, Inigo Jauregi Unanue, and Massimo Piccardi. 2025. DAT-CRF: improving the directed acyclic transformer with CRF integration. In ECAI 2025 ,pages 4313–4320. IOS Press. Chin-Yew Lin and Eduard Hovy. 2003. Automatic evaluation of summaries using n-gram co-occurrence statistics. In Proceedings of the 2003 Human Lan-guage Technology Conference of the North American Chapter of the Association for Computational Lin-guistics , pages 150–157. 
+
+10 Anji Liu, Oliver Broadrick, Mathias Niepert, and Guy Van den Broeck. 2025. Discrete copula diffusion. In 
+
+International Conference on Learning Representa-tions , volume 2025, pages 88953–88979. Zhengrui Ma, Chenze Shao, Shangtong Gui, Min Zhang, and Yang Feng. 2023. Fuzzy alignments in directed acyclic graph for non-autoregressive machine trans-lation. In The Eleventh International Conference on Learning Representations .Ramesh Nallapati, Bowen Zhou, Cicero dos Santos, Ça˘ glar Gu ˙lçehre, and Bing Xiang. 2016. Abstrac-tive text summarization using sequence-to-sequence RNNs and beyond. In Proceedings of the 20th SIGNLL Conference on Computational Natural Lan-guage Learning , pages 280–290, Berlin, Germany. Association for Computational Linguistics. Shashi Narayan, Shay B. Cohen, and Mirella Lapata. 2018. Don’t give me the details, just the summary! topic-aware convolutional neural networks for ex-treme summarization. In Proceedings of the 2018 Conference on Empirical Methods in Natural Lan-guage Processing , pages 1797–1807, Brussels, Bel-gium. Association for Computational Linguistics. Quan Nguyen-Tri, Cong Dao Tran, and Hoang Thanh-Tung. 2025. Diffusion directed acyclic transformer for non-autoregressive machine translation. In Pro-ceedings of the 63rd Annual Meeting of the Associa-tion for Computational Linguistics (Volume 2: Short Papers) , pages 814–828, Vienna, Austria. Associa-tion for Computational Linguistics. Shen Nie, Fengqi Zhu, Zebin You, Xiaolu Zhang, Jingyang Ou, Jun Hu, Jun Zhou, Yankai Lin, Ji-Rong Wen, and Chongxuan LI. 2025. Large language dif-fusion models. In Advances in Neural Information Processing Systems , volume 38, pages 50608–50646. Curran Associates, Inc. Jingyang Ou, Shen Nie, Kaiwen Xue, Fengqi Zhu, Ji-acheng Sun, Zhenguo Li, and Chongxuan Li. 2025. Your absorbing discrete diffusion secretly models the conditional distributions of clean data. In Inter-national Conference on Learning Representations ,volume 2025, pages 64972–65009. Krishna Pillutla, Swabha Swayamdipta, Rowan Zellers, John Thickstun, Sean Welleck, Yejin Choi, and Zaid Harchaoui. 2021. Mauve: Measuring the gap be-tween neural text and human text using divergence frontiers. In Advances in Neural Information Pro-cessing Systems , volume 34, pages 4816–4828. Cur-ran Associates, Inc. Alec Radford, Jeff Wu, Rewon Child, David Luan, Dario Amodei, and Ilya Sutskever. 2019. Language models are unsupervised multitask learners. Liran Ringel, Ameen Ali, and Yaniv Romano. 2026. Dependency-guided parallel decoding in dis-crete diffusion language models. arXiv preprint arXiv:2604.02560 .Subham Sekhar Sahoo, Marianne Arriola, Yair Schiff, Aaron Gokaslan, Edgar Marroquin, Justin T Chiu, Alexander Rush, and Volodymyr Kuleshov. 2024. Simple and effective masked diffusion language mod-els. In Advances in Neural Information Processing Systems , volume 37, pages 130136–130184. Curran Associates, Inc. Chenze Shao, Zhengrui Ma, and Yang Feng. 2022. Viterbi decoding of directed acyclic transformer for non-autoregressive machine translation. In Findings of the Association for Computational Linguistics: EMNLP 2022 , pages 4390–4397, Abu Dhabi, United Arab Emirates. Association for Computational Lin-guistics. Haocheng Sun, Cynthia Xin Wen, and Edward Hong Wang. 2025. Why mask diffusion does not work. 
+
+arXiv preprint arXiv:2510.03289 .Chengyue Wu, Hao Zhang, Shuchen Xue, Zhijian Liu, Shizhe Diao, Ligeng Zhu, Ping Luo, Song Han, and Enze Xie. 2025. Fast-dllm: Training-free accelera-tion of diffusion llm by enabling kv cache and parallel decoding. arXiv preprint arXiv:2505.22618 .Kaiwen Zheng, Yongxin Chen, Hanzi Mao, Ming-Yu Liu, Jun Zhu, and Qinsheng Zhang. 2025. Masked diffusion models are secretly time-agnostic masked models and exploit inaccurate categorical sampling. In International Conference on Learning Representa-tions , volume 2025, pages 63186–63227. 
+
+A Algorithm Details 
+
+Forward algorithm. We recurrently calculate the probability sum of path prefixes that end at candidate k in group i while generating the first 
+
+i target tokens, denoted as fi,k . Since transitions only connect adjacent groups, a path prefix ending at candidate k in group i must come from some candidate j in the preceding group i−1, so fi,k can be obtained from {fi−1,j }Kj=1 . By advancing one group at a time, we obtain the probability sum of all valid paths as PKk=1 fN,k .
+
+Viterbi decoding. Analogous to the forward al-gorithm, we recurrently calculate the maximum joint score of path prefixes ending at candidate k
+
+in group i, denoted gi,k . Since transitions only con-nect adjacent groups, gi,k is obtained by taking the best predecessor from group i−1, with the score incorporating both the transition to vki and the best token prediction at that node. After processing all 
+
+N groups, we backtrack from the highest-scoring candidate in the final group to recover the optimal path, and select tokens by taking argmax at each node along the path. 11 B General Setup 
+
+All models—including the MDLM, BD3LM, and autoregressive (AR) baselines—share a Trans-former backbone with 12 layers, 768 hidden di-mensions, and 12 attention heads, following the architecture of BD3LM (Arriola et al., 2025). Data is tokenized with the GPT-2 tokenizer (Radford et al., 2019) (vocabulary size 50,257). The AR baseline is trained for half the number of steps to match the total number of tokens seen (Sahoo et al., 2024). For diffusion models, training proceeds in two stages: an initial MDLM (Sahoo et al., 2024) phase (850k steps, full-sequence diffusion without block structure) followed by a block-wise up-training phase (150k steps) under varying block sizes. For DA-DLM, the block-wise phase consists of 90k steps of BD3LM training followed by 60k steps of DA-DLM training that introduces the DAG mod-ules (§3), totaling the same 150k up-training bud-get. 
+
+C Open-Ended Generation Setup 
+
+We randomly select validation sequences from OpenWebText, condition on the first 64 tokens as a prompt, and generate the remaining 960 tokens, yielding completions of length 1024. We generate 5,000 samples per configuration and compute the MAUVE score against the reference completions, using GPT-2 Large (Radford et al., 2019) as the em-bedding model. All models employ nucleus sam-pling with p=0 .9. The number of denoising steps per block is varied as follows: {16 , 12 , 8, 6, 4}
+
+for block size 16; {8, 6, 4, 3, 2} for block size 8; 
+
+{4, 3, 2} for block size 4. All diffusion models in our experiments are time-agnostic, i.e., they do not condition on the diffusion timestep (Sahoo et al., 2024; Ou et al., 2025). This allows caching the denoising network’s output when no new tokens are unmasked between consecutive steps, so the effective number of forward passes can be smaller than the nominal number of denoising steps. Raw TPF reflects this reduction in the effective number of forward passes, while the adjusted TPF reported in §4.2 additionally incorporates the measured per-step latency ratios. For the infilling mechanism, we test gap lengths k ∈ { 2, 3} with and without a context ratio r=0 .5.
+
+D LLM-as-a-Judge Evaluation Setup 
+
+We use DeepSeek-V4-Flash with temperature 0 and thinking disabled as the pairwise judge. The evaluation uses the OpenWebText prompts and con-tinuations described in §4.2. For each pair, the model identities are hidden, and the DA-DLM and BD3LM continuations are presented as continua-tions A and B. Each pair is evaluated in both A/B orders to control for position bias. The judge se-lects A, B, or a tie based on continuity with the prompt, coherence and logical flow, fluency and readability, specificity, and the absence of genera-tion artifacts. The prompt and each continuation are capped at 1,200 and 6,000 characters, respec-tively. We use conservative aggregation across the two presentation orders. A win is assigned to a model only when both orders favor that model; all other outcomes are treated as ties. We report DA-DLM’s win rate among non-tied pairs, together with 95% Wilson confidence intervals. 
+
+E Summarization Setup 
+
+Documents and summaries are truncated to 768 and 256 tokens, respectively, and diffusion models are fine-tuned with a batch size of 512 for 5k steps; the AR model is fine-tuned for half the number of steps, consistent with the pre-training configura-tion. Because summarization emphasizes gener-ation accuracy over diversity, we adopt determin-istic or high-confidence decoding strategies. The AR model uses greedy decoding. For BD3LM, we adopt confidence-aware parallel decoding (Wu et al., 2025) with a threshold of 0.9. For DA-DLM, we combine Viterbi path selection with confidence-aware parallel decoding, where the composite con-fidence score (Eq. 7) with w=0 .5 integrates transi-tion information into the remasking decision. We additionally evaluate both diffusion models with the infilling mechanism (§3.3, k=2 , r=0 .5). 
+
+F Detailed Experimental Results 
+
+Training computation alignment. Although BD3LM and DA-DLM share the same 150k-step block-wise up-training budget, DA-DLM’s per-step FLOPs are higher due to the expanded input from the DAG’s candidate nodes. To rule out the possibil-ity that DA-DLM’s gains merely reflect greater to-tal training compute, we compare against BD3LM-300K, a BD3LM variant trained for 300k block-wise up-training steps to match DA-DLM’s total training FLOPs. Table 9 shows that DA-DLM still 12 consistently outperforms BD3LM-300K across all configurations, confirming that the improvements stem from the DAG-based dependency modeling rather than from additional training compute. 13 Denoising Infilling Adj. TPF ↑ MAUVE: Block Size = 16 ↑
+
+BD3LM DA-DLM BD3LM DA-DLM 
+
+FH – 1.00 0.93 0.933 0.960 
+
+FH k = 2 , r = 0 .5 1.54 1.44 0.608 0.846 
+
+FH k = 2 1.78 1.66 0.385 0.779 
+
+FH k = 3 , r = 0 .5 1.66 1.55 0.237 0.652 
+
+T = 16 – 1.55 1.44 0.535 0.786 
+
+T = 16 k = 2 , r = 0 .5 1.99 1.85 0.168 0.567 
+
+T = 16 k = 2 1.94 1.81 0.115 0.495 
+
+T = 16 k = 3 , r = 0 .5 2.18 2.03 0.083 0.377 
+
+T = 12 – 1.78 1.66 0.335 0.653 
+
+T = 12 k = 2 , r = 0 .5 2.21 2.06 0.112 0.434 
+
+T = 12 k = 2 2.18 2.03 0.069 0.358 
+
+T = 12 k = 3 , r = 0 .5 2.42 2.26 0.050 0.284 
+
+T = 8 – 2.27 2.12 0.105 0.367 
+
+T = 6 – 2.82 2.63 0.039 0.152 
+
+T = 4 – 4.04 3.77 0.012 0.036 
+
+Table 6: MAUVE–adjusted TPF comparison between BD3LM and DA-DLM on OpenWebText generation with block size 16. The BD3LM column reports raw TPF, while the DA-DLM column reports latency-adjusted TPF (Adj. TPF) calibrated using the measured per-step latency ratio (§4.4). Boldface denotes the higher MAUVE score under the same decoding strategy. Here T denotes the number of denoising steps, k denotes the infill gap length, and r
+
+denotes the context ratio. MAUVE for the AR model is 0.981 , for reference. 
+
+Denoising Infilling Adj. TPF ↑ MAUVE: Block Size = 8 ↑
+
+BD3LM DA-DLM BD3LM DA-DLM 
+
+FH – 1.00 0.95 0.942 0.960 
+
+FH k = 2 , r = 0 .5 1.44 1.36 0.670 0.878 
+
+FH k = 2 1.62 1.54 0.392 0.801 
+
+FH k = 3 , r = 0 .5 1.51 1.43 0.396 0.776 
+
+T = 8 – 1.52 1.44 0.219 0.578 
+
+T = 8 k = 2 , r = 0 .5 1.80 1.71 0.102 0.407 
+
+T = 8 k = 2 1.80 1.71 0.056 0.343 
+
+T = 8 k = 3 , r = 0 .5 1.88 1.78 0.061 0.349 
+
+T = 6 – 1.74 1.65 0.072 0.341 
+
+T = 6 k = 2 , r = 0 .5 1.99 1.89 0.045 0.242 
+
+T = 6 k = 2 2.00 1.90 0.038 0.185 
+
+T = 6 k = 3 , r = 0 .5 2.06 1.95 0.035 0.178 
+
+T = 4 – 2.22 2.10 0.019 0.090 
+
+T = 3 – 2.77 2.63 0.010 0.023 
+
+T = 2 – 4.02 3.81 0.006 0.010 
+
+Table 7: MAUVE–adjusted TPF comparison between BD3LM and DA-DLM on OpenWebText generation with block size 8. The BD3LM column reports raw TPF, while the DA-DLM column reports latency-adjusted TPF (Adj. TPF) calibrated using the measured per-step latency ratio (§4.4). Boldface denotes the higher MAUVE score under the same decoding strategy. Here T denotes the number of denoising steps, k denotes the infill gap length, and r
+
+denotes the context ratio. MAUVE for the AR model is 0.981 , for reference. 
+
+14 Denoising Infilling Adj. TPF ↑ MAUVE: Block Size = 4 ↑
+
+BD3LM DA-DLM BD3LM DA-DLM 
+
+FH – 1.00 0.95 0.965 0.979 
+
+FH k = 2 , r = 0 .5 1.26 1.20 0.840 0.960 
+
+FH k = 2 1.41 1.35 0.621 0.913 
+
+FH k = 3 1.55 1.48 0.129 0.653 
+
+T = 4 – 1.46 1.39 0.058 0.436 
+
+T = 4 k = 2 , r = 0 .5 1.54 1.47 0.053 0.405 
+
+T = 4 k = 2 1.57 1.50 0.040 0.364 
+
+T = 4 k = 3 1.64 1.57 0.026 0.234 
+
+T = 3 – 1.66 1.59 0.024 0.171 
+
+T = 3 k = 2 , r = 0 .5 1.71 1.63 0.022 0.142 
+
+T = 3 k = 2 1.73 1.65 0.024 0.130 
+
+T = 3 k = 3 1.79 1.71 0.017 0.092 
+
+T = 2 – 2.13 2.03 0.010 0.031 
+
+Table 8: MAUVE–adjusted TPF comparison between BD3LM and DA-DLM on OpenWebText generation with block size 4. The BD3LM column reports raw TPF, while the DA-DLM column reports latency-adjusted TPF (Adj. TPF) calibrated using the measured per-step latency ratio (§4.4). Boldface denotes the higher MAUVE score under the same decoding strategy. Here T denotes the number of denoising steps, k denotes the infill gap length, and r
+
+denotes the context ratio. MAUVE for the AR model is 0.981 , for reference. 
+
+Denoising Infilling Adj. TPF ↑ MAUVE: Block Size = 16 ↑
+
+BD3LM-300K DA-DLM BD3LM-300K DA-DLM 
+
+FH – 1.00 0.93 0.927 0.960 
+
+FH k = 2 , r = 0 .5 1.54 1.44 0.558 0.846 
+
+FH k = 2 1.78 1.66 0.382 0.779 
+
+FH k = 3 , r = 0 .5 1.66 1.55 0.264 0.652 
+
+T = 16 – 1.55 1.44 0.511 0.786 
+
+T = 16 k = 2 , r = 0 .5 1.99 1.85 0.184 0.567 
+
+T = 16 k = 2 1.94 1.81 0.107 0.495 
+
+T = 16 k = 3 , r = 0 .5 2.18 2.03 0.098 0.377 
+
+T = 12 – 1.78 1.66 0.325 0.653 
+
+T = 12 k = 2 , r = 0 .5 2.21 2.06 0.124 0.434 
+
+T = 12 k = 2 2.18 2.03 0.076 0.358 
+
+T = 12 k = 3 , r = 0 .5 2.42 2.26 0.058 0.284 
+
+T = 8 – 2.27 2.12 0.091 0.367 
+
+T = 6 – 2.82 2.63 0.034 0.152 
+
+T = 4 – 4.04 3.77 0.011 0.036 
+
+Table 9: MAUVE–adjusted TPF comparison between BD3LM-300K and DA-DLM on OpenWebText generation with block size 16. The BD3LM column reports raw TPF, while the DA-DLM column reports latency-adjusted TPF (Adj. TPF) calibrated using the measured per-step latency ratio (§4.4). Boldface denotes the higher MAUVE score under the same decoding strategy. Here T denotes the number of denoising steps, k denotes the infill gap length, and r denotes the context ratio. MAUVE for the AR model is 0.981 , for reference. 
+
+15 Denoising Infilling LLM-as-a-Judge: Block Size = 16 DA-DLM Win Rate (%) ↑ 95% CI (%) 
+
+FH – 52.39 [50.31, 54.47] FH k = 2 , r = 0 .5 63.56 [61.48, 65.59] FH k = 2 69.40 [67.45, 71.29] FH k = 3 , r = 0 .5 71.06 [69.04, 72.99] 
+
+T = 16 – 65.38 [63.33, 67.37] 
+
+T = 16 k = 2 , r = 0 .5 73.48 [71.53, 75.35] 
+
+T = 16 k = 2 76.47 [74.58, 78.26] 
+
+T = 16 k = 3 , r = 0 .5 74.94 [72.98, 76.80] 
+
+T = 12 – 68.85 [66.83, 70.81] 
+
+T = 12 k = 2 , r = 0 .5 72.45 [70.45, 74.36] 
+
+T = 12 k = 2 76.96 [75.07, 78.75] 
+
+T = 12 k = 3 , r = 0 .5 75.59 [73.59, 77.47] 
+
+T = 8 – 72.07 [70.01, 74.04] 
+
+T = 6 – 73.31 [71.20, 75.32] 
+
+T = 4 – 74.02 [71.66, 76.25]       
+
+> Table 10: LLM-as-a-judge comparison between DA-DLM and BD3LM on OpenWebText generation with block size 16. Here Tdenotes the number of denoising steps, kdenotes the infill gap length, and rdenotes the context ratio. DA-DLM win rates are computed among non-tied pairs, and the reported confidence intervals (CIs) are 95% Wilson intervals.
+
+Denoising Infilling LLM-as-a-Judge: Block Size = 8 DA-DLM Win Rate (%) ↑ 95% CI (%) 
+
+FH – 53.54 [51.56, 55.52] FH k = 2 , r = 0 .5 66.36 [64.41, 68.26] FH k = 2 69.55 [67.61, 71.43] FH k = 3 , r = 0 .5 69.74 [67.80, 71.61] 
+
+T = 8 – 71.70 [69.70, 73.62] 
+
+T = 8 k = 2 , r = 0 .5 76.10 [74.18, 77.92] 
+
+T = 8 k = 2 78.40 [76.54, 80.15] 
+
+T = 8 k = 3 , r = 0 .5 78.94 [77.07, 80.70] 
+
+T = 6 – 76.33 [74.38, 78.18] 
+
+T = 6 k = 2 , r = 0 .5 77.28 [75.32, 79.13] 
+
+T = 6 k = 2 81.32 [79.48, 83.04] 
+
+T = 6 k = 3 , r = 0 .5 78.92 [76.97, 80.73] 
+
+T = 4 – 76.68 [74.58, 78.66] 
+
+T = 3 – 77.21 [74.83, 79.42] 
+
+T = 2 – 72.06 [68.92, 75.00]       
+
+> Table 11: LLM-as-a-judge comparison between DA-DLM and BD3LM on OpenWebText generation with block size 8. Here Tdenotes the number of denoising steps, kdenotes the infill gap length, and rdenotes the context ratio. DA-DLM win rates are computed among non-tied pairs, and the reported confidence intervals (CIs) are 95% Wilson intervals.
+
+16 Denoising Infilling LLM-as-a-Judge: Block Size = 4 DA-DLM Win Rate (%) ↑ 95% CI (%) 
+
+FH – 55.57 [53.55, 57.57] FH k = 2 , r = 0 .5 66.91 [64.98, 68.77] FH k = 2 70.33 [68.44, 72.17] FH k = 3 80.73 [79.08, 82.28] 
+
+T = 4 – 84.02 [82.42, 85.49] 
+
+T = 4 k = 2 , r = 0 .5 86.52 [85.02, 87.89] 
+
+T = 4 k = 2 88.77 [87.38, 90.03] 
+
+T = 4 k = 3 88.63 [87.21, 89.91] 
+
+T = 3 – 86.91 [85.34, 88.33] 
+
+T = 3 k = 2 , r = 0 .5 86.49 [84.90, 87.93] 
+
+T = 3 k = 2 87.27 [85.70, 88.68] 
+
+T = 3 k = 3 88.40 [86.90, 89.76] 
+
+T = 2 – 87.45 [85.63, 89.06]       
+
+> Table 12: LLM-as-a-judge comparison between DA-DLM and BD3LM on OpenWebText generation with block size 4. Here Tdenotes the number of denoising steps, kdenotes the infill gap length, and rdenotes the context ratio. DA-DLM win rates are computed among non-tied pairs, and the reported confidence intervals (CIs) are 95% Wilson intervals.
+
+17
