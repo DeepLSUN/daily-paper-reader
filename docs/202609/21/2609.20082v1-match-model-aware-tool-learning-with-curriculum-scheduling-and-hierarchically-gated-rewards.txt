@@ -1,0 +1,543 @@
+Title: MATCH: Model-Aware Tool Learning with Curriculum Scheduling and Hierarchically Gated Rewards
+
+URL Source: https://arxiv.org/pdf/2609.20082v1
+
+Published Time: Fri, 18 Sep 2026 01:04:22 GMT
+
+Number of Pages: 9
+
+Markdown Content:
+2026-09-18 
+
+# MATCH: Model-Aware Tool Learning with Curriculum Scheduling and Hierarchically Gated Rewards 
+
+## Shihao Liu 1,3∗, Hao Yin 2,3∗, Lijun Liu 3†, Zhengzong Chen 3†, Yuanyuan Zhao 3, Fei Huang 31School of Cyber Security, University of the Chinese Academy of Sciences 
+
+2University of the Chinese Academy of Sciences 
+
+3Honor Device Co., Ltd 
+
+Correspondence: {liulijun3, chenzhengzong}@honor.com 
+
+Abstract 
+
+Tool learning enables large language models (LLMs) to use external tools for tasks beyond parametric knowl-edge. Reinforcement learning can optimize tool-call be-havior from feedback, but current methods still face two problems: fixed-threshold curricula can become mis-aligned with the policy’s evolving capability bound-ary, and additive rewards can leak argument-level credit when the predicted tool is wrong. To address these prob-lems, we propose MATCH , a closed-loop framework for model-aware tool learning with curriculum scheduling and hierarchically gated rewards. Model-Aware Cur-riculum Learning (MACL) maintains reward-derived sample difficulty that co-evolves with the policy, and each epoch selects samples near the current capability boundary together with a top-k pool of harder cases. 
+
+Hierarchical Tool-call Gated Reward (HTGR) scores tool name, argument key, and argument value as a gated chain, granting credit at each level only when prerequi-sites hold. The same HTGR rewards drive both GRPO updates and MACL’s difficulty refresh, closing the loop between policy optimization and sample scheduling. On API-Bank and BFCL V3, MATCH reaches 72.19% and 62.87% overall accuracy, outperforming the main super-vised and RL-based baselines. Backbone experiments further show consistent improvements across four back-bones from two model families. 
+
+## Introduction 
+
+Large language models (LLMs) have made substan-tial progress in reasoning, yet many real-world tasks require information and operations beyond their para-metric knowledge (Yao et al. 2023; Schick et al. 2023; Qin et al. 2024a). Tool learning addresses this gap by teaching LLMs to invoke external tools during problem solving (Figure 1(a)). Early methods rely on prompting or supervised fine-tuning over offline trajectories (Chen et al. 2023; Qin et al. 2024b; Zhang et al. 2024), which imitate observed behavior but do not directly optimize tool-call outcomes. Reinforcement learning instead op-timizes the policy directly from execution feedback (Jin et al. 2025; Li, Zou, and Liu 2025; Zhang et al. 2025). Early work on RL-based tool learning centers on reward design for generated tool calls. Outcome-level 
+
+> ∗
+
+Work done during internship at Honor Device Co., Ltd 
+
+> †
+
+Corresponding authors. • User Query ：           
+
+> What’s the weather in Paris tomorrow?
+> •Historical Dialogue
+> •Tool Description
+> •Output Format
+> •……
+> a) Tool-call
+> execution Final answer
+> <think>……</think>
+> <tool_call> {"name": "get_weather", "arguments": { "location": "Paris", "date": "2026-05-24" }}</tool_call>
+> Sampling
+> Tool Name
+> Arg Keys
+> Arg Values
+> Reward:
+> 𝑅 𝑛𝑎𝑚𝑒 +𝑅 𝐾𝑒𝑦𝑠 +𝑅 𝑉𝑎𝑙𝑢𝑒
+> Tool Name
+> Arg Keys
+> Arg Values
+> Reward:
+> 𝑅 𝑛𝑎𝑚𝑒 +𝑅 𝐾𝑒𝑦𝑠 +𝑅 𝑉𝑎𝑙𝑢𝑒
+> b) Existing Methods
+> c) MATCH
+> easy hard Slides
+> easy hard
+> Sampling
+> Drift out
+> Curriculum
+> Batch
+> Curriculum
+> Batch
+> 𝟙 [name]=1
+> 𝟙 [keys]=0
+
+Figure 1: Motivation for MATCH. (a) A typical Tool-call rollout. (b) Existing RL-based tool learning, with additive reward (left) and fixed curriculum band (right). 
+
+(c) MATCH, with HTGR (left) and MACL adaptive band (right). rewards provide only sparse success signals (Zhang et al. 2025), while fine-grained rewards decompose cor-rectness along tool-name, argument-key, and argument-value dimensions to give denser feedback (Qian et al. 2025; Zeng et al. 2025a). More recent work extends re-ward signals into sample scheduling, with ToolSample turning reward statistics into a dynamic curriculum that prioritizes informative samples (Feng et al. 2025). How-ever, current methods still face two problems. Existing rewards ignore the dependency structure of tool execu-tion, and existing curricula rely on fixed thresholds that 1arXiv:2609.20082v1 [cs.LG] 17 Sep 2026 0 2 4 6 8 10 12 14 
+
+> Training epoch
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Sample difficulty
+> Fixed selection band MACL adaptive band Picked by fixed only Picked by MACL only Picked by both Picked by neither
+
+Figure 2: Sample-difficulty dynamics on a fixed dataset. The bulk descends as the policy improves. A fixed band (pink) drifts off the informative region after a few epochs, while an adaptive band (green) tracking the mov-ing mean stays aligned. do not adapt to the policy. Fixed thresholds implicitly assume that sample diffi-culty is static, but reward-derived difficulty depends on the current policy and evolves with training. Figure 2 traces sample difficulty across 14 training epochs on a fixed dataset. As the policy improves, the bulk of the dif-ficulty distribution descends below the static selection band, whereas an adaptive band sliding with the moving mean remains aligned throughout training. Proximal cur-riculum theory argues that effective scheduling should follow the model’s current capability boundary (Tzan-netos et al. 2023), which requires difficulty estimates that co-evolve with the policy. Fine-grained rewards typically aggregate component scores additively across tool name, argument key, and argument value. Such additive aggregation ignores the dependency structure of tool execution, since argument-level correctness has no semantic meaning when the tool name is wrong. Figure 1(b, left) illustrates the resulting leakage, where a wrong tool name can still earn substan-tial reward when its arguments coincidentally match the reference. A prerequisite-aware reward design avoids the leakage by conditioning argument credit on correct tool selection. To address both gaps, we propose MATCH (Model-Aware Tool Learning with Curriculum Scheduling and Hierarchically Gated Rewards; Figure 1(c)), a closed-loop framework for RL-based tool learning. Its Model-Aware Curriculum Learning (MACL) component ad-dresses the scheduling gap by maintaining reward-derived difficulty estimates that co-evolve with the pol-icy, selecting samples around the current capability boundary while also drawing harder cases to expand it outward. Its Hierarchical Tool-call Gated Reward (HTGR) component addresses the reward gap by scoring tool-call components hierarchically across tool name, ar-gument key, and argument value, granting credit at each level only when all earlier levels are correct, provid-ing denser feedback than binary rewards while avoiding the spurious credit produced by additive aggregation. The two components form a closed loop, where HTGR produces reward signals used to update the policy and MACL converts the same signals into difficulty esti-mates that drive sample selection in the next iteration. Experiments on API-Bank and BFCL V3 show that MATCH outperforms supervised fine-tuning, the binary Tool-N1 baseline, ToolRL, and ToolSample. Ablations confirm complementary gains from MACL and HTGR. The same findings hold across four backbones spanning two families. Our main contributions are summarized as follows: 
+
+• We identify two gaps in RL-based tool learning, namely a scheduling gap from fixed difficulty thresh-olds and a reward gap from additive credit aggrega-tion. 
+
+• We propose Model-Aware Curriculum Learning (MACL), which schedules samples around the pol-icy’s current capability boundary using reward-derived difficulty estimates. 
+
+• We propose a Hierarchical Tool-call Gated Reward (HTGR), which grants credit across tool name, argu-ment key, and argument value only when all earlier levels are correct. 
+
+• We empirically validate the effectiveness and gener-alization of MATCH through extensive experiments and ablations. 
+
+## Related Work 
+
+Tool Learning with Reinforcement Learning 
+
+Early tool learning methods rely on prompting or super-vised fine-tuning over tool-use trajectories (Yao et al. 2023; Schick et al. 2023; Patil et al. 2023; Qin et al. 2024b; Zhang et al. 2024). Such static imitation gener-alizes poorly to unseen tools and unfamiliar argument structures (Zhang et al. 2025; Zeng et al. 2025a). Re-inforcement learning instead optimizes the policy from tool-execution feedback, and has been applied to search-based reasoning, tool-integrated mathematical reason-ing, deep research agents, and multi-turn interaction (Jin et al. 2025; Li, Zou, and Liu 2025; Zheng et al. 2025; Ding et al. 2025). The effectiveness of RL hinges on the reward sig-nal, and recent tool-learning rewards diverge along three axes. The first axis is the granularity of correctness de-composition. Tool-N1 keeps the reward binary at the outcome level (Zhang et al. 2025), ToolRL decom-poses correctness additively along tool-name, argument-key, and argument-value dimensions (Qian et al. 2025), Tool-Zero adapts the strictness of this decomposition across training stages (Zeng et al. 2025a), and StepTool moves the unit of decomposition from components to interaction steps by combining call-success and step-contribution scores (Yu et al. 2025b). The second axis extends the reward with auxiliary objectives, such as the call-efficiency penalty in OTC-PO (Wang et al. 2025) and the mixed correctness, format, and tool-misuse sig-nal in AutoTIR (Wei et al. 2025). The third axis moves 2shaping out of the reward and into advantage shaping for tool-integrated reasoning (Lin and Xu 2025). Process-level supervision in general reasoning shares the same motivation of denser intermediate signals (Lightman et al. 2023). 
+
+Curriculum Learning and Dynamic Sampling for RL 
+
+Curriculum learning organizes training examples by dif-ficulty, following the intuition that models learn most ef-fectively from tasks near their current capability bound-ary (Bengio et al. 2009). Subsequent work develops this principle through competence-based and proximal cur-ricula (Platanios et al. 2019; Tzannetos et al. 2023), drawing on the zone of proximal development (Vygot-sky 1978). Dynamic sampling extends the idea to RL by filtering or prioritizing rollouts for training efficiency and stability. Online difficulty filtering removes overly easy or difficult samples to keep training within the infor-mative regime (Bae et al. 2025), and DAPO integrates dynamic sampling into policy optimization to address scaling challenges in RL (Yu et al. 2025a). For tool learning, iTool combines a fixed easy-to-hard warm-up curriculum with iterative MCTS-based preference optimization, treating sample difficulty as a pre-defined attribute fixed before training (Zeng et al. 2025b). ToolSample combines reward mean and vari-ance under manually set thresholds to identify infor-mative samples, but the thresholds stay constant while the policy improves, so the selected band drifts off the informative region (Feng et al. 2025). 
+
+## Preliminaries 
+
+Task formulation. Let D = xi|D|  
+
+> i=1
+
+denote the train-ing set, where each sample xi = ( qi, Zi, Gi) consists of a user query qi, a set of available tools Zi, and a reference tool-call sequence Gi. Each tool is defined by its name, natural-language description, and parameter schema. Given qi and Zi, the policy samples a response 
+
+yi ∼ πθ (· | qi, Zi). We then parse the tool-call block in 
+
+yi into a predicted tool-call sequence Pi = parse( yi),which is compared with the reference sequence Gi for evaluation. 
+
+## Method 
+
+Method Overview 
+
+MATCH jointly addresses the selection of samples for policy optimization and the evaluation of generated tool calls in reinforcement learning for tool use. As illustrated in Figure 3, MACL selects training samples according to the policy’s evolving capability boundary, while HTGR provides hierarchically gated rewards for the sampled responses. GRPO optimizes the policy using these re-wards, which are subsequently fed back to MACL to update sample difficulty, forming a closed training loop. 
+
+Model-Aware Curriculum Learning 
+
+MACL replaces a fixed easy-to-hard schedule with one that tracks the policy’s evolving capability boundary. It initializes sample difficulty from offline rollouts of the initial policy, refreshes the estimates online with HTGR reward feedback, and at each epoch selects a boundary band around the current mean difficulty together with a top-k pool of harder cases, which keeps updates near it while expanding it outward. 
+
+Offline difficulty initialization. For each xi, we run 
+
+N stochastic rollouts of the initial policy and let c(j) 
+
+> i
+
+∈{0, 1} indicate whether the j-th rollout exactly matches the reference tool-call sequence on both tool identities and argument dictionaries. The rollout accuracy is 
+
+αi = 1
+
+N
+
+> N
+
+X
+
+> j=1
+
+c(j) 
+
+> i
+
+. (1) We set the initial smoothed reward ˆR(−1)  
+
+> i
+
+= αi and the initial difficulty d(0)  
+
+> i
+
+= 1 − ˆR(−1)  
+
+> i
+
+. We use exact-match success rather than an HTGR-graded score here because the pre-RL policy is not yet aligned with the HTGR signal; the subsequent online updates refine the estimate. 
+
+Online difficulty refresh. For each xi ∈ S t at epoch 
+
+t, the M GRPO rollout rewards constitute the group 
+
+R(t) 
+
+> i
+
+= {R(t)
+
+> i, 1
+
+, . . . , R (t) 
+
+> i,M
+
+}, ¯R(t) 
+
+> i
+
+= 1
+
+M
+
+> M
+
+X
+
+> j=1
+
+R(t) 
+
+> i,j
+
+. (2) We normalize the mean to [0 , 1] ,
+
+˜R(t) 
+
+> i
+
+= clip ¯R(t) 
+
+> i
+
+− Rmin 
+
+Rmax − Rmin + εnorm 
+
+, 0, 1
+
+!
+
+, (3) where Rmin , R max are the HTGR-induced reward bounds and εnorm a small constant. An exponential mov-ing average reduces rollout-induced variance in the dif-ficulty estimate, 
+
+ˆR(t) 
+
+> i
+
+= η ˆR(t−1)  
+
+> i
+
++ (1 − η) ˜R(t) 
+
+> i
+
+, (4) and the next-epoch difficulty is d(t+1)  
+
+> i
+
+= 1 − ˆR(t) 
+
+> i
+
+. For unselected samples, ˆR(t) 
+
+> i
+
+= ˆR(t−1)  
+
+> i
+
+.
+
+Curriculum sample selection. At epoch t, the mean difficulty 
+
+μt = 1
+
+|D| 
+
+> |D|
+
+X
+
+> i=1
+
+d(t) 
+
+> i
+
+(5) is taken as the current estimate of the capability bound-ary. The boundary band and above-mean pool are 
+
+Bt = {xi ∈ D : |d(t) 
+
+> i
+
+− μt| ≤ ϵband }, (6) 
+
+C+ 
+
+> t
+
+= {xi ∈ D \ B t : d(t) 
+
+> i
+
+> μ t}, (7) where ϵband sets the band width. The hard subset is selected by top-k sampling over the pool, 
+
+Ht = TopK kt (C+ 
+
+> t
+
+; d(t) 
+
+> i
+
+), kt = rhard |C + 
+
+> t
+
+| , (8) where rhard ∈ [0 , 1] is held fixed across epochs. The training subset is St = Bt ∪ H t.3Model-Aware Curriculum Learning(MACL)  
+
+> Full train Datasets
+> Offline Difficulty Initialization
+> Rollout
+> …
+> Initial Difficulty
+
+𝑑 𝑖 (0)            
+
+> Online difficulty update
+> Capability Boundary Sampling
+> GRPO Optimization Hierarchical Tool-Call Gated Reward(HTGR)
+> easy
+> hard
+> Mean
+> TopK
+> Curriculum
+> Batch
+> Tool Name
+> Argument Keys
+> Argument Values
+> 𝑤 𝑛
+> 𝑅 𝑇𝑜𝑜𝑙 : 0
+> 𝑅 𝑇𝑜𝑜𝑙 :𝑤 𝑛
+> 𝑤 𝑘
+> 𝑤 𝜃
+> 𝑅 𝑇𝑜𝑜𝑙 :𝑤 𝑛 +𝑤 𝑘
+> 𝑅 𝑇𝑜𝑜𝑙 :𝑤 𝑛 +𝑤 𝑘 +𝑤 𝜃
+> Tool-Call Output
+> Format
+> Check
+> Tool
+> Check
+> Reward = 𝜆 × 𝑅 𝑓𝑚𝑡 +𝑅 𝑇𝑜𝑜𝑙
+> Rollout
+> GRPO
+> Update
+> Updated
+> Policy
+> Policy
+> Model
+> easy
+> hard medium
+> medium
+> easy
+
+Figure 3: Overview of MATCH. MACL (left) estimates sample difficulty and selects a curriculum batch near the policy’s capability boundary, supplemented with harder samples. GRPO (middle) updates the policy on the selected batch using HTGR rewards. HTGR (right) evaluates output format and tool-call correctness through hierarchical gating, while its rewards refresh sample difficulty for subsequent curriculum selection. 
+
+Hierarchical Tool-call Gated Reward 
+
+Composite reward and format validity. For tool-call samples, HTGR converts each generated response into a scalar reward for both GRPO optimization and MACL difficulty updates. We decompose the reward into an auxiliary format term and a tool-call gating term, 
+
+R(x, y ) = λR fmt (x, y ) + Rtool (x, y ), (9) where Rfmt checks whether the response follows the required tag structure and Rtool evaluates the correctness of the generated tool calls. Let ϕfmt (x, y ) denote the event that y satisfies the tag constraints required by x.The format reward is 
+
+Rfmt (x, y ) = 
+
+1, ϕfmt (x, y ),
+
+−1, ¬ϕfmt (x, y ). (10) We use a small fixed λ so that format validity contributes only an auxiliary signal while tool-call correctness re-mains the primary reward. We restrict RL optimization to tool-call samples and exclude direct-response samples from policy updates. 
+
+Hierarchical tool-call consistency. HTGR enforces tool-name gating. Argument-key and argument-value checks are evaluated only for predictions with the cor-rect tool name. A purely binary reward is sparse during RL optimization, while an ungated additive reward suf-fers from the credit leakage illustrated in Figure 1(b), where arguments attached to an incorrect tool still earn partial reward. HTGR therefore uses a dense but tool-name-gated score. After canonical JSON parsing and ar-gument normalization inside the <tool_call> block, let the reference and predicted tool-call sequences be 
+
+G = ( g1, . . . , g mref ), P = ( p1, . . . , p mpred ). (11) For a reference call gi and a predicted call pj , let ni and 
+
+ˆnj denote their tool names, ki and ˆkj their argument-key sets, and θi and ˆθj their argument dictionaries. The pairwise tool-call consistency score is 
+
+s(gi, p j ) = 
+
+wn + ∆ k(i, j ) + ∆ θ (i, j ), ni = ˆ nj ,
+
+0, ni̸ = ˆ nj ,
+
+(12) where the argument-key increment is 
+
+∆k(i, j ) = 
+
+(
+
+wk, ki = ˆkj ,
+
+0, ki̸ = ˆkj , (13) and the argument-value increment is 
+
+∆θ (i, j ) = 
+
+(
+
+wθ , ki = ˆkj and θi = ˆθj ,
+
+0, otherwise . (14) For multi-call outputs, we greedily match each ref-erence call gi in order to the unused same-tool pre-diction with the highest pairwise score. Let Ui−1 be the used prediction indices before matching gi, and let 
+
+Ci = {j : j / ∈ Ui−1, n i = ˆ nj }. The selected score is 
+
+ri =
+
+max j∈Ci s(gi, p j ), Ci̸ = ∅,
+
+0, Ci = ∅. (15) When Ci̸ = ∅, we add the maximizing prediction to the used set. The sequence-level tool-call reward is 
+
+Rtool (x, y ) = 1max( mref , 1) 
+
+> mref
+
+X
+
+> i=1
+
+ri. (16) Unmatched predicted calls receive no positive credit and no additional penalty. If a required tool-call block is missing, we assign a fixed negative penalty to Rtool .
+
+Policy Update 
+
+At each epoch, MATCH applies standard GRPO (Shao et al. 2024) to the curriculum subset St selected by MACL, without modifying the original objective. For each prompt xi ∈ S t, we sample M responses from the old policy, score them with HTGR, and compute group-normalized advantages. We update the policy with the 4clipped GRPO surrogate and apply actor-side KL reg-ularization against a reference policy, keeping the KL term outside the HTGR reward. The same reward group updates MACL’s online sample difficulty for the next epoch. 
+
+## Experiments 
+
+We organize the experiments around five research ques-tions. RQ1. How does MATCH compare with existing tool-learning baselines? RQ2. How do the components and design choices of MATCH affect its performance? 
+
+RQ3. How sensitive is MATCH to key hyperparame-ters? RQ4. Which curriculum sampling strategy works best? RQ5. Does MATCH provide consistent gains over raw and RL-trained baselines across different backbone models? 
+
+Experimental Settings 
+
+Training datasets and benchmarks. We use the same 4,000 training set as ToolRL (Qian et al. 2025), consist-ing of 2,000 ToolACE examples, 1,000 Hammer ex-amples with masked function names, and 1,000 xLAM examples. We evaluate on API-Bank (Li et al. 2023) and BFCL V3 (Patil et al. 2023), which cover tool-call cor-rectness, live execution, relevance detection, and multi-turn tool use. 
+
+Implementation details. Unless otherwise stated, we use Qwen2.5-7B-Instruct as the backbone. We train MATCH with GRPO in veRL (Sheng et al. 2025) us-ing 4 NVIDIA A800 GPUs. Following ToolRL, we de-compose multi-step trajectories into single-step training instances while retaining prior dialogue history in the prompt. Training uses M = 4 responses per prompt, 15 epochs, a batch size of 512, and a sampling temperature of 0.7. Actor-side KL regularization uses βKL = 0 .001 
+
+with the low-variance KL estimator. 
+
+Baselines. All main training baselines use Qwen2.5-7B-Instruct and draw their training examples from the same ToolRL dataset. Raw denotes the backbone without additional task-specific training. SFT400 and 
+
+SFT4k use supervised fine-tuning on 400 and 4,000 examples, respectively, while SFT400+GRPO applies GRPO after the 400-example supervised cold start. We further compare with the RL-based baselines Tool-N1 (Zhang et al. 2025), ToolRL (Qian et al. 2025), and 
+
+ToolSample (Feng et al. 2025). The additional closed-and open-source models in the upper block of Table 1 are included as reference results only and are excluded from best/second-best annotations. 
+
+Main Results (RQ1) 
+
+Table 1 reports results on API-Bank and BFCL V3, comparing MATCH with the raw backbone, supervised fine-tuning variants, and RL-based baselines. The upper block lists additional models for reference. ToolSample is the strongest competing baseline on both benchmarks. MATCH outperforms it by 7.20 percentage points on API-Bank and 2.62 percentage points on BFCL V3 and therefore achieves the highest overall accuracy among the main training baselines. On API-Bank, MATCH reaches 72.19% overall ac-curacy. Relative to ToolSample, it improves L1 by 3.26 percentage points, matches its 65.67% accuracy on L2, and improves L3 by 22.91 percentage points. The largest gain is therefore observed on L3. On BFCL V3, MATCH reaches 62.87% overall accu-racy. Compared with ToolSample, it improves Non-Live AST, Live, Multi Turn, and irrelevance detection by 2.19, 0.54, 4.13, and 1.95 percentage points, respectively, while matching its 83.33% accuracy on relevance de-tection. Thus, MATCH improves four of the five BFCL V3 categories relative to ToolSample, with the largest category-level gain occurring on Multi Turn. 
+
+Ablation and Component Analysis (RQ2) 
+
+Main ablation. Table 2 assesses MACL and HTGR by removing either or both components while keeping the backbone, training set, and all other training settings fixed. Without MACL, training uses the full dataset in every epoch. Without HTGR, MACL remains active, but the HTGR reward is replaced by either a binary cor-rectness reward or ToolRL’s additive reward. The joint ablations combine full-data training with each replace-ment reward. On API-Bank, removing MACL reduces overall accu-racy from 72.19% to 66.67%, with the largest decrease occurring on L3. Replacing HTGR with the binary or ToolRL reward reduces overall accuracy to 64.82% and 65.33%, respectively. Removing both components fur-ther lowers accuracy to 60.47% with the binary reward and 64.32% with the ToolRL reward. On BFCL V3, the single-component ablations reduce overall accuracy by 2.82–5.49 percentage points, while the joint ablations yield reductions of 5.14–8.96 percentage points. These results show that both MACL and HTGR contribute to performance across the two benchmarks. 
+
+Difficulty initialization. On API-Bank, we compare base-policy rollout initialization with constant and ran-dom initialization while keeping subsequent online up-dates and all other settings fixed. The rollout variant es-timates d(0)  
+
+> i
+
+from N = 128 zero-shot rollouts, whereas the alternatives set d(0)  
+
+> i
+
+= 0 .5 or sample it independently from U(0 , 1) . As shown in Table 3, rollout initialization performs best overall, with its largest advantage on L3. This suggests that policy-aligned initialization provides a more informative starting curriculum and that its in-fluence is not fully eliminated by online updates. 
+
+HTGR reward hierarchy. On API-Bank, we com-pare three cumulative HTGR configurations by setting inactive weights to zero and retaining the default active weights without renormalization. Name-only, Name + Key, and Full HTGR use (wn, w k, w θ ) = (0 .4, 0, 0) ,
+
+(0 .4, 0.3, 0) , and (0 .4, 0.3, 0.3) , respectively. All other settings remain fixed. As shown in Table 3, Name + 5API-Bank BFCL V3 Model Overall L1 L2 L3 Overall NL AST Live MT Rel. Irrel. 
+
+ToolACE-8B (Liu et al. 2024) – 75.94 47.41 – 60.44 88.94 74.99 17.38 80.49 85.71 GPT-4-turbo (OpenAI 2023) – 72.43 39.26 – 61.89 88.80 76.23 24.88 73.17 79.76 GPT-4o-mini (OpenAI 2023) – 74.69 45.93 – 60.47 83.72 70.19 27.50 80.49 71.77 GPT-3.5-turbo (Ouyang et al. 2022) – 70.43 52.59 – 53.00 78.52 61.22 19.25 97.56 35.16 LLaMA-3.1-8B (Llama Team 2024) – 71.18 37.04 – 50.15 81.15 57.93 11.38 78.05 41.62 Qwen2.5-7B (Raw) 62.48 70.68 49.25 44.27 41.97 66.02 53.51 4.25 76.47 62.66 Qwen2.5-7B (SFT400) 50.59 55.89 50.75 34.35 34.08 69.29 41.40 0.00 94.44 8.11 Qwen2.5-7B (SFT4k) 47.07 51.13 34.33 41.22 36.53 45.15 57.13 0.75 72.22 72.32 Qwen2.5-7B (SFT400+GRPO) 54.10 61.40 52.24 32.82 39.25 80.69 46.51 0.25 100.00 14.19 Tool-N1 (Zhang et al. 2025) 60.47 70.68 46.27 36.64 53.91 77.50 73.39 10.00 77.78 77.85 ToolRL (Qian et al. 2025) 64.32 74.44 61.19 35.11 57.73 86.70 75.26 11.25 83.33 76.02 ToolSample (Feng et al. 2025) 64.99 73.18 65.67 39.69 60.25 86.42 76.85 18.50 83.33 78.44 
+
+MATCH 72.19 76.44 65.67 62.60 62.87 88.61 77.39 22.63 83.33 80.39 
+
+Table 1: Main results on API-Bank and BFCL V3. All numbers are accuracies (%). NL AST denotes Non-Live AST, MT denotes Multi Turn, and Rel./Irrel. denote relevance/irrelevance detection. 
+
+API-Bank BFCL V3 Variant Sched. Reward Ovr. L1 L2 L3 ∆ Ovr. NL Live MT Rel. Irrel. ∆
+
+MATCH MACL HTGR 72.19 76.44 65.67 62.60 – 62.87 88.61 77.39 22.63 83.33 80.39 –w/o MACL All data HTGR 66.67 75.19 64.18 41.98 -5.52 59.62 88.00 75.48 15.38 72.22 77.27 -3.25 w/o HTGR MACL Binary 64.82 73.93 55.22 41.98 -7.37 57.38 87.04 70.22 14.88 76.47 62.92 -5.49 w/o HTGR MACL ToolRL 65.33 73.18 53.73 47.33 -6.86 60.05 87.57 76.32 16.25 66.67 79.50 -2.82 w/o Both All data Binary 60.47 70.68 46.27 36.64 -11.72 53.91 77.50 73.39 10.00 77.78 77.85 -8.96 w/o Both All data ToolRL 64.32 74.44 61.19 35.11 -7.87 57.73 86.70 75.26 11.25 83.33 76.02 -5.14 
+
+Table 2: Ablation results on API-Bank and BFCL V3. Accuracy values are reported in percent, and ∆ denotes the percentage-point change in overall accuracy relative to MATCH. Ovr. denotes overall accuracy, NL denotes Non-Live AST, MT denotes Multi Turn, and Rel./Irrel. denote relevance/irrelevance detection. 
+
+Variant Overall L1 L2 L3 
+
+Difficulty initialization 
+
+Base-policy rollout initialization 72.19 76.44 65.67 62.60 
+
+Constant initialization 68.17 75.94 65.67 45.80 Random initialization 65.83 74.69 58.21 42.75 
+
+HTGR reward hierarchy 
+
+Name-only 64.15 73.18 62.69 37.40 Name + Key 69.51 77.69 67.16 45.80 Full HTGR 72.19 76.44 65.67 62.60 
+
+Table 3: Effects of difficulty initialization and the HTGR reward hierarchy on API-Bank. Each block varies only the indicated design choice while keeping the remaining MATCH configuration fixed. All numbers are accuracies (%). Key yields the highest L1 and L2 accuracy, whereas Full HTGR performs best overall and on L3. These re-sults support retaining the value-level reward in the full hierarchy, particularly for L3. 0.1 0.2 0.3 0.4 0.5  
+
+> Boundary-band width εband
+> 60 62 64 66 68 70 72
+> Overall Accuracy (%)
+> 62.65 64.15 72.19 67.84 65.83
+
+(a) 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0     
+
+> hard-sample ratio rhard
+> 60 62 64 66 68 70 72 74 76
+> Overall Accuracy (%)
+> 65.33 67.00 72.19 66.33 66.83 65.66 64.99 63.99 67.00 63.32
+
+(b) 
+
+Figure 4: Sensitivity of API-Bank overall accuracy to the MACL scheduling hyperparameters. (a) Boundary-band width ϵband . (b) Hard-sample ratio rhard .
+
+Hyperparameter Analysis (RQ3) 
+
+MACL scheduling hyperparameters. On API-Bank, we analyze sensitivity to the boundary-band width ϵband 
+
+and the hard-sample ratio rhard , which respectively con-trol the width of the near-boundary selection band and the fraction of above-mean candidates added as hard samples. All other settings are fixed at their default val-ues. Figure 4(a) shows that overall accuracy peaks at 
+
+ϵband = 0 .3. Narrower and wider bands both reduce accuracy, suggesting that an overly narrow band limits 6Weight Setting wn wk wθ Overall 
+
+Uniform 0.34 0.33 0.33 69.49 Name-heavy 0.60 0.20 0.20 71.50 Moderate name-heavy 0.50 0.25 0.25 72.50 
+
+Key-heavy 0.20 0.60 0.20 69.99 Key–value-heavy 0.20 0.40 0.40 70.66 Value-heavy 0.20 0.20 0.60 69.32 Default HTGR 0.40 0.30 0.30 72.19 
+
+Table 4: Sensitivity of API-Bank overall accuracy to the HTGR weight allocation. The default setting is used in all main experiments. sample diversity whereas an overly broad band weakens the focus on the current capability boundary. We use 
+
+ϵband = 0 .3 as the default. Figure 4(b) likewise shows that overall accuracy peaks at rhard = 0 .3. Performance is lower at both smaller and larger ratios, suggesting that too few hard samples limit exposure to challenging cases whereas excessive hard-sample exposure dilutes near-boundary refinement. We use rhard = 0 .3 as the default. 
+
+HTGR weight allocation. On API-Bank, we further examine whether HTGR depends on a particular allo-cation of the three reward weights. We keep the gat-ing structure, MACL scheduler, training set, and train-ing budget unchanged and vary only (wn, w k, w θ ). All tested allocations retain the complete three-level reward hierarchy and sum to one. As shown in Table 4, overall accuracy ranges from 69.32% to 72.50% across the tested allocations. The Moderate name-heavy setting achieves the highest ac-curacy among the tested settings, only 0.31 percent-age points above the prespecified default setting of 
+
+(0 .4, 0.3, 0.3) . The default setting was fixed before this sensitivity analysis and is used in all main experiments; the analysis is not used for post-hoc configuration se-lection. Moreover, all complete HTGR variants outper-form the MACL variant using the ToolRL reward, which achieves 65.33% in Table 2. Taken together, these results show that complete HTGR retains an advantage across weight allocations and that the prespecified default is close to the best tested setting. 
+
+Curriculum Sampling Strategy Analysis (RQ4) 
+
+We evaluate whether the MACL sampling strategy is preferable to simpler sampling alternatives. MACL com-bines boundary-band sampling with a limited top-k
+
+hard-sample subset. We compare it with three variants: boundary-band sampling without the top-k subset, se-lecting all below-mean samples, and selecting all above-mean samples. All variants use the same difficulty up-dates and training settings and differ only in the sampling rule. Figure 5 shows that MACL achieves the best overall performance, outperforming the alternatives by 5.36– 8.04 percentage points. Its largest gain occurs on L3, 30 40 50 60 70 80 
+
+> Accuracy (%) MACL w/o Top-K hard samples Below-mean Above-mean
+> Overall L1 L2 L3 Overall L1 L2 L3 Overall L1 L2 L3 Overall L1 L2 L3
+
+Figure 5: Accuracy of different curriculum sampling strategies on API-Bank. MACL denotes the proposed sampling strategy. where removing the top-k hard-sample subset reduces accuracy from 62.60% to 43.51%. The weaker below-mean and above-mean variants further suggest that com-bining near-boundary samples with limited hard-sample exposure is more effective than selecting only one side of the capability boundary. 
+
+Backbone Generalization Analysis (RQ5) 
+
+We further examine whether MATCH improves tool calling relative to the raw backbone and prior RL train-ing baselines. Following the backbone-wise API-Bank comparison in ToolRL (Qian et al. 2025), we report Raw, SFT400, SFT4k, SFT400+GRPO, and ToolRL re-sults for each backbone, where the baseline numbers follow the values reported by Qian et al. (2025) under the “Ours, GRPO Cold Start” setting. The Qwen2.5-7B-Instruct ToolRL row therefore differs from our in-house reproduction in Table 1. Except for the backbone, all MATCH runs use the same training set and training set-tings. This comparison evaluates whether the proposed reward-scheduling design remains effective across dif-ferent model scales and model families. Table 5 shows that MATCH achieves higher mean overall accuracy than ToolRL across all four back-bones, including Qwen2.5-1.5B-Instruct, Qwen2.5-3B-Instruct, Qwen2.5-7B-Instruct, and Llama-3.2-3B-Instruct. These results indicate that the effectiveness of MATCH is not restricted to a particular model scale or backbone family. 
+
+## Conclusion 
+
+We presented MATCH, a closed-loop framework for RL-based tool learning that couples model-aware cur-riculum scheduling with hierarchically gated rewards. MACL maintains reward-derived, policy-dependent dif-ficulty estimates and selects samples near the evolving capability boundary together with a limited top-k hard-sample subset. HTGR scores tool name, argument key, and argument value through prerequisite gates, prevent-ing argument-level credit when tool selection is incor-rect. On API-Bank and BFCL V3, MATCH achieves 7Backbone Setting Overall L1 L2 L3                                                        
+
+> Qwen2.5-1.5B-Instruct Raw 30.65 28.32 35.82 35.11 SFT400 53.60 57.14 50.75 44.27 SFT4k 47.07 52.88 52.24 26.72 SFT400+GRPO 61.31 64.16 58.21 54.20
+> ToolRL 63.15 70.68 61.19 41.22
+> MATCH 63.82 71.68 59.70 41.98 Qwen2.5-3B-Instruct Raw 51.59 59.65 32.84 36.64 SFT400 52.76 59.65 50.75 32.82 SFT4k 50.92 55.64 43.28 40.46 SFT400+GRPO 62.48 68.67 58.21 45.80 ToolRL 67.00 73.43 67.16 47.33
+> MATCH 68.17 73.43 61.19 55.73
+> Qwen2.5-7B-Instruct Raw 62.48 70.68 49.25 44.27 SFT400 50.59 55.89 50.75 34.35 SFT4k 47.07 51.13 34.33 41.22 SFT400+GRPO 54.10 61.40 52.24 32.82 ToolRL 64.66 73.93 61.19 38.17
+> MATCH 72.19 76.44 65.67 62.60
+> Llama-3.2-3B-Instruct Raw 40.54 44.86 29.85 32.82 SFT400 52.76 60.65 35.82 37.40 SFT4k 43.89 53.88 29.85 20.61 SFT400+GRPO 56.78 63.60 41.79 43.51 ToolRL 59.13 65.66 52.24 42.75
+> MATCH 65.66 70.18 62.69 53.44
+
+Table 5: API-Bank results on different backbone models. MATCH labels and the best metric values within each backbone are bold. 72.19% and 62.87% overall accuracy, outperforming all main training baselines, with its largest gains on API-Bank L3. Ablations show that MACL and HTGR each contribute to performance, while controlled analy-ses support rollout-based difficulty initialization and the complete three-level reward hierarchy. Backbone exper-iments further show that MATCH achieves higher mean overall accuracy than ToolRL across the tested model scales and families. 
+
+## References 
+
+Bae, S.; Hong, J.; Lee, M. Y.; Kim, H.; Nam, J.; and Kwak, D. 2025. Online difficulty filtering for reason-ing oriented reinforcement learning. arXiv preprint arXiv:2504.03380 .Bengio, Y.; Louradour, J.; Collobert, R.; and Weston, J. 2009. Curriculum Learning. In Proceedings of the 26th International Conference on Machine Learning , 41–48. ACM. Chen, B.; Shu, C.; Shareghi, E.; Collier, N.; Narasimhan, K.; and Yao, S. 2023. FireAct: Toward Language Agent Fine-tuning. arXiv:2310.05915. Ding, Y.; Le, H.; Han, S.; Ruan, K.; Jin, Z.; Kumar, V.; Wang, Z.; and Deoras, A. 2025. Empowering Multi-Turn Tool-Integrated Reasoning with Group Turn Policy Optimization. arXiv:2511.14846. Feng, Z.; Wang, X.; Wu, B.; Cao, H.; Zhao, T.; Yu, Q.; and Wang, B. 2025. ToolSample: Dual Dynamic Sampling Methods with Curriculum Learning for RL-based Tool Learning. arXiv preprint arXiv:2509.14718 .Jin, B.; Zeng, H.; Yue, Z.; Yoon, J.; Arik, S.; Wang, D.; Zamani, H.; and Han, J. 2025. Search-R1: Training LLMs to Reason and Leverage Search Engines with Reinforcement Learning. arXiv:2503.09516. Li, M.; Zhao, Y.; Yu, B.; Song, F.; Li, H.; Yu, H.; Li, Z.; Huang, F.; and Li, Y. 2023. API-Bank: A Com-prehensive Benchmark for Tool-Augmented LLMs. In 
+
+Proceedings of the 2023 Conference on Empirical Meth-ods in Natural Language Processing .Li, X.; Zou, H.; and Liu, P. 2025. ToRL: Scaling Tool-Integrated RL. arXiv:2503.23383. Lightman, H.; Kosaraju, V.; Burda, Y.; Edwards, H.; Baker, B.; Lee, T.; Leike, J.; Schulman, J.; Sutskever, I.; and Cobbe, K. 2023. Let’s Verify Step by Step. arXiv:2305.20050. Lin, H.; and Xu, Z. 2025. Understanding Tool-Integrated Reasoning. arXiv:2508.19201. Liu, W.; Huang, X.; Zeng, X.; Hao, X.; Yu, S.; Li, D.; Wang, S.; Gan, W.; Liu, Z.; Yu, Y.; Wang, Z.; Wang, Y.; Ning, W.; Hou, Y.; Wang, B.; Wu, C.; Wang, X.; Liu, Y.; Wang, Y.; Tang, D.; Tu, D.; Shang, L.; Jiang, X.; Tang, R.; Lian, D.; Liu, Q.; and Chen, E. 2024. ToolACE: Winning the Points of LLM Function Calling. arXiv:2409.00920. Llama Team. 2024. The Llama 3 Herd of Models. arXiv:2407.21783. OpenAI. 2023. GPT-4 Technical Report. arXiv:2303.08774. Ouyang, L.; Wu, J.; Jiang, X.; Almeida, D.; Wainwright, C.; Mishkin, P.; Zhang, C.; Agarwal, S.; Slama, K.; Ray, A.; et al. 2022. Training Language Models to Follow Instructions with Human Feedback. In Advances in Neu-ral Information Processing Systems , volume 35, 27730– 27744. Patil, S. G.; Zhang, T.; Wang, X.; and Gonzalez, J. E. 2023. Gorilla: Large Language Model Connected with Massive APIs. arXiv:2305.15334. Platanios, E. A.; Stretcu, O.; Neubig, G.; Poczos, B.; and Mitchell, T. 2019. Competence-based Curricu-lum Learning for Neural Machine Translation. In Pro-ceedings of the 2019 Conference of the North Amer-ican Chapter of the Association for Computational Linguistics: Human Language Technologies, Volume 1 (Long and Short Papers) , 1162–1172. Minneapolis, Minnesota: Association for Computational Linguistics. Qian, C.; Acikgoz, E. C.; He, Q.; Wang, H.; Chen, X.; Hakkani-Tür, D.; Tur, G.; and Ji, H. 2025. ToolRL: Reward is All Tool Learning Needs. arXiv:2504.13958. Qin, Y.; Hu, S.; Lin, Y.; Chen, W.; Ding, N.; Cui, G.; Zeng, Z.; Huang, Y.; Xiao, C.; Han, C.; Fung, Y. R.; Su, Y.; Wang, H.; Qian, C.; Tian, R.; Zhu, K.; Liang, S.; Shen, X.; Xu, B.; Zhang, Z.; Ye, Y.; Li, B.; Tang, Z.; Yi, J.; Zhu, Y.; Dai, Z.; Yan, L.; Cong, X.; Lu, Y.; Zhao, W.; 8Huang, Y.; Yan, J.; Han, X.; Sun, X.; Li, D.; Phang, J.; Yang, C.; Wu, T.; Ji, H.; Liu, Z.; and Sun, M. 2024a. Tool Learning with Foundation Models. arXiv:2304.08354. Qin, Y.; Liang, S.; Ye, Y.; Zhu, K.; Yan, L.; Lu, Y.; Lin, Y.; Cong, X.; Tang, X.; Qian, B.; Zhao, S.; Hong, L.; Tian, R.; Xie, R.; Zhou, J.; Gerstein, M.; Li, D.; Liu, Z.; and Sun, M. 2024b. ToolLLM: Facilitating Large Language Models to Master 16000+ Real-world APIs. In Proceedings of the Twelfth International Conference on Learning Representations .Schick, T.; Dwivedi-Yu, J.; Dessì, R.; Raileanu, R.; Lomeli, M.; Hambro, E.; Zettlemoyer, L.; Cancedda, N.; and Scialom, T. 2023. Toolformer: Language Models Can Teach Themselves to Use Tools. Advances in Neural Information Processing Systems , 36: 68539–68551. Shao, Z.; Wang, P.; Zhu, Q.; Xu, R.; Song, J.; Bi, X.; Zhang, H.; Zhang, M.; Li, Y. K.; Wu, Y.; and Guo, D. 2024. DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models. arXiv:2402.03300. Sheng, G.; Zhang, C.; Ye, Z.; Wu, X.; Zhang, W.; Zhang, R.; Peng, Y.; Lin, H.; and Wu, C. 2025. HybridFlow: A Flexible and Efficient RLHF Framework. In Proceed-ings of the Twentieth European Conference on Computer Systems , 1279–1297. ACM. Tzannetos, G.; Gomes Ribeiro, B.; Kamalaruban, P.; and Singla, A. 2023. Proximal Curriculum for Rein-forcement Learning Agents. Transactions on Machine Learning Research .Vygotsky, L. S. 1978. Mind in society: The development of higher psychological processes . Harvard University Press. Wang, H.; Qian, C.; Zhong, W.; Chen, X.; Qiu, J.; Huang, S.; Jin, B.; Wang, M.; Wong, K.-F.; and Ji, H. 2025. Acting Less is Reasoning More! Teaching Model to Act Efficiently. arXiv:2504.14870. Wei, Y.; Yu, X.; Weng, Y.; Pan, T.; Li, A.; and Du, L. 2025. AutoTIR: Autonomous Tools Integrated Reason-ing via Reinforcement Learning. arXiv:2507.21836. Yao, S.; Zhao, J.; Yu, D.; Du, N.; Shafran, I. R.; Narasimhan, K. R.; and Cao, Y. 2023. ReAct: Syner-gizing Reasoning and Acting in Language Models. In 
+
+Proceedings of the Eleventh International Conference on Learning Representations .Yu, Q.; Zhang, Z.; Zhu, R.; Yuan, Y.; Zuo, X.; Yue, Y.; Dai, W.; Fan, T.; Liu, G.; Liu, L.; Liu, X.; Lin, H.; Lin, Z.; Ma, B.; Sheng, G.; Tong, Y.; Zhang, C.; Zhang, M.; Zhang, W.; Zhu, H.; Zhu, J.; Chen, J.; Chen, J.; Wang, C.; Yu, H.; Song, Y.; Wei, X.; Zhou, H.; Liu, J.; Ma, W.-Y.; Zhang, Y.-Q.; Yan, L.; Qiao, M.; Wu, Y.; and Wang, M. 2025a. DAPO: An Open-Source LLM Reinforcement Learning System at Scale. arXiv:2503.14476. Yu, Y.; Wang, Z.; Ma, W.; Wang, S.; Wu, C.; Guo, Z.; and Zhang, M. 2025b. StepTool: Enhancing Multi-Step Tool Usage in LLMs via Step-Grained Reinforcement Learn-ing. In Proceedings of the 34th ACM International Con-ference on Information and Knowledge Management ,CIKM ’25, 3952–3962. New York, NY, USA: Associa-tion for Computing Machinery. ISBN 9798400720406. Zeng, Y.; Ding, X.; Hou, Y.; Wang, Y.; Du, L.; Dai, J.; Ding, Q.; Tang, D.; Tu, D.; Liu, W.; Qin, B.; and Liu, T. 2025a. Tool Zero: Training Tool-Augmented LLMs via Pure RL from Scratch. arXiv preprint arXiv:2511.01934 .Zeng, Y.; Ding, X.; Wang, Y.; Liu, W.; Ning, W.; Hou, Y.; Huang, X.; Tang, D.; Tu, D.; Qin, B.; and Liu, T. 2025b. iTool: Reinforced Fine-Tuning with Dynamic Deficiency Calibration for Advanced Tool Use. arXiv:2501.09766. Zhang, J.; Lan, T.; Zhu, M.; Liu, Z.; Hoang, T.; Kokane, S.; Yao, W.; Tan, J.; Prabhakar, A.; Chen, H.; Liu, Z.; Feng, Y.; Awalgaonkar, T.; Murthy, R.; Hu, E.; Chen, Z.; Xu, R.; Niebles, J. C.; Heinecke, S.; Wang, H.; Savarese, S.; and Xiong, C. 2024. xLAM: A Family of Large Action Models to Empower AI Agent Systems. arXiv:2409.03215. Zhang, S.; Dong, Y.; Zhang, J.; Kautz, J.; Catan-zaro, B.; Tao, A.; Wu, Q.; Yu, Z.; and Liu, G. 2025. Nemotron-Research-Tool-N1: Exploring Tool-Using Language Models with Reinforced Reasoning. arXiv:2505.00024. Zheng, Y.; Fu, D.; Hu, X.; Cai, X.; Ye, L.; Lu, P.; and Liu, P. 2025. DeepResearcher: Scaling Deep Research via Reinforcement Learning in Real-world Environments. In Christodoulopoulos, C.; Chakraborty, T.; Rose, C.; and Peng, V., eds., Proceedings of the 2025 Conference on Empirical Methods in Natural Language Process-ing , 414–431. Suzhou, China: Association for Compu-tational Linguistics. ISBN 979-8-89176-332-6. 9
