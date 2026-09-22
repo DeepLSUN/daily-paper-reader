@@ -1,0 +1,666 @@
+Title: Towards Full Pipeline FP8 Reinforcement Learning for LLMs
+
+URL Source: https://arxiv.org/pdf/2609.22870v1
+
+Published Time: Tue, 22 Sep 2026 00:43:32 GMT
+
+Number of Pages: 17
+
+Markdown Content:
+# Towards Full Pipeline FP8 Reinforcement Learning for LLMs 
+
+Fanchao Chen 1,∗, Ziheng Jiang 2, Ziyun Wei 2, Zheng Zhong 2, Du Li 2, Chi Zhang 2,
+
+Haibin Lin 2, Shivaram Venkataraman 1
+
+> 1
+
+University of Wisconsin–Madison , 2ByteDance Seed 
+
+> ∗
+
+Work done during internship at ByteDance Seed 
+
+Abstract 
+
+Reinforcement learning (RL) has become a key technique for improving the reasoning and agentic abilities of large language models (LLMs). Although FP8 quantization can accelerate RL training, maintaining stability throughout an FP8 RL pipeline remains challenging. While previous works have focused on resolving train–inference mismatches using correction techniques like TIS, we reveal that full-pipeline FP8 RL still suffers from severe training instability, manifesting as anomalous mid-training entropy surges and garbled outputs. We trace this instability to a previously overlooked cause: compounded FP8 quantization noise distorts the importance ratio, disproportionately pushing negative-advantage tokens outside the trust region and erroneously zeroing out their gradients. As a result, pathological outputs are not properly penalized and accumulate over the course of training. To address this, we propose Calibrated Clipping , a dynamic method that aligns the FP8 clipping bounds with high-precision BF16 distributions by matching the lower-bound clipping quantile and rebalancing the upper bound accordingly. Extensive experiments across GRPO and DAPO algorithms, model scales from 8B to 32B, and multiple FP8 scaling granularities demonstrate that our approach successfully eliminates entropy surges and restores performance comparable to the BF16 baseline.  
+
+> Correspondence:
+
+Fanchao Chen at fchen239@wisc.edu 
+
+1 Introduction 
+
+The success of models such as DeepSeek-R1 [7] and o1 [10] has demonstrated that reinforcement learning (RL) is capable of unlocking long-horizon reasoning and agentic capabilities in LLMs. As RL training continues to scale, improving its efficiency has become increasingly important. Recent advances in low-precision training, especially FP8, provide a promising direction for improving efficiency. While FP8 has already been successfully adopted in LLM pretraining [16] and inference [21], recent efforts have begun extending it to RL pipelines. However, enabling stable FP8 RL training remains challenging. Prior work [17, 18] has mainly focused on the mismatch between rollout and training introduced by FP8 quantization. Correction techniques such as truncated importance sampling (TIS, [30]) have been proposed to mitigate this discrepancy, and more recent works [27, 28] have explored unified FP8 pipelines—performing both rollout and training in FP8—to further reduce the precision gap and support on-policy training. Yet we find that training with an FP8 backend suffers from severe instability, manifesting as abrupt mid-training entropy surges (Figure 1) that destabilize training and substantially degrade model performance. 1arXiv:2609.22870v1 [cs.LG] 19 Sep 2026 Through empirical analysis and controlled case studies, we trace this instability to a previously overlooked cause: compounded quantization noise that perturbs the clipping mechanism in PPO-style surrogate objectives. Although the error on individual probabilities remains small, it is amplified in the importance ratio, distorting the effective trust region in quantized space. This effect is especially pronounced at the lower clipping bound, where negative-advantage tokens are disproportionately over-clipped, causing gradients that should suppress pathological generations to vanish prematurely. As a result, such pathological outputs are not properly penalized and accumulate over the course of training. To address this, we propose Calibrated Clipping , a simple yet effective method for stable FP8 RL training. Our method periodically aligns the lower clipping bound using high-precision BF16 references and adjusts the upper bound to rebalance the contributions of positive and negative updates, restoring the intended trust-region semantics in quantized space with negligible overhead. Our main contributions are as follows: • We identify a previously overlooked failure mode in full-pipeline FP8 RL: compounded quantization noise in the importance ratio causes systematic over-clipping of tokens, triggering catastrophic mid-training entropy surges. • We propose Calibrated Clipping, a method that restores trust-region semantics in quantized space by aligning the clipping bounds with a high-precision reference. • Extensive experiments across GRPO and DAPO algorithms, model sizes from 8B to 32B, and multiple FP8 scaling granularities demonstrate that Calibrated Clipping consistently eliminates entropy surges, restores BF16-level performance, and can achieve up to 1.5 × the BF16 training throughput. 
+
+2 Background 
+
+2.1 Reinforcement Learning for LLMs 
+
+Reinforcement learning (RL) has proven remarkably effective at eliciting complex reasoning and agentic behaviors in LLMs. Formally, given a prompt x and a generated response y, the goal is to maximize the expected reward under the policy πθ . Modern RL pipelines adopt a proximal policy optimization (PPO) [22] surrogate objective for this goal: 
+
+JPPO (θ) = Ex∼D , y ∼πold (·| x)
+
+" TX
+
+> t=1
+
+min ( rt(θ)At, clip ( rt(θ), 1 − ϵ, 1 + ϵ) At)
+
+#
+
+(1) Here, At is the estimated advantage, typically computed via a learned critic model. Let ht = ( x, y <t ) denote the token context. The ratio rt(θ) = πθ (yt|ht) 
+
+> πold (yt|ht)
+
+is the token-level likelihood ratio between the current and old policies used in the PPO surrogate objective. A more recent variant, GRPO [23], removes the need for a learned critic model. Instead, for a group of G responses, GRPO directly estimates the advantage using intra-group normalization Ai = Ri−mean( {R1,...,R G})std( {R1,...,R G}) .The clipping mechanism in the PPO-style surrogate objective implicitly enforces a trust region between πθ
+
+and πold . For positive-advantage tokens, gradients are zeroed out when rt(θ) ≥ 1 + ϵ; for negative-advantage tokens, gradients are zeroed out when rt(θ) ≤ 1 − ϵ, where typically ϵ = 0 .2. Thus, the effective update contributions can be decomposed into two parts: 
+
+X 
+
+> t:At>0
+
+πold (yt | ht) rt(θ) At 1{rt(θ) < 1 + ϵ}
+
+| {z }
+
+> positive updates
+
++ X 
+
+> t:At<0
+
+πold (yt | ht) rt(θ) At 1{rt(θ) > 1 − ϵ}
+
+| {z }
+
+> negative updates
+
+.
+
+(2) Positive updates encourage the model to increase the probabilities of advantageous tokens under the new policy, whereas negative updates tend to suppress the probabilities of disadvantageous tokens. 22.2 FP8 Quantization 
+
+The low-precision FP8 format accelerates training and inference but has limited representable range and precision. Thus, tensors are scaled before quantization [6]. Let Fmax denote the largest finite value representable in the chosen FP8 format, and let QFP8 denote rounding and clamping to the FP8 representable set. For a high-precision tensor X, the scaled FP8 tensor ˆX and its dequantized approximation eX are defined as 
+
+SX = max( |X|)
+
+Fmax 
+
+, ˆX = QFP8 
+
+ XSX
+
+
+
+, eX = SX ˆX. (3) The granularity at which the maximum value max( |X|) is computed dictates the scaling strategy. There are three mainstream scaling strategies: (1) tensorwise scaling , where a single scaling factor SX is computed for the entire tensor X; (2) rowwise scaling , where independent scaling factors are calculated for each row of the tensor; and (3) blockwise scaling , where the tensor is partitioned into sub-blocks (e.g., 128 × 128 
+
+elements), with an independent SX assigned to each block [16]. These strategies span a spectrum of trade-offs between efficiency and numerical accuracy. Tensorwise scaling maximizes computational efficiency, but its coarse-grained scaling factor is vulnerable to outliers. Blockwise scaling offers the finest-grained adaptation and typically achieves the best numerical fidelity, but at the cost of additional scaling metadata and higher kernel complexity. In practice, FP8 quantization has been widely adopted in LLM inference and pretraining. For example, DeepSeek-V3 [16] was pretrained in FP8 using blockwise scaling. Prior studies [21, 28] have also shown that FP8 inference can improve throughput by around 30% without degrading downstream performance. 
+
+2.3 Current Progress in FP8 RL for LLMs 
+
+Following FP8’s successful adoption in LLM pretraining and inference, migrating it to the RL stage is a natural progression. However, integrating FP8 into RL introduces unique challenges. Modern RL pipelines consist of two main components: rollout and training. They are usually decoupled in RL frameworks for better performance. Trajectories are sampled by high-throughput inference engines like vLLM [12] and SGLang [36], while updates are computed in training backends like FSDP [33] and Megatron-LM [25]. Previous works [18, 21] have explored adopting FP8 in the rollout stage to accelerate generation. However, this design introduces a severe train–rollout mismatch: the behavior policy used by the sampler ( πFP8 
+
+> sampler
+
+)deviates from the learner’s old policy ( πold ), even when both are instantiated from the same underlying model parameters. This discrepancy violates the on-policy assumption and can substantially degrade the stability of RL training. To mitigate this issue, truncated importance sampling (TIS, [18, 30]) provides a truncated token-level correction: 
+
+JTIS (θ) = Ex∼D , y ∼πFP8 sampler (·| x)
+
+" TX
+
+> t=1
+
+min πold (yt | ht)
+
+πFP8 sampler (yt | ht) , C 
+
+!| {z }
+
+> wTIS
+> t
+
+· min ( rt(θ)At, clip ( rt(θ), 1 − ϵ, 1 + ϵ) At)
+
+#
+
+.
+
+(4) Here, C is the truncation threshold (typically set to 2). Moving beyond using FP8 for rollout alone, more recent works [27, 28] have explored a unified FP8 pipeline in which both rollout and training are performed in FP8. These studies showed that, compared with mixed-precision designs such as BF16 training with FP8 rollout, a unified FP8 pipeline can narrow the train–rollout log-probability gap, thereby improving overall training stability. However, as we show in the following sections, there are additional sources of instability that must be explicitly addressed to enable robust, full-pipeline FP8 RL training. 30 100 200 300 Training Step 0123Entropy 50 100 150 200 250 300 Training Step 0.45 0.50 0.55 0.60 Eval Accuracy           
+
+> 0100 200 300 Training Step 0.00 0.01 0.02 0.03 Clip Fraction
+> 6.68× 5.48× 3.94×
+> BF16 FP8-Rollout-BF16-Train Tensorwise FP8 Rowwise FP8 Blockwise FP8 Figure 1 Comparison of (left) actor entropy, (middle) average evaluation accuracy on downstream tasks, and (right) PPO clipping fraction during the training of Qwen3-8B-Base under different settings.
+
+3 Case Study 
+
+To investigate the stability of full-pipeline FP8 RL, we train Qwen3-8B-Base on the DeepScaleR dataset [26] using GRPO with a 16K context length. We compare the standard BF16 baseline against configurations using FP8 rollout paired with four training backends: (1) BF16, (2) tensorwise FP8, (3) rowwise FP8, and (4) blockwise FP8. We adopt TIS by default in all experiments.  
+
+> The Phenomenon: Anomalous Entropy Surges.
+
+As shown in Figure 1, we monitor the response entropy as an indicator of training stability. While the BF16 and FP8-Rollout-BF16-Train settings remain stable, the models trained with FP8 backends experience anomalous surges in entropy in the middle of training, typically after 100 steps. Consistent with our previous analysis, finer-grained scaling strategies mitigate quantization noise and lead to relatively milder surges; however, even with blockwise scaling, this pathological instability persists, resulting in a substantial performance disparity compared to the BF16 baseline. Since this instability persists across all scaling granularities, we adopt rowwise FP8 as the representative configuration to diagnose the underlying mechanics. As illustrated in Figure 2, we analyze the composition of response entropies by partitioning them into four discrete bins: [0 , 0.2) , [0 .2, 0.5) , [0 .5, 1.0) , and [1 .0, ∞). Our analysis reveals that the global entropy surge is non-uniform; while the vast majority of responses maintain healthy entropy levels ( < 0.5), the surge is driven by a small but rapidly proliferating fraction of samples exhibiting pathological entropy ( > 1.0), which spikes sharply in frequency after 100 steps. After inspecting these high-entropy responses, we find that they generally contain a large proportion of garbled, fragmented, or nonsensical tokens, signifying a collapse in the model’s decoding state (Figure 8). Further analysis of the associated advantages shows that only 6.64% of them yield positive advantages. With the policy optimization described in Section 2.1, the remaining majority should be penalized to suppress their occurrence. Yet we observe that their prevalence continues to grow.  
+
+> The Cause: Compounded Noise and Over-Clipping.
+
+We trace this counterintuitive failure to the interaction between FP8 quantization noise and the PPO clipping mechanism. In full-pipeline FP8 training, the probabilities for both πθ and πold are induced by FP8-quantized forward passes. Using BF16 shadow passes for diagnosis, we measured the normalized mean absolute error (NMAE) of these FP8-induced probabilities relative to high-precision references. As illustrated in Figure 3, while the quantization error for individual probabilities is marginal, the ratio operation significantly compounds this noise, enlarging the discrepancy by 1.7× to 2.9×.This compounded noise inflates the frequency at which tokens hit the trust region boundaries, a phenomenon we define as over-clipping . A token is lower-bound over-clipped if At < 0, rBF16  
+
+> t
+
+> 1 − ϵ, and rFP8  
+
+> t
+
+≤ 1 − ϵ;analogously, it is upper-bound over-clipped if At > 0, rBF16  
+
+> t
+
+< 1 + ϵ, and rFP8  
+
+> t
+
+≥ 1 + ϵ. The PPO clipping fractions shown in Figure 1 provide empirical evidence for this phenomenon. Even with fine-grained blockwise scaling, the PPO clipping fraction remains nearly 4× higher than in the BF16 baseline. Our evaluation of these over-clipped tokens reveals two asymmetric trends (Figure 4): 450 100 150 200 250 300 Training Step 0% 20% 40% 60% 80% 100% Proportion [0, 0.2) [0.2, 0.5) [0.5, 1.0) > 1.0 Figure 2 Composition of entropy across training steps in rowwise FP8 training. Tensorwise Rowwise Blockwise 0.0% 1.0% 2.0% 3.0% 4.0%  
+
+> NMAE (%)
+> 2.90× 2.08× 1.65×
+> Prob Ratio
+> Figure 3
+
+Normalized MAE of probabilities and importance ratios from the FP8 model relative to BF16 references. 
+
+• During the later stages of training, approximately 70% of over-clipping occurs at the lower bound ( 1 − ϵ). • Nearly 90% of these lower-bound over-clipped tokens originate from the high-entropy responses identified in Figure 2. 0 100 200 300 Training Step 40% 50% 60% 70% 80% 90% 100% Proportions 0 100 200 300 Training Step 0% 20% 40% 60% 80% 100% Proportion  
+
+> Figure 4
+
+Analysis of over-clipping: (Left) Proportion of over-clipping occurrences at the lower bound ( 1 − ϵ). (Right) Proportion of lower-bound over-clipped tokens originating from high-entropy responses. 
+
+We identify the failure loop as follows: when the model generates garbled responses with negative advantages, the policy optimization attempts to penalize them. However, the compounded FP8 noise frequently pushes the importance ratios below the 1 − ϵ threshold, falsely triggering the clipping mechanism and zeroing out the gradients. This premature gradient vanishing prevents the model from unlearning pathological behaviors, allowing garbled outputs to proliferate and eventually destabilize training.  
+
+> Empirical Verification and Implications.
+
+To verify our analysis, we reran the rowwise FP8 experiment, relaxing the lower clipping bound from 0.8 to 0.6. As shown in Figure 5, this simple adjustment successfully prevented the catastrophic mid-training entropy surge. 50 100 200 300 Training Step 0.0 0.5 1.0 1.5 Entropy 0 100 200 300 Training Step 0.2 0.4 0.6 Reward 0 100 200 300 Training Step 1000 2000 3000 4000 Response Length BF16 Rowwise FP8 - clip_low=0.6 Figure 5 Relaxing the lower bound in rowwise FP8 training prevents the entropy surge (left) but leads to premature entropy saturation, lower training rewards (middle), and shorter responses (right). 
+
+However, it introduces a new problem. While a looser lower bound restores the ability to penalize garbled responses, it results in excessive negative updates that cause the entropy to saturate prematurely. This “over-penalization” also hurts model performance; as shown in Figure 5, the average reward and response length remain consistently lower than the BF16 baseline, suggesting that the model has become overly conservative. These results demonstrate that relaxing the lower bound in isolation is insufficient. We need a principled approach to rebalance the trust region. 
+
+4 Solution: Calibrated Clipping 
+
+Integrating FP8 into the training backend alters the trust region landscape. Under the FP8 regime, probabilities are computed via quantized forward passes, yielding the importance ratio: rFP8  
+
+> t
+
+= ˜Q(rt; θ, θ old ), where ˜Q(·)
+
+captures the compounded, nonlinear effect of FP8 quantization. To preserve the original trust region semantics, the ideal clipping bounds [L, H ] should satisfy L = ˜Q(1 − ϵ; θ, θ old ), H = ˜Q(1 + ϵ; θ, θ old ).In practice, the exact formulation of ˜Q(·) is intractable. As discussed in Section 3, the lower boundary is particularly important: garbled responses predominantly carry negative advantages, and FP8-induced ratio perturbations increase the likelihood that their ratios cross this boundary. Thus, we propose Calibrated Clipping , a method that dynamically reconstructs the trust region through two stages:  
+
+> 1. Lower-Bound Alignment.
+
+We first align the clipping quantile of the FP8 distribution with that of BF16 for negative-advantage tokens. The goal is to ensure that the proportion of negative-advantage tokens clipped at the lower bound in the FP8 domain matches that in BF16. For a given training step, let FBF16 ,−(r) and FFP8 ,−(r) denote the cumulative distribution functions (CDFs) of the importance ratios under BF16 and FP8, respectively, restricted to tokens with At < 0. We first determine the target clipping quantile αlow from the reference BF16 distribution: αlow = FBF16 ,−(1 − ϵ). We then derive the calibrated lower bound L by applying the inverse CDF to the FP8 distribution: L = F −1
+
+> FP8 ,−
+
+(αlow ).Replacing 1 − ϵ with the calibrated quantile L equalizes the number of lower-clipped tokens under the two precisions and effectively prevents over-clipping.  
+
+> 2. Upper-Bound Rebalancing.
+
+To mitigate over-penalization from a relaxed lower bound, we rebalance the positive-to-negative update ratio. In Section 2.1, we showed that the effective contribution to the surrogate objective can be decomposed into positive and negative parts. For clipping bounds [clow , c high ] and TIS weights 
+
+wTIS  
+
+> t
+
+, the ratio between the positive and negative parts can be computed as: 
+
+ρ =
+
+P 
+
+> At>0
+
+wTIS  
+
+> t
+
+πsampler (yt | ht)rt(θ)At1{rt(θ) < c high }
+
+P 
+
+> At<0
+
+wTIS  
+
+> t
+
+πsampler (yt | ht)rt(θ)At1{rt(θ) > c low } (5) where wTIS  
+
+> t
+
+= min 
+
+ πold (yt|ht) 
+
+> πsampler (yt|ht)
+
+, C 
+
+
+
+. We compute the reference ratio ρBF16 from the BF16 distribution. Then, given the calibrated lower bound L, we solve for a new upper bound H such that the resulting ratio 
+
+ρFP8 matches ρBF16 .60 50 100 150 200 250 300 Training Step 0.4 0.5 0.6 0.7 0.8 Calibrated Lower Bound  Tensorwise FP8 Rowwise FP8 Blockwise FP8 Figure 6 Trajectory of the calibrated lower bound. 
+
+Algorithm 1 Calibrated Clipping  
+
+> Input:
+
+Batch advantages A, TIS weights wTIS , importance ratios rBF16 and rFP8 , previous bounds Lold and 
+
+Hold , reference bounds cref low and cref high , search intervals IL and IH , search step ∆, and update constraints 
+
+δL and δH .  
+
+> 1: Procedure
+
+Derive high-precision reference statistics  
+
+> 2:
+
+Compute the reference lower quantile over tokens with At < 0: αlow = FBF16 ,−(cref low ); 
+
+> 3:
+
+Compute reference update ratio ρBF16 using A, wTIS , rBF16 , and bounds [cref low , c ref high ];  
+
+> 4: Procedure
+
+Search for optimal FP8 clipping bounds  
+
+> 5:
+
+Search L∗ ∈ I L with step size ∆ to minimize |FFP8 ,−(L∗) − αlow |; 
+
+> 6:
+
+Search H∗ ∈ I H with step size ∆ to minimize |ρFP8 (L∗, H ∗) − ρBF16 |;  
+
+> 7: Procedure
+
+Bound smoothing and update  
+
+> 8:
+
+Lnew = SmoothUpdate( Lold , L ∗, δ L); 
+
+> 9:
+
+Hnew = SmoothUpdate( Hold , H ∗, δ H );  
+
+> 10: return
+
+Lnew , H new  
+
+> Periodic Recalibration.
+
+Both stages of our method require BF16 reference results. At each recalibration step, we perform two forward-only BF16 shadow passes over the same training batch, evaluating the current policy πBF16  
+
+> θ
+
+and the old policy πBF16 old using their master weights. We then compute the reference importance ratios rBF16  
+
+> t
+
+. However, performing these additional forward passes at every training step would negate the performance gains of FP8 training. Fortunately, we find that the calibrated trust region does not fluctuate drastically when training is stable. Figure 6 illustrates the trajectory of the calibrated lower bound derived from our case study in Section 3. Mirroring the evolution of actor entropy, the calibrated bound remains stable after the initial phase of training. Notable inter-step deviations are only observed in the later stages during entropy surges. Leveraging this stability, we can amortize the overhead by periodically recalculating the clipping bounds rather than performing per-step alignment. Our method is formalized in Algorithm 1. We define the search intervals as IL = [0 .5, 0.9] for the lower bound and IH = [1 .2, 2.0] for the upper bound, employing a search step size of ∆ = 0 .02 . We define 
+
+SmoothUpdate( b, b ⋆, δ ) = b + clip (( b⋆ − b)/2, −δ, δ ), with maximum update magnitudes δL = 0 .05 and 
+
+δH = 0 .1. This prevents abrupt shifts in the trust region, maintaining a smooth evolution. We initialize the clipping bounds at [0 .6, 1.8] for faster convergence and perform updates every 20 training steps. While these hyperparameters were not explicitly tuned, they demonstrate robust performance across all evaluated settings. We evaluate the sensitivity to the update interval and clipping-bound initialization in Appendix A.5. 
+
+5 Evaluation 
+
+All experiments use VeRL [24] as the RL framework, vLLM [12] as the inference engine, and TorchAO [19] 7as the FP8 training engine. We integrate the patch provided by FlashRL [18] for FP8 rollout. To compare training stability across settings, all reported metrics were collected over the final 50% of training steps. Experiment configurations and additional training metrics—such as actor entropy, rewards, response lengths, clipping fractions, and calibrated clipping bounds—are detailed in the Appendix. 
+
+5.1 Results of GRPO Experiments 
+
+We train Qwen3-8B-Base and Qwen2.5-32B with GRPO on the DeepScaleR dataset [26]. We evaluate the models on eight widely used reasoning benchmarks, including AIME24/25 [1], OlympiadBench [8], Gaokao [32], MATH-500 [9, 15], Minerva Math [13], and AMC23/24 [2]. We run the experiments for 500 steps and evaluate on these benchmarks every 25 steps. We report the performance of the checkpoint that achieves the best average score. For clipping calibration, we set cref low = 0 .8 and cref high = 1 .24 to prevent entropy saturation. 
+
+Train Rollout AIME AMC MATH Gaokao Minerva Olymp. Average 
+
+Qwen3-8B-Base 
+
+BF16 BF16 31.3/26.0 76.9/62.8 89.6 71.9 44.0 58.1 57.6 BF16 FP8 36.9/25.2 73.8/60.6 89.6 75.8 44.8 59.4 58.2 Tensorwise FP8 FP8 11.5/14.8 56.9/45.0 82.9 68.7 42.7 46.3 46.1 w/ Calibrated Clipping FP8 29.0/22.5 73.1/57.2 88.6 74.5 44.6 57.6 55.9 (-1.7,-2.3,+9.8) Rowwise FP8 FP8 15.0/17.3 57.5/43.3 83.4 68.1 42.2 49.0 47.0 w/ Calibrated Clipping FP8 31.3/21.3 76.3/58.9 89.3 73.6 43.4 58.3 56.5 (-1.1,-1.7,+9.5) Blockwise FP8 FP8 25.8/21.9 75.0/50.0 88.1 72.1 45.0 54.6 54.1 w/ Calibrated Clipping FP8 33.5/27.1 80.6/62.8 90.7 75.6 41.3 57.3 58.6 (+1.0,+0.4,+4.5) 
+
+Qwen2.5-32B 
+
+BF16 BF16 27.5/16.0 71.3/50.0 85.4 71.6 41.9 51.9 51.9 BF16 FP8 21.5/17.3 71.9/52.8 85.5 70.4 41.4 49.0 51.2 Tensorwise FP8 FP8 24.4/16.9 65.0/40.0 84.6 71.1 42.1 48.5 49.1 w/ Calibrated Clipping FP8 25.0/16.3 73.8/48.9 83.7 69.4 41.7 50.0 51.1 (-0.8,-0.1,+2.0) Rowwise FP8 FP8 20.4/15.2 66.3/43.9 84.7 71.2 43.1 47.3 49.0 w/ Calibrated Clipping FP8 24.6/17.9 70.0/51.7 86.5 71.6 42.1 49.1 51.7 (-0.2,+0.5,+2.7) Blockwise FP8 FP8 26.9/17.5 71.3/46.1 85.1 72.8 40.3 46.4 50.8 w/ Calibrated Clipping FP8 25.6/19.8 70.0/52.8 86.5 73.2 45.3 54.1 53.4 (+1.5,+2.2,+2.6)  
+
+> Table 1
+
+Performance comparison for Qwen3-8B-Base and Qwen2.5-32B under different training precisions and rollout configurations. AIME, AMC, and MATH denote AIME 2024/2025, AMC 2023/2024, and MATH-500, respectively. The three signed values in parentheses in the Average column denote performance changes relative to (1) the BF16 baseline, (2) FP8 rollout with BF16 training, and (3) the corresponding vanilla FP8 training baseline. Red indicates a decrease and green an increase. 
+
+As shown in Table 1, vanilla FP8 training causes significant performance drops for Qwen3-8B-Base, with average scores declining by 11.5, 10.6, and 3.5 points for tensorwise, rowwise, and blockwise scaling, respectively. 84K 8K 16K 05000 10000 15000 Throughput (TPS)              
+
+> 1.4× 1.5× 1.4× 1.2× 1.3× 1.3× 1.1× 1.2× 1.2×
+> Qwen3-8B 4K 8K 16K 02000 4000 6000 8000
+> 1.5× 1.5× 1.5× 1.2× 1.3× 1.3× 1.1× 1.2× 1.2×
+> Qwen3-14B 4K 8K 16K 01000 2000 3000 4000
+> 1.5× 1.5× 1.2× 1.3× 1.1× 1.2×
+> OOM
+> Qwen2.5-32B BF16 Tensorwise FP8 Rowwise FP8 Blockwise FP8
+
+Figure 7 Throughput (tokens per second) of FP8 training compared with the BF16 baseline across model sizes (8B, 14B, 32B) and sequence lengths (4K, 8K, 16K). The offline TorchAO benchmark isolates training-phase throughput and excludes periodic BF16 reference passes. 
+
+Calibrated Clipping substantially closes these gaps across all granularities, with blockwise FP8 reaching an average score comparable to the BF16 baseline (58.6 vs. 57.6). For Qwen2.5-32B, pathological entropy surges are less pronounced—attributable to its significantly shorter responses—yet Calibrated Clipping still yields consistent gains, with blockwise FP8 likewise reaching a comparable average score (53.4 vs. 51.9). We also report the Qwen3-8B-Base results on the Eurus coding dataset in Appendix A.4. 
+
+5.2 Results of DAPO Experiments 
+
+We train Qwen3-14B-Base with the DAPO algorithm on the 17K dataset from the original paper [31]. We train for 200 steps and evaluate Avg@32 accuracy on AIME24 every 10 steps. We set cref low = 0 .8 and cref high = 1 .28 to align with the DAPO configuration. The evaluation results are summarized in Table 2. In contrast to the GRPO experiments, the higher upper clipping bound in DAPO prevents entropy from saturating; instead, even the high-precision baseline exhibits a gradual entropy increase throughout training, as shown in Figure 15. This inherent property makes vanilla FP8 training more prone to triggering pathological entropy surges. By implementing Calibrated Clipping, we successfully mirror the baseline’s entropy evolution while recovering a substantial portion of the performance lost under vanilla FP8 training across all scaling granularities. 
+
+Train Rollout AIME24 Avg@32 BF16 BF16 50.9 BF16 FP8 47.4 Tensorwise FP8 FP8 35.7 w/ Calibrated Clipping FP8 47.9 (-3.0, +0.5, +12.2) Rowwise FP8 FP8 38.1 w/ Calibrated Clipping FP8 46.5 (-4.4, -0.9, +8.4) Blockwise FP8 FP8 41.6 w/ Calibrated Clipping FP8 47.4 (-3.5, 0.0, +5.8) 
+
+Table 2 Performance evaluation of Qwen3-14B-Base on the AIME24 benchmark using the DAPO algorithm. As in Table 1, the red/green values in parentheses denote the corresponding performance changes. 
+
+5.3 Performance Gains 
+
+We focus on performance gains within the training phase enabled by full-pipeline FP8 training, benchmarking across 8B, 14B, and 32B models at sequence lengths of 4K, 8K, and 16K. As shown in Figure 7, coarser scaling granularities generally yield greater throughput improvements. Tensorwise scaling typically achieves up to 1.5 × the BF16 training throughput, while blockwise scaling can also provide a 10%–20% improvement. 9These training gains, together with the approximately 30% generation speedup from FP8 rollout reported by prior work [18], enable substantial full-pipeline efficiency improvements. 
+
+6 Related Work & Discussion  
+
+> Related RL Algorithms and Clipping Mechanisms.
+
+Several works have sought to improve RL stability by redesigning the clipping mechanism. DAPO [31] proposes asymmetrically relaxing the upper bound to encourage exploration. GSPO [34] reconceives the trust region at the sequence level, applying clipping over entire responses rather than individual tokens. Beyond importance-ratio clipping, M2PO [35] identifies extreme updates using a batch-level second-moment statistic over log-importance ratios, while DPPO [20] directly determines the trust region from policy divergence. Our analysis focuses on token-level clipping in GRPO and DAPO. Sequence-level aggregation may reduce sensitivity to individual token-ratio errors, but precision-induced distortion may still affect the aggregated sequence ratio; extending calibration to sequence-level clipping remains future work. Chen et al. [4] connect clipping bias to policy-entropy reduction under spurious rewards, while Karaman et al. [11] decouple importance-weight clipping for correct and incorrect responses to balance exploration and training stability. These studies analyze entropy control under reward or off-policy effects; our work instead focuses on false lower-bound clipping induced by FP8 ratio distortion. CISPO [3] is closely related to our work. It addresses gradient zeroing from hard clipping by retaining gradient contributions from clipped tokens and clipping only the sampling weights. However, CISPO was not designed for FP8 RL. As shown in Appendix A.2, applying CISPO to rowwise FP8 training leads to training collapse after 300 steps, indicating that the clipping boundaries still need to be carefully calibrated. BAPO [29] proposes dynamically adjusting the clipping bounds to rebalance positive and negative contributions. While BAPO adjusts its bounds to satisfy a predefined threshold on the positive contribution to the policy loss, our Calibrated Clipping derives the lower bound and the target ratio directly from a high-precision reference and solves for the upper bound accordingly. In a similar rowwise-FP8 experiment, BAPO becomes unstable after approximately 90 steps and eventually collapses as its clipping bounds move to [0 .9, 3.0] ; detailed trajectories are provided in Appendix A.3. This result indicates that a fixed contribution target does not stabilize this FP8 setting.  
+
+> FP8 RL for LLMs.
+
+Early efforts on FP8 RL focus exclusively on the rollout stage. FlashRL [18] demonstrates that FP8 generation yields an approximately 30% speedup but introduces a train–inference mismatch. Efforts to mitigate this mismatch primarily focus on correcting it via importance sampling. Truncated Importance Sampling (TIS, [30]) and Masked Importance Sampling (MIS, [17]) provide corrections at the token and sequence levels, respectively. QuRL [14] further refines TIS by incorporating the proximal-to-behavior policy ratio into the clipping range. More recent works, including Jet-RL [28] and Unified FP8 [27], extend FP8 to both rollout and training, showing that full-pipeline unification narrows the train–rollout precision gap and facilitates on-policy training. These works share our motivation but focus on the precision gap; none identifies the failure mode we characterize: compounded quantization noise in the importance ratio systematically distorts the clipping mechanism, causing over-clipping and ultimately destabilizing training. 
+
+7 Conclusion 
+
+We investigate the stability of full-pipeline FP8 RL for LLMs and identify a previously overlooked failure mode: compounded FP8 quantization noise distorts the importance ratio, causing systematic over-clipping that triggers pathological entropy surges. To address this, we propose Calibrated Clipping, which dynamically realigns the clipping bounds by matching the FP8 clipping quantile to a high-precision BF16 reference and rebalancing the positive-to-negative update ratio. Extensive experiments demonstrate that Calibrated Clipping consistently eliminates entropy surges and restores BF16-level performance while achieving up to 1.5 × the BF16 training throughput, establishing a practical path toward full-pipeline FP8 RL for LLMs. 10 References 
+
+[1] Art of Problem Solving. AIME problems and solutions. https://artofproblemsolving.com/wiki/index.php/ AIME_Problems_and_Solutions , 2024. Accessed: 2026-04-01. [2] Art of Problem Solving. AMC problems and solutions. https://artofproblemsolving.com/wiki/index.php? title=AMC_Problems_and_Solutions , 2024. Accessed: 2026-04-01. [3] Aili Chen, Aonian Li, Bangwei Gong, Binyang Jiang, Bo Fei, Bo Yang, Boji Shan, Changqing Yu, Chao Wang, Cheng Zhu, et al. MiniMax-M1: Scaling test-time compute efficiently with lightning attention. arXiv preprint arXiv:2506.13585, 2025. [4] Peter Chen, Xiaopeng Li, Ziniu Li, Wotao Yin, Xi Chen, and Tianyi Lin. Exploration vs exploitation: Rethinking RLVR through clipping, entropy, and spurious reward. In International Conference on Learning Representations, 2026. URL https://openreview.net/forum?id=sE8DCSJTzd .[5] Ganqu Cui, Lifan Yuan, Zefan Wang, Hanbin Wang, Yuchen Zhang, Jiacheng Chen, Wendi Li, Bingxiang He, Yuchen Fan, Tianyu Yu, et al. Process reinforcement through implicit rewards. arXiv preprint arXiv:2502.01456, 2025. [6] Maxim Fishman, Brian Chmiel, Ron Banner, and Daniel Soudry. Scaling FP8 training to trillion-token LLMs. arXiv preprint arXiv:2409.12517, 2024. [7] Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Peiyi Wang, Qihao Zhu, Runxin Xu, Ruoyu Zhang, Shirong Ma, Xiao Bi, et al. DeepSeek-R1: Incentivizing reasoning capability in LLMs via reinforcement learning. arXiv preprint arXiv:2501.12948, 2025. [8] Chaoqun He, Renjie Luo, Yuzhuo Bai, Shengding Hu, Zhen Thai, Junhao Shen, Jinyi Hu, Xu Han, Yujie Huang, Yuxiang Zhang, et al. OlympiadBench: A challenging benchmark for promoting AGI with olympiad-level bilingual multimodal scientific problems. In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers), pages 3828–3850, 2024. [9] Dan Hendrycks, Collin Burns, Saurav Kadavath, Akul Arora, Steven Basart, Eric Tang, Dawn Song, and Jacob Steinhardt. Measuring mathematical problem solving with the MATH dataset. arXiv preprint arXiv:2103.03874, 2021. [10] Aaron Jaech, Adam Kalai, Adam Lerer, Adam Richardson, Ahmed El-Kishky, Aiden Low, Alec Helyar, Aleksander Madry, Alex Beutel, Alex Carney, et al. OpenAI o1 system card. arXiv preprint arXiv:2412.16720, 2024. [11] Batuhan K. Karaman, Aditya Rawal, Suhaila Shakiah, Mohammad Ghavamzadeh, Mingyi Hong, Arijit Biswas, and Ruida Zhou. DISPO: Enhancing training efficiency and stability in reinforcement learning for large language model mathematical reasoning. In Proceedings of the 29th International Conference on Artificial Intelligence and Statistics, 2026. URL https://arxiv.org/abs/2602.00983 .[12] Woosuk Kwon, Zhuohan Li, Siyuan Zhuang, Ying Sheng, Lianmin Zheng, Cody Hao Yu, Joseph Gonzalez, Hao Zhang, and Ion Stoica. Efficient memory management for large language model serving with PagedAttention. In Proceedings of the 29th symposium on operating systems principles, pages 611–626, 2023. [13] Aitor Lewkowycz, Anders Andreassen, David Dohan, Ethan Dyer, Henryk Michalewski, Vinay Ramasesh, Ambrose Slone, Cem Anil, Imanol Schlag, Theo Gutman-Solo, et al. Solving quantitative reasoning problems with language models. Advances in neural information processing systems, 35:3843–3857, 2022. [14] Yuhang Li, Reena Elangovan, Xin Dong, Priyadarshini Panda, and Brucek Khailany. QuRL: Efficient reinforcement learning with quantized rollout. arXiv preprint arXiv:2602.13953, 2026. [15] Hunter Lightman, Vineet Kosaraju, Yura Burda, Harri Edwards, Bowen Baker, Teddy Lee, Jan Leike, John Schulman, Ilya Sutskever, and Karl Cobbe. Let’s verify step by step. arXiv preprint arXiv:2305.20050, 2023. [16] Aixin Liu, Bei Feng, Bing Xue, Bingxuan Wang, Bochao Wu, Chengda Lu, Chenggang Zhao, Chengqi Deng, Chenyu Zhang, Chong Ruan, et al. DeepSeek-V3 technical report. arXiv preprint arXiv:2412.19437, 2024. [17] Jiacai Liu, Yingru Li, Yuqian Fu, Jiawei Wang, Qian Liu, and Zhuo Jiang. When speed kills stability: Demystifying RL collapse from the training-inference mismatch, September 2025. URL https://richardli.xyz/rl-collapse .[18] Liyuan Liu, Feng Yao, Dinghuai Zhang, Chengyu Dong, Jingbo Shang, and Jianfeng Gao. FlashRL: 8bit rollouts, full power RL, August 2025. URL https://fengyao.notion.site/flash-rl .
+
+11 [19] Andrew Or, Apurva Jain, Daniel Vega-Myhre, Jesse Cai, Charles David Hernandez, Zhenrui Zheng, Driss Guessous, Vasiliy Kuznetsov, Christian Puhrsch, Mark Saroufim, et al. TorchAO: PyTorch-native training-to-serving model optimization. arXiv preprint arXiv:2507.16099, 2025. [20] Penghui Qi, Xiangxin Zhou, Zichen Liu, Tianyu Pang, Chao Du, Min Lin, and Wee Sun Lee. Rethinking the trust region in llm reinforcement learning. arXiv preprint arXiv:2602.04879, 2026. [21] Zhaopeng Qiu, Shuang Yu, Jingqi Zhang, Shuai Zhang, Xue Huang, Jingyi Yang, and Junjie Lai. FP8-RL: A practical and stable low-precision stack for LLM reinforcement learning. arXiv preprint arXiv:2601.18150, 2026. [22] John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. Proximal policy optimization algorithms. arXiv preprint arXiv:1707.06347, 2017. [23] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, YK Li, Yang Wu, et al. DeepSeekMath: Pushing the limits of mathematical reasoning in open language models. arXiv preprint arXiv:2402.03300, 2024. [24] Guangming Sheng, Chi Zhang, Zilingfeng Ye, Xibin Wu, Wang Zhang, Ru Zhang, Yanghua Peng, Haibin Lin, and Chuan Wu. HybridFlow: A flexible and efficient RLHF framework. In Proceedings of the Twentieth European Conference on Computer Systems, pages 1279–1297, 2025. [25] Mohammad Shoeybi, Mostofa Patwary, Raul Puri, Patrick LeGresley, Jared Casper, and Bryan Catanzaro. Megatron-LM: Training multi-billion parameter language models using model parallelism. arXiv preprint arXiv:1909.08053, 2019. [26] Sijun Tan, Michael Luo, Justin Wong, Colin Cai, Xiaoxiang Shi, William Yuan Tang, Manan Roongta, Tianjun Zhang, Li Erran Li, Raluca Ada Popa, et al. DeepScaleR: Effective RL scaling of reasoning models via iterative context lengthening. OpenReview, 2025. URL https://openreview.net/forum?id=I6GzDCne7U .[27] InfiXAI Team, Ant Group AQ Team, SGLang RL Team, and Miles Team. Unified FP8: Moving Beyond Mixed Precision for Stable and Accelerated MoE RL. https://lmsys.org/blog/2025-11-25-fp8-rl/ , 11 2025. [28] Haocheng Xi, Charlie Ruan, Peiyuan Liao, Yujun Lin, Han Cai, Yilong Zhao, Shuo Yang, Kurt Keutzer, Song Han, and Ligeng Zhu. Jet-RL: Enabling on-policy FP8 reinforcement learning with unified training and rollout precision flow. arXiv preprint arXiv:2601.14243, 2026. [29] Zhiheng Xi, Xin Guo, Yang Nan, Enyu Zhou, Junrui Shen, Wenxiang Chen, Jiaqi Liu, Jixuan Huang, Zhihao Zhang, Honglin Guo, et al. BAPO: Stabilizing off-policy reinforcement learning for LLMs via balanced policy optimization with adaptive clipping. arXiv preprint arXiv:2510.18927, 2025. [30] Feng Yao, Liyuan Liu, Dinghuai Zhang, Chengyu Dong, Jingbo Shang, and Jianfeng Gao. Your efficient rl framework secretly brings you off-policy rl training, August 2025. URL https://fengyao.notion.site/off-policy-rl .[31] Qiying Yu, Zheng Zhang, Ruofei Zhu, Yufeng Yuan, Xiaochen Zuo, Yu Yue, Weinan Dai, Tiantian Fan, Gaohong Liu, Lingjun Liu, et al. DAPO: An open-source LLM reinforcement learning system at scale. arXiv preprint arXiv:2503.14476, 2025. [32] Xiaotian Zhang, Chunyang Li, Yi Zong, Zhengyu Ying, Liang He, and Xipeng Qiu. Evaluating the performance of large language models on gaokao benchmark. arXiv preprint arXiv:2305.12474, 2023. [33] Yanli Zhao, Andrew Gu, Rohan Varma, Liang Luo, Chien-Chin Huang, Min Xu, Less Wright, Hamid Shojanazeri, Myle Ott, Sam Shleifer, et al. PyTorch FSDP: Experiences on scaling fully sharded data parallel. arXiv preprint arXiv:2304.11277, 2023. [34] Chujie Zheng, Shixuan Liu, Mingze Li, Xiong-Hui Chen, Bowen Yu, Chang Gao, Kai Dang, Yuqiong Liu, Rui Men, An Yang, et al. Group sequence policy optimization. arXiv preprint arXiv:2507.18071, 2025. [35] Haizhong Zheng, Jiawei Zhao, and Beidi Chen. Prosperity before collapse: How far can off-policy RL reach with stale data on LLMs? arXiv preprint arXiv:2510.01161, 2025. [36] Lianmin Zheng, Liangsheng Yin, Zhiqiang Xie, Chuyue Sun, Jeff Huang, Cody H Yu, Shiyi Cao, Christos Kozyrakis, Ion Stoica, Joseph E Gonzalez, et al. SGLang: Efficient execution of structured language model programs. Advances in neural information processing systems, 37:62557–62583, 2024. 
+
+12 Appendix 
+
+A Additional Results and Experimental Details 
+
+A.1 Example of a High-Entropy Response  
+
+> Figure 8 An example of a high-entropy response containing garbled and fragmented tokens.
+
+A.2 Results of the CISPO Experiment 
+
+We train Qwen3-8B-Base on the DeepScaleR dataset using CISPO, with all remaining configurations identical to those of the GRPO experiments in Section 5.1. As shown in Figure 9, training collapses after approximately 300 steps, with entropy spiking sharply and reward dropping to zero. This demonstrates that retaining clipped gradients is insufficient to stabilize training in this rowwise-FP8 setting. 0 100 200 300 Training Step 0246Entropy 0 100 200 300 Training Step 0.0 0.2 0.4 0.6 Reward  
+
+> Figure 9 Training entropy and reward of rowwise FP8 CISPO training.
+
+A.3 Results of the BAPO Experiment 
+
+We evaluate BAPO in the same Qwen3-8B GRPO setting as Section 5.1, using rowwise FP8 training and FP8 rollout. We use the default BAPO configuration [29]: target positive-token contribution ρ0 = 0 .4,lower-bound range [0 .6, 0.9] , upper-bound range [1 .2, 3.0] , and update steps δlow = 0 .02 and δhigh = 0 .05 . As shown in Figure 10, the positive-token contribution ρ falls below its target after approximately 90 steps, while BAPO progressively moves the lower and upper clipping bounds toward 0.9 and 3.0, respectively. Training subsequently becomes unstable, and the reward eventually collapses to zero. In this FP8 setting, using a fixed positive-contribution target therefore fails to stabilize training. 
+
+A.4 Results on the Eurus Dataset 
+
+We further evaluate Calibrated Clipping by training Qwen3-8B on the coding subset of Eurus-2-RL-Data [5] and evaluating on TACO, APPS, and Codeforces. As shown in Table 3, Calibrated Clipping improves the average score over vanilla FP8 training for all three scaling granularities. 13 Figure 10 BAPO with rowwise FP8 training in the Qwen3-8B GRPO setting. From left to right: actor entropy, reward, positive-token contribution ρ, upper clipping bound, and lower clipping bound. Rollout Train TACO APPS Codeforces Average BF16 BF16 37.44 52.90 58.48 49.61 FP8 BF16 35.56 54.75 55.98 48.77 FP8 Tensorwise FP8 32.57 51.93 52.78 45.77 FP8 w/ Calibrated Clipping 34.83 51.64 57.15 47.88 FP8 Rowwise FP8 33.61 52.17 52.21 46.00 FP8 w/ Calibrated Clipping 36.44 53.45 55.83 48.58 FP8 Blockwise FP8 33.30 50.90 54.93 46.38 FP8 w/ Calibrated Clipping 33.61 54.35 58.26 48.75  
+
+> Table 3
+
+Training results of Qwen3-8B under different training precisions and FP8 scaling granularities on Eurus dataset. 
+
+A.5 Sensitivity to Calibration Hyperparameters 
+
+We evaluate the sensitivity of our method to two hyperparameters in the same Qwen3-8B rowwise-FP8 GRPO setting as Section 3: the recalibration interval and the initialization of the clipping bounds. For the recalibration interval, we compare updates every 10, 20, and 40 training steps. For the initialization, we compare the default bounds [0 .6, 1.8] with the standard bounds [0 .8, 1.2] .As shown in Table 4, changing the recalibration interval or the initial clipping bounds affects the final average score to some extent, but every tested configuration recovers substantial performance over vanilla rowwise FP8 training, demonstrating the robustness of our method. 
+
+Ablation Setting Average Score Update interval 10 steps 58.31 Update interval 20 steps 56.51 Update interval 40 steps 57.91 Initialization [0 .6, 1.8] 56.51 Initialization [0 .8, 1.2] 56.20  
+
+> Table 4
+
+Sensitivity of Calibrated Clipping to the recalibration interval and clipping-bound initialization. 
+
+14 A.6 Experimental Details for GRPO with Qwen3-8B-Base 
+
+A.6.1 Experiment Settings 
+
+Training. We adopt the DeepScaleR dataset and train with a context length of 16K. The training batch size is 256 with a mini-batch size of 64. We sample eight responses per prompt and train for 500 steps with a learning rate of 10 −6. The TIS truncation hyperparameter is set to C = 2 . We remove the KL-divergence term from the GRPO objective. 
+
+Evaluation. We evaluate on all benchmarks using a temperature of 1.0 and a top-p value of 0.7. For AIME24/25, we report Avg@16 accuracy; for all other benchmarks, we report Avg@4 accuracy. 
+
+A.6.2 Training Metrics 1 100 200 300 400 500 0123
+
+> Entropy
+
+1 100 200 300 400 500 01231 100 200 300 400 500 01231 100 200 300 400 500 01231 100 200 300 400 500 0.000 0.005 0.010 0.015 0.020 0.025 
+
+> Clip Fraction
+
+1 100 200 300 400 500 0.000 0.005 0.010 0.015 0.020 0.025 1 100 200 300 400 500 0.000 0.005 0.010 0.015 0.020 0.025 1 100 200 300 400 500 0.000 0.005 0.010 0.015 0.020 0.025 1 100 200 300 400 500 0.2 0.3 0.4 0.5 0.6 0.7 
+
+> Rewards
+
+1 100 200 300 400 500 0.2 0.3 0.4 0.5 0.6 0.7 1 100 200 300 400 500 0.2 0.3 0.4 0.5 0.6 0.7 1 100 200 300 400 500 0.2 0.3 0.4 0.5 0.6 0.7 1 100 200 300 400 500 
+
+Training Step 
+
+1000 2000 3000 4000 5000 
+
+> Response Length
+
+1 100 200 300 400 500 
+
+Training Step 
+
+1000 2000 3000 4000 5000 1 100 200 300 400 500 
+
+Training Step 
+
+1000 2000 3000 4000 5000 1 100 200 300 400 500 
+
+Training Step 
+
+1000 2000 3000 4000 5000 BF16 FP8-Rollout-BF16-Train Tensorwise FP8 Tensorwise FP8 w/ Calibrated Clipping Rowwise FP8 Rowwise FP8 w/ Calibrated Clipping Blockwise FP8 Blockwise FP8 w/ Calibrated Clipping 
+
+Figure 11 Training results for GRPO experiments with Qwen3-8B-Base. 0 100 200 300 400 500 
+
+Training Step 
+
+0.50 0.55 0.60 0.65 0.70 0.75 0.80 
+
+> Lower Bound
+
+0 100 200 300 400 500 
+
+Training Step 
+
+1.2 1.4 1.6 1.8 2.0 
+
+> Upper Bound
+
+Tensorwise FP8 w/ Calibrated Clipping Rowwise FP8 w/ Calibrated Clipping Blockwise FP8 w/ Calibrated Clipping 
+
+Figure 12 Trajectories of the calibrated lower and upper clipping bounds for GRPO experiments with Qwen3-8B-Base. 
+
+15 A.7 Experimental Details for GRPO with Qwen2.5-32B 
+
+A.7.1 Experiment Settings 
+
+All settings are identical to those of the Qwen3-8B-Base experiment. 
+
+A.7.2 Training Metrics 1 100 200 300 400 500 0.0 0.2 0.4 0.6 0.8 
+
+> Entropy
+
+1 100 200 300 400 500 0.0 0.2 0.4 0.6 0.8 1 100 200 300 400 500 0.0 0.2 0.4 0.6 0.8 1 100 200 300 400 500 0.0 0.2 0.4 0.6 0.8 1 100 200 300 400 500 0.000 0.002 0.004 0.006 0.008 
+
+> Clip Fraction
+
+1 100 200 300 400 500 0.000 0.002 0.004 0.006 0.008 1 100 200 300 400 500 0.000 0.002 0.004 0.006 0.008 1 100 200 300 400 500 0.000 0.002 0.004 0.006 0.008 1 100 200 300 400 500 0.3 0.4 0.5 0.6 0.7 
+
+> Rewards
+
+1 100 200 300 400 500 0.3 0.4 0.5 0.6 0.7 1 100 200 300 400 500 0.3 0.4 0.5 0.6 0.7 1 100 200 300 400 500 0.3 0.4 0.5 0.6 0.7 1 100 200 300 400 500 
+
+Training Step 
+
+400 600 800 1000 1200 
+
+> Response Length
+
+1 100 200 300 400 500 
+
+Training Step 
+
+400 600 800 1000 1200 1 100 200 300 400 500 
+
+Training Step 
+
+400 600 800 1000 1200 1 100 200 300 400 500 
+
+Training Step 
+
+400 600 800 1000 1200 1 100 200 300 400 500 0123
+
+> Entropy
+
+1 100 200 300 400 500 01231 100 200 300 400 500 01231 100 200 300 400 500 01231 100 200 300 400 500 0.000 0.005 0.010 0.015 0.020 0.025 
+
+> Clip Fraction
+
+1 100 200 300 400 500 0.000 0.005 0.010 0.015 0.020 0.025 1 100 200 300 400 500 0.000 0.005 0.010 0.015 0.020 0.025 1 100 200 300 400 500 0.000 0.005 0.010 0.015 0.020 0.025 1 100 200 300 400 500 0.2 0.3 0.4 0.5 0.6 0.7 
+
+> Rewards
+
+1 100 200 300 400 500 0.2 0.3 0.4 0.5 0.6 0.7 1 100 200 300 400 500 0.2 0.3 0.4 0.5 0.6 0.7 1 100 200 300 400 500 0.2 0.3 0.4 0.5 0.6 0.7 1 100 200 300 400 500 
+
+Training Step 
+
+1000 2000 3000 4000 5000 
+
+> Response Length
+
+1 100 200 300 400 500 
+
+Training Step 
+
+1000 2000 3000 4000 5000 1 100 200 300 400 500 
+
+Training Step 
+
+1000 2000 3000 4000 5000 1 100 200 300 400 500 
+
+Training Step 
+
+1000 2000 3000 4000 5000 BF16 FP8-Rollout-BF16-Train Tensorwise FP8 Tensorwise FP8 w/ Calibrated Clipping Rowwise FP8 Rowwise FP8 w/ Calibrated Clipping Blockwise FP8 Blockwise FP8 w/ Calibrated Clipping 
+
+Figure 13 Training results for GRPO experiments with Qwen2.5-32B. 0 100 200 300 400 500 
+
+Training Step 
+
+0.50 0.55 0.60 0.65 0.70 0.75 0.80 
+
+> Lower Bound
+
+0 100 200 300 400 500 
+
+Training Step 
+
+1.2 1.4 1.6 1.8 2.0 
+
+> Upper Bound
+
+Tensorwise FP8 w/ Calibrated Clipping Rowwise FP8 w/ Calibrated Clipping Blockwise FP8 w/ Calibrated Clipping 
+
+Figure 14 Trajectories of the calibrated lower and upper clipping bounds for GRPO experiments with Qwen2.5-32B. 
+
+16 A.8 Experimental Details for DAPO with Qwen3-14B-Base 
+
+A.8.1 Experiment Settings 
+
+Training. We adopt the DAPO-Math-17K dataset and train with a context length of 20K. The training batch size is 256 with a mini-batch size of 64. We sample 16 responses per prompt and train for 200 steps with a learning rate of 10 −6. The TIS truncation hyperparameter is set to C = 2 . We do not apply any KL divergence loss between the actor and reference models. 
+
+Evaluation. We evaluate on the AIME 2024 dataset using a temperature of 1.0 and a top-p value of 0.7 and report Avg@32 accuracy. 
+
+A.8.2 Training Metrics 1 50 100 150 200 0123
+
+> Entropy
+
+1 50 100 150 200 01231 50 100 150 200 01231 50 100 150 200 01231 50 100 150 200 0.00 0.02 0.04 0.06 
+
+> Clip Fraction
+
+1 50 100 150 200 0.00 0.02 0.04 0.06 1 50 100 150 200 0.00 0.02 0.04 0.06 1 50 100 150 200 0.00 0.02 0.04 0.06 1 50 100 150 200 0.2 0.4 0.6 
+
+> Rewards
+
+1 50 100 150 200 0.2 0.4 0.6 1 50 100 150 200 0.2 0.4 0.6 1 50 100 150 200 0.2 0.4 0.6 1 50 100 150 200 
+
+Training Step 
+
+2000 4000 6000 8000 
+
+> Response Length
+
+1 50 100 150 200 
+
+Training Step 
+
+2000 4000 6000 8000 1 50 100 150 200 
+
+Training Step 
+
+2000 4000 6000 8000 1 50 100 150 200 
+
+Training Step 
+
+2000 4000 6000 8000 1 100 200 300 400 500 0123
+
+> Entropy
+
+1 100 200 300 400 500 01231 100 200 300 400 500 01231 100 200 300 400 500 01231 100 200 300 400 500 0.000 0.005 0.010 0.015 0.020 0.025 
+
+> Clip Fraction
+
+1 100 200 300 400 500 0.000 0.005 0.010 0.015 0.020 0.025 1 100 200 300 400 500 0.000 0.005 0.010 0.015 0.020 0.025 1 100 200 300 400 500 0.000 0.005 0.010 0.015 0.020 0.025 1 100 200 300 400 500 0.2 0.3 0.4 0.5 0.6 0.7 
+
+> Rewards
+
+1 100 200 300 400 500 0.2 0.3 0.4 0.5 0.6 0.7 1 100 200 300 400 500 0.2 0.3 0.4 0.5 0.6 0.7 1 100 200 300 400 500 0.2 0.3 0.4 0.5 0.6 0.7 1 100 200 300 400 500 
+
+Training Step 
+
+1000 2000 3000 4000 5000 
+
+> Response Length
+
+1 100 200 300 400 500 
+
+Training Step 
+
+1000 2000 3000 4000 5000 1 100 200 300 400 500 
+
+Training Step 
+
+1000 2000 3000 4000 5000 1 100 200 300 400 500 
+
+Training Step 
+
+1000 2000 3000 4000 5000 BF16 FP8-Rollout-BF16-Train Tensorwise FP8 Tensorwise FP8 w/ Calibrated Clipping Rowwise FP8 Rowwise FP8 w/ Calibrated Clipping Blockwise FP8 Blockwise FP8 w/ Calibrated Clipping 
+
+Figure 15 Training results for DAPO experiments with Qwen3-14B-Base. 0 50 100 150 200 
+
+Training Step 
+
+0.50 0.55 0.60 0.65 0.70 0.75 0.80 
+
+> Lower Bound
+
+0 50 100 150 200 
+
+Training Step 
+
+1.2 1.4 1.6 1.8 2.0 
+
+> Upper Bound
+
+Tensorwise FP8 w/ Calibrated Clipping Rowwise FP8 w/ Calibrated Clipping Blockwise FP8 w/ Calibrated Clipping 
+
+Figure 16 Trajectories of the calibrated lower and upper clipping bounds for DAPO experiments with Qwen3-14B-Base. 
+
+17
