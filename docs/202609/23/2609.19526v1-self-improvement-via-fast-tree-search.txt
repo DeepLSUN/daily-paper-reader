@@ -1,0 +1,792 @@
+Title: Self Improvement via Fast Tree-search
+
+URL Source: https://arxiv.org/pdf/2609.19526v1
+
+Published Time: Fri, 18 Sep 2026 00:33:15 GMT
+
+Number of Pages: 24
+
+Markdown Content:
+# Self Improvement via Fast Tree-search 
+
+Xinghong Fu ∗
+
+Massachusetts Institute of Technology 
+
+Aravinth Kulanthaivelu 
+
+Sakana AI 
+
+Yutaro Yamada 
+
+Sakana AI 
+
+## Abstract 
+
+Coding agents can recursively modify their own implementations, forming a loop of self-improvement. While prior work shows this can boost performance on coding benchmarks, existing approaches are costly and compute-intensive. We introduce a simple, sample-efficient self-improvement framework that significantly improves coding performance under strict budget constraints. We identify evalu-ation of candidate self-modifications as the main runtime bottleneck since prior approaches estimate their effectiveness by re-running a subset of benchmark tasks with the modified agent, which is time-consuming. We introduce Recursive Self 
+
+Improvement via Fast Tree-search (SIFT), which augments these downstream task evaluations with an LLM-as-a-judge signal that performs pairwise comparisons 
+
+between candidate patches, where the win-loss record is aggregated with a regular-ized Bradley-Terry model, and the resulting strength scores drive rank-based parent sampling inside a lightweight disaggregated tree search. Expensive downstream task evaluations are reserved only for the most promising nodes. Using a fully disaggregated tree search pipeline, the judge scores provide intermediate signal to guide exploration on promising candidate patches without being bottlenecked by slow evaluation runs. SIFT outperforms existing tree-search based self-evolution frameworks on the full Polyglot benchmark with significantly lower resource requirements in terms of CPU hours, wall clock time, and API cost. 
+
+## 1 Introduction 
+
+Large Language Models (LLMs) have enabled the rapid development of autonomous agents, capable of reasoning, planning, and executing complex workflows. Among these, coding agents have made leapfrog gains within the past years, demonstrating the ability to solve increasingly difficult software engineering tasks [Jimenez et al., 2024, Jain et al., 2025]. One particular frontier within this domain is recursive self-improvement: the ability of an agent to modify its own source code to enhance its future performance. Theoretical frameworks such as the Gödel Machine [Schmidhuber, 2006] propose that a program capable of provably beneficial self-modifications will converge to a global optimum. Recent empirical implementations, such as the Gödel Agent [Yin et al., 2025], SICA [Robeyns et al., 2025], and the Darwin-Gödel Machine (DGM) [Zhang et al., 2025b], have validated this potential, showing that agents can indeed navigate their own design space to refine their own implementation, with the improvement validated through competitive results on various benchmarks. However, this search process is extremely inefficient. Current methods rely on an expensive feedback loop where every candidate modification must be validated against a comprehensive benchmark suite to estimate its utility. As noted in recent works, this evolutionary process can incur astronomical costs, upwards of $22,000 to evaluate on SWE-Bench, and consume thousands of CPU hours [Zhang et al., 2025b, Wang et al., 2025]. This high barrier to entry makes research on self-improving agents less accessible and slows progress in the field. 
+
+> ∗Correspondence to: fxh@mit.edu Preprint. arXiv:2609.19526v1 [cs.AI] 17 Sep 2026
+
+In this paper, we identify the primary bottleneck in self-improvement as the poor signal-to-cost trade-off of existing evaluation methods. Full benchmark execution provides a reliable validation signal, but at high cost; evaluating on a small subset of benchmark tasks is cheaper, but yields a much noisier signal. We propose that this process can be optimized by introducing intermediate, cheaper signals via a separate LLM judge tasked with rating the quality of a self-improvement proposal. We introduce Recursive Self-Improvement via Fast Tree Search ( SIFT ), a simple framework that dramatically reduces the time and financial cost of self-improvement while still enabling the discovery of meaningful self-improvement modifications, maintaining competitive performance gains. Our key contributions include 1. Pairwise LLM-as-a-judge with Bradley–Terry aggregation. We identify the per-patch evaluation as the time and cost bottleneck of the self-improvement step and replace it with pairwise LLM judgments. Each new candidate is compared against a set of incumbent agent harnesses and the win-loss record is aggregated with a regularized Bradley-Terry (BT) model that yields a global strength score for every node in the search tree, providing quick signal to expand the search tree without waiting on the expensive evaluation to complete. 2. Judge scores to guide speculative exploration in a fully disaggregated tree search. We utilize a fully disaggregated pipeline to parallelize expansion and evaluation (Figure 2). Parent nodes for the next round of self-improvement are sampled from the full archive with a weight combining BT rank, accuracy rank, and a visit-count exploration term. Simultaneously, we maintain a priority queue of next nodes to evaluate, ranked by the same aggregation metric. An orchestrator fetches the completed expansion nodes, inserts it into the evaluation queue to prioritize nodes with high potential while launching the next expansion step, dramatically speeding up tree search without being bottlenecked by slow evaluation processes, using judge signals as intermediate guides. 3. Empirical improvements and transferability of discovered agent harnesses across different coding models. On the Polyglot benchmark, we achieve an improved score of 35% using o3-mini and 32% using Qwen3-30B as the base coding model, exceeding the performance of existing harnesses while maintaining a runtime under 250 CPU hours and a wall clock time of 7 hours for Qwen3 , and under 50 CPU hours, 5 hours of wall clock time for o3-mini (Table 2). Furthermore, we observe that the discovered agent harnesses transfer well across different coding models (Figure 4). 
+
+## 2 Related works 
+
+Our work is closely related to an ongoing line of research on self-improving coding agents. The Gödel machine [Schmidhuber, 2006] demonstrates that a program that is able to provably make useful modifications to its own code will find a globally optimum solution. The Gödel agent [Yin et al., 2025] proposes sensor-executor modules that implements the approximation of such a program in code, demonstrating improved performance across various language and reasoning benchmarks [Dua et al., 2019, Hendrycks et al., 2021, Rein et al., 2023, Shi et al., 2022]. SICA [Robeyns et al., 2025] enforces the self-improvement agent to identically match the agent used during benchmark evaluations, and shows significant performance gains in coding [Jimenez et al., 2024, Jain et al., 2025]. STOP [Zelikman et al., 2024] uses a meta-utility function to guide a seed improver to discover multiple self-improvement strategies, such as simulated annealing and genetic algorithms. The Darwin-Gödel Machine [Zhang et al., 2025b] introduces open-endedness by maintaining an archive of well-performing agents to improve diversity in the agentic design search space. The Huxley-Gödel machine [Wang et al., 2025] proposes the Clade Meta Productivity [Huxley, 1957] metric to sample the next agent based on the performance of a parent and all its descendants. More recently, Group Evolving-Agents [Weng et al., 2026] implement crossover between different branches in the search tree via applying the self-improvement step within a group of leaf nodes. Red Queen Gödel Machine [Iacob et al., 2026] makes use of a reviewer agent on each Polyglot task to supply auxiliary signal before running the full Polyglot evaluation and evolves the reviewer agent together with the coding agent. In SIFT, we apply the the judge signal for comparison between different nodes in the tree search, obtaining a faster signal before any task evaluations even complete, allowing for efficient exploration during the tree search process. 2More broadly, this line of work on self-improving coding agents aims to efficiently explore the design space of harness design for agents. ADAS [Hu et al., 2025] demonstrates a Meta Agent Search algorithm that exceeds SOTA performance of human-designed agentic systems across several comprehension and reasoning tasks. AFlow [Zhang et al., 2025c] explores the design space of code-based workflows using Monte Carlo Tree Search, simultaneously achieving performance improvements and cost reductions against stronger LLM backbones. Such work has also been extended to multi-agent systems via MaAS [Zhang et al., 2025a]. Pairwise preferences and the Bradley–Terry model [Bradley and Terry, 1952] have a long history in ranking under noisy feedback, and are used pervasively in LLM-as-a-judge pipelines [Zheng et al., 2023, Jiang et al., 2025] because pairwise calls are calibration-free and more reliable than absolute rubric scores. We import this machinery into self-improvement: instead of asking the judge for an absolute score and taking top-k, we accumulate pairwise wins across the tree and fit a regularized BT model whose ranks drive parent sampling. 
+
+## 3 Methods 
+
+Figure 1: Illustration of the SIFT pipeline. In a single expansion step, node i is sampled with probability P (i) ∝ exp( −(αr b(i) + βr a(i) + η log(1 + vi))) , self-improves, then judged against previous versions in the existing agent archive. The win/loss record is updated and the BT scores of each node is solved numerically. Then the new agent is inserted into the priority queue for evaluation on downstream tasks, prioritizing higher potential nodes. 
+
+Recursive Self-Improvement Loop. A self-improving coding agent is a recursive loop between two roles. The coding model is the agent’s runtime backbone, reading source, editing files, running tests, and invoking tools to solve downstream tasks. The self-improving model sits one level above: given the current code and diagnostic context from prior runs (e.g. evaluation logs and failure traces), it identifies weaknesses and writes a patch, producing a child agent. The child is then evaluated by running the coding model under the new agent harness, and the resulting signal from downstream tasks feeds the next round of self-modification. Because each patch reshapes the very code that orchestrates the coding model, improvements compound recursively. Prior systems including SICA [Robeyns et al., 2025], DGM [Zhang et al., 2025b], and HGM [Wang et al., 2025] instantiate this loop, differing primarily in how they search the resulting tree of self-modifications. In practice, the two roles can be filled by different LLMs, often with a cheaper backbone handling the many coding-model calls during evaluation. This loop is powerful but expensive: each candidate patch must be benchmarked before the next round, and benchmark runs dominate wall-clock time. To address this, we introduce SIFT (Recursive Self-Improvement via Fast Tree-search), a sample-efficient framework that decouples exploration from expensive benchmark evaluation. SIFT maintains an archive of candidate agent harnesses and uses cheap LLM-based judge feedback to decide which branches of the self-improvement tree to expand. Each newly generated node is compared pairwise against a small set of strong existing nodes. The resulting win-loss records are aggregated with a regularized Bradley-Terry (BT) model, producing a judge-based strength score for every node. During search, parent nodes are sampled according to a rank-based mixture of judge-based strength, subset benchmark accuracy, and a visit-count penalty that encourages exploration using the following: 
+
+P (i) ∝ exp( −αr b(i) − βr a(i) − η log(1 + vi)) , (1) 3where α and β control the influence of judge and accuracy ranks, and η controls the strength of the visit-count exploration penalty. Thus, expensive benchmark evaluations are reserved for candidates that achieve high preliminary accuracy and are judged promising by the LLM. 
+
+LLM-as-a-judge. After a new child node is generated, SIFT estimates its potential utility using a judge model before running a benchmark evaluation on it. The judge never sees benchmark tasks or task outcomes. Instead, it compares the new candidate against one existing agent at a time, using candidate agent implementations as input. In Table 6, we compare several input formats for the judge model. The “Diffs” variant provides the root-agent implementation followed by the chain of diff sleading to the final implementation of each agent, while the “Full files” variant provides the complete source files for the two candidate agents. Each comparison returns a preference between the two agents, which SIFT records as a single win or loss. 
+
+Comparison-target selection. To keep judging cost bounded as the tree grows, each new candidate is compared against only a small set of existing nodes. These comparison targets are chosen from the current archive by favoring agents that already look strong under the same signals used for parent selection: judge rank and benchmark-accuracy rank. In practice, we limit our comparison to the top 10 nodes in the archive. This concentrates judge effort on comparisons against relevant frontier nodes rather than repeatedly comparing against weak or already-dominated agents. 
+
+Bradley–Terry aggregation. The Bradley–Terry (BT) model is a classical model for converting noisy pairwise comparisons into a global ranking [Bradley and Terry, 1952]. In our setting, each node in the search tree corresponds to an agent version, and each judge call produces a pairwise preference between two such versions. BT assumes that every node i has a latent positive strength parameter 
+
+θi > 0, and that the probability that node i is preferred to node j is 
+
+P (i ≻ j) = θi
+
+θi + θj
+
+.
+
+This gives a principled way to pool sparse and potentially inconsistent judge preferences: rather than treating each comparison independently, all wins and losses are explained jointly by a single set of latent strengths. SIFT aggregates judge preferences in a global win-count matrix W , where Wij is the number of times node i has been preferred to node j. After each judging round, we refit a regularized BT model to convert the accumulated pairwise outcomes into one judge-strength score for every node. To account for limited comparison data for newly generated nodes we include a regularizer λ which acts as a pseudo-count. We further normalize all scores so that P 
+
+> i
+
+θi = n, where n is the number of candidate patches. The resulting BT strengths are used only through their induced ranks in the parent-sampling rule below, which makes the search less sensitive to the absolute scale of the fitted scores. 
+
+Rank-based parent sampling. SIFT uses judge feedback only through ranks, not raw judge scores. Using the measured Bradley-Terry score and benchmark accuracy we derive measures of the ranking denoted rb(i) and ra(i) respectively. If a node is still waiting for evaluation, it temporarily inherits its parent’s accuracy for sampling purposes. Parent nodes are then sampled from the archive according to (1) where vi is the number of times node i has already been selected as a parent. The first two terms bias search toward nodes that look strong under judge and benchmark signals. The visit-count term downweights nodes that have already been explored many times, encouraging the search to continue branching rather than repeatedly refining the same lineage. 
+
+Disaggregated pipeline. SIFT runs a non-blocking master loop (Algorithm 1, Figure 2). On each iteration, it (1) samples a new node to expand according to Eq. 1 and runs it through an easy subset to filter out broken patches immediately, (2) compares the improved agent against strong incumbent agents and refits the BT model to obtain the BT scores bi and ranks rb(i) sorted by BT strength, and (3) appends the new agent into the evaluation priority queue, sorted by rb(i) + ra(i), where nodes that pass the easy subset inherit ai from their parents. The evaluator and expansion runs proceed in parallel, allowing expansions to continue without waiting for full evaluation to complete. Similar implementations of such disaggregated pipelines have also been explored in [Wang et al., 2025], which decides which nodes to expand and which to evaluate through Thompson sampling. 4Figure 2: Illustration of the disaggregated pipeline. SIFT allows expansions of nodes that have yet to complete full evaluation but received a strong signal from the judge. However, we observe that this implementation often leads to inaccurate estimations of the final accuracy due to random sampling of tasks used for evaluation, where nodes that received easier tasks would have high scores simply just by chance. Furthermore, the signal obtained through a single downstream task evaluation is extremely noisy, and still requires significant amount of time to complete. To get the best of both worlds of (1) high signal to discriminate between candidate nodes and (2) fast tree search that is not bottlenecked by downstream evaluations, SIFT makes use of the judge signal to guide the expansion process before evaluation runs complete. We use a fixed subset to compare accuracies between nodes in order to provide fair evaluations for each node that is comparable between nodes, yet maintaining efficiency by allowing fully disaggregated expansion and evaluation to run in parallel. 
+
+3.1 Cost estimation of self-evolution. 
+
+Each node in the search tree records three cost phases: expansion , judge and eval . At default settings with maximum pairwise comparisons per node of K = 10 , a single node costs roughly 10 pairwise calls at a few cents each, which is an order of magnitude cheaper than a full Polyglot-50 evaluation (see Table 1). Existing self-improvement frameworks such as DGM make use of the benchmark evaluation across the 50 problem subset, which accounts for majority of the cost in the evolution process 2. The use of a judge model allows a much faster and cost-efficient way to obtain an intermediate signal of the strength of the child node. Table 1: Resource consumption breakdown per step. Self-improve and LLM-judge costs and durations are reported per task, averaged across 50 tasks, using gpt-5.4 . A single judge comparison is one call on a pair; a full judging round for one new node costs up to K = 10 such calls. 
+
+Module LLM Cost (USD) Time (CPU Hours) 
+
+Self-Improve (expansion) gpt-5-mini 0.12 0.186 LLM-judge (pairwise call) gpt-5.4 0.044 0.0042 Polyglot-50 full eval o3-mini 6.0 2.6 
+
+## 4 Experiments 
+
+We report our key results across various coding benchmarks: SWE-bench[Jimenez et al., 2024], Polyglot [Gauthier, 2024] and Terminal Bench [Merrill et al., 2026]. SIFT is built on top of the DGM [Zhang et al., 2025b] harness, and we report comparisons to the DGM and HGM [Wang et al., 2025] baselines. 
+
+4.1 Experimental setting. Polyglot Aider Polyglot [Gauthier, 2024] is a multi-language benchmark across c++, go, rust, java, javascript, python . The full benchmark has 225 tasks. Our models and harness in our 
+
+> 2Authors of previous works typically switch to a more cost-efficient coding model to lower the overall cost of the tree search, dominated by the downstream task evaluation
+
+5(a) Task duration distribution on Polyglot. The average set of pairwise judge comparisons against the top 10 incumbent patches complete in a significantly shorter period of time than even the first evaluation.     
+
+> (b) Evolution progress of SIFT using Qwen3-30B as the base coding model and Qwen3-480B as the self-improvement and judge model.
+
+Figure 3: Evolution progress of SIFT. We plot Polyglot-50 accuracy against iteration number, running for 30 evolution steps, improving from an accuracy of 16% to 38% on Polyglot-50. The overall average accuracy of the archive across Polyglot-50 steadily increases with iteration number. The best descendant achieves a final Polyglot accuracy of 31.1%. experiments follow DGM [Zhang et al., 2025b] and HGM [Wang et al., 2025]. In the search process, DGM and HGM use different intermediate signals as indicators of the strength of a node: DGM evaluates nodes on sets of increasing size, beginning with a small subset of 10 tasks to filter out catastrophically bad patches, followed by a medium subset of 50 tasks, and reserves the full 225-task benchmark for held-out final evaluation. In contrast, HGM dynamically adjusts the number of tasks evaluated for each node, sampling tasks at random from the full benchmark. We adopt the DGM evaluation protocol, but use a smaller 4-task gate, followed by a 50-task subset, which we refer to as Polyglot-50, as the intermediate search signal. We reserve the full 225-task benchmark for held-out final evaluation. All experiments run in sandboxed Docker containers. We evaluate SIFT against existing self-improvement harnesses under matched settings on Polyglot-50. Following the setup in Wang et al. [2025], we use Qwen3-Coder-30B-A3B-Instruct [Team, 2025] (referred to as Qwen3-30B throughout) as the coding model, and Qwen3-480B as both the expansion model and the LLM judge. For the DGM setup, the coding model is o3-mini and the self-improvement model is gpt-5-mini . The original DGM paper uses Claude-3.5-Sonnet-v2 
+
+for the self-improvement role, but it is now deprecated; we substitute gpt-5-mini as a comparable proxy (Polyglot accuracy 34.7% vs. 32.0% for Claude-3.5-Sonnet-v2). Our independent evaluations of the initial harness matches those reported by the original authors, with DGM achieving 14.2% and HGM achieving 20.0%. To compare fairly under the constraint of 800 evaluations in Wang et al. [2025], we limit the total number of expansion steps to 30 steps. The evolution progress is shown in Fig 3, where the best found node achieves an accuracy of 31.1% after a total of 34.3USD in API cost and a wall clock time of 6.71h with a total of 224 CPU hours, a tenth of that of the baseline of DGM. This also achieves a higher accuracy at a lower CPU hour count than a different asynchronous tree search implementation of HGM which reaches 30.5% accuracy at 347 CPU hours. Our accuracies also surpass that of SICA. The full results are shown in Table 2. Furthermore, the proposed judge plus disaggregation workflow also transfers to other starting har-nesses. Using the DGM initial harness with o3-mini as the base coding agent, we achieve an improvement to 35.1% within 30 steps of expansion, exceeding the 30.7% result obtained by DGM after 80 nodes of tree search. This experiments completes in under 5 hours of wall clock time, 42 CPU hours and 150 USD of API credits. We repeat the experiment on o3-mini 3 more times and obtain the results in the range [32 .0% , 35 .6%] , consistently outperforming the DGM evolution framework with lower resource consumption. We also observe that these improvements transfer across LLMs. We take the improved agent harnesses discovered by SIFT with o3-mini and Qwen3-30B as the base coding model. We re-evaluate these agent harnesses with gpt-5-mini and gpt-5.4-mini as the coding model on Polyglot. As shown in Figure 4, the SIFT-discovered harnesses consistently improve Polyglot performance. This shows that SIFT is not only fast and efficient, but also discovers robust and transferable agent harnesses, 6Table 2: Polyglot-225 accuracy and comparison to several baselines across different coding and judge models. SIFT outperforms other evolution frameworks such as SICA, DGM and HGM.                                     
+
+> Method Coding model Judge model Polyglot Accuracy (%)
+> Base Agent Qwen3-Coder-30B None 20.0 SICA Qwen3-Coder-30B None 25.1 DGM Qwen3-Coder-30B None 27.1 HGM Qwen3-Coder-30B None 30.5 SIFT Qwen3-Coder-30B Qwen3-Coder-480B 31.1
+> SIFT Qwen3-Coder-30B gpt-5.4 32.0
+> Base Agent o3-mini None 14.2 DGM o3-mini None 30.7 SIFT o3-mini None 29.8
+> SIFT o3-mini gpt-5.4 35.1 SIFT o3-mini gpt-5-mini 31.6
+
+Table 3: Run-level resource use for the three SIFT configurations reported in Table 2. Judge cost is included in total API cost. Each row is a single search run.                              
+
+> Configuration Expansion steps API cost Of which judge CPU-h Wall-clock
+> Qwen3-30B /Qwen3-480B judge 30 $34.3 $4.1 224 6.7 h
+> Qwen3-30B /gpt-5.4 judge 30 $33.7 $9.7 188 6.8 h
+> o3-mini /gpt-5.4 judge 20 $86.8 $15.7 59 2.1 h
+
+rather than merely optimizing for the particular coding model used to obtain benchmark feedback during tree search. 
+
+4.2 TerminalBench 2.1 
+
+We next evaluate SIFT on TerminalBench [Merrill et al., 2026], a heterogeneous benchmark of long-horizon tasks executed and graded inside task-specific terminal containers. Again we use 
+
+gpt-5-mini as the coding model, gpt-5 for diagnosis and self-improvement, and gpt-5.4-high 
+
+as the pairwise judge. During search, candidate evaluations use a fixed randomly sampled 50-task subset and we employ more stringent timeout requirements. Namely the maximum time we allow for each agent is the minimum of the TerminalBench task timeout or 30 minutes. TerminalBench tasks vary in their allowed We compare one judge-guided search and one no-judge ablation, both capped at 30 expansions and initialized from the same starting agent which scores 14/50. At the end of the search we selected three agents and performed three full evaluations on them: the highest scoring agent of the SIFT run, the agent the judge most preferred from the SIFT run, and the highest scoring agent from the no-judge      
+
+> (a) o3-mini to other LLMs (b) Qwen3 transfer to other LLMs
+
+Figure 4: Transfer between LLMs of the best Polyglot agent found by SIFT. The improved agents in SIFT generalizes to gpt-5-mini and gpt-5.4-mini , where the improved agent consistently achieves a higher accuracy than the base coding agent. 7Table 4: TerminalBench selection comparison. “Search eval” is the score observed on the 50-task search subset. Repeated means average three independent full evaluations of each selected agent. 
+
+Setting Agent Search eval Repeated mean Initial agent Starting point 14/50 26.0/89 (29.2%) SIFT with judge Judge rank 1 18/50 32.7/89 (36.7%) SIFT with judge Accuracy rank 1 19/50 25.0/89 (28.1%) No-judge ablation Accuracy rank 1 19/50 26.0/89 (29.2%) 
+
+ablation. We present these results in Table 4. Here we see that although the judge-selected nodes performed slightly worse during search, it exceeded both other agents on the complete benchmark under repetition. 16-20 (lowest) 11-15 6-10 1-5 (highest)                                
+
+> Judge-only rank group (5 nodes each)
+> 10 15 20 25 30 35
+> Solved  tasks  (of  89)
+> 20.2 21.4 25.0 28.7
+> aAccuracy by judge-rank group
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Normalized judge-only rank (higher is better)
+> 10 15 20 25 30 35
+> Solved  tasks  (of  89)
+> root baselines: 25-27 320 29 11 10 16 19
+> Spearman ρ=0.72 per-verdict agreement =63.2%
+> bNode-level judge ranking
+
+Figure 5: TerminalBench judge diagnostics for the fully evaluated agents in the clean judge-guided run. Left: nodes are sorted by judge-only Bradley-Terry rank and divided into four groups; bars show each group’s mean realized accuracy and points show its individual nodes. Right: the underlying node-level judge rank versus realized accuracy. To further measure the ranking ability of the judge, we fully evaluated each agent in the judge-guided search on the full benchmark and computed the Spearman correlation. In Figure 5 we present these results. 
+
+Judge model strength. We repeat the judge-guided search with the weaker gpt-5 as the judge, keeping the coding, diagnosis, and self-improvement models fixed, and evaluate its archive on the full benchmark in the same way. Table 5 compares the two judge models and the no-judge ablation. The weaker judge retains most of the global ranking signal: its BT rank correlates with full-benchmark score at ρ = 0 .71 across its 20 fully evaluated candidates, essentially matching gpt-5.4-high , and its search still produces an agent that repeats at 34.5%, well above the no-judge search. However, we find the performance of the two judges separate at the top of the ranking: within the BT top-5, gpt-5 ’s pairwise agreement with the ground-truth ordering falls to 0.50 against 1.00 for gpt-5.4-high , and unlike gpt-5.4-high its top-ranked candidate is not the best agent its search produced. A weaker judge therefore still steers the search toward strong candidates but is less reliable for the final selection among them. This suggests an alternative tiered configuration in which a cheaper judge performs the bulk of comparisons and a stronger judge orders the frontier may be viable. Taken together these results suggest that the judge is most useful when it comes to providing a ranking signal rather than as a surrogate for benchmark accuracy. Search-time accuracy alone does not reliably identify the best agent, whereas BT ranking appears to recover a substantially stronger candidate and remains informative across judge models. The stronger judge is particularly valuable near the top of the frontier, where small ranking errors directly affect which final agent is selected. 8Table 5: TerminalBench judge-model comparison, one search run per condition. “Best agent found” is the highest-scoring agent in each run’s archive, averaged over three independent full-benchmark evaluations, and “Gain” is its percentage-point improvement over the starting agent (29.2%). Recall@5 counts members of the ground-truth top-5 present in the judge’s BT top-5; ρ is the Spearman correlation between BT rank and full-benchmark score over the run’s 20 fully evaluated candidates; pairwise (top-5) is agreement with the ground-truth ordering within the BT top-5.                     
+
+> Judge Best agent found Gain Recall@5 ρPairwise (top-5)
+> gpt-5.4-high 36.7% +7.5 4/5 +0.72 1.00
+> gpt-5 34.5% +5.3 3/5 +0.71 0.50 None 29.2% +0.0 ———
+
+4.3 Analysis 
+
+Figure 6: Speedups in SIFT, averaged across five runs. 
+
+SIFT Speedups SIFT utilizes two main ingredients to achieve speedups across separate runs: the disaggregation pipeline to allow for parallel expansion and evaluation, and allowing the specu-lative expansion of nodes that are judged but not fully expanded. Figure 6 show the efficiency gains from each of these components, averaged across five runs of SIFT. We observe that the asynchronous pipeline accounts for majority of the speedups, and on top of this, the speculative expansion of un-evaluated parent nodes according to the judge rankings allow SIFT to arrive at a higher accuracy in a shorter period of time, further improving tree search efficiency within the disaggregated pipeline. 
+
+Figure 7: Qualitative insights into judge preferences. 
+
+Qualitative insights In an open-ended tree search, the judge provides guiding signal to explore lower accu-racy but more promising nodes instead of exploiting the best found accuracy. We demonstrate in Figure 7 a specific instance in which the judge model pro-vides a intermediate guiding signal to explore a promising node. At the spe-cific snapshot of the expansion process of the tree illustrated in Figure 7, node 17, which is ranked lower in terms of accuracy, over other existing nodes, achives the highest BT judge score of 2.81, prioritizing it for further expansion. The expansion of node 17 then spawns a children node 25, which eventually achieves the highest accuracy of 42%. In particular, at the instant of completion of the tree search expansion to 30 nodes, the full lineage of the nodes 2 → 17 → 25 
+
+achieves BT judge scores of 1.484, 1.93, and 1.93 (ranking 2, 1, and 1) respectively, showing that the judge consistently ranks the lineage highly, enabling recursive self-improvement along a promising exploration direction. For TerminalBench 2.1 we found the judge preferred a gap between the highest performing node under full-evaluation and the highest performing node during search. For the latter we observed the main addition was an instruction-derived local verifier with multi-attempt refinement. However this was gated behind an environment flag that defaults to off, and its rewritten bash tool started a fresh interactive shell on every call while claiming persistent state. The judge identified both properties from the code alone, noting that the verifier “likely does nothing on default runs” and that the shell rewrite is “a major runtime risk on the actual execution path.” The highest performing node developed 9a persistent shell with explicit timeouts, process-group cleanup and output truncation, plus bounded prompt changes that encourage at most two validation passes. In this case the failure mode the judge caught was invisible to any downstream evaluation score and thus made selection by highest accuracy unreliable here. 
+
+Judge input format. We ablate how candidate agents are presented to the LLM judge. Since SIFT uses judge scores only through their induced ranks, the most important property of the judge is not calibration, but whether its ranking agrees with downstream benchmark performance. We therefore measure the Pearson and Spearman correlation between each node’s Bradley–Terry score and its realized Polyglot accuracy across 50 non-root nodes from the Qwen3-Coder-30B Polyglot tree-search run. Table 6 shows that the representation of the candidate patch has a substantial effect on judge quality. Providing only the sequence of diffs gives a useful but relatively weak ranking signal, with Spearman correlation around 0.40 . Adding a swap-order pass, where the same pair is judged in both presentation orders to ensure symmetry across the presentation orders to break any positional biases, slightly improves rank correlation but roughly doubles judging cost. In contrast, showing the judge the resulting full files yields a much stronger signal: Spearman correlation increases to 0.68 , while the cost remains far below a benchmark evaluation. The full-file representation likely helps because it lets the judge reason about the final behavior of the agent directly, rather than reconstructing that behavior from a chain of patches. Swap-ordering full files gives nearly the same rank correlation, suggesting that most of the gain comes from the richer program context rather than from reducing presentation-order bias. We adopt the full-file format without swap for our implementation. Table 6: Judge-input ablation for Qwen3-Coder-480B on the Polyglot tree-search run in Fig. 3. We report the correlation between Bradley–Terry judge score and realized Polyglot accuracy over 50 non-root nodes. Spearman correlation is the primary metric because SIFT uses rank-based parent sampling.                  
+
+> Judge input variant Pearson rSpearman ρCost per comparison (USD)
+> Diffs +0 .14 +0 .40 0.0076
+> Diffs + swap-order +0 .11 +0 .43 0.014
+> Full files +0.45 +0.68 0.011
+> Full files + swap-order +0 .37 +0 .67 0.021
+
+These results motivate our default judge configuration: we use full-file pairwise comparisons without swap-ordering. This choice gives the strongest rank signal per dollar among the tested variants and preserves the main advantage of SIFT: providing fast, cheap guidance for tree search before committing to expensive downstream evaluations. 
+
+## 5 Discussion and Conclusion 
+
+We introduced SIFT , a lightweight framework for self-improving coding agents via fast tree search. The central idea is that not every candidate self-modification needs to be evaluated with an expensive downstream benchmark before it can provide useful search signal. Instead, SIFT uses pairwise LLM-as-a-judge comparisons between candidate agents, aggregates the resulting preferences with a regularized Bradley–Terry model, and uses the induced ranks to guide parent selection and evaluation priority inside a disaggregated tree-search pipeline. Our results suggest that cheap intermediate preference signals can substantially improve the efficiency of recursive self-improvement. On Polyglot, SIFT finds agents that outperform prior self-evolution frameworks while using substantially less search compute. In particular, the best SIFT variants achieve strong full-benchmark performance with both o3-mini and Qwen3-Coder-30B coding backbones, transferring across LLMs. These findings support a broader point: in self-improvement, the main bottleneck is not only the generation of candidate modifications, but the cost of deciding which modifications deserve further investment. Full benchmark evaluation remains a reliable signal, but it is too expensive to apply uniformly to every node in a growing search tree. SIFT addresses this by separating cheap ranking from expensive verification. The judge provides fast, noisy, but useful relative preferences; the Bradley–Terry model turns those sparse comparisons into a global ranking; and the disaggregated pipeline allows expansion to continue while full evaluations are still pending. This combination 10 preserves the benefits of empirical benchmark feedback while greatly reducing the amount of evaluation compute required to explore promising regions of the agent-design space. An important practical observation is that the form of the judge input matters. Our ablations show that full-file pairwise comparisons produce a substantially stronger rank signal than judging only chains of diffs. This suggests that judges are more effective when they can reason about the final behavior of an agent implementation directly, rather than reconstructing that behavior from incremental patches. More generally, the success of SIFT depends on the judge being good enough to distinguish promising modifications from clearly harmful ones, but not necessarily perfectly calibrated: because SIFT uses ranks rather than raw scores, it only requires the judge to provide a useful ordering signal. 
+
+Limitations. SIFT still depends on downstream benchmark evaluations to ultimately validate improvements. The judge model used in our strongest runs is also stronger than the coding backbone, which makes the setup highly practical but not a pure form of self-judged improvement. Future work should investigate whether smaller or open-weight judges can provide comparable ranking signal, and whether the coding model itself can be used as an effective judge under appropriate prompting or ensembling. The Bradley–Terry aggregation also assumes that pairwise judge outcomes can be explained by a single latent strength per node. This is a useful approximation for search, but it may hide task-specific tradeoffs: a patch that improves long-horizon debugging may hurt simple syntax-repair tasks, while another may have the opposite profile. A single scalar ranking cannot represent these dimensions. Extending SIFT to maintain multiple skill-specific rankings, to expand the strength scalar into a multi-dimensional vector, or to condition judge comparisons on failure categories, may further improve search efficiency. Finally, recursive self-improvement introduces safety and evaluation-integrity risks. Candidate patches may learn to exploit weaknesses in the harness, relax constraints, or optimize for artifacts of the evaluation process rather than genuine coding ability. In our experiments, we mitigate this by sandboxing execution, restricting writable files, and rejecting patches that modify benchmark or harness code. These safeguards are essential for any self-improvement system that can edit its own implementation. 
+
+Future work. The pairwise-judge signal in SIFT is currently used mainly for parent sampling and evaluation prioritization. A natural extension is to use BT strength as an explicit evaluation gate, so that only candidates whose judge rank clears a dynamic threshold receive full benchmark evaluation. Another direction is archive management: nodes that are consistently dominated in both judge rank and measured accuracy could be pruned, allowing larger searches under fixed memory and compute budgets. More powerful judges could also be made agentic. Instead of comparing two patches only from code, a judge could run lightweight targeted probes, inspect traces, or synthesize small adversarial tasks before issuing a pairwise preference. This would preserve SIFT’s relative-comparison interface while giving the judge access to richer behavioral evidence. Such agentic judging may close the gap between cheap static assessment and expensive full benchmark evaluation, but comes at a tradeoff of higher number of LLM API calls. Our proposed alternative to full benchmark evaluation using LLM-as-a-judge model to improve the signal-to-cost ratio makes use of ranking each candidate node with a scalar strength obtained by pairwise comparison. Another natural extension is to ask the question whether we can similarly rank downstream tasks in terms of difficulty, such that we sample the tasks with the highest signal-to-cost ratio. Existing works in Item Response Theory [Lord and Novick, 1968, Maia Polo et al., 2024] study whether we can also model the difficulty of the task i as a scalar parameter βi such that the probability of judge j solving task i is pj,i = σ(θj − βi). Given sufficient number of task evaluations, this can potentially achieve a good estimate on the difficulty of tasks, from which we can sample tasks maximizing for Fisher information. 
+
+Conclusion. SIFT shows that recursive self-improvement can be made substantially more sample-and cost-efficient by inserting a cheap preference-based ranking layer between candidate generation and full benchmark evaluation. Pairwise LLM judgments, regularized Bradley–Terry aggregation, and disaggregated tree search together provide a simple mechanism for exploring agent modifications 11 without evaluating every patch exhaustively. The resulting agents improve under strict resource budgets, suggesting that fast preference-guided search is a promising direction for scalable self-improving coding systems. 
+
+Safety and Ethics. Recursive self-improvement amplifies standard agentic risks. In Polyglot-50 runs we observed the diagnosis agent occasionally propose patches that relaxed the evaluation harness itself (e.g. extending timeouts or retry counts); we block these by restricting writable files and rejecting patches that touch harness code. No such patches made it into the final experiments, but the pattern reinforces that sandboxing and an explicit allow-list of editable files are minimum hygiene for this class of experiments. 
+
+Acknowledgements The authors would like to thank Yoon Kim, Wenyi Wang and Rujikorn Charakorn, Qi Sun and other collaborators at MIT and Sakana AI for fruitful discussions and inputs throughout the project. Xinghong Fu was supported by the MIT UROP grant. Part of this work was completed during Xinghong’s internship at Sakana AI. 
+
+## References 
+
+Ralph Allan Bradley and Milton E. Terry. Rank analysis of incomplete block designs: I. the method of paired comparisons. Biometrika , 39(3/4):324–345, 1952. Yuxin Chen and Changho Suh. Spectral MLE: Top-K rank aggregation from pairwise comparisons. In 
+
+Proceedings of the 32nd International Conference on Machine Learning , volume 37 of Proceedings of Machine Learning Research , pages 371–380. PMLR, 2015. Yuxin Chen, Jianqing Fan, Cong Ma, and Kaizheng Wang. Spectral method and regularized MLE are both optimal for top-K ranking. The Annals of Statistics , 47(4):2204–2235, 2019. doi: 10.1214/18-AOS1745. Dheeru Dua, Yizhong Wang, Pradeep Dasigi, Gabriel Stanovsky, Sameer Singh, and Matt Gardner. Drop: A reading comprehension benchmark requiring discrete reasoning over paragraphs, 2019. URL https://arxiv.org/abs/1903.00161 .Paul Gauthier. o1 tops aider’s new polyglot leaderboard. https://aider.chat/2024/12/21/ polyglot.html , December 2024. Dan Hendrycks, Collin Burns, Steven Basart, Andy Zou, Mantas Mazeika, Dawn Song, and Jacob Steinhardt. Measuring massive multitask language understanding. In The Ninth International Conference on Learning Representations , 2021. URL https://arxiv.org/abs/2009.03300 .Shengran Hu, Cong Lu, and Jeff Clune. Automated design of agentic systems, 2025. URL https: //arxiv.org/abs/2408.08435 .Julian Huxley. The three types of evolutionary process. Nature , 180:454–455, 1957. URL https: //www.nature.com/articles/180454a0 .Alex Iacob, Andrej Jovanovi´ c, William F. Shen, Daniel Burkhardt, Meghdad Kurmanji, Nurbek Tastan, Lorenzo Sani, Niccolò Alberto Elia Venanzi, Ambroise Odonnat, Zeyu Cao, Bill Marino, Xinchi Qiu, and Nicholas D. Lane. The red queen gödel machine: Co-evolving agents and their evaluators, 2026. URL https://arxiv.org/abs/2606.26294 .Naman Jain, King Han, Alex Gu, Wen-Ding Li, Fanjia Yan, Tianjun Zhang, Sida Wang, Armando Solar-Lezama, Koushik Sen, and Ion Stoica. Livecodebench: Holistic and contamination free evaluation of large language models for code. In The Thirteenth International Conference on Learning Representations , 2025. URL https://openreview.net/forum?id=chfJJYC3iL .Hongchao Jiang, Yiming Chen, Yushi Cao, Hung yi Lee, and Robby T. Tan. Codejudgebench: Benchmarking llm-as-a-judge for coding tasks, 2025. URL https://arxiv.org/abs/2507. 10535 .12 Carlos E Jimenez, John Yang, Alexander Wettig, Shunyu Yao, Kexin Pei, Ofir Press, and Karthik R Narasimhan. SWE-bench: Can language models resolve real-world github issues? In The Twelfth International Conference on Learning Representations , 2024. URL https://openreview.net/ forum?id=VTF8yNQM66 .Frederic M. Lord and Melvin R. Novick. Statistical Theories of Mental Test Scores . Addison-Wesley, Reading, MA, 1968. Felipe Maia Polo, Lucas Weber, Leshem Choshen, Yuekai Sun, Gongjun Xu, and Mikhail Yurochkin. tinybenchmarks: evaluating llms with fewer examples. In Proceedings of the 41st International Conference on Machine Learning , volume 235 of Proceedings of Machine Learning Research ,pages 34303–34326. PMLR, 2024. Mike A. Merrill, Alexander G. Shaw, Nicholas Carlini, Boxuan Li, Harsh Raj, Ivan Bercovich, Lin Shi, Jeong Yeon Shin, Thomas Walshe, E. Kelly Buchanan, Junhong Shen, Guanghao Ye, Haowei Lin, Jason Poulos, Maoyu Wang, Marianna Nezhurina, Jenia Jitsev, Di Lu, Orfeas Menis Mastromichalakis, Zhiwei Xu, Zizhao Chen, Yue Liu, Robert Zhang, Leon Liangyu Chen, Anurag Kashyap, Jan-Lucas Uslu, Jeffrey Li, Jianbo Wu, Minghao Yan, Song Bian, Vedang Sharma, Ke Sun, Steven Dillmann, Akshay Anand, Andrew Lanpouthakoun, Bardia Koopah, Changran Hu, Etash Guha, Gabriel H. S. Dreiman, Jiacheng Zhu, Karl Krauth, Li Zhong, Niklas Muennighoff, Robert Amanfu, Shangyin Tan, Shreyas Pimpalgaonkar, Tushar Aggarwal, Xiangning Lin, Xin Lan, Xuandong Zhao, Yiqing Liang, Yuanli Wang, Zilong Wang, Changzhi Zhou, David Heineman, Hange Liu, Harsh Trivedi, John Yang, Junhong Lin, Manish Shetty, Michael Yang, Nabil Omi, Negin Raoof, Shanda Li, Terry Yue Zhuo, Wuwei Lin, Yiwei Dai, Yuxin Wang, Wenhao Chai, Shang Zhou, Dariush Wahdany, Ziyu She, Jiaming Hu, Zhikang Dong, Yuxuan Zhu, Sasha Cui, Ahson Saiyed, Arinbjörn Kolbeinsson, Jesse Hu, Christopher Michael Rytting, Ryan Marten, Yixin Wang, Alex Dimakis, Andy Konwinski, and Ludwig Schmidt. Terminal-bench: Benchmarking agents on hard, realistic tasks in command line interfaces, 2026. URL https://arxiv.org/ abs/2601.11868 .David Rein, Betty Li Hou, Asa Cooper Stickland, Jackson Petty, Richard Yuanzhe Pang, Julien Dirani, Julian Michael, and Samuel R. Bowman. Gpqa: A graduate-level google-proof q&a benchmark, 2023. URL https://arxiv.org/abs/2311.12022 .Maxime Robeyns, Martin Szummer, and Laurence Aitchison. A self-improving coding agent. In 
+
+ICLR 2025 Workshop, Scaling Self-Improving Foundation Models without Human Supervision ,2025. URL https://openreview.net/forum?id=rShJCyLsOr .Juergen Schmidhuber. Goedel machines: Self-referential universal problem solvers making provably optimal self-improvements, 2006. URL https://arxiv.org/abs/cs/0309048 .Freda Shi, Mirac Suzgun, Markus Freitag, Xuezhi Wang, Suraj Srivats, Soroush Vosoughi, Hyung Won Chung, Yi Tay, Sebastian Ruder, Denny Zhou, Dipanjan Das, and Jason Wei. Lan-guage models are multilingual chain-of-thought reasoners, 2022. URL https://arxiv.org/ abs/2210.03057 .Qwen Team. Qwen3 technical report, 2025. URL https://arxiv.org/abs/2505.09388 .Wenyi Wang, Piotr Pi˛ ekos, Li Nanbo, Firas Laakom, Yimeng Chen, Mateusz Ostaszewski, Mingchen Zhuge, and Jürgen Schmidhuber. Huxley-gödel machine: Human-level coding agent development by an approximation of the optimal self-improving machine, 2025. URL https://arxiv.org/ abs/2510.21614 .Zhaotian Weng, Antonis Antoniades, Deepak Nathani, Zhen Zhang, Xiao Pu, and Xin Eric Wang. Group-evolving agents: Open-ended self-improvement via experience sharing, 2026. URL https: //arxiv.org/abs/2602.04837 .Xunjian Yin, Xinyi Wang, Liangming Pan, Li Lin, Xiaojun Wan, and William Yang Wang. Gödel agent: A self-referential agent framework for recursively self-improvement. In Wanxiang Che, Joyce Nabende, Ekaterina Shutova, and Mohammad Taher Pilehvar, editors, Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) ,pages 27890–27913, Vienna, Austria, July 2025. Association for Computational Linguistics. ISBN 979-8-89176-251-0. doi: 10.18653/v1/2025.acl-long.1354. URL https://aclanthology.org/ 2025.acl-long.1354/ .13 Eric Zelikman, Eliana Lorch, Lester Mackey, and Adam Tauman Kalai. Self-taught optimizer (STOP): Recursively self-improving code generation, 2024. URL https://openreview.net/forum? id=1gkePTsAWf .Guibin Zhang, Luyang Niu, Junfeng Fang, Kun Wang, Lei Bai, and Xiang Wang. Multi-agent architecture search via agentic supernet, 2025a. URL https://arxiv.org/abs/2502.04180 .Jenny Zhang, Shengran Hu, Cong Lu, Robert Lange, and Jeff Clune. Darwin godel machine: Open-ended evolution of self-improving agents, 2025b. URL https://arxiv.org/abs/2505.22954 .Jiayi Zhang, Jinyu Xiang, Zhaoyang Yu, Fengwei Teng, Xiong-Hui Chen, Jiaqi Chen, Mingchen Zhuge, Xin Cheng, Sirui Hong, Jinlin Wang, Bingnan Zheng, Bang Liu, Yuyu Luo, and Chenglin Wu. AFlow: Automating agentic workflow generation. In The Thirteenth International Con-ference on Learning Representations , 2025c. URL https://openreview.net/forum?id= z5uVAKwmjf .Lianmin Zheng, Wei-Lin Chiang, Ying Sheng, Siyuan Zhuang, Zhanghao Wu, Yonghao Zhuang, Zi Lin, Zhuohan Li, Dacheng Li, Eric P. Xing, Hao Zhang, Joseph E. Gonzalez, and Ion Stoica. Judging llm-as-a-judge with mt-bench and chatbot arena, 2023. URL https://arxiv.org/abs/ 2306.05685 .14 A SWE-Bench experiments SIFT with judge No-judge ablation 010 20 30 40 50 60   
+
+> SWE-60  accuracy  (%)  52.1% 47.5%
+> starting agent: 40.0%
+
+Figure 8: Aggregate repeated-evaluation comparison. Bars show pooled mean accu-racy and whiskers the standard error. We also evaluate SIFT on SWE-60, the 60-task subset of SWE-bench Verified [Jimenez et al., 2024] used in prior self-improvement research [Wang et al., 2025]. All SWE-60 experiments use gpt-5-mini as the coding model, gpt-5 for diagnosis and self-improvement, and 
+
+gpt-5.4-high as the judge model. We initialise our experiments from the same base coding agent as HGM, which scores 40.0%, facilitating com-pariso against HGM, and limit the search budget to 800 evaluations. We isolate the contribution of the judge by running an ablation of the judge. In SIFT, pairwise LLM judgements are used to prioritise which self-improved agents receive further search and full evaluations. In the no-judge ablation, this intermediate ranking signal is removed, so search decisions are based on SWE-60 accuracy and exploration alone. For the judge and no-judge runs respectively Table 7 show the two agents that ranked best at the end of the search. Because individual SWE-60 evaluations are noisy, we report both the score observed during search and the full evaluations of the selected agents on the 60 tasks. We see that the judge-based selections lead the no-judge selections in both the search evaluation and under repetition. We summarize this further in the aggregate presented in Figure 8. Together this suggests a sharpening effect from the judge. 
+
+SWE-60 judge preferences. In the right panel of Figure 9 we give a concrete example of the leading lineage chosen by the judge. In this lineage, support for LLM-style patch wrappers is first added to the agent’s git_patch tool. The two children then refine this. Node 12 adds a guarded recovery path for malformed patches, while Node 16 adds support for accepting full-file and add-file wrapper blocks. In the pairwise explanations, the judge prefers Node 16 over Node 12 due to concerns that Node 12 may allow for silently placing an edit incorrectly. We generally observe that the judge has a bias toward conservative changes rather than towards additional machinery, which leads to the imperfect ordering. This may be rectifiable through tuning the judge prompt. 
+
+## B Technical appendices and supplementary material 
+
+B.1 Hyperparameters for Bradley–Terry model 
+
+In practice, we use α = 1 , β = 1 , η = 1 . We observe that with η = 0 , the lack of sufficient exploration within the tree search process leads to a reduced performance, reaching 30.1% on Table 7: SWE-60 judge/no-judge tree-search comparison. “Search eval” is the score observed during tree search. For each setting we rerun the two agents that the setting itself ranks best at the end of search: for SIFT, the judge’s top two nodes by final Bradley–Terry strength; for the no-judge ablation, the two nodes with the highest measured search accuracy (node 1 ties two other nodes at 48.3%). Raw scores list the search evaluation followed by three repeat evaluations; means include all four scores and parentheses give standard deviations in percentage points. The starting agent has a single complete full-60 evaluation, shared by all searches as their root. Node numbers are local to each run and do not indicate matched pairs.                         
+
+> Setting Agent Search eval Repeated mean Raw full-60 scores Initial agent Starting point 40.0% –40.0 SIFT with judge Judge rank 1 (node 16) 53.3% 50.4% (3.0) 53.3, 46.7, 48.3, 53.3 SIFT with judge Judge rank 2 (node 12) 55.0% 53.8% (3.2) 55.0, 48.3, 56.7, 55.0 No-judge ablation Accuracy rank 1 (node 11) 51.7% 44.6% (4.8) 51.7, 38.3, 45.0, 43.3 No-judge ablation Accuracy rank 2 (node 1) 48.3% 50.4% (1.4) 48.3, 50.0, 51.7, 51.7
+
+15 Judge r2 node 12 Judge r1 node 16 No-J r1 node 11 No-J r2 node 1    
+
+> 40 45 50 55 60
+> SWE-60  accuracy  (%)  53.8 50.4 44.6 50.4
+> root observation: 40.0
+> pooled 52.1% pooled 47.5%
+
+a Repeated full-60 evaluations b A judge-favored patch-application lineage                 
+
+> Root
+> starting harness
+> 40.0% search BT 1.02
+> Node 1
+> safer editor
+> 48.3% search BT 0.79
+> Node 9
+> patch wrapper
+> 50.0% search BT 1.75
+> Node 12
+> recover broken hunks
+> 55.0% search 53.8% repeat BT 3.24
+> Node 16
+> full-file patch support
+> 53.3% search 50.4% repeat BT 4.30
+
+Figure 9: SWE-60 repeatability and a qualitative judged lineage. Left: individual full-60 evaluations of the four selected agents; horizontal markers show means and error bars show standard errors, and the dashed line marks the single 40.0% root observation. Right: one lineage favored during judge-guided search. Stored search-time BT strengths are shown alongside search accuracy; the two selected descendants additionally show their four-evaluation means. Polyglot (as opposed to 35.1% with η = 1 ) using o3-mini as the base coding model. Further tuning of these hyperparameters may yield a better exploration-exploitation tradeoff and improve final agent performance. The same hyperparameters are used across all reported tree search runs. 
+
+B.2 Full-file judge prompt 
+
+SIFT uses a full_files judge prompt mode in which the judge sees each candidate agent’s post-patch runtime implementation rather than only a chain of diffs. In this mode, each judge call contains a system prompt and a user message. The user message is formatted with two slots: 
+
+{num_candidates} , the number of candidates being compared, and {candidates_section} , the rendered view of each candidate’s differing runtime files. We use the default full-file prompt variant. 
+
+System prompt. 
+
+FULL_FILES_SYSTEM_PROMPT You are an expert code reviewer evaluating multiple candidate modifications of an AI coding agent. For each candidate you will be shown its FULL implementation files (already modified). Compare them directly. 
+
+> ,→
+> ,→
+
+Your task is to RANK the candidates from most to least likely to improve the agent's performance. ,→
+
+## IMPORTANT: Rank the candidates on how likely they are to improve performance, but also check for correctness. You can assume that imports to files that you cannot see will work fine. 
+
+> ,→
+> ,→
+
+You MUST respond in the following JSON format and nothing else. Write the `reasoning` field FIRST so your critique drives the ranking, not the other way around — once the ranking tokens are emitted you cannot revise them: {"reasoning": "<brief explanation of your ranking>", "ranking": [<list of candidate ids from best to worst>]} ,→
+
+User template. 
+
+16 FULL_FILES_USER_TEMPLATE Below are {num_candidates} candidate modifications of the AI coding agent. Each candidate's complete implementation files are shown. Rank them from most to least likely to improve agent performance. 
+
+> ,→
+> ,→
+
+{candidates_section} Respond with JSON only, `reasoning` field first then `ranking`: {"reasoning": "<str>", "ranking": [<candidate ids best to worst>]} ,→
+
+Candidate rendering. The {candidates_section} field is produced by collecting the patched 
+
+coding_agent.py file together with all Python files under tools/ and utils/ , excluding cache files. Files that are byte-identical across all compared candidates are omitted, so the judge sees only the runtime files that differ. Files missing from a candidate are marked explicitly. 
+
+Rendered candidates_section schematic 
+
+Files that are byte-identical across all candidates have been omitted; only files that differ between candidates are shown below. ,→
+
+## Candidate <id_1> ### <relative/path/to/file_a.py> ```python <full file contents, truncated at 30000 chars> ``` ### <relative/path/to/file_b.py> ```python <full file contents> ``` ## Candidate <id_2> ### <relative/path/to/file_a.py> ```python <full file contents> ``` ### <relative/path/to/file_b.py> (file absent in this candidate) 
+
+B.3 Variable tracking in SIFT 
+
+Table 8: State variables maintained by SIFT during tree search. 
+
+Variable Definition 
+
+Wij Number of judge wins of node i over node jbi BT strength of node i from pairwise judge outcomes 
+
+ai Measured accuracy of node i on the evaluation subset 
+
+rb(i) Rank of node i by BT strength, with best rank 0
+
+ra(i) Rank of node i by accuracy, with best rank 0
+
+vi Number of times node i has been selected as a parent 
+
+B.4 Theoretical properties of BT-guided judging 
+
+The role of the BT judge in SIFT is not to certify that a candidate patch is truly better on the downstream benchmark. Instead, the judge provides a cheap intermediate signal for deciding which parts of the self-improvement tree should be explored before committing to expensive benchmark 17 evaluation. Benchmark accuracy remains an important validation signal; the judge is used only as a noisy ranking oracle. The Bradley–Terry aggregation step gives a principled way to convert sparse, potentially inconsistent pairwise preferences into a global ordering over archive nodes. We formalize three properties of this mechanism. First, the regularized BT objective used by SIFT is well posed even when the comparison graph is sparse. Second, in an idealized Bradley–Terry (BT) comparison model, the fitted BT scores recover the top-K latent judge frontier from sparse pairwise comparisons. Third, if the recovered ranking is informative, the exponential rank-based parent sampler substantially increases the probability of expanding frontier nodes relative to uniform sampling. 
+
+Bradley–Terry fit details. The Bradley–Terry model can be viewed as logistic regression over pairwise differences in latent skill. Let si = log θi denote the log-strength of node i. Then 
+
+P (i ≻ j) = θi
+
+θi + θj
+
+= exp( si)exp( si) + exp( sj ) = σ(si − sj ),
+
+where σ is the logistic sigmoid. Therefore, each LLM-judge preference contributes evidence about the difference si − sj , not about the absolute value of either score. This is why BT is a natural fit for our judge interface: the judge only has to decide which of two candidate patches is better, while the aggregation step recovers a global ordering over all nodes. Given the win-count matrix W , the unregularized log-likelihood is 
+
+ℓ(θ) = X
+
+> i̸=j
+
+Wij log θi
+
+θi + θj
+
+.
+
+We use a smoothed version by adding a symmetric pseudo-count λ to every ordered pair: 
+
+ℓλ(θ) = X
+
+> i̸=j
+
+(Wij + λ) log θi
+
+θi + θj
+
+.
+
+Equivalently, this adds λ fictitious wins for i over j and λ fictitious wins for j over i for every unordered pair. This prevents degenerate estimates when the comparison graph is sparse or when a node has not yet lost. Such sparsity is typical in SIFT because each newly generated node is compared against at most K incumbent nodes rather than against the entire archive. We solve the regularized BT likelihood using the standard minorization–maximization (MM) fixed-point update: 
+
+γ(t+1)  
+
+> i
+
+=
+
+P 
+
+> j
+
+(Wij + λ)
+
+P  
+
+> jWij +Wji +2 λγ(t)
+> i+γ(t)
+> j
+
+.
+
+After every update, we normalize the scores so that P 
+
+> i
+
+γi = n. This normalization is necessary because BT strengths are only identifiable up to a global multiplicative constant: multiplying all strengths by the same positive scalar leaves every pairwise probability unchanged. We iterate until the maximum absolute change in normalized strengths is below 10 −6 or until 100 iterations have elapsed. In our implementation, self-comparisons are skipped. The root node is assigned γ0 = 1 for initializa-tion, but the fitted ranking used by SIFT is determined by the accumulated pairwise judge outcomes among archive nodes. Once the strengths are fitted, we sort nodes by γi to obtain the BT rank rjudge (i).SIFT uses this rank, rather than the raw γi, in parent sampling. This rank-based use is intentional: it preserves the ordering information supplied by the judge while avoiding over-sensitivity to the numerical magnitude of BT scores, which can vary with the number and topology of comparisons. 
+
+Regularized BT objective. The win count matrix Wij denotes the number of times node i is preferred to node j by the judge, with Wii = 0 . We can express the parameters θi in terms of si = log θi, the log-strength of node i. Thus SIFT fits a smoothed Bradley–Terry model by maximizing 
+
+ℓλ(s) = X
+
+> i̸=j
+
+(Wij + λ) [ si − log( esi + esj )] ,
+
+18 Since BT scores are identifiable only up to an additive shift in s, we optimize over the normalized subspace 
+
+H =
+
+(
+
+s ∈ Rn :
+
+> n
+
+X
+
+> i=1
+
+si = 0 
+
+)
+
+.
+
+Theorem 1 (Well-posedness of regularized BT) . For any win-count matrix W with nonnegative entries and any λ > 0, the regularized BT log-likelihood ℓλ has a unique maximizer on H.Proof. We first show strict concavity on H. For each unordered pair {i, j }, define 
+
+mij = Wij + Wji + 2 λ. 
+
+Because λ > 0, we have mij > 0 for every i̸ = j. The contribution of the pair {i, j } to the Hessian of ℓλ is 
+
+−mij σ(si − sj )σ(sj − si)( ei − ej )( ei − ej )⊤,
+
+where σ(x) = 1 /(1 + e−x) and ei is the standard basis vector with a 1 in the i-th coordinate and 0 everywhere else. Hence, for any vector x ∈ Rn,
+
+x⊤∇2ℓλ(s)x = − X
+
+> i<j
+
+mij σ(si − sj )σ(sj − si)( xi − xj )2.
+
+The coefficients are strictly positive for all i < j . Therefore the quadratic form is zero only when 
+
+xi = xj for all i, j , i.e. when x is proportional to the all-ones vector. On the normalized subspace H,the only such direction is x = 0 . Thus ℓλ is strictly concave on H.It remains to show that a maximizer exists. Because the pseudo-count adds positive mass in both directions for every pair, the objective tends to −∞ whenever the range max i si − min i si tends to infinity. On H, ∥s∥2 → ∞ implies that this range tends to infinity. Therefore the upper level sets of 
+
+ℓλ are bounded in H. Since ℓλ is continuous, it attains its maximum on a compact upper level set. Strict concavity then implies that this maximizer is unique. This theorem justifies the pseudo-count used by SIFT. Each new node is compared against only a small number of incumbents, so without regularization a node with a few wins and no losses could receive an unstable or unbounded score. The pseudo-count prevents this degeneracy and makes BT scores comparable across nodes with different comparison counts. 
+
+Idealized top-K recovery. We next state an idealized statistical guarantee for BT aggregation. This result does not exactly model the adaptive comparison graph used by SIFT. Instead, it isolates the statistical benefit of BT aggregation in the standard random-design setting studied in the pairwise-ranking literature. 
+
+Assumption 1 (Random-design BT judge model) . There are n fixed candidate agents, each with a latent judge utility s⋆i ∈ R. For identifiability, assume P 
+
+> i
+
+s⋆i = 0 and ∥s⋆∥∞ ≤ B for a constant 
+
+B. For each unordered pair (i, j ), the comparison graph includes edge (i, j ) independently with probability p. Each observed edge is compared L independent times. Every comparison is generated according to the Bradley–Terry–Luce model 
+
+Pr( i ≻ j) = σ(s⋆i − s⋆j ).
+
+Let s⋆ 
+
+> (1)
+
+≥ s⋆ 
+
+> (2)
+
+≥ · · · ≥ s⋆ 
+
+> (n)
+
+denote the sorted latent judge utilities, and let S⋆K be the set of indices corresponding to the K largest entries. Define the top-K separation gap 
+
+∆K = s⋆ 
+
+> (K)
+
+− s⋆
+
+> (K+1)
+
+.
+
+Theorem 2 (Idealized top-K recovery) . Under Assumption 1, suppose the comparison graph is sufficiently connected and the dynamic range B is bounded. Let ˆs be the regularized BT maximum likelihood estimator, normalized so that P 
+
+> i
+
+ˆsi = 0 . Existing top-K ranking results for the BT model imply that, with high probability, 
+
+∥ˆs − s⋆∥∞ ≤ CB
+
+s
+
+log nnpL ,
+
+19 where CB depends only on the dynamic-range bound B. Consequently, if 
+
+∆K > 2CB
+
+s
+
+log nnpL ,
+
+then sorting nodes by ˆsi exactly recovers the true top-K set S⋆K .Proof. The entrywise error bound follows from standard top-K ranking results for the BT model under random non-adaptive sampling; see, e.g., Chen and Suh [2015] and Chen et al. [2019]. We use this bound to prove exact top-K recovery. Let 
+
+ε = CB
+
+s
+
+log nnpL ,
+
+and suppose that ∥ˆs − s⋆∥∞ ≤ ε. For any i ∈ S⋆K and any j / ∈ S⋆K , we have 
+
+s⋆i − s⋆j ≥ ∆K .
+
+Therefore, 
+
+ˆsi − ˆsj = ( s⋆i − s⋆j ) + (ˆ si − s⋆i ) − (ˆ sj − s⋆j )
+
+≥ ∆K − 2ε. 
+
+If ∆K > 2ε, then ˆsi > ˆsj for every i ∈ S⋆K and every j / ∈ S⋆K . Hence all true top-K items are ranked above all non-top-K items by ˆs, so sorting by the BT estimate exactly recovers S⋆K .Theorem 2 should be read as an idealized guarantee rather than a direct finite-sample theorem for SIFT. SIFT uses an adaptive, frontier-biased comparison graph: each new candidate is compared against a small set of strong incumbents rather than against an Erd˝ os–Rényi sample of all possible pairs. Nevertheless, the theorem explains why BT aggregation is a natural design choice. If the LLM judge behaves approximately as a noisy preference oracle whose latent utilities are positively correlated with downstream agent quality, then sparse pairwise comparisons can recover a useful frontier ranking without exhaustively comparing all  n
+
+> 2
+
+ node pairs. 
+
+Rank amplification by parent sampling. SIFT uses BT scores only through their induced ranks. The following simple calculation shows why even a moderately informative ranking can substantially bias search toward frontier nodes. 
+
+Proposition 1 (Probability mass on the top ranks) . Suppose the archive contains n nodes ranked 
+
+r = 0 , 1, . . . , n − 1, where r = 0 is best. If parent sampling uses 
+
+P (r) = exp( −αr )
+
+Pn−1 
+
+> ℓ=0
+
+exp( −αℓ )
+
+with α > 0, then the total probability assigned to the top M nodes is 
+
+P (top M ) = 1 − e−αM 
+
+1 − e−αn .
+
+Uniform sampling assigns probability M/n to the same set. Proof. The result follows by summing a finite geometric series: 
+
+P (top M ) = 
+
+PM −1 
+
+> r=0
+
+e−αr 
+
+Pn−1 
+
+> r=0
+
+e−αr = (1 − e−αM )/(1 − e−α)(1 − e−αn )/(1 − e−α) = 1 − e−αM 
+
+1 − e−αn .
+
+Thus, once BT aggregation produces an informative ranking, exponential rank-based sampling converts that ranking into search pressure toward promising nodes. Compared with uniform sampling, the multiplicative increase in probability mass on the top M nodes is 
+
+P (top M )
+
+M/n = nM · 1 − e−αM 
+
+1 − e−αn .
+
+For small M and moderate α, this factor can be large. 20 Visit-count penalty. The previous proposition ignores the visit-count term used by SIFT. For a fixed archive, define 
+
+qi = exp( −αr b(i) − βr a(i)) > 0.
+
+SIFT samples node i at time t with probability 
+
+Pt(i) = qi(1 + vi(t)) −η
+
+P 
+
+> j
+
+qj (1 + vj (t)) −η ,
+
+where vi(t) is the number of previous times node i has been selected as a parent. 
+
+Proposition 2 (No permanent starvation in a fixed archive) . For any fixed finite archive and any 
+
+η ≥ 0, every node is sampled infinitely often almost surely. Proof. Assume for contradiction that some node i is sampled only finitely many times. Then vi(t)
+
+is eventually constant, so qi(1 + vi(t)) −η is eventually bounded below by a positive constant. For every node j, we have (1 + vj (t)) −η ≤ 1, so the denominator is at most P 
+
+> j
+
+qj . Hence, after some finite time, the conditional probability of sampling node i is bounded below by a positive constant 
+
+ρ > 0. The probability of never sampling i again is then at most 
+
+lim  
+
+> T→∞
+
+(1 − ρ)T = 0 ,
+
+contradicting the assumption. Therefore every node is sampled infinitely often almost surely. In SIFT the archive is not fixed, so Proposition 2 is not a full exploration guarantee for the growing tree. It nevertheless captures the purpose of the visit-count penalty: high-ranked nodes are favored, but repeated selection gradually reduces their sampling weight, preventing the search from collapsing permanently onto a single lineage. 
+
+Full algorithm In Algorithm 1 we list the full algorithm used to execute the tree search in SIFT. 
+
+B.5 Discovered agent examples 
+
+To better understand what kinds of agent modifications SIFT discovers, we inspect one example high-performing lineage. Starting from the initial coding agent of o3-mini , SIFT first discovers node 9, which reaches 0.44 with a very small intervention: a one-line prompt edit that instructs the agent to run tests after editing, plus a new test_runner tool. A later child, node 24, inherits node 9’s changes and adds a substantially larger test_analyzer mechanism, but its realized accuracy remains 0.44 and its BT score is lower than node 9’s. This example illustrates that SIFT can identify simple, active-path changes whose benefit is not improved by adding extra machinery. 
+
+Node Parent Accuracy BT score Cumulative change vs. baseline 9 root (0) 0.44 2.370 +1 instruction line, +1 new tool 24 9 0.44 1.903 node 9’s changes + agent edit + 1 new tool 
+
+Node 9. Node 9 changes the task instruction inside forward() by appending a short instruction that asks the agent to run a new test_runner tool after editing and use structured failures for iterative repair. 
+
+Cumulative diff: coding_agent.py for node 9        
+
+> @@ -183,7 +183,7 @@ Your task is to make changes to the files in the {self.git_dir} directory to address the <
+> ,→problem_description>. I have already taken care of the required dependencies. """ -instruction = f"{task}\n\nPlease analyze the problem description carefully. Then make edits to
+> ,→the code files to complete the instruction." +instruction = f"{task}\n\nPlease analyze the problem description carefully. Then make edits to
+> ,→the code files to complete the instruction.\n\nAfter making edits run the 'test_runner' tool
+> ,→to execute the project's test suite and obtain structured failure information. Use the
+> ,→failures to make small, targeted edits and re-run tests iteratively until the test suite
+
+21 Algorithm 1 SIFT: Self-Improvement via Fast Tree Search  
+
+> 1:
+
+Input: base agent A0, judge J, evaluation subset B, max nodes N , targets per node K, weights 
+
+(α, β, η ), BT prior λ 
+
+> 2:
+
+Evaluate A0 on B; initialize archive T ← { A0}, win matrix W ← 0, visit counts vi ← 0 
+
+> 3:
+
+Set initial accuracy a0 from evaluation and initial BT strength θ0 ← 1 
+
+> 4:
+
+while |T | < N do  
+
+> 5:
+
+Collect completed expansions.  
+
+> 6:
+
+for each finished expansion producing child node c with parent p do  
+
+> 7:
+
+Run easy evaluation on c 
+
+> 8:
+
+if c fails the easy evaluation then  
+
+> 9:
+
+Mark c as failed and discard it from full evaluation  
+
+> 10:
+
+continue  
+
+> 11:
+
+end if  
+
+> 12:
+
+Add c to archive: T ← T ∪ { c} 
+
+> 13:
+
+Temporarily set ac ← ap until full evaluation completes  
+
+> 14:
+
+Select up to K comparison targets from T \ { c} using αr b + βr a 
+
+> 15:
+
+for each comparison target t do  
+
+> 16:
+
+Query judge J(c, t ) and update Wc,t or Wt,c  
+
+> 17:
+
+end for  
+
+> 18:
+
+Refit regularized BT: 
+
+{θi}i∈T ← arg max 
+
+> θi>0
+
+X
+
+> i̸=j
+
+(Wij + λ) log θi
+
+θi + θj 
+
+> 19:
+
+Enqueue c for full evaluation with priority 
+
+αr b(c) + βr a(c) 
+
+> 20:
+
+end for  
+
+> 21:
+
+Collect completed full evaluations.  
+
+> 22:
+
+for each finished full evaluation of node c do  
+
+> 23:
+
+Update measured accuracy ac 
+
+> 24:
+
+end for  
+
+> 25:
+
+Spawn new expansions.  
+
+> 26:
+
+while an expansion slot is available and |T | < N do  
+
+> 27:
+
+Sample parent p ∈ T with 
+
+P (p) ∝ exp( −αr b(p) − βr a(p) − η log(1 + vp))  
+
+> 28:
+
+Launch asynchronous D IAGNOSE +S ELF IMPROVE from parent p 
+
+> 29:
+
+Increment vp ← vp + 1  
+
+> 30:
+
+end while  
+
+> 31:
+
+Launch full evaluations from the priority queue while evaluator slots are available  
+
+> 32:
+
+Checkpoint current archive, win matrix, evaluations, and pending jobs  
+
+> 33:
+
+end while  
+
+> 34:
+
+Return the node in T with highest measured accuracy.    
+
+> ,→passes or a safe iteration limit is reached. Include test-driven steps such as implementing or
+> ,→refining tests if necessary." chat_history = chat_with_agent(instruction, model=self.code_model, msg_history=[], logging=
+> ,→safe_log) chat_history_str = str(chat_history)
+
+The new test_runner tool auto-detects common project test frameworks, including pytest , cargo ,
+
+go test , npm , Gradle, and Maven, and returns structured pass/fail output with parsed failures. The agent sees the following tool schema. 22 tools/test_runner.py : exposed tool schema 
+
+def tool_info(): return { "name": "test_runner", "description": "Run repository tests and return structured " "results and failure parsing across common " "languages (pytest, cargo, go test, npm, " "gradle/maven).", "input_schema": { "type": "object", "properties": { "command": {"type": "string", "description": "Test command to run " "(optional). If omitted the tool will " "attempt to auto-detect an appropriate " "test command based on repo files."}, "timeout": {"type": "number", "description": "Timeout in seconds for " "the test command."}, "cwd": {"type": "string", "description": "Working directory in " "which to run the tests (optional)."}, }, "required": [] }}
+
+Node 24. Node 24 keeps node 9’s test_runner intervention, then adds a second tool, 
+
+test_analyzer , and modifies the agent to call it before invoking the LLM. The analyzer attempts to infer public APIs from test files and optionally apply a scaffold patch. Despite this larger change, node 24 does not improve the measured accuracy over node 9. The subset accuracy of both are 44% and the full Polyglot accuracies of node 9 and node 24 are 35.6% and 33.8% respectively. 
+
+Additional cumulative diff: coding_agent.py for node 24 
+
+@@ -7,6 +7,7 @@ from llm_withtools import CLAUDE_MODEL, OPENAI_MODEL, chat_with_agent from utils.git_utils import diff_versus_commit, reset_to_commit, apply_patch +from tools import load_all_tools @@ -183,10 +184,54 @@ - instruction = f"{task}\n\nPlease analyze the problem description carefully. Then make edits to 
+
+,→ the code files to complete the instruction." + instruction = f"{task}\n\nPlease analyze the problem description carefully. Then make edits to 
+
+,→ the code files to complete the instruction.\n\nAfter making edits run the 'test_runner' tool 
+
+,→ to execute the project's test suite and obtain structured failure information. Use the 
+
+,→ failures to make small, targeted edits and re-run tests iteratively until the test suite 
+
+,→ passes or a safe iteration limit is reached. Include test-driven steps such as implementing or 
+
+,→ refining tests if necessary." ++ # Run test analyzer tool prior to invoking the LLM so the agent has API inference context + try: + all_tools = load_all_tools(logging=safe_log) + tools_dict = {t['info']['name']: t for t in all_tools} + analyzer = tools_dict.get('test_analyzer') + analysis_json = None + if analyzer: + test_paths = [] + for root, _, files in os.walk(self.git_dir): + for fn in files: + if self.language == 'cpp' and (fn.endswith('_test.cpp') or fn.endswith('.cpp') 
+
+,→ and 'test' in fn.lower()): + test_paths.append(os.path.join(root, fn)) + if self.language == 'python' and (fn.startswith('test_') or fn.endswith('_test 
+
+,→ .py')): + test_paths.append(os.path.join(root, fn)) + try: + analyzer_result_str = analyzer['function']( + paths=test_paths, + language=self.language, + generate_scaffold=True, + )
+
+23 + analysis_json = analyzer_result_str + safe_log(f"[test_analyzer] result: {analysis_json}") + try: + parsed = json.loads(analysis_json) + scaffold = parsed.get('suggested_scaffold') + if scaffold: + safe_log("[test_analyzer] Applying suggested scaffold patch") + apply_patch(self.git_dir, scaffold) + except Exception as e: + safe_log(f"[test_analyzer] could not parse scaffold: {e}") + except Exception as e: + safe_log(f"Error running test_analyzer: {e}") + else: + safe_log('test_analyzer tool not found') + except Exception as e: + safe_log(f'Error loading tools: {e}') ++ if analysis_json: + instruction = instruction + "\n\n# Inferred API from tests:\n" + str(analysis_json) chat_history = chat_with_agent(instruction, model=self.code_model, msg_history=[], logging= 
+
+,→ safe_log) 
+
+The exposed schema for the new analyzer tool is: 
+
+tools/test_analyzer.py : exposed tool schema 
+
+def tool_info(): return { 'name': 'test_analyzer', 'description': 'Parse test files to infer expected public API ' 'and optionally generate scaffolding patches. ' 'Supports C++, Python, Java, JavaScript, Rust, Go ' 'with heuristics and returns a JSON description ' 'of required symbols and a patch suggestion.', 'input_schema': { 'type': 'object', 'properties': { 'paths': {'type': 'array', 'items': {'type': 'string'}, 'description': "List of file paths " "(absolute or repo-relative) to " "analyze."}, 'language': {'type': 'string', 'description': "Language to " "prioritize when parsing."}, 'generate_scaffold': {'type': 'boolean', 'description': 'Whether to return ' 'a suggested patch for scaffolding ' 'files.'}, }, 'required': ['paths', 'language'], }, }
+
+The comparison suggests that the most useful discovered modification was not a broad rewrite, but a small active-path change that made the agent more test-driven. The child node adds more automation and more surface area, but does not improve realized accuracy. This is consistent with the role of the judge in SIFT: it can help prioritize changes that are likely to improve actual solve behavior while penalizing additional complexity that introduces runtime or regression risk. 24
