@@ -1,0 +1,1013 @@
+Title: Rollout Efficiency in Reinforcement Learning for Reasoning Large Language Models: A Taxonomy and Future Directions
+
+URL Source: https://arxiv.org/pdf/2609.25463v1
+
+Published Time: Wed, 23 Sep 2026 00:25:46 GMT
+
+Number of Pages: 43
+
+Markdown Content:
+# Rollout Efficiency in Reinforcement Learning for Reasoning Large Language Models: A Taxonomy and Future Directions 
+
+NILOOFAR GHOLIPOUR and MARCOS ASSUNCAO, École de technologie supérieure, Univ. of Québec, Canada 
+
+GURSIMRAN SINGH ∗ and TIMOTHY YU ∗, Huawei Technologies, Canada 
+
+RAJKUMAR BUYYA, The Univ. of Melbourne, Australia 
+
+JULIEN GASCON-SAMSON, École de technologie supérieure, Univ. of Québec, Canada 
+
+ZHENAN FAN and YONG ZHANG, Huawei Technologies, Canada 
+
+XIAOJIE XU, YAQIANG YAO, and XIAOLONG BAI, Huawei Technologies, China Reasoning-oriented reinforcement learning enables large language models to solve mathematical, coding, and other multi-step tasks, but shifts a substantial portion of the training cost to rollout, where trajectories are generated for policy updates. Efficient rollout mechanisms are therefore essential to reduce this cost while maintaining the freshness, consistency, and statistical validity of training data. This survey provides a systematic taxonomy of recent research on rollout efficiency for reasoning-oriented reinforcement learning, classifying existing approaches from both mechanism and bottleneck perspectives. Based on this taxonomy, we analyze how different technique families address distinct sources of rollout inefficiency, examine opportunities and potential conflicts for combining them, identify gaps in the evaluation and reporting of efficiency gains, and discuss open challenges and future research directions. CCS Concepts: • Computing methodologies → Reinforcement learning ; Natural language processing ;Neural networks; • General and reference → Surveys and overviews .Additional Key Words and Phrases: rollout efficiency taxonomy, reinforcement learning, large language models, reasoning models, RL post-training, trajectory generation, training systems 
+
+ACM Reference Format: 
+
+Niloofar Gholipour, Marcos Assuncao, Gursimran Singh, Timothy Yu, Rajkumar Buyya, Julien Gascon-Samson, Zhenan Fan, Yong Zhang, xiaojie xu, yaqiang yao, and xiaolong bai. 2026. Rollout Efficiency in Reinforcement Learning for Reasoning Large Language Models: A Taxonomy and Future Directions. ACM Comput. Surv. 1, 1, Article 1 (September 2026), 43 pages. https://doi.org/XXXXXXX.XXXXXXX 
+
+1 Introduction 
+
+Difficult reasoning tasks require large language models (LLMs) to explore possible solutions, decompose problems, correct mistakes, and adapt the amount of computation they use. Pre-training provides broad knowledge, while supervised fine-tuning (SFT) teaches these behaviors by imitating demonstrations. Its effectiveness, however, depends on the availability, coverage, and quality of 
+
+> ∗
+
+Gursimran Singh and Timothy Yu contributed equally to this research. Authors’ addresses: N. Gholipour, M. Assuncao, and J. Gascon-Samson, École de technologie supérieure, Canada, niloo-far.gholipour.1@ens.etsmtl.ca, {marcos.dias-de-assuncao, julien.gascon-samson}@etsmtl.ca; G. Singh, T. Yu, Z. Fan, and Y. Zhang, Huawei Technologies, Canada, {gursimran.singh1, timothy.yu, zhenan.fan1, yong.zhang3}@huawei.com; R. Buyya, The Univ. of Melbourne, Australia, rbuyya@unimelb.edu.au. Permission to make digital or hard copies of all or part of this work for personal or classroom use is granted without fee provided that copies are not made or distributed for profit or commercial advantage and that copies bear this notice and the full citation on the first page. Copyrights for components of this work owned by others than the author(s) must be honored. Abstracting with credit is permitted. To copy otherwise, or republish, to post on servers or to redistribute to lists, requires prior specific permission and/or a fee. Request permissions from permissions@acm.org. © 2026 Copyright held by the owner/author(s). Publication rights licensed to ACM. ACM 1557-7341/2026/9-ART1 https://doi.org/XXXXXXX.XXXXXXX ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. arXiv:2609.25463v1 [cs.AI] 21 Sep 2026 1:2 N. Gholipour et al. 
+
+those demonstrations. Reinforcement learning (RL) offers a complementary approach: models generate alternative reasoning trajectories and learn directly from task-level outcomes that indicate which ones succeed. Although RL-based post-training also supports alignment and safety, this survey focuses on reasoning, where repeatedly generating trajectories during training creates a major computational cost. Many of the techniques surveyed nevertheless apply to other RL settings that use iterative trajectory generation. This shift is a central ingredient of recent reasoning-oriented LLMs. OpenAI’s o1 showed that large-scale RL teaches models to reason through extended chains of thought and improve systematically with additional train-time and test-time compute [26]; Kimi k1.5 showed that scaling RL substantially improves reasoning across mathematics, coding, and other challenging tasks [73]; and DeepSeek-R1 showed that outcome-based RL with verifiable rewards induces sophisticated behaviors such as self-reflection and strategy adaptation while reducing reliance on human-annotated reasoning trajectories [15]. Unlike SFT, which optimizes on a fixed set of demonstrations, RL generates part of its training data online. For each batch of tasks, the current 
+
+policy —the model being trained—samples one or more trajectories , which are scored by a reward signal and used to update the policy; the updated policy then generates the next batch, forming a repeated generate–evaluate–update loop. This introduces a computational bottleneck absent from pre-training and SFT, where most compute goes to forward and backward passes over fixed data: substantial compute is spent on rollout generation , and because the policy changes with every update, trajectories must be regenerated repeatedly rather than reused. This generation cost can 0% 20% 40% 60% 80% 100%     
+
+> Azure Azure (long Chain of Thought)
+> Share of synchronized training -step wall-clock time
+> Rollout generation Recompute log-prob Compute advantage Train step Synchronize weights
+> Fig. 1. Phase-time breakdown of a synchronous RL training step.
+
+dominate the wall-clock time of an RL step. Under synchronous training, where the policy update waits for the required trajectories to finish, prior measurements attribute roughly 70% [9], 85% [22], and over 90% in long-output workloads [8, 119] of step time to rollout. Autoregressive decoding contributes directly, while variation in trajectory length creates stragglers that further delay the synchronization barrier [16]. Our own synchronous measurements on production inference traces show the same trend at smaller scale: over the first 60 training steps, rollout is the largest single phase, at 49% of mean step time on the base workload and 58% on its long-chain-of-thought variant (Figure 1; setup in Appendix A). The lower share relative to the studies above reflects the shorter production-style responses in the base trace, and its increase as outputs lengthen shows how strongly rollout cost depends on the workload. More generally, the rollout fraction varies with model scale, task, group size, trajectory-length distribution, reward-evaluation cost, and execution design. Rollout is generated with the same inference engines used for deployment, but it is not ordinary serving. A rollout produces the training data that updates the model, so it sits on the critical path of every iteration, its slowest trajectories rather than its average ones set the iteration time [8, 16], and its outputs—including token-level log-probabilities—must agree with the computation used in training, a requirement we call rollout–training consistency [115]. Rollout efficiency therefore means reducing the cost of generating useful training trajectories while preserving the conditions for valid policy updates. Section 3.2 develops this contrast in detail. 
+
+1.1 Challenges of Rollout Efficiency 
+
+Because rollouts are the data that update the policy, changing how they are generated can change the training signal. The main challenges are: (1) Policy lag and stale data. Overlapping rollout  
+
+> ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. Rollout Efficiency in RL for Reasoning LLMs 1:3
+
+generation with optimization increases throughput but lets trajectories from older policy versions enter later updates, creating a gap between the policy that generated the data and the policy being optimized that requires staleness control or off-policy correction [8, 16]. (2) Length dispersion and synchronization bubbles. Reasoning trajectories vary substantially in length. Under synchronous execution, a few long trajectories determine the rollout makespan while workers that finish early sit idle at the barrier [8, 9]. (3) Evolving length distributions. Trajectory lengths change as the policy evolves, so fixed scheduling, batching, and resource-allocation decisions become inefficient as training progresses [17]. (4) Rollout–training mismatch. The rollout and training engines may assign different log-probabilities to the same tokens despite identical weights, silently distorting the quantities the optimizer relies on [115]. (5) Sample efficiency and trajectory selection. Trajectories contribute unequally to policy improvement, so giving every prompt the same rollout budget or retaining every trajectory spends generation compute on samples with little learning signal [108]. 
+
+1.2 Motivation and Scope 
+
+Rollout is a major bottleneck in reasoning RL, yet no survey treats it as a single cost-to-target-quality problem spanning both execution and learning efficiency. Existing surveys cover reasoning RL, inference efficiency, rollout strategies, or distributed training from different perspectives (Section 2), each addressing one side of that cost or the other, but not jointly. The work that addresses this cost is split across the systems and algorithms communities, which optimize the same rollout budget from different directions and are often deployed together. 
+
+Rollout efficiency. We frame rollout efficiency as the cost required to reach a target level of policy quality: a method improves it when it lowers that cost. Two complementary levers do so. The system lever lowers the cost of executing a given rollout workload through scheduling, asynchronous execution, and decoding acceleration. The algorithmic lever lowers the rollout work required for learning through prompt filtering, adaptive sample allocation, and truncation. Faster decoding makes a trajectory cheaper but does not make it useful for learning; filtering reduces the work required but does not make the remaining trajectories cheaper. A method can therefore affect either lever or both, but the literature rarely measures both: of the 80 methods we compare, only 12 report a gain on both levers (Section 8). This makes overall efficiency hard to compare across studies and motivates the evaluation analysis later in the survey. The two levers form the primary axis of our taxonomy, and the operational view in Section 3 locates where each intervention acts in the training loop. Our scope is rollout efficiency in trajectory collection during training; test-time inference efficiency and purely statistical data efficiency are adjacent topics covered by prior surveys and discussed only where they intersect rollout cost. 
+
+1.3 Research Questions and Contributions 
+
+This survey is structured around four research questions: 
+
+• RQ1: Where does rollout cost arise in the reasoning-RL training loop, and which workload properties make it persistent? (Section 3) 
+
+• RQ2: By what mechanisms do existing methods reduce this cost, and how do these mechanisms relate to one another? (Sections 4–6) 
+
+• RQ3: Which techniques can be combined safely, and which combinations compound staleness, numerical mismatch, or statistical bias? (Section 7) 
+
+• RQ4: How should rollout-efficiency gains be measured so that results from different studies become comparable? (Section 8) The survey makes four contributions: (1) We organize rollout-efficiency methods into a dual taxonomy by how they improve efficiency and by which rollout bottleneck they address, and 
+
+> ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026.
+
+1:4 N. Gholipour et al. 
+
+analyze each family’s design space, validity conditions, and applicable settings. (2) We provide a composability analysis of which technique families can be combined, which combinations are promising, and which interfere with each other. (3) We give a measured account of reporting practice, showing that system efficiency and learning efficiency are rarely measured together, and unify the efficiency measures used across the literature into a common cost-to-quality view with a minimum reporting set and diagnostic protocols. (4) We identify open problems and future directions drawn from the gaps the taxonomy, composability analysis, and evaluation study expose. 
+
+Article Organization. Section 2 positions our scope relative to prior surveys; Section 3 establishes the rollout-efficiency framework and problem setting; Sections 4–6 develop the dual taxonomy; Section 7 examines cross-family interactions; Section 8 develops the common evaluation lens; and Section 9 discusses open problems and future directions. Section 10 concludes. Appendix G documents the survey methodology: the search, screening, and classification protocol that produced the included works. 
+
+2 Related Surveys 
+
+Prior surveys cover efficient training, reasoning, reinforcement learning, and inference, but none takes the cost of generating training trajectories as its unit of analysis; Table 1 compares their scope with ours. Bai et al. [ ? ] and Duan et al. [6] review resource-efficient and distributed training, where the unit is model computation for a fixed workload rather than a policy-evolving loop that repeatedly creates its own data. Tie et al. [75] and Kumar et al. [33] survey post-training and reasoning methods without isolating trajectory-generation cost. Qu et al. [60], Liu et al. [43], Ke et al. [30], and Chen et al. [3] cover long chain-of-thought, test-time scaling, and serving-time acceleration; several mechanisms overlap with ours, but they treat efficiency as a property of a deployed model, whereas rollout generation sits inside a loop where trajectories become training data and the policy itself changes (Section 3.2). Liu et al. [42], Zhang et al. [103], Zhang et al. [101], and Wang et al. [77] organize RL and agentic systems around methodology, reward design, and architecture, and Li et al. [37] around environment design; none treats rollout cost as a first-class dimension. Yu et al. [96] and Zhang et al. [100] study data-efficient RL and credit assignment—how much learning a set of trajectories yields—rather than what those trajectories cost to produce.                                            
+
+> Table 1. Comparison of representative surveys and this work. Scope states each survey’s primary subject; parentheses mark a secondary subject treated in passing. full coverage; partial coverage; limited or no coverage.
+> Survey Year Scope Rollout-efficiency coverage Empirical analysis
+> System lever Algorithmic lever Bottleneck mapping Reported gains Compos-ability Metric standardization Bai et al. [ ?]2024 Training (+inference) Duan et al. [6] 2024 Training Tie et al. [75] 2025 Training Kumar et al. [33] 2025 Training Qu et al. [60] 2025 Inference Liu et al. [43] 2025 Inference Ke et al. [30] 2025 Inference Liu et al. [42] 2025 Training (+inference) Zhang et al. [103] 2025 Training Zhang et al. [101] 2025 Training Wang et al. [77] 2025 Training (+inference) Chen et al. [3] 2026 Inference Li et al. [37] 2026 Training Yu et al. [96] 2026 Training Zhang et al. [100] 2026 Training Surana et al. [70] 2026 Training
+> This survey 2026 Rollout
+
+Closest to our scope, Surana et al. [70] organize rollout strategies through a Generate–Filter– Control–Replay pipeline, a workflow-oriented view; ours is efficiency-oriented and cuts across 
+
+ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. Rollout Efficiency in RL for Reasoning LLMs 1:5 
+
+workflow stages, which is what lets system-level techniques (asynchronous execution, scheduling, speculative decoding) be compared directly with algorithmic ones (prompt filtering, adaptive allocation, trajectory selection). The remaining columns of Table 1 mark the other differences: no prior survey maps methods to the source of waste they address, examines cross-family composability, or asks when reported gains can be compared. We therefore do not claim that rollout strategies are unsurveyed; we organize the literature around a different question—what useful training progress costs to obtain from rollout generation, and how that cost can be reduced and compared across methods. 
+
+2.1 Survey Methodology 
+
+We build the survey corpus and taxonomy in four stages— search , screen , classify , and group —summarized in Figure 2; the search query, full inclusion/exclusion criteria, and edge-case rulings are given in Appendix G. Searching ACM Digital Library, IEEE Xplore, arXiv, and OpenReview for work published between January 2024 and September 2026, supplemented by venue scans, snowballing, and framework technical reports, we screened 150 candidate records after de-duplication against three inclusion and three exclusion criteria (training-time, LLM reasoning-RL, changes rollout cost); 86 are included, of which 80 receive method-level rows in Table 9.  
+
+> Fig. 2. Survey methodology. The taxonomy is constructed through four stages: search, screen, classify, and group.
+
+Each work is assigned one primary mechanism family and one primary bottleneck. The dominant lever is determined by where the intervention acts: methods that make an already-requested rollout workload cheaper or faster take the system lever ; methods that change which rollouts are requested or which trajectories are used for learning take the algorithmic lever . The resulting seven mechanism families are cross-referenced with the four bottlenecks of Section 4, and for each work we record the reported efficiency measure, evaluation setting, and quality outcome used in the analysis of Sections 8 and 7. The taxonomy reflects each work’s dominant mechanism as classified here; reported speedups and compatibility claims remain tied to the conditions of the original studies. 
+
+3 Background and Rollout Efficiency Framework 3.1 Conceptual Workflow of Reasoning RL 
+
+The object of training is a policy 𝜋 𝜃 (an LLM): a probability distribution over the next action/token conditioned on the current context. In reasoning RL, the sequence generated by the policy is a 
+
+trajectory —reasoning steps, optional tool calls, and a final answer. The objective is to improve the expected reward of 𝜋 𝜃 , which on reasoning tasks corresponds to higher solution accuracy, more reliable tool use, or more consistent multi-step deduction [15, 26, 73]. Unlike supervised fine-tuning, where the training examples are supplied in advance, RL generates part of its training data online: the policy produces trajectories, those trajectories are evaluated, and the resulting learning signal updates the policy. The updated policy then generates the next batch, forming a repeated generate–evaluate–update loop. Figure 3 shows this closed-loop structure. Implementations may combine, split, reorder, or overlap these stages, but the high-level dependency remains the same. 
+
+> ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026.
+
+1:6 N. Gholipour et al. 1                  
+
+> Task Input
+> •Prompt / question •Environment state •Problem instance
+> controller
+> 2
+> Rollout Generation
+> •Sample trajectories per task •Reasoning, tool calls, answers •B×G variable-length paths
+> Dominant cost
+> rollout engine
+> 3
+> Reward / Verification
+> •Rule-based verifier •Execution (unit tests) •Reward model / LLM judge •Heuristic or learned signal
+> verifier
+> 4
+> Selection / Update
+> •Rank / filter trajectories •Compute advantage •Update via GRPO / PPO
+> trainer
+> 5
+> Policy Improvement
+> •Improved model •Better reasoning ability •Higher expected reward
+> updated weights
+> updated policy → next iteration
+> Fig. 3. Conceptual workflow of reasoning RL.
+
+Task input. Each iteration begins with a batch of 𝐵 tasks: prompts, problem instances, or envi-ronment states. A controller samples the batch and dispatches it to the rollout engines; 𝐵 therefore contributes directly to the generation workload. 
+
+Rollout generation. The current policy samples 𝐺 completions for each task; 𝐺 is the group size. This generation stage is the rollout : it produces the trajectories that become the training data for the current RL update. Each completion for task 𝑥 𝑖 is a trajectory 𝑦 (𝑔 )
+
+𝑖 of length |𝑦 (𝑔 )
+
+𝑖 | tokens, so one iter-ation produces 𝐵 × 𝐺 trajectories containing Í𝑖,𝑔 |𝑦 (𝑔 )
+
+𝑖 | generated tokens. We refer to this collection as the rollout workload . In standard reasoning tasks, a trajectory is a sequence of reasoning tokens followed by a final answer. In tool-using or agentic RL the same loop applies, but a trajectory may interleave model actions with environment observations, 𝜏 = (𝑥, 𝑎 1, 𝑜 1, 𝑎 2, 𝑜 2, . . . , 𝑎 𝐻 , 𝑜 𝐻 ), where 𝐻 
+
+is the number of interaction turns, 𝑎 ℎ may be reasoning text, a tool call, or an environment action, and 𝑜 ℎ is the resulting observation. Rollout cost then includes the generated tokens Íℎ |𝑎 ℎ |, repeated prefills as the context grows, and waiting time from tools or environments. These interactions make trajectory cost more heterogeneous and can amplify the long-tail behavior that later becomes important for rollout efficiency. 
+
+Reward and verification. A reward function 𝑟 : X × Y → R assigns each trajectory a score. Common sources in reasoning RL are verifiable rewards (RLVR) from a deterministic checker or executable environment [15, 65]; learned or model-based rewards when no programmatic checker exists [34, 38, 97]; and human preference rewards (RLHF) [51]. These sources can be combined, and some settings score intermediate steps or provide rewards during interaction rather than only at termination [48, 54]. The choice affects the source, granularity, and cost of the learning signal, but not the central loop: trajectories are generated, evaluated, and used to improve the policy. Reward sparsity is especially relevant. A task may provide little useful feedback until a trajectory reaches a final answer, so multiple samples may be needed before rewards distinguish better behavior from worse. The number of samples per task is therefore both a statistical design choice and a major determinant of rollout cost. 
+
+Selection and update. Rewards are converted into advantages that determine how generated trajectories contribute to the policy update. Two instantiations recur later. Proximal policy opti-mization (PPO) estimates advantages with a learned critic [63]; group relative policy optimiza-tion (GRPO) forms them relative to the other samples generated for the same prompt, ˆ𝐴 (𝑔 )
+
+𝑖 =
+
+ 𝑟 (𝑥 𝑖 , 𝑦 (𝑔 )
+
+𝑖 ) − 𝜇 𝑟,𝑖 
+
+/( 𝜎 𝑟,𝑖 + 𝜖 ), where 𝜇 𝑟,𝑖 and 𝜎 𝑟,𝑖 are the reward mean and standard deviation within prompt 𝑖 ’s group and 𝜖 is a small constant [65]. If every completion in a group receives the same reward, 𝜎 𝑟,𝑖 = 0 and all of the group’s advantages vanish even though the group has consumed its full generation budget. We call such a group degenerate ; this observation motivates a substantial part of the algorithmic-lever literature (Section 6). The trainer then updates 𝜋 𝜃 . PPO-style objectives compare the policy being optimized with the policy that generated the rollout through the per-token importance ratio 𝜌 (𝑔 )
+
+𝑖,𝑡 (𝜃 ) = 𝜋 𝜃 (𝑦 (𝑔 )
+
+𝑖,𝑡 | 𝑥 𝑖 , 𝑦 (𝑔 )
+
+𝑖, <𝑡 ) / 𝜋 𝜃 old (𝑦 (𝑔 )
+
+𝑖,𝑡 | 𝑥 𝑖 , 𝑦 (𝑔 )
+
+𝑖, <𝑡 ). When the two policies coincide, 𝜌 = 1 and the update is on-policy. When they differ, the batch exhibits policy lag : a batch 
+
+ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. Rollout Efficiency in RL for Reasoning LLMs 1:7 
+
+used at step 𝑡 but generated by 𝜋 𝜃 𝑡 −𝑘 has lag 𝑘 . Allowing 𝑘 > 0 enables generation, verification, and optimization to overlap, but introduces an off-policy component—the central trade-off underlying asynchronous rollout systems [7, 47, 49]. Separately, even at lag zero, the rollout and training engines may compute different token probabilities for the same trajectory because of differences in numerical precision, kernels, or implementation—a rollout–training mismatch that can alter the quantities used by the policy update [115]. The update produces a new parameter vector 𝜃 ′, which is propagated back to the rollout engines and used to generate the next batch. 
+
+Problem formulation. As defined in Section 1.2, rollout efficiency is the cost required to reach a target level of policy quality. Of the five stages of Figure 3, only task input carries negligible direct execution cost, leaving four timed phases in one synchronous iteration: (1) rollout, at cost 𝑇 roll ,dispatches the tasks and generates the 𝐵 × 𝐺 trajectories; (2) reward evaluation, at cost 𝑇 rew , verifies or scores them; (3) selection and policy update, at cost 𝑇 upd , computes advantages and applies the optimizer step; and (4) weight synchronization, at cost 𝑇 sync , propagates the updated policy to the rollout engines. Under synchronous execution these phases serialize over the iterations needed to reach the target, 𝑇 total = Í𝑁 ( S) 
+
+> 𝑡 =1
+
+ 𝑇 (𝑡 ) 
+
+> roll
+
++ 𝑇 (𝑡 ) 
+
+> rew
+
++ 𝑇 (𝑡 ) 
+
+> upd
+
++ 𝑇 (𝑡 )
+
+> sync
+
+, where the iteration count 
+
+𝑁 (S) is itself a function of the rollout strategy S: changing which trajectories are generated, how they are generated, or how they are used can change both the cost of an iteration and the number of iterations required. Asynchronous systems overlap phases and shorten the critical path but introduce policy lag, and reward evaluation and weight synchronization are not universally negligible—verifier execution, sandboxed tests, judge-model inference, and weight transfer can all occupy the critical path. The rollout-efficiency problem is to minimize the cost of a strategy subject to a target quality: min S CS (𝑄 ∗), (1) where S specifies generation, sample allocation, scheduling, phase overlap, synchronization, and hardware placement; 𝑄 is a task-level quality measure such as held-out accuracy; 𝑄 ∗ is the level at which strategies are compared; and CS (𝑞 ) is the cost strategy S spends to first reach quality 
+
+𝑞 , written C( 𝑞 ) when the strategy is clear. A cheaper strategy that never reaches 𝑄 ∗ is not more efficient. C may be wall-clock time, accelerator-hours, generated tokens, or monetary cost; these are not interchangeable, since a method may reduce tokens while increasing wall-clock time. Two readings of “rollout efficiency” must also be kept apart. Rollout-path cost is the cost of trajectory collection itself—the 𝑇 roll and 𝑇 rew terms of one iteration—and is what the system lever most directly targets. End-to-end cost-to-quality is C( 𝑞 ), and is what rollout efficiency means throughout. This definition is what places post-generation methods such as rollout selection in scope: they leave the rollout-path cost of the current batch unchanged yet can still lower C( 𝑞 ). Section 8 shows that conflating the two readings is a principal source of incomparability in the literature and adopts accelerator-hours to 𝑄 ∗ as the common measure. 
+
+3.2 Rollout versus Deployment Inference 
+
+Rollout generation and deployment inference often use the same generation engines, such as vLLM [35] or SGLang [114], but they optimize different workloads. Deployment serves externally arriving requests; RL rollout generates training data under an iterative learning algorithm. Five properties follow. (1) Controlled batch arrival: the trainer holds a batch of 𝐵 tasks at the start of each rollout phase and can reorder, partition, or allocate them, rather than reacting to a user-driven request stream. (2) Batch makespan rather than request latency: in synchronous RL the relevant objective is the time until sufficient data exist for the next update, so a short trajectory helps little if the batch is blocked by a few long ones; asynchronous RL relaxes that barrier but introduces policy lag [8]. (3) Repeated and partially predictable workloads: tasks recur across iterations, so previous lengths, rewards, or difficulty can guide later batching, allocation, or early termination. (4) An 
+
+> ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026.
+
+1:8 N. Gholipour et al. Rollout Efficiency Techniques    
+
+> Pipeline Decoupling Async Streaming Distributed Controller Speculative Decoding Scheduling & Load Balancing Rollout selection Prompt filtering & selection Resource-aware execution
+> System Lever
+> Execute a fixed workload faster (Problems A, B)
+> Algorithmic Lever
+> Reduce the work needed (Problems C, D)
+> Historical Similarity Distribution-aware Adaptive Drafter Length-aware Skewness-aware Workload Balancing Heterogeneity-aware placement Partial Rollout Reuse Early Stopping Truncation Down sampling Replay / Replacement Pre-rollout skip Difficulty prediction Online filtering Budget Allocation Preemptible Capacity Shared Serving Capacity Partial & Early-Stop
+> Fig. 4. Mechanism taxonomy of rollout-efficiency methods.
+
+evolving model state: the policy changes between updates, so cached activations remain valid only for the weights that produced them. (5) Training-specific correctness: generated tokens, rewards, and log-probabilities become optimizer inputs, so policy freshness and rollout–training consistency are part of the efficiency problem rather than implementation details [67, 115]. Table 5 (Appendix B) expands each property. These differences make rollout a distinct optimization problem, not a training-time instance of serving. They also explain why rollout can exploit task-aware allocation and repeated trajectory information that ordinary serving does not have, and why serving optimizations do not transfer unchanged. 
+
+4 Taxonomy Design 
+
+Section 1.2 introduced two complementary levers on rollout efficiency: executing a requested rollout workload more efficiently (the system lever) or reducing the rollout work required for a given amount of learning progress (the algorithmic lever). This section turns them into a taxonomy with two views of the same literature. The Mechanism Taxonomy (Section 4.1) asks what intervention a method performs , refining the two levers into seven technique families; the Bottleneck Taxonomy 
+
+(Section 4.4) asks where inefficiency arises , organizing the same methods by the operational source of waste. Because many systems combine several mechanisms, membership follows explicit rules rather than paper titles or implementation complexity. (i) In the Mechanism Taxonomy, a method is assigned to the family responsible for its reported efficiency gain. (ii) In the Bottleneck Taxonomy, it is assigned to the bottleneck that mechanism most directly targets. (iii) Each method thus receives one primary family and one primary bottleneck; secondary mechanisms are discussed but create no additional memberships. (iv) The dominant lever is determined by the control decision the intervention changes: system methods take the requested rollouts as given and change how they are executed, whereas algorithmic methods change which rollouts are requested, how much budget they receive, or which generated rollouts are used for learning. The distinction rests on the decision being changed, not on the number of tokens ultimately generated; a method that touches both dimensions is placed by the one that dominates its reported effect. 
+
+4.1 Mechanism Taxonomy — Approaches to Rollout Efficiency 
+
+The Mechanism Taxonomy (Figure 4) organizes methods by how they reduce rollout cost, refining the two levers into seven technique families and 21 mechanism variants. Table 2 lists two representa-tive methods per family, chosen to illustrate the range of system and algorithmic gains within each; the full comparison of all 80 surveyed methods, with scale, task, hardware, and cost/requirement details for each, appears as Table 9 in Appendix F. 
+
+ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. Rollout Efficiency in RL for Reasoning LLMs 1:9 
+
+Table 2. Representative methods per family (2 of each; full 80-method comparison in Table 9, Appendix F). Q: = preserved, + improved, 
+
+≈ comparable, ✓ exact/lossless; — not reported. 
+
+Method System gain Algorithmic gain Scale Task Hardware Q Cost / requirement A.1 Pipeline Decoupling (Problem A: idle resources from stage coupling — 2 of 11 shown) AReaL [8] tput 2.77 × — 1.5B–32B math, code — =/+ stale trajectories within lag bound LlamaRL [84] step 10 .7× (405B) — 8B–405B math 1,024 H100 = 1-step policy lag; AIPO correction 
+
+A.2 Resource-Aware Execution (Problem A: idle, mismatched, or over-provisioned hardware — 2 of 16 shown) RLBoost [86] tput 1.51 –1.97 × — — — preempt. GPUs —needs preemptible capacity; interruption recovery AReaL-DTE [55] weight sync 
+
+6.8–7.6× (19 .9×
+
+cross-cluster) — 8B; 30B-A3B math, code, logic 8–16 H200 ✓
+
+< 2% weights change/step; AdamW inversion; periodic full anchors 
+
+B.1 Scheduling & Load Balancing (Problem B: long-tail rollout latency — 2 of 7 shown) RollPacker [9] E2E 2.03 –2.56 × — 7B–32B — ≤128 H800 =
+
+length predictor accuracy; also 2.24 × vs. RLHFuse SortedRL [106] bubble −50% + +3.9–18 .4% @fixed data 8B–32B — — +
+
+length-sorted batches change the training distribution 
+
+B.2 Partial & Early-Stop Rollout (Problem B: long-tail rollout latency — 2 of 7 shown) Deep-ScaleR [71] compute ≈18 ×
+
+lower AIME24 
+
+28 .8→43 .1 1.5B math 8–32 A100 + objective shifts across 8/16/24K stages APRIL [119] tput +22 .5% (up to 
+
++44% )quality +2.1% (up to +8% ) 4B–8B — — +
+
+reused tails are off-policy; extra requests launched 
+
+B.3 Speculative Decoding (Problem B: long-tail rollout latency — 2 of 13 shown) Bubble-Spec [91] tput 1.4–1.8×; steps 
+
+−49 –57% — — long-ctx reasoning — ✓ needs idle data-parallel bubbles TLT [22] E2E 1.7–2.1× — 7B–32B reasoning multi-node ✓ needs idle GPUs for drafter 
+
+C. Rollout Selection (Problem C: uninformative rollouts — 2 of 5 shown) PODS [92] — time-to-peak 
+
+≥ 1.7× 3B–7B math, chem — =/+ discarded rollouts already paid for Rollout Replay [94] — +4.35 pp (4B) @ same fresh rollouts 0.6B–4B math — +
+
+age cap 10 steps; replay ratio 0.5; fresh-anchored batches 
+
+D. Prompt Filtering & Selection (Problem D: uninformative prompts — 2 of 17 shown) GRESO [113] rollout 2.4×; train 
+
+2.0×
+
+rollouts 3.35 ×
+
+fewer 1.5B–32B math — = needs per-prompt reward history MoPPS [61] train 1.8× rollouts −75 –79% —math, countdown, geom. — ≈/+ posterior upkeep; estimates can go stale 
+
+4.2 System Lever 
+
+Pipeline decoupling methods address the structural coupling between the rollout and training phases. In a synchronous loop the training step cannot begin until every rollout in the batch is complete, and no new rollout can begin until the weight update is finished, so one side of the system is idle at any time. Pipeline decoupling lets rollout workers and training workers run concurrently, at granularities ranging from the training step down to the individual trajectory and out to the service interface. The defining characteristic of the family is that the gain comes from overlapping computation rather than reducing the requested rollout work; the principal cost it introduces is policy staleness, which must be bounded and, where necessary, corrected. The family comprises AReaL [8], AsyncFlow [16], StreamRL [116], DISTFLOW [83], HybridFlow [67], LlamaRL [84], DORA [23], Laminar [66], FlexMARL [29], RollArt [11], AstraFlow [112], StaleFlow [36], and ProRL Agent [102]; Section 5.2 develops the degrees of asynchrony they span and the staleness–throughput trade-off common to all of them. 
+
+Resource-aware execution methods treat the rollout–training pipeline as a placement problem over heterogeneous or intermittently available hardware rather than a fixed allocation over identical accelerators. GPU generations differ in memory and throughput, spot and idle capacity appear on changing schedules, and rollout and training have different compute and memory profiles that no 
+
+ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. 1:10 N. Gholipour et al. 
+
+single device type serves equally well. Methods in this family exploit that heterogeneity in three ways: harvesting idle or spot capacity as additional rollout capacity while it is available, placing rollout and training on device types that suit each phase best, and replanning the split of resources between the two phases as workload demand changes. The family is unified by changing where or from which resource pool a requested workload executes, rather than by changing the generation procedure itself. Because these methods improve utilization of a fixed rollout workload rather than reducing which work is requested, they belong to the system lever. Its members are RLBoost [86], AReaL-Hex [93], Libra [1], ROSE [10], and BiDiRL [72]; Section 5.3 identifies the three sources of heterogeneity they exploit and the operating gap each one requires in order to pay off. 
+
+Scheduling and load balancing methods address the allocation and ordering of rollout requests within the available execution resources. Because autoregressive generation is length-dependent, a batch is constrained by its longest response: short responses finish early and leave their resources idle while longer responses complete, creating the rollout bubble problem. These methods do not change the token-generation algorithm or expand the resource pool; they change how requests are ordered, grouped, or assigned so that execution is more balanced. Most order or group requests by predicted response length. Some are parallelization-aware: Heddle [109] assigns greater model parallelism to predicted long-tail trajectories, reducing their per-token latency while short trajecto-ries use higher-throughput, low-parallelism configurations. Others are agentic-aware: WAR [89] places multi-turn agentic requests across rollout replicas based on KV-cache locality and trajectory progress, while MISA-T [18] admits sessions from mixed workload classes under per-class KV-cache budgets weighted by how long each class occupies the cache, including time spent waiting for tools. The family is therefore distinguished from resource-aware execution by its primary control variable: scheduling changes the allocation of requested work across available workers, whereas resource-aware execution changes the resource pool or placement regime itself. The family reduces batching delays and memory overhead without changing the token-generation process, policy gradient, or requested number of tokens, making it the least invasive of the system-lever families. Other members include RollPacker [9], Seer [57], SortedRL [106], and TailSieve [90]; Section 5.4 formalizes this family as a makespan minimization problem and examines the length-prediction primitive on which many of these methods rely. 
+
+Partial and early-stop rollout methods reduce the number of tokens generated per trajectory by intervening during generation rather than after it. Not all of a rollout must be generated for it to remain useful: once a trajectory has yielded sufficient informational content, or once the batch contains enough complete responses, additional generation may provide limited marginal value. Its members are APRIL [119], ESPO [39], ARROL [88], Selective Rollout [99], 1 Kimi k1.5 [73], and DeepScaleR [71]. This family sits closest to the lever boundary and is the clearest hybrid: it is dominated by the system dimension—the prompt set and the number of rollouts requested per prompt are unchanged, and the intervention determines only how far an already-requested trajectory executes (rule (iv))—but it also reduces generated tokens and can shift the trajectory distribution, and hence the learning signal. The taxonomy thus distinguishes the execution decision 
+
+from the sampling decision : truncating or stopping a requested trajectory changes how it is executed, whereas changing which prompts are sampled, how many rollouts are requested, or how budget is allocated across prompts is an algorithmic intervention. The requirement that truncated trajectories remain statistically valid for gradient estimation is treated as a correctness constraint on the family (Section 6.3) rather than as its defining mechanism, which Section 5.5 develops.  
+
+> 1Selective Rollout [99] is a method name. It is a different work from GRESO [113], a prompt-filtering method whose paper title also uses the phrase “selective rollouts.” ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. Rollout Efficiency in RL for Reasoning LLMs 1:11
+
+Speculative decoding methods accelerate token generation itself. Rather than producing each token through a full forward pass of the policy, a lightweight draft mechanism proposes candi-date continuations that the policy verifies in a single parallel pass. The RL setting is distinctive because consecutive rollout batches are not independent: the policy changes between updates, so completions from earlier steps can provide useful draft material for the current one. The family acts at the individual-token level, reducing the effective cost per generated token while leaving the requested set of trajectories unchanged. Its defining question is therefore whether the target sam-pling distribution is preserved while generation is accelerated. The family comprises RhymeRL [17], BubbleSpec [91], DAS [64], SPEC-RL [41], ReSpec [2], TLT [22], and SpecRoll [56]; Section 5.6 organizes them by draft source and by the computational cost of producing that draft. 
+
+System-level synthesis. The five system-level families optimize execution of a workload that has already been requested, but they act on different control variables: pipeline decoupling changes 
+
+when stages execute, resource-aware execution changes where they execute, scheduling changes 
+
+how requested work is assigned , partial and early-stop rollout changes how far an individual requested trajectory executes , and speculative decoding changes how tokens are generated . These distinctions are useful for composability: methods that remove the same execution waste may compete for the same remaining headroom, whereas methods that act on different control variables may retain complementary gains. Section 7 examines these interactions explicitly. 
+
+4.3 Algorithmic Lever 
+
+Rollout selection methods operate after generation is complete and decide which generated trajectories to use for the policy update. Rollouts are not equally informative: those whose rewards sit near the batch mean, or for which the model is already near-certain, produce advantage estimates close to zero. By the time this information is available, the generation cost has already been paid. The family therefore changes how much generated data contributes to learning rather than how cheaply the original trajectories were produced. It is within scope because rollout efficiency is defined by the cost required to reach a target quality (Equation (1)); post-generation selection can reduce update computation and, when it improves learning progress, reduce the total cost-to-quality even when the generation bill for the current batch is unchanged. Its members are PODS [92] and POPO [46]; Section 6.1 examines the selection criteria and their effect on the gradient estimator, and discusses Every Rollout Counts [80], a test-time allocation result, as related context. 
+
+Prompt filtering and selection methods intervene one step earlier: instead of choosing among 
+
+completed rollouts, they choose which prompts are worth generating rollouts for at all. Prompt difficulty is highly non-uniform, and both extremes can be unproductive—prompts the policy solves reliably and prompts it fails regardless of sampling can both yield near-zero relative-advantage signal. The family divides into binary filtering—applied before rollout or online during training— which skips prompts outright, and budget allocation, which assigns different numbers of rollouts according to estimated informativeness; difficulty prediction supplies the signal for either decision. It is distinguished from rollout selection by decision timing : pre-rollout filtering can save the generation cost itself, whereas post-rollout selection saves only update-phase computation unless it triggers reuse or replacement. Its members are GRESO [113], MoPPS [61], HIVE [85], VCRL [27], AERO [108], VIP [50], VIGOR [28], and KGPS [121]; Section 6.2 organizes them by the signal that drives the decision and by the computational cost of obtaining that signal. 
+
+Algorithmic-lever synthesis. The two algorithmic families differ primarily in when they decide that rollout computation is likely to have low marginal learning value. Rollout selection makes this decision after generation and therefore cannot recover already-spent rollout compute unless it introduces reuse or replacement. Prompt filtering and budget allocation make the decision before or during generation and can therefore reduce the rollout workload itself. Both families trade 
+
+> ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026.
+
+1:12 N. Gholipour et al. Bottleneck Metrics reported Resource saved                      
+
+> System-level
+> Problem A Rollout–train synchronization barrier and idle capacity
+> Accelerator idle between phases
+> ◦Training throughput (samples/s)
+> ◦Accelerator utilisation (%)
+> ◦Wall-clock time / step
+> ◦Pipeline bubble rate
+> ◦Communication overhead
+> Time · Compute
+> Problem B Long-tail generation
+> Stragglers stall the batch
+> ◦Rollout throughput (tokens/s)
+> ◦Batch completion time
+> ◦Straggler / tail latency
+> ◦Mean rollout length
+> ◦Downstream task accuracy
+> Problem C Uninformative rollouts
+> Wasted update compute
+> ◦Task accuracy / pass@k
+> ◦Convergence speed
+> ◦Samples to target reward
+> ◦Update compute (FLOPs)
+> Compute · Samples
+> Problem D Uneven/uninformative prompts
+> Wasted rollouts before generation
+> ◦Rollouts skipped / fewer rollouts
+> ◦Compute / samples saved
+> ◦Prompts skipped (%)
+> ◦Downstream task accuracy
+> ◦Convergence speed
+> Time · Memory
+> Algorithm-level
+> Compute · Samples
+> Bottleneck Metrics reported Resource saved
+
+Fig. 5. Bottleneck taxonomy of rollout-efficiency methods. 
+
+computational savings against statistical considerations because changing which trajectories or prompts enter the update can change the effective training distribution. These correctness and learning-efficiency trade-offs are examined in Section 6.3. 
+
+4.4 Bottleneck Taxonomy — Problems, Metrics, and Resources Saved 
+
+The second taxonomy organizes the same body of work by the bottleneck a method attacks. The surveyed papers target four, distinguished by where waste arises relative to trajectory generation: (A) rollout–train synchronization barriers and idle capacity, between the two phases; (B) long-tail generation, within rollout; (C) uninformative rollouts, after generation; and (D) uneven or uninformative prompts, before generation. Figure 5 presents the four as parallel columns; Table 9 gives the family–problem mapping in its group headers. Problems A and B are execution waste : the requested rollout work stays in the training procedure, but time or capacity is lost executing it. Problems C and D are learning-value waste : rollout budget is spent on trajectories or prompts with low marginal learning value. The split complements the lever taxonomy rather than replacing it; whether two methods actually compose depends on whether they draw on the same resources and assumptions (Section 7). 
+
+Problem A — Rollout–train synchronization barrier and idle capacity. In synchronous RL pipelines, training cannot start until all rollouts are complete, and generation cannot restart until the weight update is finished, so at any moment either the rollout workers or the training workers are idle. The pipeline decoupling family targets this idle time directly, by removing or relaxing the dependency that creates it. Resource-aware execution attacks the same wasted capacity from the hardware side: RLBoost [86] harvests preemptible capacity into the rollout pool, AReaL-Hex [93] schedules rollout and training sub-tasks across heterogeneous GPUs, Libra [1] re-plans the rollout/training GPU split online, ROSE [10] borrows idle serving GPUs, and BiDiRL [72] lets either pool execute the other’s stage. Papers in this column report system-level metrics such as training throughput, accelerator utilization, wall-clock time per training step, pipeline bubble rate, and communication overhead. The resource recovered is primarily time (the idle fraction of the training loop) and compute (accelerator cycles otherwise spent waiting at a synchronization or resource boundary). 
+
+Problem B — Long-tail rollout generation. Because RL training tasks—particularly mathe-matical reasoning and code generation—have highly variable solution lengths, rollout batches mix short responses that complete quickly with long responses that take substantially more time. In a synchronous batch, the longest response determines completion time while shorter responses wait with their accelerators idle, and this straggler problem grows more severe as reasoning chains lengthen. Three families attack different aspects of this bottleneck: scheduling and load balancing reduces imbalance across workers, partial and early-stop rollout reduces unnecessary continuation, and speculative decoding reduces the cost of generating each token. They report metrics sensitive to tail behavior—rollout throughput in tokens per second, batch completion time, straggler latency, 
+
+ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. Rollout Efficiency in RL for Reasoning LLMs 1:13 
+
+and mean rollout length—often alongside a downstream accuracy metric to confirm that accelera-tion does not degrade policy quality. The resource saved is primarily time (straggler wait) and, in some batching regimes, memory consumed by padding or partially idle sequences. 
+
+Problem C — Uninformative rollouts (waste discovered after generation). Rollouts whose rewards are near the batch mean, or for which the model is already near-certain, produce near-zero advantages and contribute little to the update, but this is known only after the generation cost has been paid. The rollout selection family targets this waste by reducing the number of trajectories the policy actually uses, or by replacing uninformative groups with informative ones already generated. The distinction from Problem B is therefore one of where the waste occurs : in Problem B the generated trajectory is useful but expensive to execute, whereas in Problem C the trajectory has already been generated and is estimated to have low marginal learning value. These papers report algorithmic quality metrics—task accuracy, pass@k, convergence speed, and samples required to reach a target reward—alongside or instead of system throughput, reflecting that their primary claim is learning efficiency rather than generation speed. The resources saved are primarily update-phase computation and, for methods that improve learning progress, effective sample or rollout budget required to reach a target quality. 
+
+Problem D — Uninformative or uneven prompts (waste avoidable before generation). 
+
+Prompt difficulty is highly non-uniform: some prompts are solved reliably by the current policy, others are essentially unsolvable under any reasonable sampling budget, and both extremes can produce rollout groups with little useful relative-advantage signal. Unlike Problem C, where the waste is discovered after generation, Problem D concerns allocating rollout budget to prompts that were unlikely to be informative under the current policy. The prompt filtering and selection family targets this by predicting prompt difficulty or informativeness before or during generation and adaptively allocating, reducing, or skipping rollout budget accordingly. These papers report a mix of efficiency and learning-quality metrics: rollout-efficiency multipliers, compute or sample savings, the fraction of prompts skipped, convergence speed relative to uniform sampling, and downstream accuracy to confirm that filtering does not harm the training signal. The resource saved is primarily compute and samples at the rollout stage itself, since generation is avoided or reduced before the corresponding work is fully incurred. 
+
+Bottleneck-lever synthesis. Because execution waste and learning-value waste are different re-sources, a system method can improve wall-clock time without reducing rollout work, and an algorithmic method can reduce samples without raising raw throughput. A single efficiency number is therefore insufficient for cross-study comparison: the relevant resource depends on where the waste occurs. The taxonomy also exposes two properties of the empirical literature: most methods report a gain on only one lever, leaving the other unmeasured, and evaluation settings differ sub-stantially in model scale, task, workload, and hardware, so headline numbers must be read within their measurement context rather than as a ranking. Both observations motivate Section 8. 
+
+5 System-Lever Approaches 5.1 The Training Framework 
+
+Every method in this section runs on top of an RL training framework, which fixes three things: who makes control decisions, whether rollout and training share the same devices, and how trajectories move between stages. These choices bound what later methods can do. Control. A single controller for both inter-node communication and intra-node computation is simple, but its dispatch cost grows with worker count. HybridFlow [67], whose open-source system veRL is the baseline for many rows in Table 9, splits the two roles; DISTFLOW [83] removes the central node entirely. The two disagree about scale, not correctness, and have not been compared at the same large  
+
+> ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. 1:14 N. Gholipour et al.
+
+scale. Placement. Time-sharing one GPU pool between stages leaves nothing idle by design, but StreamRL [116] shows the hidden cost: the stages cannot be scaled independently or given different device types. Separate pools allow both, at the price of two kinds of idle time— pipeline idle time 
+
+from one stage waiting on the other, and length idle time from long responses holding up short ones—which Sections 5.2 and 5.4 attack respectively; StreamRL’s ablation attributes more of its gain to removing the first than the second. Trajectory movement. If the trainer accepts only a full batch, overlap happens only at batch granularity. AsyncFlow’s [16] TransferQueue hands out individual samples as they finish, and its ablation credits this path alone with much of the gain before any asynchrony is added. AsyncFlow also hides the rollout (vLLM [35], SGLang [114]) and training (FSDP [110], Megatron-LM [68]) engines behind service interfaces, since those engines change faster than the RL frameworks built on them. Table 6 (Appendix C) places the four frameworks on these three choices. 
+
+5.2 Pipeline Decoupling 
+
+What is the design space. Members of this family all relax the same barrier: training no longer waits for a full rollout batch, and rollout no longer waits for the weight update. They differ in how small a unit of work they let cross that barrier. At the coarsest setting, the trainer uses a batch generated under weights at most 𝑘 steps old. One-step lag ( 𝑘 = 1) is the usual choice, because it is the largest relaxation that still has a simple correction: LlamaRL [84] runs fully asynchronously at up to 405B parameters and corrects the one step of lag with Asynchronous Importance-weighted Policy Optimization (AIPO). A finer setting uses the sample rather than the batch: AReaL [8] stops rollouts when weights update and resumes them under the new weights, so one trajectory may span versions, and DORA [23] extends this to several versions at once. Laminar [66] goes down to the individual trajectory, sending weights through relay workers so no trajectory waits on a global barrier, with lag bounded by 𝑠 ≤ 4. The finest setting moves the barrier out of the trainer entirely: ProRL Agent [102] puts environment setup, tool calls, and reward scoring behind an HTTP interface, so the trainer only submits tasks and collects finished trajectories; FlexMARL [29], RollArt [11], and AstraFlow [112] apply the same idea to agent and multi-policy pipelines, where there is a chain of barriers rather than a single rollout–train wait. Recent members widen the design space on both sides of the barrier. On the system side, RolloutPipe [4] shows that overlap does not require staleness at all, pipelining disaggregated rollout and training at group granularity while remaining strictly on-policy; Relax [104] extends asynchronous training to omni-modal post-training behind a single staleness knob; TideRL [62] adds readiness-aware scheduling with elastic worker migration for agentic workloads; and Rollplex [44] shares each GPU spatially between the two phases while staying synchronous. On the algorithm side, a cluster of methods raises how much lag training tolerates rather than how finely work crosses the barrier: VCPO [24] reports stability up to a lag of 128 steps by scaling the learning rate with the effective sample size, 𝜇 -GRPO [74] tolerates multi-stage staleness with relaxed clipping and a negative-advantage veto, and FlashREINFORCE [21] and SAO [19] remove the group barrier entirely by training on a single rollout per prompt, substituting a batch-mean or value-model baseline for the group baseline. 
+
+What does it change. A global synchronization point becomes a series of smaller, more frequent handoffs, so one stage continues while the other is still running; the price is that a single update may combine trajectories generated under different policy versions. 
+
+What assumptions does it require. Overlap is useful only if the resulting update remains a valid learning update. Trajectories from policies that differ substantially from the one being optimized weaken the training signal and can destabilize learning, so practical systems bound policy lag and, when necessary, apply off-policy corrections; Section 6.3 treats the resulting estimator together with the other sources of off-policy error.  
+
+> ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. Rollout Efficiency in RL for Reasoning LLMs 1:15
+
+When does it help. The gain is bounded by the idle time that overlap can eliminate, so it is largest where the synchronous pipeline waited most: large clusters, long and variable trajectories, and agentic chains of barriers. There is also an interaction with load balancing: StaleFlow [36] shows that a tight lag limit restricts which trajectories may be moved between workers, reducing the scheduler’s freedom to correct length imbalance, and tracks trajectory state globally so that both constraints can be honored at once. Section 7 revisits this interaction. 
+
+Synthesis. The primary design variable is the granularity of work allowed to cross the rollout– train barrier, from whole batches (LlamaRL [84]) through samples (AReaL [8], DORA [23]) and trajectories (Laminar [66]) to the service interface (ProRL Agent [102], FlexMARL [29], RollArt [11], AstraFlow [112]); each finer step buys utilization with policy lag, unless overlap is confined to on-policy admission (RolloutPipe [4]). A second, newer variable is how much lag the update itself tolerates (VCPO [24], 𝜇 -GRPO [74], FlashREINFORCE [21], SAO [19]). The binding limitation is that the gain is capped by the idle time removed, so once stages overlap, further asynchrony adds lag and coordination cost for little return. The literature has not established the lag–quality curve for any task family: systems fix one bound ( 𝑘 = 1, 𝑠 ≤ 4) and report one operating point—VCPO [24], reporting stability up to lag 128, is the exception—so no two methods have been compared at matched lag. 
+
+5.3 Resource-Aware Execution 
+
+What is the design space. This family uses hardware that would otherwise be underused, matches different stages to different device types, or reduces what each rollout consumes on the hardware it already has. The first distinction is where the extra capacity comes from , because sources differ in availability and reliability: heterogeneous device types are known in advance and fixed, preemptible capacity is temporary and can be reclaimed, and capacity shared with a serving workload is both temporary and contended. A second axis is whether the rollout/training split itself is fixed or adapted while training runs. A third changes resource demand rather than supply: reducing the memory, precision, or auxiliary-stage cost that a rollout occupies on whatever hardware it runs. 
+
+What does it change. Along the first two axes, the change is to where computation runs, not to what is computed. With different GPU types , rollout is often more sensitive to memory bandwidth whereas training is more sensitive to compute and memory size, so a cluster with multiple GPU generations benefits from assigning the two stages unevenly; AReaL-Hex [93] performs this assignment within one job. With spare capacity that can disappear , RLBoost [86] uses the extra GPUs only for rollout, where losing a worker affects one in-progress trajectory, rather than for training, where it can interrupt an entire step. With spare capacity shared with serving , ROSE [10] borrows idle inference GPUs while keeping serving performance within its required limits. Along the second axis, Libra [1] repeatedly adjusts the rollout/training GPU split during training and routes work through a cost-aware queue, BiDiRL [72] lets either pool execute the other stage through a runtime that can switch roles, and DynaResize [5] replans the split online with a hysteresis controller. The third axis shrinks what each rollout consumes. One wing lowers numerical precision during generation: QaRL [13] runs rollout with 4-bit weights, FP8-RL [59] and Jet-RL [87] use FP8 rollout (and, in Jet-RL, FP8 training), and AIS [117] keeps an FP8 sampler usable under a BF16 trainer by adapting its importance-weight mixing per batch. A second wing reduces the KV cache that long trajectories occupy (Sparrow [120], Sparse-RL [45], SMD [122]). A third moves auxiliary stages off the critical path: AReaL-DTE [55] transmits only the small fraction of weights that change per step, and DistRS [123] serves reward evaluation from an elastic CPU–GPU pool. 
+
+What assumptions does it require. For the capacity axes, the main requirement is operational rather than statistical: when capacity can disappear, the system must resume, reassign, or discard interrupted work without corrupting the training step, and when GPUs are shared with serving,  
+
+> ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. 1:16 N. Gholipour et al.
+
+it must respect the other workload’s performance requirements. The footprint wing is the ex-ception: quantized or sparse rollout changes the sampling distribution itself, so these methods carry an explicit rollout–training mismatch correction, examined with the other mismatch cases in Section 6.3. 
+
+When does it help. The benefit depends on how much useful capacity exists beyond a fixed, bal-anced allocation: heterogeneous devices help when the two stages benefit from different hardware, and temporary or shared capacity helps when additional machines are available part of the time. A homogeneous, fully dedicated cluster offers much less headroom—except for footprint reductions, which depend on hardware support (for example, FP8) rather than on spare capacity. 
+
+Synthesis. The design variable is the source of extra capacity—fixed heterogeneous devices (AReaL-Hex [93]), reclaimable preemptible GPUs (RLBoost [86]), contended serving GPUs (ROSE [10])— and, more recently, whether the rollout/training split is replanned online (Libra [1], BiDiRL [72], DynaResize [5]), or the per-rollout footprint is reduced through lower precision, smaller KV caches, or cheaper weight synchronization and reward serving. Gains from the capacity axes are largest on clusters with a hardware mix or recurring spare capacity and vanish on a homogeneous, dedicated cluster; footprint reductions are the exception, paying off on any hardware that supports them at the price of a sampler–trainer mismatch to correct. The principal limitation is that every reported speedup is a property of the cluster as much as of the method, so numbers do not transfer across environments (Section 8). The literature has not measured online repartitioning on top of an already asynchronous pipeline, the combination Section 5.7 identifies as competing for the same idle share. 
+
+5.4 Scheduling and Load Balancing 
+
+What is the design space. Given 𝑛 rollout requests and 𝑚 workers, the scheduler decides which request goes to which worker and in what order, to minimize the time until the entire set is finished (the makespan ). When request lengths are known, longest-processing-time-first combined with assigning each request to the worker that frees soonest is already close to optimal on homogeneous machines, with approximation ratio bounded by 4 /3 − 1/( 3𝑚 ) [12]. The challenge in rollout is that lengths are not known in advance, so methods differ mainly in the signals they use to predict future work and in how they respond to prediction error and long-tail behavior. 
+
+What does it change. SortedRL [106] and RollPacker [9] group requests by predicted output length so that similar-length responses share a batch, moving length variation across rather than within batches. StreamRL [116] trains a ranker to predict output length for dispatch; RhymeRL’s HistoPipe [17] uses a simpler signal, the length distribution of the previous step, which needs no additional model. TailSieve [90] probes the current workload with short partial rollouts to identify groups likely to form the long tail and keeps those groups on a separate pool that also speculates on long outputs. Seer [57] exploits sibling correlation within a GRPO group: one sibling runs first as a probe whose observed length predicts the rest, and tokens generated across siblings supply a model-free draft for grouped speculative decoding, all while remaining synchronous and on-policy. These results show that length imbalance can often be reduced without abandoning on-policy execution. Scheduling becomes more complex when the unit is a full trajectory rather than a single generation request. In agentic RL, a trajectory may contain several generations interleaved with tool calls, so its completion time depends on the environment as well as on generation. Heddle [109] separates trajectory time into queueing, interference, and per-token work, addressing them with priority scheduling, pre-sorted placement, and adaptive parallelism. WAR [89] changes strategy with load: when the batch is small, per-token latency is the bottleneck and suffix-tree speculation helps; when the batch is large, batched decoding already keeps the GPU busy and cache-aware placement becomes more useful. MISA-T [18] moves the problem to the shared inference service: when RLVR, RLHF, and agentic rollouts use the same service, KV-cache capacity rather than  
+
+> ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. Rollout Efficiency in RL for Reasoning LLMs 1:17
+
+compute can become the limiting resource, and a scheduler based only on compute utilization misses this contention. 
+
+What assumptions does it require. Reordering and reassigning requests do not change which trajectories are generated, so the learning signal is unchanged as long as the same requests remain in the same training groups. The distinction matters when scheduling also changes batch membership: grouping by predicted length can correlate batch composition with task difficulty, because difficulty often affects response length. SortedRL [106] uses this deliberately, so that its length-sorted batches also act as a curriculum and contribute to its reported quality gain; methods that reorder requests without changing group membership are purely system-level optimizations. 
+
+When does it help. Scheduling has the most room to help when response lengths vary substantially, and its benefit is erased when predicted lengths are not more informative than the raw variation. Not every long tail is caused by generation length, either: in agentic workloads a trajectory may be delayed by tool calls, environment interaction, or interference from other requests, which length-based scheduling alone cannot remove. 
+
+Synthesis. The design variable is the length-prediction signal—a trained ranker (StreamRL [116]), recent history (RhymeRL [17]), short probes (TailSieve [90]), or sibling correlation (Seer [57])— together with whether the scheduler also changes batch membership, which turns a pure system optimization into a curriculum (SortedRL [106]). Gains are largest under high response-length dispersion in synchronous execution and shrink as lengths homogenize. The principal limitation is prediction error: a predictor no more informative than the raw length variation yields no gain, and agentic tails driven by tool latency rather than token count fall outside length-based scheduling altogether (Heddle [109], WAR [89], MISA-T [18]). The literature has not compared these predictors on a common workload, so how gain degrades with predictor error is unknown. 
+
+5.5 Partial and Early-Stop Rollout 
+
+What is the design space. This family limits how much of a trajectory is generated in one step. Methods differ in whether they stop at a fixed budget, pause and resume unfinished work, or decide dynamically that further generation is unlikely to be useful, and in whether the decision is made per trajectory or per group. These choices affect both the computation performed and the training signal produced by the unfinished trajectory. 
+
+What does it change. Truncation stops a trajectory at a fixed token budget. DeepScaleR [71] raises this budget as training progresses—8K context first, then 16K and 24K—because early in training a large context limit wastes rollout compute on tokens the policy is not yet likely to generate; it reports about 3 ,800 A100-hours against an estimated 70 ,000 for one-stage training at full context. Partial rollout reuse also limits generation per step but does not discard unfinished work. Kimi k1.5 [73] stores the unfinished continuation in a replay buffer and resumes it in a later step; only the current segment is generated on-policy, which makes RL at 128K context practical. APRIL [119] applies the idea at the batch level, starting extra requests, stopping once enough complete answers are available, and carrying unfinished tails into later steps; DARTS [81] develops the same idea at larger scale, pruning the roughly 5% of trajectories that form the tail. Here the benefit comes from avoiding the wait for the slowest request rather than from reducing the total tokens eventually generated. Early stopping ends a trajectory on a learned signal rather than a fixed limit. ESPO [39] computes a regret score from logits already produced during sampling and stops when the smoothed score crosses a threshold derived from the critic’s value estimate; stopped trajectories are treated as failed terminal states with an explicit terminal reward, so the negative signal lands at the stopping point. It reduces rollout tokens by more than 20% at improved accuracy, and its ablation is an important control: random stopping at the same rate reaches only 42 .4% on AIME 2024 against 46 .28% for ESPO, so the benefit comes from which trajectories are stopped, not from stopping more of them. Group-level  
+
+> ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. 1:18 N. Gholipour et al.
+
+early stopping terminates generation for an entire group. Selective Rollout [99] stops a group once its samples have become similar enough that additional rollouts are unlikely to provide useful signal, and ARROL [88] prunes trajectories whose continued generation is unlikely to change the learning signal and reallocates the released capacity. POPD/TOPD [105] carries truncation into on-policy distillation , where dense teacher log-probabilities replace the outcome reward, so prefixes alone suffice; its reported failure on horizon-dependent tasks marks the boundary of the family, since truncation is safe only when the learning signal does not depend on how the trajectory ends. 
+
+What assumptions does it require. Stopping a trajectory before it finishes changes what enters training, so each method must specify how an incomplete trajectory contributes to the learning signal: truncation treats the shorter budget as part of the training setup, partial reuse generates only the current segment on-policy and may exclude older segments from the loss, early stopping turns the stop into an explicit terminal outcome with a defined reward, and group-level stopping raises the same question for every trajectory at once (Section 6.3). Partial rollout reuse additionally accumulates older trajectory segments over time, linking this family to the policy-lag problem of Section 5.2. 
+
+When does it help. This family works best when a trajectory’s eventual usefulness can be estimated before it finishes, as in mathematical reasoning, where an early incorrect step makes the remainder unlikely to succeed. The opportunity is weaker when the final reward depends strongly on a late action or interaction, as in agentic tasks, where stopping early may discard useful signal rather than wasted computation. 
+
+Synthesis. The design variable is the stopping criterion—a fixed budget (DeepScaleR [71]), pause-and-resume or oversample-and-prune (Kimi k1.5 [73], APRIL [119], DARTS [81]), a learned per-trajectory signal (ESPO [39]), or group similarity (Selective Rollout [99], ARROL [88])—and, inseparably, how the incomplete trajectory enters the loss. Gains are largest on long chain-of-thought mathematics, where an early error predicts failure and a few stragglers set the batch time. The principal limitation is the risk of stopping trajectories that would have succeeded, which only ESPO [39] quantifies (2 .7%), together with the estimator questions of Section 6.3. The literature has not established transfer to agentic tasks whose reward is decided late, where POPD/TOPD [105] already fails, and only ESPO reports the random-stop control that separates the criterion’s value from the value of doing less. 
+
+5.6 Speculative Decoding 
+
+What is the design space. Speculative decoding uses a cheaper source to propose several future tokens, then verifies the proposals with the target policy in one pass. In RL rollout, the main design choices are where the draft comes from and what it costs to produce : a cheap drafter pays off only if its proposals are accepted often enough, while a better drafter may reduce target-model work but consume GPU capacity that could have served training or rollout. Previous trajectories are the cheapest source because RL already produces them. SPEC-RL [41] reuses the trajectory generated for the same prompt in the previous step and re-checks only the suffix the updated policy would change. A broader approach uses a suffix tree over past completions (RhymeRL’s HistoSpec [17], DAS [64], WAR [89]); DAS reports identical training curves with and without speculation. A trained drafter tracks the current policy more closely but requires additional training. ReSpec [2] trains a small drafter online with reward weighting; TLT [22] trains its drafter on otherwise idle GPUs to avoid competing with the main job; NeMo-RL SD [25] uses an EAGLE-3 drafter initialized on domain-matched data—and finds 𝑛 -gram drafting slower than plain decoding in its setting— while FastGRPO [107] re-tunes its draft tree to the live batch concurrency and updates the drafter during the training phase. Another option adds future-token heads to the policy itself . SpecRoll [56] corrects the heads’ lag on two timescales, adjusting hidden states from delayed verifier feedback and  
+
+> ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. Rollout Efficiency in RL for Reasoning LLMs 1:19
+
+retraining head weights only when quality keeps dropping. A related trend reuses the multi-token prediction (MTP) modules that DeepSeek-V3/R1 and Qwen3.5 ship natively as drafters: MTP-RL [76] trains such a head with an advantage-aware KL term that keeps acceptance from collapsing as the policy moves, and Draft Co-Training [82] folds the draft loss into the trainer itself, scaling to a 122B mixture-of-experts model. A final option needs no separate drafter at all: EfficientRollout [31] uses a quantized copy of the policy to draft for its own full-precision verifier, with a roofline test deciding when speculation pays. The cost of drafting is part of the effective speedup. BubbleSpec [91] is the clearest example, generating drafts in idle gaps that already exist in synchronous data-parallel rollout, without a separate drafter or any change to synchrony. Suffix-tree methods keep drafting cost low by running on CPU, whereas trained drafters consume GPU time; Table 7 (Appendix D) summarizes the family along these two dimensions. 
+
+What does it change. Speculation changes how tokens are generated, not the target policy that verifies them: accepted proposals save target-model decoding steps, so the end-to-end benefit depends on both the acceptance rate and the cost of producing the draft. 
+
+What assumptions does it require. Proposed tokens must be likely enough under the current target policy to make verification worthwhile. The strongest case is an exact match : a drafted token is kept only when it is consistent with what the target policy would have sampled, so speculation does not change the output distribution. BubbleSpec, SpecRoll, DAS, TLT, EfficientRollout, NeMo-RL SD, and FastGRPO make or claim this guarantee. A weaker result is that training remains empirically unchanged, such as similar reward curves or stable convergence in ReSpec. SPEC-RL lies between: its reused trajectory is not generated by the current policy, but re-checking the changed suffix reduces the mismatch. History-based methods additionally require that useful prefixes or prompts recur across steps, which is natural for repeated training over a fixed prompt set but weaker when prompts are streamed or continuously generated. 
+
+When does it help. Speculative decoding works best when the draft is cheap and the target policy accepts a large fraction of its proposals. Acceptance falls when the policy changes rapidly—early in training, after large updates, or under aggressive learning schedules—and pipeline asynchrony has the same effect, since policy lag widens the gap between the policy that produced a draft and the policy that verifies it. Resource availability is also part of the operating regime, which is why several members enable speculation only when idle capacity or the current load makes it beneficial. 
+
+Synthesis. The two design variables are the draft source—past trajectories (SPEC-RL [41]), suffix trees (RhymeRL [17], DAS [64], WAR [89]), a trained drafter (ReSpec [2], TLT [22], NeMo-RL SD [25], FastGRPO [107]), heads on the policy (SpecRoll [56], MTP-RL [76], Draft Co-Training [82]), or a quantized self-draft (EfficientRollout [31])—and what the drafter costs, from free CPU lookups to continuous GPU training. Gains are largest when the policy changes slowly, prompts recur across steps, and idle capacity can absorb drafting (BubbleSpec [91], TLT [22]). The principal limitation is that acceptance falls with policy drift, so early training, large updates, and asynchrony all erode the speedup. The literature reports acceptance as a single average; no method reports acceptance against training progress, so the operating range of each drafter is unknown. 
+
+5.7 Where These Gains Overlap 
+
+The five families do not target five independent kinds of waste, so stacking two mechanisms that relieve the same bottleneck yields less than the product of their individual gains. Two such overlaps are built in. 
+
+The tail is targeted three times. Scheduling, partial rollout, and speculative decoding all attack the idle time caused by mixed response lengths. A scheduler that has balanced the tail leaves less tail for speculation to speed up, and a stopping rule that cuts the tail removes the tokens the scheduler was reordering. The three families are therefore alternatives as much as complements;  
+
+> ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. 1:20 N. Gholipour et al.
+
+TailSieve [90] and Seer [57], which pair tail routing with speculation inside one system, are the only members that measure the combination (Section 7). 
+
+Idle capacity is targeted twice — but only by one wing of the family. Pipeline decoupling removes idle time by overlapping stages. Within resource-aware execution, only the designs that replan the rollout/training split (Libra [1], BiDiRL [72], DynaResize [5]) recover that same idle share, so these two mechanisms compete for one pool of waste: once the stages already overlap, there is little idle capacity left to reassign, and no study has measured the pair together. The other wings do not share this pool. Harvesting spare or serving GPUs (RLBoost [86], ROSE [10]) adds capacity from outside the job, matching stages to device types (AReaL-Hex [93]) exploits hardware differences rather than idle time, and the footprint wing reduces what each rollout consumes; all three remain useful under full asynchrony, though the footprint wing’s mismatch corrections stack importance weights on top of any staleness correction (Section 6.3). Section 7 quantifies the pairs for which measured increments exist and marks the rest as hypotheses. 
+
+6 Algorithmic-Lever Approaches 
+
+The central source of algorithmic waste is the way group-relative RL computes advantages. Under GRPO [65] and related methods, a prompt 𝑥 is answered by a group of 𝐺 sampled trajectories whose advantages are standardized within the group (Section 3.1); when every sample receives the same reward, the group is degenerate and contributes no signal. With binary verifiable rewards this occurs when all 𝐺 samples either succeed or fail: if the policy solves 𝑥 with probability 𝑝 and samples are independent, the probability of a degenerate group is 𝑃 deg (𝑝, 𝐺 ) = 𝑝 𝐺 + ( 1 − 𝑝 )𝐺 , smallest at 
+
+𝑝 = 1/2 and approaching one as 𝑝 → 0 or 𝑝 → 1. At 𝐺 = 8, a prompt solved nine times out of ten ( 𝑝 = 0.9) gives 𝑃 deg ≈ 0.43; at 𝑝 = 0.95 it rises to ≈ 0.66, so two thirds of that prompt’s groups carry no signal. Each such group is still generated and evaluated at full cost. Two consequences motivate the two algorithmic families. First, informativeness depends on the prompt–policy pair ,not the prompt alone, because 𝑝 changes as the policy improves. Second, whether a group will be uninformative can be estimated only imperfectly before generation. DAPO’s dynamic sampling [95] is the reference approach: oversample prompts, discard degenerate groups, and continue until the batch contains enough with non-zero advantage. This is correct, but its rollout cost grows as more prompts become easy. The two families below are alternatives: predict which prompts are likely to be useful before generation, or extract more value from generated data that would otherwise be discarded. 
+
+6.1 Rollout Selection 
+
+What is the design space. Members of this family decide after generation, when rewards are known and the generation cost has already been paid. They differ in what is selected : a subset of completed trajectories, or a replacement for groups that would otherwise be discarded. 
+
+What does it change. Selecting a subset of the generated batch. PODS [92] generates a large batch and trains on the maximum-reward-variance subset, decoupling the rollout budget from the update budget: the batch is sized for coverage while the update focuses on trajectories with more relative-advantage signal. It reaches peak accuracy at least 1 .7× sooner, but the saving occurs only in the update stage, since the discarded trajectories have already been generated. Every Rollout Counts [80] derives the allocation of a fixed search budget that maximizes the probability of a correct solution; we cite it as a related allocation result, since its setting is test-time search and it does not reduce training rollout cost. Substituting rather than discarding. POPO [46] replaces degenerate groups with prioritized off-policy groups from a replay buffer, corrected by decoupled importance sampling, and reaches parity with oversampling baselines at roughly 30% of their rollout budget. Rollout Replay [94] and Headroom-Drift [53] add explicit safeguards on reuse—an  
+
+> ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. Rollout Efficiency in RL for Reasoning LLMs 1:21
+
+age cap with fresh-anchored batches, and a gate on measured policy drift rather than age alone. I-PPO [69] instead derives an intrinsic stopping signal from a held-out validation set to end training early, though the saving is reported qualitatively. 
+
+What assumptions does it require. Post-generation selection is simplest when the selected trajecto-ries are already valid samples from the target policy; the concern is then the effect of conditioning the update on the observed reward, which can reduce estimator variance but may also remove trajectories that contain useful signal. Replay adds a second requirement: the off-policy correction must remain well behaved as the policy moves away from the behavior policy. 
+
+When does it help. Rollout selection is useful when generating extra samples is affordable but using all of them in the update is wasteful; replay-based members become attractive when the goal is to reduce new generation itself, at the cost of off-policy correction. 
+
+Synthesis. The design variable is what is selected after generation—a maximum-variance subset (PODS [92]), a replayed replacement for degenerate groups (POPO [46], Rollout Replay [94], Headroom-Drift [53]), or an intrinsic signal for ending training early (I-PPO [69])—which determines whether the method saves only update compute or also new generation. Gains are largest when oversampling is cheap relative to the update and many groups are degenerate. The principal limitation is that post-hoc selection cannot recover generation cost already paid, and replay recovers it only by introducing off-policy data that must be corrected. The family has moved from pure post-hoc selection toward guarded reuse but still lacks a shared benchmark, so how selection gains scale with the oversampling ratio, and how replay compares with pre-generation filtering at a matched rollout budget, remain unmeasured. 
+
+6.2 Prompt Filtering and Selection 
+
+What is the design space. The degeneracy condition above gives this family a common view: methods estimate which prompts are likely to produce informative groups and direct rollout budget toward prompts whose success probability is near 𝑝 = 1/2. They differ in the signal used to estimate 𝑝 ,the cost of that estimate, and whether they account for 𝑝 changing as the policy learns. Table 8 (Appendix E) summarizes these choices. 
+
+What does it change. Binary filtering skips prompts predicted to be uninformative. The cheapest signal is the prompt’s own reward history, refreshed as training proceeds (GRESO [113], HIVE [85], AERO [108]); GRESO is representative, reporting 2 .4× faster rollout and up to 3 .35 × fewer rollouts at preserved quality (61 .5 vs. 61 .3). A second group fits a predictor—a Bayesian difficulty posterior (MoPPS [61]), a BERT estimator (DEPO [111]), a small curator model trained alongside the actor (Actor-Curator [14]), prompt embeddings joined to reward history (LEEPS [40]), or a one-time probe run amortized across the pool (TrajVal [118]); HeaPA [79] instead verifies pool difficulty asynchronously with a teacher model. VCRL [27] uses group reward variance and pairs filtering with replay. Budget allocation gives low-priority prompts less rather than zero budget. VIP [50] solves a convex allocation that minimizes policy-gradient variance from Gaussian-process success estimates; VIGOR [28], HORA [78], and Pilot-Commit [32] replace the predictor with a few probe rollouts per prompt and reallocate the remainder by observed variance—VIGOR reaches target quality with 2 .3× fewer rollouts on math. KGPS [121] is the clearest treatment of the non-stationarity all these estimators face: a linear-Gaussian state-space model whose uncertainty grows as the policy changes, cutting rollouts by 83% against dynamic sampling. Two members stretch the family’s boundary: DUET [20] pairs allocation with a mid-generation abort, the clearest two-family hybrid under rule (iv) of Section 4, and TRACE [124] allocates below the prompt, over turn-level prefixes in multi-turn tasks. 
+
+What assumptions does it require. Prompt filtering assumes that informativeness can be estimated well enough before spending the full rollout budget, whether from history, a learned predictor, a  
+
+> ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. 1:22 N. Gholipour et al.
+
+few probe samples, or a model of drift. The key difficulty is that the target moves: 𝑝 is a property of the current prompt–policy pair, not of the prompt. Permanently removing prompts also changes the training distribution, a correctness question taken up in Section 6.3. 
+
+When does it help. Prompt filtering and allocation are most useful when a large fraction of rollouts produce degenerate groups—near the extremes of 𝑝 , where 𝑃 deg is highest—and when informativeness can be estimated more cheaply than generating the groups themselves. The challenge is greatest when prompt difficulty changes quickly, because stale estimates direct rollout budget toward the wrong prompts. 
+
+Synthesis. The design variable is the informativeness signal and its cost—reward history (GRESO [113]), a trained predictor (DEPO [111]), a few probe rollouts (VIGOR [28]), group variance with replay (VCRL [27]), or an explicit drift model (KGPS [121])—together with whether the decision skips prompts or reallocates budget. Gains are largest when many prompts sit at the extremes of 
+
+𝑝 and their informativeness is cheaper to estimate than to generate; dual-lever reporting is more common here than in any system-lever family but remains a minority (5 of 17). The principal limitation is non-stationarity: 𝑝 moves with the policy, so stale estimates misdirect budget and permanent removal hides later regression. The literature has not compared these estimators on a common workload or tested filtering on multi-turn tasks with partial-credit rewards, where the degenerate-group diagnosis is less clean (Section 8.4); TRACE [124] allocates on multi-turn tasks but does not filter. 
+
+6.3 Estimator Correctness Under Modified Rollout Processes 
+
+Staleness, truncation, filtering, trajectory selection, and numerical mismatch modify the data reaching the update in different ways, but all can be viewed through one question: does the modified rollout process still provide a correct estimator of the gradient of the intended objective, or does it optimize a different objective? We consider five cases. 
+
+Staleness. Asynchronous execution generates trajectories under an older behavior policy 𝜋 𝜃 old 
+
+while the update is computed for the current policy 𝜋 𝜃 . The standard correction is importance weighting by the per-token ratio 𝜌 of Section 3.1, so each sampled action contributes in proportion to its likelihood under the current policy relative to the behavior policy. Bounding staleness does not itself make the estimator unbiased; its role is to limit the difference between the two policies, because a larger difference makes the ratios more variable and the corrected update noisier—which is why the systems of Section 5.2 keep the lag small. POPO [46] faces the same issue from the replay side: its decoupled importance sampling separates the distribution used for normalization from the behavior policy that generated the replayed sample. In both cases, correction accounts for policy mismatch but does not make arbitrarily stale data equivalent to fresh on-policy data. 
+
+Truncation. Truncating a trajectory at 𝐿 tokens changes the trajectory distribution seen by the learner. The resulting update can be an unbiased estimator of the gradient of the truncated 
+
+objective [52], but generally not of the original one, so the question is whether the truncated objective is the one the training procedure intends to optimize. The methods of Section 5.5 answer differently. DeepScaleR [71] treats the context budget as part of the training procedure, so the objective changes as the budget increases. ESPO [39] defines an explicit terminal failure state when a trajectory is stopped, turning the truncated trajectory into a complete one under the modified process; this keeps the update on-policy for that process, but is meaningful only if the truncated state is appropriately treated as a failure, and ESPO’s reported 2 .7% rate of stopping trajectories that would have succeeded measures this error directly. Kimi k1.5 [73] generates only the current segment on-policy and can exclude older segments from the policy-gradient loss, avoiding the treatment of an old continuation as fresh data at the cost of using only part of the trajectory history.  
+
+> ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. Rollout Efficiency in RL for Reasoning LLMs 1:23
+
+Filtering. Prompt filtering changes the distribution of prompts used for training. If the original prompt distribution is 𝑑 (𝑥 ) and the rule retains prompts with probability proportional to a weight 
+
+𝑤 (𝑥 ), the effective training distribution becomes ˜𝑑 (𝑥 ) ∝ 𝑤 (𝑥 ) 𝑑 (𝑥 ), so the update targets a different objective from uniform prompt sampling unless the change in sampling probability is accounted for. This is particularly difficult because the rule is policy-dependent: informativeness is estimated from the policy-dependent success probability 𝑝 , so the sampling rule evolves with 𝜋 𝜃 rather than defining a fixed training distribution, and the estimated weights carry prediction error that can further distort it. Preserved or improved quality alongside rollout savings, which most methods report, is evidence that the reallocation is useful in the evaluated regime, not a guarantee that the original objective is preserved. A further concern is permanent filtering: once a prompt is removed, later regression on it cannot be detected unless it is revisited. VCRL [27] addresses this through replay, GRESO [113] and HIVE [85] through repeated re-estimation, and VIP [50] by reducing a prompt’s budget rather than removing it. Filtering can also be read as variance reduction: concentrating budget on the near-𝑝 = 1/2 prompts least likely to produce degenerate groups preserves more gradient signal per rollout, and VIP makes this explicit by directly minimizing policy-gradient variance. 
+
+Trajectory selection. Selecting completed trajectories by their realized rewards makes inclusion in the update depend on the observed learning signal itself. Such selection can reduce estimator variance but can also bias the update, because the retained set is no longer a representative sample of the trajectory distribution. The trade-off is favorable when the discarded trajectories carry little advantage signal—the high-𝑃 deg setting in which PODS [92] operates—and unfavorable when selection is aggressive enough to remove informative ones. Whether a gain comes from the selection criterion or merely from processing fewer trajectories is answered by the matched-rate random control of Section 8.7, which ESPO’s random-stop ablation instantiates for early stopping. 
+
+Rollout–training mismatch. Even a fully synchronous, on-policy pipeline can produce data that is slightly off-policy in practice. The rollout and training engines implement the same model with different kernels, batching, and numerical precision, so the probability the rollout engine assigned to a sampled token is not exactly the probability the trainer computes for it. This has the same structure as staleness, but the gap comes from numerics rather than time, so it does not disappear at zero lag; it is small per token but accumulates over long trajectories [115]. The treatments mirror the staleness case—treat the rollout engine as the behavior policy and correct with importance weights from its recorded probabilities, or align the numerics of the two engines—and the quantized-rollout methods of Section 5.3, which widen the gap deliberately for throughput, show the corrections in use: token-level importance weighting (FP8-RL [59]), a re-quantized learner forward pass (QaRL [13]), rejection sampling with reweighting (Sparse-RL [45]), and per-batch adaptation of the importance-weight mixing from effective-sample-size diagnostics (AIS [117]). Under asynchronous updates the discrepancy can be amplified through off-policy importance weighting and may destabilize training; ratio clipping or rejection of extreme-ratio samples is one practical limit. Section 7 returns to this issue, because asynchrony and reuse widen the same gap that the numerical mismatch opens. 
+
+Overall implication. These five cases differ in mechanism but expose the same trade-off: reducing rollout cost changes either the distribution of training data or the information available to the update. They also separate three claims that the literature often conflates. An exact guarantee 
+
+for the intended objective is available only where the modified process provably samples from the target policy, as exact-match speculative decoding does (Section 5.6). An unbiased estimator for a modified objective is what importance-corrected staleness, truncation under a redefined terminal state (ESPO), and filtering under a known reweighting achieve: the update is correct, but for an  
+
+> ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. 1:24 N. Gholipour et al.
+
+objective the method has changed. An empirical observation that quality is preserved is what most filtering, selection, and mismatch results offer; it establishes effectiveness in the evaluated regime, not estimator correctness. Efficiency claims are meaningful only when a method states which of the three it makes, and keeping them separate is essential when comparing methods and when deciding whether two can safely be combined (Section 7). 
+
+7 Analytical Composability of Rollout-Efficiency Methods 
+
+The taxonomy identifies the bottleneck targeted by each method, but not whether two methods work well together. We use composability for this interaction: when two methods are applied together, how much of the benefit of each remains? Table 3 presents mechanism-derived compatibility hypotheses for every pair of families; only a small subset of these interactions has been empirically evaluated. Of the 21 pairs, two carry a measured incremental gain, three more are co-implemented in a single system without an isolated measurement, and the remaining 16 are predictions from the mechanisms and assumptions of Sections 5 and 6. The table marks this status on each entry. 
+
+Overlapping benefits ( × from shared headroom). Some pairs are marked × because they reduce the same remaining inefficiency, so their gains should not be expected to multiply. Decoupling and resource-aware execution can both exploit idle capacity, though this overlap is confined to designs that replan the rollout/training split: as Section 5.7 shows, capacity harvesting and heterogeneous placement draw on different headroom. Scheduling, partial and early-stop rollout, and speculative decoding all attack the idle time caused by mixed response lengths (Section 5.7): a scheduler that has balanced the tail leaves less for speculation to accelerate, and a stopping rule that cuts the tail removes the tokens the other two were reordering or speeding up. These pairs also carry a re-tuning obligation—a length predictor calibrated on complete trajectories becomes inaccurate once trajectories are truncated, so it should be calibrated under the truncation policy in use. A similar overlap occurs between prompt filtering and rollout selection: both reduce the contribution of uninformative groups, so if filtering has already removed prompts whose rollouts almost always succeed or fail, fewer remain for selection to discard. 
+
+Conflicts ( × from incompatible assumptions). A stronger interference occurs when one method weakens a condition the other requires. Pipeline decoupling introduces policy staleness, whereas speculative decoding is most effective when the drafting and verifying policies remain close; combining the two can reduce the effectiveness of speculation even if both provide substantial standalone speedups. BubbleSpec’s [91] use of strict synchronization can be read as a design choice that preserves exactly the policy proximity that speculation needs. Numerical mismatch creates another conflict: speculative decoding combined with execution that differs across kernels or precision is especially likely to compound it, since small differences between drafting and verifying probabilities lower token acceptance while the rollout and training probabilities also move apart. The footprint wing of resource-aware execution makes this concrete: FP8-RL [59], QaRL [13], and AIS [117] deliberately widen the sampler–trainer gap for throughput and close it with importance weights, so combining them with asynchrony stacks two corrections on one ratio. AIS’s per-batch effective-sample-size diagnostics are one way to keep the stacked weights in range, but no method measures the combination. Staleness can similarly constrain scheduling: under a tight bound, only some trajectories are eligible for migration, reducing the scheduler’s freedom to rebalance. StaleFlow [36] co-implements the two, with a global consistency protocol that tracks each trajectory’s lifecycle and keeps rebalancing within the staleness bound, and TideRL [62] adds readiness-aware scheduling inside a staleness-bounded pipeline; neither isolates the increment of either mechanism. Prompt filtering can also interfere with history-based speculation: SPEC-RL [41] reuses trajectories from previous epochs for the same prompt, and an adaptive filter changes which prompts recur across epochs, reducing these reuse opportunities. 
+
+> ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026.
+
+Rollout Efficiency in RL for Reasoning LLMs 1:25                                                 
+
+> Table 3. Pairwise composability of technique families, with evidence status.
+> Decoup-ling Resource-aware Sched-uling Partial rollout Specu-lative Rollout selection
+> Resource-aware (×/• m/◦) †—••(•/◦) †•
+> Scheduling ×s•—××m•
+> Partial rollout ◦s•×—×◦
+> Speculative ×(•/◦) †×m×—•
+> Rollout selection ◦••◦•—Prompt filtering ••◦•s××
+> Interaction: •complementary (largely independent); ◦conditional (compatible, but one constrains the other); ×overlapping or conflicting (shared headroom or incompatible assumptions); — not applicable. Evidence: mincremental gain measured on top of the other family;
+> sco-implemented in a single system without an isolated measurement; unmarked entries are mechanism-derived hypotheses. †The three wings of resource-aware execution (Section 5.3) interact differently: replanning the rollout/training split shares idle headroom with decoupling (×); capacity harvesting and heterogeneous placement remain complementary under full asynchrony ( •, measured by AReaL-Hex); and footprint reduction (quantized, sparse, or FP8 rollout) is conditional ( ◦) with both decoupling and speculation, because its sampler–trainer mismatch correction stacks on the staleness correction and a lower-precision verifier is expected to reduce draft acceptance.
+
+Conditional combinations ( ◦). Some combinations remain useful, but the second method must adapt to the conditions introduced by the first. Partial rollout reuse under pipeline decoupling draws on one staleness budget from two sources: a resumed segment is old because it was generated in an earlier step, and asynchrony adds lag on top of that age, so the lag bound must account for both (Sections 5.5 and 6.3). AReaL [8] implements exactly this combination—interrupting rollouts at each weight update and resuming them under the new weights—but reports no separate increment for it. Rollout reuse faces the same accounting: a replayed group (POPO [46], Rollout Replay [94], Headroom-Drift [53]) is already off-policy by its age, and asynchrony adds lag on top, so an age cap or drift gate calibrated for synchronous training must be tightened under decoupling. Methods that widen the tolerated lag (VCPO [24], 𝜇 -GRPO [74]) enlarge this shared budget but do not remove the need to account for both sources. Partial rollout and rollout selection present a different issue: a truncated trajectory carries less information about its eventual outcome than a completed one, so if selection operates on a mixture, its criterion should account for that difference. Prompt filtering and partial rollout are co-implemented in DUET [20], which pairs cost-weighted budget allocation with a marker-gated mid-generation abort and reports their combined 1 .62 × wall-clock gain rather than the increment of each. Prompt filtering and scheduling interact through batch composition: if task difficulty is correlated with response length, the filtered batch may become less length-diverse, reducing the very imbalance scheduling exists to fix; the scheduling benefit should be measured on the filtered workload. Finally, combinations can compete for memory rather than time: replay buffers for reuse, suffix-tree indexes for drafting, and oversampled batches for selection each add a standing memory cost that the composed system must fit alongside model weights and KV cache—pressure that the KV-cache reductions of Sparrow [120] and SMD [122] would relieve, an untested but mechanism-consistent pairing. 
+
+How to evaluate a combination. The common thread is that composability should be measured by the additional benefit of each method after the other has been applied. A method with a large standalone speedup may add little in a combined system because the first method already removed much of the same waste; conversely, two methods on different bottlenecks may retain most of their individual benefits. A simple evaluation compares four settings: the baseline, each method alone, and both together. The combined speedup should then be compared with the product of the standalone speedups: a combined gain near the product indicates complementary methods, while a gain well below it indicates redundancy or interference. Only two entries in Table 3 meet this standard. AReaL-Hex’s [93] 1 .31–1 .50 × gain on top of the already asynchronous AReaL [8] is the clearest cross-family case, and AReaL-DTE’s [55] 6 .8–7 .6× weight-synchronization speedup on the same asynchronous base is a second increment in that cell, though for one stage rather than end-to-end; TailSieve’s [90] progression from 1 .67 × (routing) to 2 .59 × (routing plus tail speculation) is the clearest within a single method. The remaining 19 entries are either co-implemented without 
+
+ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. 1:26 N. Gholipour et al. 
+
+an isolated increment or untested, and measuring them—starting with the × entries, where the hypotheses are strongest—is itself an open problem (Section 9). 
+
+8 Evaluation, Reporting, and Comparability 
+
+The preceding sections described what the surveyed methods do and how much they gain. This section examines the evidence itself. Its central result is that the numbers in Table 9 cannot always be compared directly—not because individual measurements are wrong, but because the literature lacks a convention for what is measured, against which baseline, and over which portion of the training step. The first part establishes three findings from the survey’s own data (Sections 8.1–8.4); the second proposes a remedy: a reporting checklist (Section 8.5), a metric that puts both levers on one axis (Section 8.6), and five diagnostic protocols (Section 8.7). Throughout, a lever counts as reported only when a paper gives quantitative evidence of an efficiency improvement along it; qualitative claims such as “quality is preserved,” overheads, and stability ranges are evidence of effectiveness, not of efficiency. 
+
+8.1 Most Methods Measure Only One Efficiency Lever 
+
+Most of the surveyed literature evaluates only one of the two levers. Table 9 contains 80 methods: 50 report only a system gain, 17 only an algorithmic gain, 12 both, and one (I-PPO [69]) makes an efficiency claim it does not quantify. Table 4 breaks the counts down by family, where the pattern is sharper still. Resource-aware execution and speculative decoding report a throughput or wall-clock gain in every method and quantify no reduction in rollout work for a matched learning outcome; pipeline decoupling does the same in 15 of 17 methods, and its two exceptions (FlashREINFORCE [21], SAO [19]) invert the pattern, reporting an algorithmic gain with no wall-clock measurement. Rollout selection reports the reverse in four of five methods. The two Problem A families alone are two fifths of the survey, and 30 of their 32 methods contain no quantitative evidence of algorithmic efficiency. 
+
+Finding 1. Efficiency is reported one-dimensionally. 67 of the 80 compared methods quantify only one efficiency lever—50 a system gain without learning efficiency, 17 an algorithmic gain without wall-clock cost—and 30 of the 32 methods in the two Problem A families report no quantitative algorithmic evidence at all.                       
+
+> Table 4. Which efficiency lever each mechanism family reports , from Table 9. every method; some (fraction shown); none. I-PPO [69] reports an unquantified claim and is counted on neither lever.
+> Mechanism family Methods System gain Algorithmic gain
+> A.1 Pipeline decoupling 17 (15/17) (2/17) A.2 Resource-aware execution 15 B.1 Scheduling and load balancing 7(1/7) B.2 Partial and early-stop rollout 7(5/7) B.3 Speculative decoding 12 C. Rollout selection 5(1/5) (4/5) D. Prompt filtering and selection 17 (5/17)
+
+Dual reporting is concentrated where the mechanism itself crosses the lever boundary: partial and early-stop rollout, whose stopping rules shorten execution and change the training signal at once, and the minority of prompt-filtering methods that report the wall-clock time recovered in addition to the change in training distribution (Sections 4.1 and 4.4). Two exceptions lie outside these families: SortedRL [106], the scheduling method whose length-sorted curriculum alters the training distribution rather than only the execution order, and Headroom-Drift [53], whose drift-gated replay reports step time alongside quality at matched fresh rollouts. The sparsity of dual-lever evidence therefore need not mean that most techniques affect only one lever. Papers evaluate the effect their method was designed for: pipeline-decoupling methods report throughput even though  
+
+> ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. Rollout Efficiency in RL for Reasoning LLMs 1:27
+
+policy lag can change the rollout work needed to reach a given quality; 12 of the 17 prompt-filtering methods reduce rollout work without quantifying the resulting wall-clock saving. The gap reflects what is measured as much as what the mechanisms do. 
+
+8.2 Five Sources of Incomparability 
+
+Even within the system lever, headline speedups are not comparable unless the measurement context is aligned. Five sources of variation each change a reported number without implying that one mechanism is more effective than another. (1) Baseline choice. A speedup is a ratio, and its denominator is part of the definition. StreamRL [116] reports 1 .12–2 .12 × against veRL [67] but 1.06–1 .41 × against a colocated baseline built by the authors, on the same system and workloads; since surveyed frameworks use different baselines, several themselves surveyed methods, a 2 ×
+
+gain over a naive synchronous implementation and a 1 .3× gain over a tuned asynchronous one may describe similar absolute performance. (2) Phase boundary. Rollout-stage and end-to-end speedups are different quantities, related by Amdahl’s law only when the non-rollout phases and their baseline are held fixed. DORA [23] reports 2 .12 × end-to-end alongside up to 8 .2× on rollout alone; ROSE [10] reports 1 .2–1 .5× on rollout and 1 .3–3 .3× end-to-end under different resource baselines. Both pairs are correct and answer different questions. (3) Workload and throughput unit. 
+
+Samples per second, tokens per second, rollout steps per second, and step time can rank two systems differently when sequence lengths or batch composition differ: more samples per second may mean fewer tokens per second if the samples are shorter, and a lower step time may come from a smaller batch rather than faster execution of equivalent work. A comparison needs both the unit and enough workload information to fix the amount of work. (4) Aggregation statistic. 
+
+Reported gains are ranges over configurations, and highlighting the maximum conflates best-case with typical behavior. StaleFlow [36] reports 1 .42–2 .68 × as a range and 1 .17–2 .01 × as an average; when only a maximum is given, the reader cannot tell whether it is a typical operating point or an unusually favorable configuration. (5) Scale and configuration. LlamaRL [84] reports 10 .7× at 405B parameters, which cannot be assumed to transfer to the 7B regime most methods use, and HybridFlow [67] reports a 1 .53–20 .57 × spread across configurations of a single system—a variation larger than the gap between many pairs of distinct methods. A reported speedup is therefore not a standalone fact, which is why Section 7 declines to multiply speedups when reasoning about stacked mechanisms: without a common measurement context the product has no interpretation.   
+
+> Finding 2. Headline speedups are not comparable across papers. Baseline choice, phase boundary, throughput unit, aggregation statistic, and scale each change a reported number without changing the mechanism; a single system spans 1 .53–20 .57 ×across its own configurations, a wider range than separates most pairs of distinct methods.
+
+8.3 Experimental Confounds 
+
+Two further factors act through the experimental setting itself. (1) Accelerator heterogeneity. The survey spans H100, H200, H800, H20, A800, A100, and GB200 GPUs and Ascend NPUs, with AsyncFlow [16] evaluated at 256 NPUs and MISA-T [18] on a non-NVIDIA platform. Per-device throughput is not commensurable across these, and export-restricted variants such as H800, A800, and H20 have reduced interconnect bandwidth in exactly the dimension that pipeline-decoupling and resource-aware methods optimize, so a method that removes a communication bottleneck can look more effective because of the hardware rather than the mechanism. (2) Workload structure and response length. Workloads differ in whether they are prefill- or decode-dominated, text-only or multimodal, single-turn or agentic, and in reasoning length, image count, tool calls, and environment latency; these determine where time is spent and therefore which bottleneck an optimization can  
+
+> ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. 1:28 N. Gholipour et al.
+
+remove. A decoding optimization that helps long-reasoning workloads may do little when prefill, multimodal encoding, or environment interaction dominates, and the ranking of methods can reverse when the dominant bottleneck changes. Scheduling gains in particular grow with response-length dispersion, and speculative gains depend on acceptance behavior (Section 5), so a paper that omits the relevant length or acceptance statistics has not specified the conditions under which its number holds. 
+
+8.4 Benchmark Coverage and Its Bias 
+
+Counting evaluation settings across Table 9 reveals a disclosure gap and a structural asymmetry. Eleven of 80 methods identify only a model family or cluster configuration, not a task; “Qwen2.5 7B/14B/32B on up to 128 H800s” fixes the compute environment but leaves the workload, and hence the length distribution, unspecified. The asymmetry is in which lever gets tested on which workload. Thirteen of the 50 system-only methods evaluate on agentic or multi-turn workloads: Flex-MARL [29], RollArt [11], AstraFlow [112], ProRL Agent [102], Relax [104], TideRL [62], VCPO [24], Libra [1], ROSE [10], Heddle [109], WAR [89], MISA-T [18], and Draft Co-Training [82]. Of the 29 methods with an algorithmic gain, six test interactive rollouts: Selective Rollout [99] and FlashREIN-FORCE [21] on ALFWorld, HIVE [85] on BFCL-V2 tool calling, SAO [19] on software-engineering tasks, Headroom-Drift [53] on agentic search, and TRACE [124] on multi-hop QA and function calling. The remaining 23, even where non-mathematical (POPO [46] and MoPPS [61] on planning and geometry, PODS [92] on chemistry, VIGOR [28] and DUET [20] on code, Actor-Curator [14] on puzzles), use single-turn tasks with a verifiable final answer. This matters because algorithmic mechanisms rest on assumptions that hold most cleanly in exactly that setting: prompt filtering is motivated by degenerate groups, whose diagnosis is cleanest when reward is a single terminal correct-or-incorrect signal (Section 6). In agentic tasks with partial credit and per-step rewards, within-group reward distributions behave differently, and a filter tuned on single-turn tasks may not transfer; TRACE, which allocates rather than filters, is so far the only prompt-family method evaluated there. A milder bias affects the system lever: long chain-of-thought mathematics produces large response-length dispersion, which is precisely the condition under which scheduling and speculative methods gain most.  
+
+> Finding 3. The algorithmic lever is tested almost exclusively on single-turn, verifiable tasks. Only 6 of the 29 methods reporting an algorithmic gain evaluate interactive rollouts, and 11 of 80 methods do not identify a task at all, so the workload conditions under which their numbers hold are unspecified.
+
+8.5 A Minimum Reporting Checklist 
+
+Most of the information needed to interpret an efficiency result is already available when the experiments are run. We propose the minimum set of facts that should accompany an efficiency claim; each addresses one of the sources behind Findings 1–3: (1) baseline system and version —the reference implementation, version or commit, and whether it was tuned; when the baseline is itself a specialized system, also report against a common reference implementation; (2) phase measured —rollout-stage or end-to-end, and for end-to-end claims the rollout share of baseline step time (reporting both, as DORA [23] and ROSE [10] do, makes the scope explicit); (3) throughput metric and work unit —samples, tokens, or rollout steps per unit time, with enough information to fix the amount and type of work compared; (4) aggregation statistic —whether the headline is a maximum, mean, or median, over which configurations, and with what spread; (5) cluster and accelerator specification —device model and count, interconnect, and parallelism or resource-allocation strategy; (6) workload characteristics —the task or benchmark and, for variable-length generation, the mean, a high quantile, and the coefficient of variation CV 𝐿 of response length at  
+
+> ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. Rollout Efficiency in RL for Reasoning LLMs 1:29
+
+the stage measured, since the ratio of length spread to mean length determines synchronization idle time; (7) lever measured —system, algorithmic, or both; when only one is measured, say so; (8) quality and learning-outcome evidence —what supports any quality or convergence claim, and whether comparisons are at matched training progress, rollout cost, or wall-clock time. This is a reporting convention, not a requirement for shared evaluation infrastructure; its purpose is only to ensure an efficiency number carries enough context to be interpreted and compared. 
+
+8.6 A Cross-Lever Metric 
+
+The checklist improves comparability within a lever but does not say how a throughput improve-ment should be weighed against a reduction in required samples. Equation (1) already implies the common quantity: 𝐶 (𝑞 ), the resource cost on the evaluation platform required to reach target policy quality 𝑞 , reported as a curve over 𝑞 , with cost in accelerator-hours when methods share a platform. Both levers move 𝐶 (𝑞 )—a system mechanism lowers the hours per step, an algorithmic one lowers the steps or the work per step needed to reach 𝑞 —so any gain from either must appear as lower cost to the same outcome. A tokens-to-𝑞 variant is a useful hardware-independent companion, though it misses parallelization gains. Reporting a curve rather than a scalar matters because several mech-anisms trade early progress against late—curriculum-style prompt ordering and iterative context lengthening among them—so a method can dominate at a low threshold and lose at a high one. The metric is measurable today: PODS [92] reports time to peak accuracy, VIGOR [28], KGPS [121], and Pilot-Commit [32] report rollouts to a target, Actor-Curator [14] and TrajVal [118] report steps to a target, HeaPA [79] reports PFLOPs to a target, and DeepScaleR [71] reports compute to a stated quality level, the clearest instance of the form. 
+
+8.7 Diagnostic Protocols 
+
+Five protocols would answer questions that a single headline number cannot. Each one generalizes a pattern that already appears in a surveyed paper.(1) Match the rate, vary the criterion. For any method that selects, filters, or truncates rollouts, compare against an uninformed control that removes the same amount of work—random prompt selection or random stopping—as ESPO [39] does for value-gated early stopping. This separates the value of the criterion from the value of simply doing less.(2) Attribute combined mechanisms incrementally. When a method stacks mechanisms, report an ablation ladder that adds one component at a time, as TailSieve [90] does with 1 .67 × for routing and 2.59 × for routing plus tail speculation. The ladder shows whether components reinforce or interfere. (3) Report acceptance rate against policy drift. Speculative acceptance may fall as the policy moves away from the draft source, and a single average hides this. Report acceptance and the resulting speedup at several points in training.(4) Sweep staleness rather than fixing a bound. One staleness bound is one operating point. Report throughput, convergence, and final quality across several bounds to show the range over which an asynchronous method remains effective; VCPO [24], which reports stability up to a lag of 128, is the closest existing instance.(5) Compare quality at matched cost, not only matched steps. Equal quality after 𝑁 updates establishes parity at matched steps, not matched cost, because methods spend different time or compute per update. Compare quality at matched wall-clock or accelerator-hours, or report the 𝐶 (𝑞 ) curves of Section 8.6. 
+
+9 Future Directions 
+
+This section presents future research directions, guiding researchers to further progress this field. 
+
+Make rollout selection an online learning problem. Gap. Prompt informativeness is a property of the prompt–policy pair (Section 6), yet only KGPS [121] models its drift explicitly, the eight estimators of Table 8 have not been compared on a common workload, and permanent filtering hides later regression (Sections 6.2 and 6.3). Limitation. Current methods fix an estimator and a decision  
+
+> ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. 1:30 N. Gholipour et al.
+
+rule before training and never report how estimate quality decays as the policy moves, so the trade between selection accuracy and the cost of fresh evidence is made implicitly. Question. How should a prompt’s expected learning value be estimated and updated online, and budget allocated, so that learning progress per unit of rollout computation is maximized under non-stationarity? 
+
+Direction. Treat selection as an online decision process—predict value before generation, update from the current policy, allocate where expected improvement per unit cost is highest—with an exploration term that revisits dropped prompts and a definition of utility that reconciles reward, gradient contribution, and training progress when they disagree. HIVE’s [85] moving “learning edge” is the starting point. 
+
+Turn generated computation into reusable computation. Gap. Reuse appears in three discon-nected forms—SPEC-RL’s trajectory reuse [41], suffix-tree drafters, and partial-rollout replay—each evaluated alone; Table 3 marks speculation’s interactions with decoupling and with filtering as untested conflicts, and no method reports acceptance against policy drift (Section 5.6). Limitation. 
+
+Each mechanism decides reuse locally with its own staleness heuristic; none models how long gen-erated state stays useful as the policy changes, so reuse cannot be traded against fresh generation. 
+
+Question. How much future rollout work can be inferred from computation already performed, and how does that quantity decay with policy change? Direction. Treat trajectories, prefixes, suffixes, KV states, and draft predictions as a computation cache, with the system choosing among fresh, speculative, and reused generation by batch size, model divergence, and cache state, and with reuse extending from tokens to trajectories and multi-turn interactions without distributional bias. 
+
+Make long-tail mitigation adaptive rather than reactive. Gap. Three families attack the same tail (Section 5.7), yet only TailSieve [90] reports the marginal gain of stacking two of them, length predictors have not been compared on a common workload, and agentic tails driven by tool latency fall outside length-based scheduling (Section 5.4). Limitation. Each method commits at design time to one response—reorder, truncate, resume (APRIL [119]), or speculate—chosen from predicted length alone. Question. Given a trajectory’s progress, predicted remainder, replica load, cache locality, and learning value, which tail action minimizes makespan and wasted computation jointly? Direction. An adaptive tail-management layer that decides per trajectory among continue, migrate, isolate, restart, speculate, or defer, evaluated with the incremental ladder of Section 8.7 rather than by throughput or tail latency in isolation. 
+
+Build workload-aware rollout controllers. Gap. Finding 2 shows that one system spans 1 .53– 20 .57 × across its own configurations and that resource-aware gains are bound to the cluster; Finding 1 shows that no method’s reported utility spans both levers. Limitation. Mechanisms are tuned independently and fixed for a run; WAR [89], the only method that switches mechanism by load, switches between two. Question. Can a controller observe workload state and select among batching, routing, speculation, reuse, resource split, and over-provisioning to maximize training progress per unit time? Direction. A common state representation (response-length distribution, cache occupancy, concurrency, trajectory progress, load) and a utility based on 𝐶 (𝑞 ) (Section 8.6), so the controller decides when an algorithmic saving is worth more than system acceleration and thereby bridges the two levers that Finding 1 shows are measured apart. 
+
+Extend rollout efficiency from trajectories to interacting agents. Gap. Finding 3: only 2 of 16 methods reporting an algorithmic gain evaluate interactive rollouts, and the degenerate-group diagnosis that motivates the whole algorithmic lever assumes a single terminal binary reward. 
+
+Limitation. In agentic RL a trajectory holds multiple decisions, tool calls, environment responses, and growing context, so neither token count nor terminal reward measures its cost or learning value; trajectory-level signals are inadequate for credit assignment [98], and long heterogeneous trajectories defeat length-based schedulers [89]. Question. How should rollout utility be estimated and budget allocated under multi-step, partial-credit interaction? Direction. Allocate computation 
+
+> ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026.
+
+Rollout Efficiency in RL for Reasoning LLMs 1:31 
+
+at the level of turns, subtrajectories, and interactions—turn-level selection, early abandonment and continuation, environment-aware scheduling, partial trajectory reuse, and adaptive budgeting of the branches most likely to improve the policy—so that the question becomes not “which prompt should be rolled out?” but “which next interaction is worth paying for?” 
+
+Re-architect the rollout pipeline for multimodal and heterogeneous reasoning. Gap. The surveyed literature assumes text-only, decode-dominated workloads; 11 of 43 methods do not name a task (Finding 3), and Section 8.3 shows that method rankings reverse when prefill, encoding, or environment interaction dominates. One systems work addresses multimodal rollout, by overlapping visual preprocessing with generation and sharing prefix computation [44]. Limitation. Every cost model in Sections 3–6 counts decode tokens, while vision encoding, prefill, memory footprint, and video or interactive observations introduce cost heterogeneity that output length does not capture. 
+
+Question. How should rollout efficiency be defined when the unit of work may be an image, video segment, observation, encoder state, prefill token, or decode token? Direction. A heterogeneous cost model supporting modality-aware batching and scheduling, reusable multimodal representations, memory-aware routing, and selection or compression of observations by expected learning value. These workloads also test whether the two-lever framework is general enough: the relevant optimization may be neither “generate fewer tokens” nor “generate tokens faster,” but “avoid recomputing expensive perceptual context.” 
+
+10 Summary 
+
+Rollout generation is often the dominant repeatedly incurred cost of RL for reasoning LLMs, optimizable through two levers: a system lever that executes a given rollout workload faster, and an algorithmic lever that reduces the rollout work learning requires. We organized the literature by the mechanism each method changes and the bottleneck it targets, analyzed which families compose and which compete for the same headroom, and found that most methods quantify only one lever while differences in baseline, phase, and workload make published gains hard to compare. We proposed a minimum reporting convention and a cost-to-quality metric that places both levers on a common axis, and outlined future research directions. 
+
+References 
+
+[1] Kaiwen Chen, Xin Tan, Jingzong Li, and Hong Xu. 2026. Libra: Efficient Resource Management for Agentic RL Post-Training. arXiv preprint arXiv:2606.03077 (2026). [2] Qiaoling Chen, Zijun Liu, Peng Sun, Shenggui Li, Guoteng Wang, Ziming Liu, Yonggang Wen, Siyuan Feng, and Tianwei Zhang. 2026. ReSpec: Towards Optimizing Speculative Decoding in Reinforcement Learning Systems. In Proceedings of Machine Learning and Systems .[3] Qiguang Chen, Libo Qin, Jinhao Liu, Dengyun Peng, Jiannan Guan, Peng Wang, Mengkang Hu, Yuhang Zhou, Te Gao, and Wanxiang Che. 2026. Towards reasoning era: A survey of long chain-of-thought for reasoning large language models. Science China Information Sciences 69, 6 (2026), 161101. [4] R. Chen, J. Hu, K. Ye, and M. Xu. 2026. RolloutPipe: Overlapping Pipelined Rollout and Training in Disaggregated On-Policy LLM Reinforcement Learning. arXiv preprint arXiv:2606.26997 (2026). [5] H. Du, Z. Yan, Y. Bao, and S. Wang. 2026. DynaResize: Runtime GPU Reallocation for Disaggregated LLM Post-Training. arXiv preprint arXiv:2607.22614 (2026). [6] Jiangfei Duan, Shuo Zhang, Zerui Wang, Lijuan Jiang, Wenwen Qu, Qinghao Hu, Guoteng Wang, Qizhen Weng, Hang Yan, Xingcheng Zhang, et al. 2024. Efficient training of large language models on distributed infrastructures: a survey. arXiv preprint arXiv:2407.20018 
+
+(2024). [7] Lasse Espeholt, Hubert Soyer, Remi Munos, Karen Simonyan, Volodymyr Mnih, Tom Ward, Yotam Doron, Vlad Firoiu, Tim Harley, Iain Dunning, Shane Legg, and Koray Kavukcuoglu. 2018. IMPALA: Scalable Distributed Deep-RL with Importance Weighted Actor-Learner Architectures. In Proceedings of the 35th International Conference on Machine Learning (ICML) . 1407–1416. [8] Wei Fu, Jiaxuan Gao, Xujie Shen, Chen Zhu, Zhiyu Mei, Chuyi He, Shusheng Xu, Guo Wei, Jun Mei, Jiashu Wang, et al. 2026. Areal: A large-scale asynchronous reinforcement learning system for language reasoning. Advances in Neural Information Processing Systems 38 (2026), 36256–36282. [9] Wei Gao, Yuheng Zhao, Dakai An, Tianyuan Wu, Lunxi Cao, Shaopan Xiong, Ju Huang, Weixun Wang, Siran Yang, Wenbo Su, et al. 2025. Rollpacker: Mitigating long-tail rollouts for fast, synchronous rl post-training. arXiv preprint arXiv:2509.21009 (2025). [10] Wei Gao, Yuheng Zhao, Dilxat Muhtar, Dakai An, Xuchun Shang, Tianyuan Wu, Lunxi Cao, Shaopan Xiong, Weixun Wang, Ju Huang, Teng Ma, Siran Yang, Jiamang Wang, Lin Qu, Bo Zheng, and Wei Wang. 2026. ROSE: Rollout On Serving GPUs via Cooperative Elasticity for Agentic RL. arXiv preprint arXiv:2605.06534 (2026). 
+
+ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. 1:32 N. Gholipour et al. 
+
+[11] Wei Gao, Yuheng Zhao, Tianyuan Wu, Shaopan Xiong, Weixun Wang, Dakai An, Lunxi Cao, Dilxat Muhtar, Zichen Liu, Haizhou Zhao, Ju Huang, Siran Yang, Yongbin Li, Wenbo Su, Jiamang Wang, Qu Lin, Bo Zheng, and Wei Wang. 2026. RollArt: Disaggregated Multi-Task Agentic RL Training at Scale. In 20th USENIX Symposium on Operating Systems Design and Implementation (OSDI 26) .[12] Ronald L. Graham. 1969. Bounds on Multiprocessing Timing Anomalies. SIAM J. Appl. Math. 17, 2 (1969), 416–429. [13] Hao Gu, Hao Wang, Jiacheng Liu, Lujun Li, Qiyuan Zhu, Bei Liu, Binxin Xu, Lei Wang, Xintong Yang, Sida Lin, Sirui Han, and Yike Guo. 2026. QaRL: Rollout-Aligned Quantization-Aware RL for Fast and Stable Training under Training–Inference Mismatch. In Findings of the Association for Computational Linguistics: ACL 2026 . arXiv:2604.07853. [14] Zhengyao Gu, Jonathan Light, Raul Astudillo, Ziyu Ye, Langzhou He, Henry Peng Zou, Wei Cheng, Santiago Paternain, Philip S. Yu, and Yisong Yue. 2026. Actor-Curator: Co-adaptive Curriculum Learning via Policy-Improvement Bandits for Scalable RL Post-Training. 
+
+arXiv preprint arXiv:2602.20532 (2026). [15] Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Peiyi Wang, Qihao Zhu, Runxin Xu, Ruoyu Zhang, Shirong Ma, Xiao Bi, et al. 2025. Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning. arXiv preprint arXiv:2501.12948 (2025). [16] Zhenyu Han et al. 2025. AsyncFlow: An Asynchronous Streaming RL Framework for Efficient LLM Post-Training. arXiv preprint arXiv:2507.01663 (2025). [17] J. He, T. Li, E. Feng, D. Du, Q. Liu, T. Liu, Y. Xia, and H. Chen. 2025. History Rhymes: Accelerating LLM Reinforcement Learning with RhymeRL. arXiv preprint arXiv:2508.18588 (2025). [18] Zetao Hong, Song Yuan, Yuanhao Ding, Yibo Zhu, Daxin Jiang, Zhibin Wang, and Chen Tian. 2026. Scheduling Mixed RL Rollouts Beyond Prefix Locality. arXiv preprint arXiv:2608.11152 (2026). [19] Z. Hou, Y. Li, J. Tang, and Y. Dong. 2026. Single-Rollout Asynchronous Optimization for Agentic Reinforcement Learning. arXiv preprint arXiv:2607.07508 (2026). [20] H. Hu, X. Zhao, X. Xu, and N. Jacoby. 2026. DUET: Optimize Token-Budget Allocation for Reinforcement Learning with Verifiable Rewards. arXiv preprint arXiv:2605.08441 (2026). [21] Jian Hu, Yifan Zhang, Hao Zhang, Binfeng Xu, Shaokun Zhang, Hongqing Peng, Zhiding Yu, Pavlo Molchanov, Jan Kautz, and Yi Dong. 2026. FlashREINFORCE: Critic-Free Single-Rollout Asynchronous RL for Agentic Language Models . Technical Report. NVIDIA. https://yifanzhang-pro.github.io/FlashREINFORCE/FlashREINFORCE.pdf [22] Q. Hu, S. Yang, J. Guo, X. Yao, Y. Lin, Y. Gu, H. Cai, C. Gan, A. Klimovic, and S. Han. 2026. Taming the Long-Tail: Efficient Reasoning RL Training with Adaptive Drafter. In Proceedings of the 31st ACM International Conference on Architectural Support for Programming Languages and Operating Systems, Volume 2 . 1933–1948. [23] Tianhao Hu, Xiangcheng Liu, Youshao Xiao, Yang Zheng, Xuan Huang, Jinrui Ding, Yufei Zhang, Tao Liang, Hongyu Zang, Quan Chen, Yueqing Sun, Wenjie Shi, Chao Zhang, Wei Wang, Qi Gu, Yerui Sun, Yucheng Xie, and Xunliang Cai. 2026. DORA: A Scalable Asynchronous Reinforcement Learning System for Language Model Training. arXiv preprint arXiv:2604.26256 (2026). [24] L. J. Huang, Z. Zhang, Q. Hu, S. Yang, and S. Han. 2026. Stable Asynchrony: Variance-Controlled Off-Policy RL for LLMs. In Proceedings of the 43rd International Conference on Machine Learning (ICML) .[25] H. Iso, T. Mitra, S. Mondal, R. Shafipour, V. Elango, T. Kong, Y. Huang, S. Na, I. Putterman, B. Chislett, M. Ashkenazi, J. Guman, G. Shen, T. Konuk, A. Aithal, R. Borkar, R. Zilberstein, and B. Rouhani. 2026. Accelerating RL Post-Training Rollouts via System-Integrated Speculative Decoding. arXiv preprint arXiv:2604.26779 (2026). [26] Aaron Jaech, Adam Kalai, Adam Lerer, Adam Richardson, Ahmed El-Kishky, Aiden Low, Alec Helyar, Aleksander Madry, Alex Beutel, Alex Carney, et al. 2024. Openai o1 system card. arXiv preprint arXiv:2412.16720 (2024). [27] G. Jiang, W. Feng, G. Quan, C. Hao, Y. Zhang, G. Liu, and H. Wang. 2025. VCRL: Variance-Based Curriculum Reinforcement Learning for Large Language Models. arXiv preprint arXiv:2509.19803 (2025). [28] Heyang Jiang, Henry Liu, and Baharan Mirzasoleiman. 2026. Learning as Reasoning Unfolds: Progressive Rollout Allocation for Efficient Reinforcement Learning. arXiv preprint arXiv:2607.22002 (2026). [29] Zhida Jiang, Zhaolong Xing, Jiawei Lu, Yipei Niu, Qingyuan Sang, Liangxu Zhang, Wenquan Dai, Junhua Shu, Jiaxing Wang, Qiangyu Pei, Qiong Chen, Xinyu Liu, Fangming Liu, Ai Han, Zhen Chen, and Ke Zhang. 2026. Rollout-Training Co-Design for Efficient LLM-Based Multi-Agent Reinforcement Learning. In arXiv preprint arXiv:2602.09578 .[30] Zixuan Ke, Fangkai Jiao, Yifei Ming, Xuan-Phi Nguyen, Austin Xu, Do Xuan Long, Minzhi Li, Chengwei Qin, Peifeng Wang, Silvio Savarese, et al. 2025. A survey of frontiers in llm reasoning: Inference scaling, learning to reason, and agentic systems, 2025. URL https://arxiv. org/abs/2504.09037 (2025). [31] M. Kim, M. Lee, S. Oh, K. Galim, D. Kim, C. Hooper, H. Singh, A. Gholami, H. I. Koo, and W. Kang. 2026. EfficientRollout: System-Aware Self-Speculative Decoding for RL Rollouts. arXiv preprint arXiv:2606.18967 (2026). [32] W. Kim, Z. Yang, J. N. Yan, and J. Liu. 2026. Spend Your Rollouts Where It Counts: Rollout Allocation for Group-Based RL Post-Training. 
+
+arXiv preprint arXiv:2605.26606 (2026). [33] Komal Kumar, Tajamul Ashraf, Omkar Thawakar, Rao Muhammad Anwer, Hisham Cholakkal, Mubarak Shah, Ming-Hsuan Yang, Phillip HS Torr, Fahad Shahbaz Khan, and Salman Khan. 2025. Llm post-training: A deep dive into reasoning large language models. 
+
+arXiv preprint arXiv:2502.21321 (2025). [34] Minae Kwon, Sang Michael Xie, Kalesha Bullard, and Dorsa Sadigh. 2023. Reward Design with Language Models. arXiv:2303.00001 [cs.LG] https://arxiv.org/abs/2303.00001 [35] Woosuk Kwon, Zhuohan Li, Siyuan Zhuang, Ying Sheng, Lianmin Zheng, Cody Hao Yu, Joseph E. Gonzalez, Hao Zhang, and Ion Stoica. 2023. Efficient Memory Management for Large Language Model Serving with PagedAttention. In Proc. SOSP .[36] Haoyang Li, Sheng Lin, Fangcheng Fu, Yuming Zhou, Xiaodong Ji, Yanfeng Zhao, Lefeng Wang, Jie Jiang, and Bin Cui. 2026. Stale-Flow: Staleness-Aware Data Management for Mitigating Data Skewness in Fully Disaggregated RL Post-Training. arXiv preprint arXiv:2601.12784 (2026). [37] Jiachun Li, Zhuoran Jin, Tianyi Men, Yupu Hao, Kejian Zhu, Lingshuai Wang, Dongqi Huang, Longxiang Wang, Shengjia Hua, Lu Wang, Jinshan Gao, Hongbang Yuan, Ruilin Xu, Kang Liu, and Jun Zhao. 2026. Agentic Environment Engineering for Large Language Models: A Survey of Environment Modeling, Synthesis, Evaluation, and Application. arXiv preprint arXiv:2606.12191 (2026). [38] Yi-Chen Li, Tian Xu, Yang Yu, Xuqin Zhang, Xiong-Hui Chen, Zhongxiang Ling, Ningjing Chao, Lei Yuan, and Zhi-Hua Zhou. 2025. Generalist Reward Models: Found Inside Large Language Models. arXiv:2506.23235 [cs.CL] https://arxiv.org/abs/2506.23235 [39] Z. Li, R. Zhou, Y. Shi, W. Yu, Z. Tan, Z. Liu, Z. Li, B. Li, Y. Li, T. Yang, and J. Ye. 2026. ESPO: Early-Stopping Proximal Policy Optimization. 
+
+arXiv preprint arXiv:2605.29860 (2026). [40] S. Liang, H. Zhou, Y. Gong, G. Wang, and X. Wang. 2026. LEEPS: Latent-Guided Explore-Exploit Prompt Sampling for Efficient RLVR in Large Language Models. arXiv preprint arXiv:2607.28077 (2026). 
+
+ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. Rollout Efficiency in RL for Reasoning LLMs 1:33 
+
+[41] Bingshuai Liu, Ante Wang, Zijun Min, Liang Yao, Haibo Zhang, Yang Liu, Anxiang Zeng, and Jinsong Su. 2025. SPEC-RL: Accelerating On-Policy Reinforcement Learning via Speculative Rollouts. arXiv preprint arXiv:2509.23232 (2025). [42] Keliang Liu, Dingkang Yang, Ziyun Qian, Weijie Yin, Yuchi Wang, Hongsheng Li, Jun Liu, Peng Zhai, Yang Liu, and Lihua Zhang. 2025. Reinforcement learning meets large language models: A survey of advancements and applications across the llm lifecycle. arXiv preprint arXiv:2509.16679 (2025). [43] Yue Liu, Jiaying Wu, Yufei He, Ruihan Gong, Jun Xia, Liang Li, Hongcheng Gao, Hongyu Chen, Baolong Bi, Jiaheng Zhang, et al. 2025. Efficient inference for large reasoning models: A survey. arXiv preprint arXiv:2503.23077 (2025). [44] H. Lu, T. Feng, S. Li, Y. Zhao, W. Gao, S. Xiong, J. Huang, S. Yang, J. Wang, L. Qu, and W. Wang. 2026. Rollplex: Cross-Phase GPU Spatial Sharing for Vision Language Model Post-Training. arXiv preprint arXiv:2608.14498 (2026). [45] Sijia Luo, Xiaokang Zhang, Yuxuan Hu, Bohan Zhang, Ke Wang, Jinbo Su, Mengshu Sun, Lei Liang, and Jing Zhang. 2026. Sparse-RL: Breaking the Memory Wall in LLM Reinforcement Learning via Stable Sparse Rollouts. In Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) . arXiv:2601.10079. [46] Yixiu Mao, Yun Qu, Qi Wang, Heming Zou, and Xiangyang Ji. 2026. RLVR without Ineffective Samples: Group Prioritized Off-Policy Optimization for LLM Reasoning. arXiv preprint arXiv:2606.01281 (2026). [47] Volodymyr Mnih, Adrià Puigdomènech Badia, Mehdi Mirza, Alex Graves, Timothy Lillicrap, Tim Harley, David Silver, and Koray Kavukcuoglu. 2016. Asynchronous Methods for Deep Reinforcement Learning. In Proceedings of the 33rd International Conference on Machine Learning (ICML) . 1928–1937. [48] Tong Mu, Alec Helyar, Johannes Heidecke, Joshua Achiam, Andrea Vallone, Ian Kivlichan, Molly Lin, Alex Beutel, John Schulman, and Lilian Weng. 2024. Rule Based Rewards for Language Model Safety. arXiv:2411.01111 [cs.AI] https://arxiv.org/abs/2411.01111 [49] Arun Nair, Praveen Srinivasan, Sam Blackwell, Cagdas Alcicek, Rory Fearon, Alessandro De Maria, Vedavyas Panneershelvam, Mustafa Suleyman, Charles Beattie, Stig Petersen, Shane Legg, Volodymyr Mnih, Koray Kavukcuoglu, and David Silver. 2015. Massively Parallel Methods for Deep Reinforcement Learning. arXiv preprint arXiv:1507.04296 (2015). [50] Hieu Trung Nguyen, Bao Nguyen, Wenao Ma, Yuzhi Zhao, Ruifeng She, and Viet Anh Nguyen. 2026. Adaptive Rollout Allocation for Online Reinforcement Learning with Verifiable Rewards. In International Conference on Learning Representations .[51] Long Ouyang, Jeffrey Wu, Xu Jiang, Diogo Almeida, Carroll Wainwright, Pamela Mishkin, Chong Zhang, Sandhini Agarwal, Katarina Slama, Alex Ray, et al. 2022. Training language models to follow instructions with human feedback. Advances in neural information processing systems 35 (2022), 27730–27744. [52] Fabio Pardo, Arash Tavakoli, Vitaly Levdik, and Petar Kormushev. 2018. Time Limits in Reinforcement Learning. In Proceedings of the 35th International Conference on Machine Learning (Proceedings of Machine Learning Research, Vol. 80) . PMLR, 4045–4054. [53] H. B. Park and D. Chang. 2026. Headroom-Drift Replay: A Primitive for Principled Replay Control in GRPO. arXiv preprint arXiv:2609.03941 (2026). [54] Hao Peng, Yunjia Qi, Xiaozhi Wang, Zijun Yao, Bin Xu, Lei Hou, and Juanzi Li. 2025. Agentic Reward Modeling: Integrating Human Preferences with Verifiable Correctness Signals for Reliable Reward Systems. arXiv:2502.19328 [cs.CL] https://arxiv.org/abs/2502.19328 [55] Y. Peng, J. Zhang, W. Zhou, R. Xu, R. Yan, W. Dong, Y. Gao, Z. Ding, T. Yang, and B. Yuan. 2026. AReaL-DTE: Sparse Policy-Weight Transfer for Online Agentic Reinforcement Learning. arXiv preprint arXiv:2608.00455 (2026). [56] Nhat Minh Pham, Duy Tung Doan, Thi Duyen Ngo, Vinh Van Nguyen, and Khac-Hoai Nam Bui. 2026. SpecRoll: Fast-Slow Verifier-Feedback Adaptation for Speculative Reinforcement Learning Rollouts. arXiv preprint arXiv:2608.04962 (2026). [57] Ruoyu Qin, Weiran He, Weixiao Huang, Yangkun Zhang, Yikai Zhao, Bo Pang, Xinran Xu, Yingdi Shan, Yongwei Wu, and Mingxing Zhang. 2026. Seer: Online Context Learning for Fast Synchronous LLM Reinforcement Learning. In 20th USENIX Symposium on Operating Systems Design and Implementation (OSDI 26) . 883–901. [58] Haoran Qiu, Anish Biswas, Zihan Zhao, Jayashree Mohan, Alind Khare, Esha Choukse, Íñigo Goiri, Zeyu Zhang, Haiying Shen, Chetan Bansal, Ramachandran Ramjee, and Rodrigo Fonseca. 2025. ModServe: Modality- and Stage-Aware Resource Disaggregation for Scalable Multimodal Model Serving. In Proceedings of the 2025 ACM Symposium on Cloud Computing (SoCC) . Association for Computing Machinery, 817–830. [59] Z. Qiu, S. Yu, J. Zhang, S. Zhang, X. Huang, J. Yang, and J. Lai. 2026. FP8-RL: A Practical and Stable Low-Precision Stack for LLM Reinforcement Learning. arXiv preprint arXiv:2601.18150 (2026). [60] Xiaoye Qu, Yafu Li, Zhao-Chen Su, Weigao Sun, Jianhao Yan, Dongrui Liu, Ganqu Cui, Daizong Liu, Shuxian Liang, Junxian He, et al. 2025. A survey of efficient reasoning for large reasoning models: Language, multimodality, and beyond. arXiv preprint arXiv:2503.21614 
+
+(2025). [61] Y. Qu, Q. Wang, Y. Mao, V. T. Hu, B. Ommer, and X. Ji. 2026. Can Prompt Difficulty Be Online Predicted for Accelerating RL Finetuning of Reasoning Models?. In Proceedings of the 32nd ACM SIGKDD Conference on Knowledge Discovery and Data Mining V. 1 . 1240–1250. [62] Y. Ren, X. Wang, X. Liu, B. Lv, H. Zhang, S. Zhang, H. Lai, S. Wang, L. Chen, D. Li, and J. Tang. 2026. TideRL: Boosting Agentic RL Goodput with Readiness-Aware Scheduling. arXiv preprint arXiv:2608.10402 (2026). [63] John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. 2017. Proximal policy optimization algorithms. arXiv preprint arXiv:1707.06347 (2017). [64] Z. Shao, V. Srivatsa, S. Srivastava, Q. Wu, A. Ariyak, A. Patel, J. Wang, P. Liang, T. Dao, C. Zhang, and Y. Zhang. 2026. Beat the Long Tail: Distribution-Aware Speculative Decoding for RL Training. In Proceedings of Machine Learning and Systems , Vol. 8. 1626–1638. [65] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, YK Li, Yang Wu, et al. 2024. Deepseekmath: Pushing the limits of mathematical reasoning in open language models. arXiv preprint arXiv:2402.03300 (2024). [66] Guangming Sheng, Yuxuan Tong, Borui Wan, Wang Zhang, Chaobo Jia, Xibin Wu, Yuqi Wu, Xiang Li, Chi Zhang, Yanghua Peng, Haibin Lin, Xin Liu, and Chuan Wu. 2026. Laminar: A Scalable Asynchronous RL Post-Training Framework. In Proceedings of the Twenty-First European Conference on Computer Systems (EuroSys ’26) . doi:10.1145/3767295.3803580 [67] G. Sheng, C. Zhang, Z. Ye, X. Wu, W. Zhang, R. Zhang, Y. Peng, H. Lin, and C. Wu. 2025. HybridFlow: A Flexible and Efficient RLHF Framework. In Proceedings of the Twentieth European Conference on Computer Systems . 1279–1297. [68] Mohammad Shoeybi, Mostofa Patwary, Raul Puri, Patrick LeGresley, Jared Casper, and Bryan Catanzaro. 2019. Megatron-LM: Training Multi-Billion Parameter Language Models Using Model Parallelism. arXiv preprint arXiv:1909.08053 (2019). [69] Dong Shu, Denghui Zhang, and Jessica Hullman. 2026. Learning from the Right Rollouts: Data Attribution for PPO-based LLM Post-Training. arXiv preprint arXiv:2604.01597 (2026). [70] Rohan Surana, Gagan Mundada, Xunyi Jiang, Chuhan Wang, Zhenwei Tang, Difan Jiao, Zihan Huang, Yuxin Xiong, Junda Wu, Sheldon Yu, et al. 2026. Generate, Filter, Control, Replay: A Comprehensive Survey of Rollout Strategies for LLM Reinforcement Learning. 
+
+arXiv preprint arXiv:2605.02913 (2026). 
+
+ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. 1:34 N. Gholipour et al. 
+
+[71] S. Tan, M. Luo, J. Wong, C. Cai, X. Shi, W. Y. Tang, M. Roongta, T. Zhang, L. E. Li, R. A. Popa, and I. Stoica. 2025. DeepScaleR: Effective RL Scaling of Reasoning Models via Iterative Context Lengthening. (2025). [72] Zhiqiang Tan, Maoxin Wang, Sijie Wang, Yiming Yin, Qiang Wang, Xiaowen Chu, and Shaohuai Shi. 2026. Bidirectional Resource Scheduling for Disaggregated and Asynchronous RL Post-Training. arXiv preprint arXiv:2607.09207 (2026). [73] Kimi Team, Angang Du, Bofei Gao, Bowei Xing, Changjiu Jiang, Cheng Chen, Cheng Li, Chenjun Xiao, Chenzhuang Du, Chonghua Liao, et al. 2025. Kimi k1. 5: Scaling reinforcement learning with llms. arXiv preprint arXiv:2501.12599 (2025). [74] Minghao Tian, Yunfei Xie, and Chen Wei. 2026. How Off-Policy Can GRPO Be? 𝜇 -GRPO for Efficient LLM Reinforcement Learning. 
+
+arXiv preprint arXiv:2605.17570 (2026). [75] Guiyao Tie, Zeli Zhao, Dingjie Song, Fuyang Wei, Rong Zhou, Yurou Dai, Wen Yin, Zhejian Yang, Jiangyue Yan, Yao Su, et al. 2025. A survey on post-training of large language models. arXiv preprint arXiv:2503.06072 (2025). [76] K. Wang, A. Zeng, Z. Du, Y. Hu, B. Zhang, X. Wang, J. Tang, and J. Zhang. 2026. MTP-RL: Acceleration of Reinforcement Learning Rollouts with Policy-Aligned Multi-Token Prediction. In Findings of the Association for Computational Linguistics: ACL 2026 . 37530–37542. [77] Kun Wang, Guibin Zhang, Zhenhong Zhou, Jiahao Wu, Miao Yu, Shiqian Zhao, Chenlong Yin, Jinhu Fu, Yibo Yan, Hanjun Luo, et al. 2025. A comprehensive survey in llm (-agent) full stack safety: Data, training and deployment. arXiv preprint arXiv:2504.15585 (2025). [78] T. Wang, S. Li, Y. Sun, D. Ding, and E. Dobriban. 2026. Where to Spend Rollouts: Hit-Utility Optimal Rollout Allocation for Group-Based RLVR. arXiv preprint arXiv:2605.07114 (2026). [79] Weiqi Wang, Xin Liu, Binxuan Huang, Hejie Cui, Rongzhi Zhang, Changlong Yu, Shuowei Jin, Jingfeng Yang, Qingyu Yin, Zhengyang Wang, Zheng Li, Yifan Gao, Priyanka Nigam, Bing Yin, Lihong Li, and Yangqiu Song. 2026. HeaPA: Difficulty-Aware Heap Sampling and On-Policy Query Augmentation for LLM Reinforcement Learning. In Conference on Language Modeling (COLM) . arXiv:2601.22448. [80] X. Wang, Y. Li, S. Feng, P. Yuan, Y. Zhang, J. Shi, C. Tan, B. Pan, and Y. Hu. 2026. Every Rollout Counts: Optimal Resource Allocation for Efficient Test-Time Scaling. In Advances in Neural Information Processing Systems , Vol. 38. 102312–102338. [81] Y. Wang, S. Chen, L. Luo, X. Liu, X. Miao, F. Fu, and B. Cui. 2026. DARTS: Distribution-Aware Active Rollout Trajectory Shaping for Accelerating LLM Reinforcement Learning. arXiv preprint arXiv:2605.30859 (2026). [82] Z. Wang, Z. Qiu, Y. Zhang, S. Yu, and J. Lai. 2026. Online Draft Co-Training for Speculative Decoding in Large-Scale, Long-Context RL Post-Training. arXiv preprint arXiv:2609.07108 (2026). [83] Z. Wang, J. Xu, T. Zhou, M. Zhang, L. Liu, J. Hu, D. Yang, T. Wang, P. Zhang, J. Hou, and S. Feng. 2025. DistFlow: A Fully Distributed RL Framework for Scalable and Efficient LLM Post-Training. arXiv preprint arXiv:2507.13833 (2025). [84] Bo Wu, Sid Wang, Yunhao Tang, Jia Ding, Eryk Helenowski, Liang Tan, Tengyu Xu, Tushar Gowda, Zhengxing Chen, Chen Zhu, et al. 2025. LlamaRL: A Distributed Asynchronous Reinforcement Learning Framework for Efficient Large-scale LLM Training. arXiv preprint arXiv:2505.24034 (2025). [85] Jiahao Wu, Ning Lu, Shengcai Liu, Kun Wang, Yanting Yang, Li Qing, and Ke Tang. 2026. Train at the Moving Edge: Online-Verified Prompt Selection for Efficient RL Training of Large Reasoning Model. arXiv:2603.25184 [cs.LG] https://arxiv.org/abs/2603.25184 [86] Y. Wu, X. Liu, H. Zheng, J. Gu, B. Chen, Z. M. Mao, A. Krishnamurthy, and I. Stoica. 2025. RLBoost: Harvesting Preemptible Resources for Cost-Efficient Reinforcement Learning on LLMs. arXiv preprint arXiv:2510.19225 (2025). [87] H. Xi, C. Ruan, P. Liao, Y. Lin, H. Cai, Y. Zhao, S. Yang, K. Keutzer, S. Han, and L. Zhu. 2026. Jet-RL: Enabling On-Policy FP8 Reinforcement Learning with Unified Training and Rollout Precision Flow. arXiv preprint arXiv:2601.14243 (2026). [88] H. Xu, S. Chen, R. Qiu, Y. Yan, C. Luo, M. X. Cheng, J. He, and H. Tong. 2026. Prune as You Generate: Online Rollout Pruning for Faster and Better RLVR. In Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) .13876–13893. [89] Ryan Xu, Atlas Zhao, David Bao, and Frank Du. 2026. WAR: Workload-Aware Rollouts for Synchronous Agentic Reinforcement Learning. arXiv preprint arXiv:2607.17299 (2026). [90] Tianqi Xu, Lu Lv, Haoyang Huang, Wenjie Huang, Zhanming Shen, Yuhao Shen, Baolin Zhang, Xinyi Hu, Shuang Ge, Jun Dai, Tianyu Liu, Suorong Yang, Zhikai Li, Ye Bai, Jun Zhang, Lei Chen, Yue Li, and Mingchen Wan. 2026. TailSieve: Partial-Rollout-Guided Tail Routing for LLM Rollouts. arXiv preprint arXiv:2608.22788 (2026). [91] Yuhang Xu, Kaibin Tian, Yang Tian, Zhice Yang, Yifeng Yu, Yan Li, Shengzhong Liu, Fan Wu, and Guihai Chen. 2026. BubbleSpec: Turning Long-Tail Bubbles into Speculative Rollout Drafts for Synchronous Reinforcement Learning. arXiv preprint arXiv:2605.08862 
+
+(2026). [92] Yixuan Even Xu, Yash Savani, Fei Fang, and J Zico Kolter. 2025. Not all rollouts are useful: Down-sampling rollouts in llm reinforcement learning. arXiv preprint arXiv:2504.13818 (2025). [93] R. Yan, Y. Jiang, T. Wu, J. Gao, Z. Mei, W. Fu, H. Mai, W. Wang, Y. Wu, and B. Yuan. 2025. AReaL-Hex: Accommodating Asynchronous RL Training over Heterogeneous GPUs. arXiv preprint arXiv:2511.00796 (2025). [94] G. Yoo, S. Park, S. Jang, I. Kim, and S. Yoon. 2026. Rollout-Level Advantage-Prioritized Experience Replay for GRPO. arXiv preprint arXiv:2606.04560 (2026). [95] Qiying Yu, Zheng Zhang, Ruofei Zhu, Yufeng Yuan, Xiaochen Zuo, Yue Yu, Weinan Dai, Tiantian Fan, Gaohong Liu, Juncai Liu, LingJun Liu, Xin Liu, Haibin Lin, Zhiqi Lin, Bole Ma, Guangming Sheng, Yuxuan Tong, Chi Zhang, Mofan Zhang, Ru Zhang, Wang Zhang, Hang Zhu, Jinhua Zhu, Jiaze Chen, Jiangjie Chen, Chengyi Wang, Hongli Yu, Yuxuan Song, Xiangpeng Wei, Hao Zhou, Jingjing Liu, Wei-Ying Ma, Ya-Qin Zhang, Lin Yan, Yonghui Wu, and Mingxuan Wang. 2025. DAPO: An Open-Source LLM Reinforcement Learning System at Scale. In Advances in Neural Information Processing Systems .[96] Zhiyin Yu, Yuchen Mou, Juncheng Yan, Junyu Luo, Chunchun Chen, Xing Wei, Yunhui Liu, Hongru Sun, Yuxing Zhang, Jun Xu, et al. 2026. A Survey of Reinforcement Learning for Large Language Models under Data Scarcity: Challenges and Solutions. In Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) . 22823–22846. [97] Weizhe Yuan, Richard Yuanzhe Pang, Kyunghyun Cho, Xian Li, Sainbayar Sukhbaatar, Jing Xu, and Jason Weston. 2025. Self-Rewarding Language Models. arXiv:2401.10020 [cs.CL] https://arxiv.org/abs/2401.10020 [98] Siliang Zeng, Quan Wei, William Brown, Oana Frunza, Yuriy Nevmyvaka, and Mingyi Hong. 2025. Reinforcing Multi-Turn Reasoning in LLM Agents via Turn-Level Credit Assignment. arXiv:2505.11821 [cs.LG] https://arxiv.org/abs/2505.11821 [99] Zhiyuan Zhai and Xin Wang. 2026. Selective Rollout: Mid-Trajectory Termination for Multi-Sample Agent RL. arXiv preprint arXiv:2605.05802 (2026). [100] C. Zhang. 2026. From Reasoning to Agentic: Credit Assignment in Reinforcement Learning for Large Language Models. arXiv preprint arXiv:2604.09459 (2026). [101] Guibin Zhang, Hejia Geng, Xiaohang Yu, Zhenfei Yin, Zaibin Zhang, Zelin Tan, Heng Zhou, Zhongzhi Li, Xiangyuan Xue, Yijiang Li, et al. [n. d.]. The landscape of agentic reinforcement learning for llms: A survey, 2025. URL https://arxiv. org/abs/2509.02547 ([n. d.]). 
+
+ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. Rollout Efficiency in RL for Reasoning LLMs 1:35 
+
+[102] Hao Zhang, Mingjie Liu, Shaokun Zhang, Songyang Han, Jian Hu, Zhenghui Jin, Yuchi Zhang, Shizhe Diao, Ximing Lu, Binfeng Xu, Zhiding Yu, Jan Kautz, and Yi Dong. 2026. ProRL Agent: Rollout-as-a-Service for RL Training of Multi-Turn LLM Agents. arXiv preprint arXiv:2603.18815 (2026). [103] Kaiyan Zhang, Yuxin Zuo, Bingxiang He, Youbang Sun, Runze Liu, Che Jiang, Yuchen Fan, Kai Tian, Guoli Jia, Pengfei Li, et al. 2025. A survey of reinforcement learning for large reasoning models. arXiv preprint arXiv:2509.08827 (2025). [104] L. Zhang, B. Ning, R. Yang, X. Yu, J. Li, L. Wu, J. Liu, M. Li, W. Chen, W. Hu, and L. Zhang. 2026. Relax: An Asynchronous Reinforcement Learning Engine for Omni-Modal Post-Training at Scale. arXiv preprint arXiv:2604.11554 (2026). [105] Yaocheng Zhang, Jiajun Chai, Yuqian Fu, Songjun Tu, Xiaohan Wang, Wei Lin, Guojun Yin, Qichao Zhang, Yuanheng Zhu, and Dongbin Zhao. 2026. Are Full Rollouts Necessary for On-Policy Distillation? arXiv preprint arXiv:2605.31490 (2026). [106] Y. Zhang, H. Jiang, X. Luo, Z. Yang, C. Zhang, Y. Shen, D. Li, Y. Yang, L. Qiu, and Y. You. 2026. SortedRL: Accelerating RL Training for LLMs through Online Length-Aware Scheduling. arXiv preprint arXiv:2603.23414 (2026). [107] Y. Zhang, N. Lv, T. Wang, and J. Dang. 2026. FastGRPO: Accelerating Policy Optimization via Concurrency-Aware Speculative Decoding and Online Draft Learning. In Proceedings of the Fourteenth International Conference on Learning Representations (ICLR) .[108] Zhi Zhang, Zhen Han, Costas Mavromatis, Qi Zhu, Yunyi Zhang, Sheng Guan, Dingmin Wang, Xiong Zhou, Shuai Wang, Soji Adeshina, Vassilis Ioannidis, and Huzefa Rangwala. 2026. Train Less, Learn More: Adaptive Efficient Rollout Optimization for Group-Based Reinforcement Learning. arXiv preprint arXiv:2602.14338 (2026). [109] Zili Zhang, Yinmin Zhong, Chengxu Yang, Chao Jin, Bingyang Wu, Xinming Wei, Yuliang Liu, and Xin Jin. 2026. Heddle: A Distributed Orchestration System for Agentic RL Rollout. arXiv preprint arXiv:2603.28101 (2026). [110] Yanli Zhao, Andrew Gu, Rohan Varma, Liang Luo, Chien-Chin Huang, Min Xu, Less Wright, Hamid Shojanazeri, Myle Ott, Sam Shleifer, Alban Desmaison, Can Balioglu, Pritam Damania, Bernard Nguyen, Geeta Chauhan, Yuchen Hao, Shen Li, et al. 2023. PyTorch FSDP: Experiences on Scaling Fully Sharded Data Parallel. Proc. VLDB Endow. 16, 12 (2023), 3848–3860. [111] Y. Zhao, F. Jiang, T. Liu, B. Zeng, Y. Liu, L. Wang, and W. Luo. 2026. Difficulty-Estimated Policy Optimization. arXiv preprint arXiv:2602.06375 (2026). [112] Haizhong Zheng, Yizhuo Di, Jiahui Wang, Shuowei Jin, Xiao Liu, Yongji Wu, Z. Morley Mao, Ion Stoica, Jiawei Zhao, and Beidi Chen. 2026. AstraFlow: Dataflow-Oriented Reinforcement Learning for Agentic LLMs. arXiv preprint arXiv:2605.15565 (2026). [113] H. Zheng, Y. Zhou, B. Bartoldson, B. Kailkhura, F. Lai, J. Zhao, and B. Chen. 2026. Act Only When It Pays: Efficient Reinforcement Learning for LLM Reasoning via Selective Rollouts. In Advances in Neural Information Processing Systems , Vol. 38. 124321–124346. [114] Lianmin Zheng, Liangsheng Yin, Zhiqiang Xie, Chuyue Sun, Jeff Huang, Cody Hao Yu, Shiyi Cao, Christos Kozyrakis, Ion Stoica, Joseph E. Gonzalez, Clark Barrett, and Ying Sheng. 2023. SGLang: Efficient Execution of Structured Language Model Programs. arXiv preprint arXiv:2312.07104 (2023). [115] Tianle Zhong, Neiwen Ling, Yifan Pi, Zijun Wei, Tianshu Yu, Geoffrey Fox, Peng Wu, and Xiao Yu. 2026. Diagnosing Training Inference Mismatch in LLM Reinforcement Learning. arXiv preprint arXiv:2605.14220 (2026). [116] Yinmin Zhong, Zili Zhang, Xiaoniu Song, Hanpeng Hu, Chao Jin, Bingyang Wu, Nuo Chen, et al. 2025. StreamRL: Scalable, Heteroge-neous, and Elastic RL for LLMs with Disaggregated Stream Generation. arXiv preprint arXiv:2504.15930 (2025). [117] J. Zhou, W. Shao, L. Zheng, Y. Fan, and N. Wong. 2026. AIS: Adaptive Importance Sampling for Quantized RL. arXiv preprint arXiv:2605.13907 (2026). [118] Ting Zhou, Zhenqing Ling, Daoyuan Chen, Qianli Shen, Yilun Huang, Ying Shen, and Yaliang Li. 2026. Beyond Solvability: Task Learnability as a Static Prior for LLM RL Post-Training. arXiv preprint arXiv:2608.09217 (2026). [119] Y. Zhou, J. Li, Y. Su, G. Ramesh, Z. Zhu, X. Long, C. Zhao, J. Pan, X. Yu, Z. Wang, and K. Du. 2025. APRIL: Active Partial Rollouts in Reinforcement Learning to Tame Long-Tail Generation. arXiv preprint arXiv:2509.18521 (2025). [120] Y. Zhou, R. Sadhukhan, Z. Sun, Z. Chen, S. Kundu, S. Dingliwal, S. M. Jayanthi, A. Galstyan, H. Zheng, and B. Chen. 2026. Sparrow: Sparse Rollout for Stable and Efficient Long-context RL of Large Language Models. arXiv preprint arXiv:2606.08446 (2026). [121] Haodong Zhu, Yangyang Ren, Yanjing Li, Sheng Xu, Haiguang Liu, Linlin Yang, and Baochang Zhang. 2026. Kalman Meets Curriculum: Efficient Dynamic Prompt Selection for Adaptive RL Finetuning. arXiv preprint arXiv:2607.27610 (2026). [122] R. Zhu, W. Bai, Q. Wu, Y. Ren, H. Tang, and Y. Liu. 2026. How to Compress KV Cache in RL Post-Training? Shadow Mask Distillation for Memory-Efficient Alignment. arXiv preprint arXiv:2605.06850 (2026). [123] R. Zhu, M. Han, Y. Zhong, W. Xiao, X. Liu, and X. Jin. 2026. DistRS: Disaggregated Reward Service for RLVR with Batch-Level Constraint. In Proceedings of the 23rd USENIX Symposium on Networked Systems Design and Implementation (NSDI) .[124] H. Zou, Q. Wang, Y. Qu, Y. Jiang, L. Cai, Y. Mao, R. Peng, X. Xu, W. Liu, K. Yang, S. Yang, and X. Ji. 2026. TRACE: A Unified Rollout Budget Allocation Framework for Efficient Agentic Reinforcement Learning. arXiv preprint arXiv:2606.11119 (2026). 
+
+Appendix A Measurement Setup for Figure 1 
+
+Workloads: The two workloads are the public multimodal inference traces released with Mod-Serve [58]: production traffic from an Azure multimodal serving cluster, collected over 15 to 22 October 2024 and published as Azure LMM Inference 2025. Each record stores a timestamp, image count, context length (text and image), and generated length. A record is replayed as an RL prompt matching those sizes, so the run preserves a production distribution of context and generation lengths rather than a synthetic uniform budget. The base workload replays the trace as published. The long-chain-of-thought variant keeps the same prompts and scales generated lengths to emulate extended reasoning. Training configuration: The policy is Qwen3-32B, trained with GRPO under synchronous AReaL [8] using a vLLM rollout engine [35]. Execution is fully synchronous: each policy update waits for the complete rollout batch, so the phase times below are strictly serialized 
+
+ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. 1:36 N. Gholipour et al. 
+
+and sum to the step time. Hardware: Experiments run on two Ascend 910B nodes with eight NPUs each (16 NPUs in total). Measured quantities: For each of the first 60 training steps we record wall-clock time for the four phases: rollout generation, reward evaluation, policy update, and weight synchronization. Figure 1 reports the mean share of each phase over those 60 steps for both workloads. Rollout accounts for 49% of mean step time on the base workload and 58% on the long-chain-of-thought variant. The measurements are a small-scale illustration of the trend reported at larger scale in the literature [8, 9, 22, 119]; they are not a benchmark of the AReaL or vLLM systems. 
+
+B Deployment Inference versus Rollout Generation 
+
+Table 5 expands the five properties of Section 3.2. Controlled batch arrival covers request arrival and workload control; batch makespan covers the primary objective and scheduling freedom; repeated and partially predictable workloads cover request recurrence and workload predictability; an evolving model state and training-specific correctness correspond one-to-one to the last two rows. 
+
+Table 5. Deployment inference versus RL rollout generation. 
+
+Property Deployment inference RL rollout generation 
+
+Request arrival Requests arrive online according to an externally determined and potentially bursty workload. Future load is generally not known exactly. The trainer explicitly launches a rollout workload, typically a batch of 𝐵 tasks available at the beginning of the rollout phase. Workload control The serving system controls scheduling after requests arrive, but generally cannot choose which requests arrive or reorder them arbitrarily across long time scales. The trainer controls task sampling, batching, ordering, and often the number of trajectories generated for each task. Request recurrence Requests from different users are generally treated as unrelated, and the system cannot assume that a particular request will appear again. Tasks are sampled repeatedly from a training distribution or finite dataset across optimization iterations or epochs, allowing information from previous rollouts to guide later scheduling and allocation decisions. Primary objective Per-request latency, throughput, and service-level objectives are central; requests should generally begin and complete promptly. Individual request latency is usually secondary. In synchronous training, the primary systems objective is reducing the makespan of the complete rollout workload that blocks the next policy update. Scheduling freedom Deliberately delaying an admitted request typically worsens user-visible latency or fairness. Tasks may be reordered, delayed, assigned different resources, truncated, or occasionally dropped if doing so reduces overall rollout cost without harming the learning objective. Workload predictability Prompt lengths, output lengths, and future arrivals are only partially known before execution. The batch composition is known before generation, and previous executions of the same or similar tasks can provide estimates of trajectory length, reward, or computational cost. Model evolution The served model is typically fixed over many requests and changed only occasionally through deployment updates. The policy changes repeatedly as training proceeds, often after every optimization step or group of steps. Model-dependent cached state must therefore be associated with the policy version that produced it. Correctness constraint Numerical differences between serving implementations are primarily important insofar as they affect returned outputs. Rollout outputs, log-probabilities, and other policy quantities become inputs to optimization; inconsistencies between rollout and training engines can directly alter the policy update. 
+
+C Training Frameworks 
+
+Table 6 places the four training frameworks discussed in Section 5.1 on the three design choices— control, placement, and trajectory movement—together with their headline gains. These numbers appear here rather than in Table 9 because they use different baselines, cluster sizes, and accelerator types than the per-method rows, and because the gain comes from the framework itself rather than from a rollout method. 
+
+ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. Rollout Efficiency in RL for Reasoning LLMs 1:37 
+
+Table 6. Training frameworks for RL post-training. 
+
+Framework Control Placement Main idea Reported gain 
+
+HybridFlow / veRL [67] One controller between nodes, local controllers inside each node Shared devices, hybrid engine 3D-HybridEngine: move the actor between training and generation layouts without a second copy of the weights 
+
+1.53 –20 .57 × throughput (range across configurations) DISTFLOW [83] Local controllers only; no central node Either Planner plus local data coordinator (cache and double buffer) Up to 2.63 ×; near-linear to 512 GPUs StreamRL [116] One controller over two services Separate devices; can span datacenters Streaming generation; separates pipeline idle time from length idle time Up to 2.66 × (best configuration); 1.33 ×
+
+cost-effectiveness AsyncFlow [16] Service interfaces; engines can be swapped Separate devices TransferQueue: hand out samples as soon as they are ready 
+
+1.59 × avg., up to 2.03 ×
+
+(256 NPUs) 
+
+D Speculative Decoding for RL Rollout 
+
+Table 7 places the speculative decoding methods of Table 9 (family B.3, plus WAR and Seer from B.1) by draft source, what the drafter costs to run, and the correctness guarantee each provides. 
+
+Table 7. Speculative decoding for RL rollout. 
+
+Method Draft source Drafter cost Guarantee 
+
+BubbleSpec [91] The policy itself, run in idle data-parallel gaps No additional resources; uses idle GPU capacity Exact match; fully synchronous SPEC-RL [41] Previous step’s trajectory for the same prompt Checking only (≈ 20 s/step) Suffix re-checked under the current policy DAS [64] Suffix tree over past completions No training; runs on CPU Exact match (verified); identical training curves RhymeRL [17] Suffix tree (HistoSpec) No training; runs on CPU RL procedure unchanged WAR [89] Suffix tree, used only at low load No training; turned off when batching fills the GPUs Synchronous execution maintained Seer [57] Tokens generated by sibling rollouts in the same group (grouped SD) No model; online bookkeeping only Synchronous and on-policy execution maintained ReSpec [2] Small drafter, trained online with reward weighting Continuous GPU training Reward convergence and stability reported TLT [22] Trained drafter Trained on idle GPUs Exact match (lossless); accuracy preserved SpecRoll [56] Extra future-token heads on the policy Fast hidden-state fixes; head updates only when quality drops Exact target distribution claimed EfficientRollout [31] The policy’s own weights, quantized, as a self-drafter Re-quantization each step (1.3–2.6 s); no extra model; roofline test turns SD off when compute-bound Exact match (lossless) NeMo-RL SD [25] EAGLE-3 head or native MTP heads, synced with the policy Draft-weight sync per step; optional online adaptation Exact target distribution; lossless FastGRPO [107] Small draft model fed by target hidden states; draft tree resized to live concurrency Online draft learning inside the update phase Rejection sampling; accuracy unchanged MTP-RL [76] Parameter-sharing MTP module added to the policy Offline MTP warm-up, then advantage-aware KL during RL Verified; acceptance length grows instead of collapsing Draft Co-Training [82] EAGLE-3 / DFlash / DSpark drafts co-trained on stop-gradient target features Draft loss in the trainer; CP branch attention and PP TapChannel transport Rejection sampling; reward tracks the baseline up to 122B 
+
+E Prompt Filtering and Selection Methods 
+
+Table 8 places the prompt filtering and selection methods of Table 9 (family D) by the signal used to estimate prompt informativeness, what that signal costs to obtain, how it tracks difficulty as the policy changes, and whether the resulting decision skips prompts, adjusts their budget, or filters with replay. 
+
+ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. 1:38 N. Gholipour et al. 
+
+Table 8. Prompt filtering and selection methods. 
+
+Method Signal Cost of the signal Tracking policy change Decision 
+
+GRESO [113] Per-prompt reward history Reuses training rewards; no extra model Repeated re-estimation Skip MoPPS [61] Bayesian estimate of prompt difficulty Lightweight posterior updates Posterior updated during training Prioritize / skip HIVE [85] Informativeness estimates carried across the run Bookkeeping only Repeated re-estimation Skip AERO [108] Statistics already collected in earlier rollouts No separate predictor Statistics refresh with the run Skip VCRL [27] Group reward variance Free from current rollouts Replay revisits filtered prompts Filter + replay VIP [50] Gaussian-process prediction of success probability Predictor fit plus convex allocation solve Budget reduced rather than removed Allocate VIGOR [28] Observed group reward variance from initial rollouts A small number of probe rollouts per prompt Re-observed every step Allocate KGPS [121] Latent success rate in a linear-Gaussian state-space model Filter update per prompt Explicit model of drift; uncertainty grows with policy change Allocate HeaPA [79] Pool difficulty verified by an asynchronous teacher model Teacher verification ( ≈13% of training time) plus pool bookkeeping Pool re-verified as training proceeds Prioritize Actor-Curator [14] Score from a small curator model (0.6B) trained alongside the actor Curator training ( +14% 
+
+wall-clock); two-stage candidate sampling Curator updated online with the actor Prioritize / skip TrajVal [118] Value estimate from a one-time probe RL run on ≈3% of the pool One probe run plus two inference passes; no per-step cost Static prior; not re-estimated during training Prioritize Pilot-Commit [32] Reward variance from a pilot pass that uses a fraction of the budget Pilot rollouts; pilot lags commit by one step Re-estimated every step Allocate / skip HORA [78] Reward variance of a probe group (𝐺 0=8)Probe rollouts, counted inside the budget Re-observed every step Allocate LEEPS [40] Prompt embeddings combined with reward history of similar prompts Embedding lookup plus history ( ≈2 s/step) History refreshed as rewards arrive Prioritize / skip DEPO [111] BERT estimator predicting the group advantage before rollout Estimator forward and online update; 100-step warm-up Distilled from the actor’s current perplexity Skip TRACE [124] Predicted conditional success at prompt roots and turn-level prefixes Shared predictor plus tree expansion Predictor updated online from visited prefixes Allocate (roots and prefixes) DUET [20] Running per-prompt reward-variance estimate, fed to a cost-weighted Neyman rule Reuses earlier steps’ rollouts; one bisection solve per batch Running mean refreshed every step Allocate + abort 
+
+F Per-Method Comparison 
+
+Table 9 gives the full per-method comparison discussed in Section 4.1. Rows are grouped by technique family, with the bottleneck each family targets (Problems A–D) in the group header, and — marks attributes absent from the original paper. The two gain columns distinguish the levers: a 
+
+system gain measures faster execution of a fixed rollout workload (throughput, wall-clock time, bubble ratio, memory or synchronization cost), whereas an algorithmic gain measures improved learning efficiency (quality at a fixed rollout budget, or fewer rollouts, steps, or compute to reach a target quality); the two capture different effects and are not directly comparable. Scale , Task , and 
+
+Hardware record the original evaluation setting. Q records whether policy quality was preserved, improved, comparable, or exactly guaranteed, and Cost / requirement identifies what the method spends or assumes in exchange for its gain, such as off-policy correction, rollout over-provisioning, or dependence on heterogeneous or preemptible resources. The 80 methods here plus the four frameworks of Table 6, Kimi k1.5 [73], and Every Rollout Counts [80] constitute the 86 included works (Section 2.1). 
+
+ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. Rollout Efficiency in RL for Reasoning LLMs 1:39 
+
+Table 9. Master comparison of surveyed rollout-efficiency methods. Q (quality outcome): = preserved, + improved, ≈ comparable, ✓
+
+exact/lossless guarantee; — not reported. Cost / requirement: what the method spends or assumes in exchange for its gain. Abbreviations: tput = throughput; E2E = end-to-end; util. = utilization; acc. = accelerators; disagg. = disaggregated; prod. = production; het. = heterogeneous; preempt. = preemptible; conv. = convergence; iter. = iteration; MoE = mixture-of-experts; SWE = software-engineering tasks; KV = key– value cache; OPD = on-policy distillation; ovh. = overhead; SD = speculative decoding; gen. = generation; quant. = quantization; summ. = summarization; pct. = percentile; sync = synchronous; ESS = effective sample size; LR = learning rate; IS = importance sampling; TIS = truncated importance sampling; W4A16/W8A8 = weight/activation bit widths; MTP = multi-token prediction; CP/PP = context/pipeline parallelism; TP = tensor parallelism; HBM = high-bandwidth memory; AR = autoregressive; VLM = vision–language model. 
+
+Method System gain Algorithmic gain Scale Task Hardware Q Cost / requirement A.1 Pipeline Decoupling (Problem A: idle resources from stage coupling) AReaL [8] tput 2.77 × — 1.5B–32B math, code — =/+ stale trajectories within lag bound LlamaRL [84] step 10 .7× (405B) — 8B–405B math 1,024 H100 = 1-step policy lag; AIPO correction DORA [23] E2E 2.12 ×; rollout 
+
+8.2× — 560B MoE reasoning 4,096 acc. — trajectories span multiple policy versions Laminar [66] train tput 5.48 × — — — 1,024 GPU — lag 𝑠 ≤ 4; relay-worker weight service FlexMARL [29] speedup 7.3×; util. 
+
+5.6× — 32B+14B multi-agent prod. cluster = async micro-batch coordination RollArt [11] train 1.35 –2.05 × — 100B+ MoE agentic 3k+ GPU — staleness bound; disaggregated hardware AstraFlow [112] train 2.7× — — math, code, agent — ≈/+ multi-policy coordination StaleFlow [36] tput 1.42 –2.68 × — — — disagg. cluster = per-trajectory lifecycle tracking ProRL Agent [102] tput near-linear — — SWE, math, code rootless HPC = per-trajectory HTTP service hop 
+
+𝜇 -GRPO [74] rollout 1.82 ×; E2E 
+
+1.53 × — 1.7B–8B math, code 4 H200 =/+ staleness 𝜇 =1024 ;relaxed clip + veto Flash-REINFORCE [21] — +1.7 @ half rollouts 1.5B–30B-A3B math, tool, ALFWorld — + no group baseline; lag 
+
+4–8; sequence-trust gate Relax [104] E2E 1.20 × vs. veRL; async 1.76 –2.0× — 4B; 30B omni omni-modal, agentic 16 H800 =
+
+single staleness knob; MoE routing replay at 
+
+1.9% ovh. RolloutPipe [4] rollout-to-train 
+
+−31 –42% — 1.7B reasoning, science — =
+
+on-policy kept; needs disagg. pools; group-level admission SAO [19] — >GRPO under async (SWE, math) 30B-A3B SWE, math, writing — +
+
+value model doubles memory; group size 1; two-sided token clip TideRL [62] goodput 5.6× vs. sync; 1.8× vs. AReaL — 7B agentic, multi-modal 32 H100 ≈
+
+staleness bound; elastic rank migration; trajectory buffer VCPO [24] E2E 2.5× vs. sync (tool-use) stable to lag 𝑘 =128 1.5B–7B math, reasoning, tool-use — =
+
+ESS-scaled LR; closed-form baseline adds one backward (≈19% step) Rollplex [44] step 1.23 –1.30 × vs. colocation; 
+
+1.57 –2.24 × vs. disagg. — 32B VLM video reasoning 32 H800 =
+
+sync on-policy kept; prefix-heavy VLM only; phase-aware HBM + TP-aliased weights 
+
+A.2 Resource-Aware Execution (Problem A: idle, mismatched, or over-provisioned hardware) RLBoost [86] tput 1.51 –1.97 × — — — preempt. GPUs —needs preemptible capacity; interruption recovery AReaL-Hex [93] tput 1.31 –1.50 × — 1.5B–14B — het. GPUs = needs mixed GPU generations Libra [1] tput 3.0×; conv. 
+
+2.5× — — agentic 48 A800 = elastic pool; online re-planning ROSE [10] E2E 1.3–3.3×;rollout 1.2–1.5× — — agentic shared serving = needs idle serving GPUs; must hold SLOs BiDiRL [72] tput 1.94 × — — — 2×32 GPU = role-switching runtime QaRL [13] step 1.3× (W4A16) — 1.5B–30B-A3B math 8 H800 ≈
+
+learner re-quantized to match sampler; TBPO dual clip Sparse-RL [45] KV −35 –53% — 1B–7B math 4 H20 ≈
+
+512-token KV budget; 
+
+≈7% rejected; no wall-clock reported Sparrow [120] rollout 2.0–2.4×;step 1.8–2.1× — 1.7B–14B math, code 4–32 H200 =
+
+5th-pct. token acceptance ≥ 0.86 ; KV budget grows with model size 
+
+Continued on next page 
+
+ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. 1:40 N. Gholipour et al. 
+
+Table 9 – continued from previous page 
+
+Method System gain Algorithmic gain Scale Task Hardware Q Cost / requirement 
+
+SMD [122] KV −50% — 1B–7B math, summ., QA 8 H100 ≈
+
+mask recorded at rollout; extra dense forward for distillation AReaL-DTE [55] weight sync 
+
+6.8–7.6× (19 .9×
+
+cross-cluster) — 8B; 30B-A3B math, code, logic 8–16 H200 ✓
+
+< 2% weights change/step; AdamW inversion; periodic full anchors DistRS [123] reward resources 
+
+−3.79 × — — CUDA code CPU+GPU pool =
+
+batch-level latency constraint; elastic multi-tenant service DynaResize [5] tput +66 .5% ; time 
+
+−33% vs. best static split — 8B mixed QA, reasoning 8 H20 =
+
+role switch still blocks 
+
+≈187 s (27% hidden); hysteresis controller FP8-RL [59] rollout tput +44% 
+
+(W8A8 +20% ; KV FP8 +38% )— 8B; 30B-A3B math 8–32 H100 ≈
+
+token-level TIS (clip 2); per-step re-quant. + weight sync; KV scale recalibration Jet-RL [87] rollout 1.33 ×; train 
+
+1.41 ×; E2E 1.16 × — 7B–32B math H100 ≈
+
+FP8 for both train and rollout ( ≈1% drop); FP8-capable hardware AIS [117] keeps FP8 rollout 
+
+1.5–2.76 × — 8B–9B math, planning — ≈
+
+per-batch ESS/KL/variance diagnostics set IS mixing weight; BF16 trainer + FP8 sampler 
+
+B.1 Scheduling & Load Balancing (Problem B: long-tail rollout latency) RollPacker [9] E2E 2.03 –2.56 × — 7B–32B — ≤128 H800 =
+
+length predictor accuracy; also 2.24 × vs. RLHFuse Seer [57] tput 2.04 ×; tail 
+
+−72 –94% — — production RL — = probe sibling runs first per group SortedRL [106] bubble −50% + +3.9–18 .4% @fixed data 8B–32B — — +
+
+length-sorted batches change the training distribution Heddle [109] tput 2.5× — 14B agentic — =
+
+runtime length prediction; trajectory migration TailSieve [90] 1.67 ×; 2.59 × +spec. — — RL, distill., eval — = probe rollouts; dedicated tail pool WAR [89] tput 1.4×/1.6× — 32B agentic 16 H100 = suffix-tree memory; cache-aware placement MISA-T [18] tput +44 –53% ; iter. 
+
+−23% — 35B-A3B RLVR, RLHF, agent non-NVIDIA ≈ admission policy only; no trainer changes 
+
+B.2 Partial & Early-Stop Rollout (Problem B: long-tail rollout latency) Deep-ScaleR [71] compute ≈18 ×
+
+lower AIME24 
+
+28 .8→43 .1 1.5B math 8–32 A100 + objective shifts across 8/16/24K stages APRIL [119] tput +22 .5% (up to 
+
++44% )quality +2.1% (up to +8% ) 4B–8B — — +
+
+reused tails are off-policy; extra requests launched ESPO [39] tokens −20% + AIME24 46 .28 vs. 
+
+45 .25 1.5B–7B math — + 2.7% correct trajectories stopped; critic warmup ARROL [88] tput 1.6–1.7× reward +2.30 –2.99 — — — + online pruning decisions per trajectory Selective Rollout [99] wall-clock −10 .7% success +2.5 pp 7B ALFWorld — + similarity gate computed per group POPD-/TOPD [105] E2E 2.9× / −82% — 1.5B math 8 H20 =/+
+
+OPD only; TOPD is 
+
+𝜌 =0.1; truncation fails on horizon-dependent tasks DARTS [81] E2E up to 1.77 × vs. veRL — 3B–32B; 30B-A3B math 8–64 H20 =
+
+over-samples 𝑀 ′ >𝑀 ;length-biased selection; 
+
+≈5% tails pruned 
+
+B.3 Speculative Decoding (Problem B: long-tail rollout latency) RhymeRL [17] E2E 2.6×; tput 1.86 × — — math 10s–1000s GPU = CPU suffix-tree memory; needs recurring prompts Bubble-Spec [91] tput 1.4–1.8×; steps 
+
+−49 –57% — — long-ctx reasoning — ✓ needs idle data-parallel bubbles DAS [64] rollout −50% / −25% — 1.5B–14B math, code ≤48 H100 ✓ CPU drafter; needs prompt recurrence SPEC-RL [41] rollout −50 –67% — 1B–8B — — =/+≈20 s/step verification; reused prefix slightly off-policy 
+
+Continued on next page 
+
+ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. Rollout Efficiency in RL for Reasoning LLMs 1:41 
+
+Table 9 – continued from previous page 
+
+Method System gain Algorithmic gain Scale Task Hardware Q Cost / requirement 
+
+ReSpec [2] E2E up to 4.53 × — 3B–14B — — = continuous GPU drafter training TLT [22] E2E 1.7–2.1× — 7B–32B reasoning multi-node ✓ needs idle GPUs for drafter SpecRoll [56] E2E 1.21 –2.04 × — 1.5B–14B math — ✓
+
+extra heads; lag correction on two timescales Efficient-Rollout [31] rollout −19 .6% ; E2E 
+
+−12 .7% — 7B–14B math — ✓
+
+self-drafter via weight quant.; roofline SD toggle; 1.3–2.6 s/step quant. NeMo-RL SD [25] gen. 1.5–1.8×; step 
+
+1.35 –1.41 × — 8B math 32 GB200 ✓
+
+EAGLE-3 draft; domain-matched draft init; 𝑛 -gram drafting slower than AR FastGRPO [107] E2E 2.35 –2.72 × — 1.5B–8B math H800 ✓
+
+draft tree re-tuned to live concurrency; online draft learning in update phase MTP-RL [76] rollout −23 –55% 
+
+(max 3.15 ×) — 7B–14B math, code — ≈
+
+MTP head trained from scratch; advantage-aware KL keeps acceptance from collapsing Draft Co-Training [82] rollout 1.19 –2.23 ×;E2E 1.16 –1.88 × — 8B–122B MoE math, multi-turn — =
+
+draft loss in trainer; CP branch attention + PP TapChannel; MoE verification dilutes gain 
+
+C. Rollout Selection (Problem C: uninformative rollouts) PODS [92] — time-to-peak 
+
+≥ 1.7× 3B–7B math, chem — =/+ discarded rollouts already paid for POPO [46] — parity at ≈30% 
+
+budget —math, planning, geom. — ≈
+
+replay buffer; importance-sampling correction I-PPO [69] — early stop (unquant.) 1B–8B math, physics, QA — +
+
+SFT val. set; extra backward/episode; PPO only Rollout Replay [94] — +4.35 pp (4B) @ same fresh rollouts 0.6B–4B math — +
+
+age cap 10 steps; replay ratio 0.5; fresh-anchored batches Headroom-Drift [53] step 166 vs. 197 s (vs. 
+
+1.5× fresh budget) 
+
+>GRPO @ matched fresh rollouts —math, agentic search, multimodal — +
+
+buffer scan per step; drift gate rejects even young groups; 7B scale check only 
+
+D. Prompt Filtering & Selection (Problem D: uninformative prompts) GRESO [113] rollout 2.4×; train 
+
+2.0×
+
+rollouts 3.35 ×
+
+fewer 1.5B–32B math — = needs per-prompt reward history MoPPS [61] train 1.8× rollouts −75 –79% —math, countdown, geom. — ≈/+ posterior upkeep; estimates can go stale HIVE [85] rollout 3.8×; train 
+
+2.2–2.3×
+
+9.2M fewer rollouts 1.5B–32B math, tool calling — =/+
+
+cross-run bookkeeping; skipped prompts unmonitored VCRL [27] — +4.67 vs. GSPO (8B) 4B–8B math — + replay buffer memory AERO [108] step −45% compute −48% 1.5B–7B math — =/+ relies on past-rollout statistics VIP [50] — better than uniform alloc. — RLVR — + GP fit + convex solve per allocation VIGOR [28] — rollouts 
+
+2.3×/1.49 × fewer — math, code — + probe rollouts per prompt KGPS [121] — rollouts −83% 7B math, planning, geom. — =/+ per-prompt filter updates HeaPA [79] step +2.1% (ovh.) fewer PFLOPs-to-target 0.6B–8B math 96 H200 + async teacher ≈13% of train time Actor-Curator [14] — steps −24 –81% 3B math, puzzles A100/H200 + curator +14% wall-clock TrajVal [118] — steps as low as 40% 1.7B–4B math, logic 8 A100 + probe on ≈3% of pool; regime-specific prior 
+
+Continued on next page 
+
+ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. 1:42 N. Gholipour et al.                                               
+
+> Table 9 – continued from previous page
+> Method System gain Algorithmic gain Scale Task Hardware QCost / requirement
+> Pilot-Commit [32] —rollouts-to-target
+> 1.5–1.9×fewer (2.3–4.0×vs. DAPO) 1.5B–14B math —=
+> pilot pass lags commit by 1 step; replay buffer for overflow HORA [78] —Pass@ 𝐾 ↑in 10/12 settings @ matched compute 1.5B–7B math 3–6 A100 =/+
+> two-phase groups ( 𝐺 0=8
+> probe); Pass@1 only comparable LEEPS [40] —+2.6–3.7% rel. vs. best baseline 1.5B–7B math —+≈2s/step; needs embeddings + reward history DEPO [111] —rollout cost up to
+> 2×lower;
+> +1.5–2.4% acc. 1.5B–7B math 16–32 H100 +
+> BERT difficulty estimator; 100-step warm-up before filtering TRACE [124] —
+> +2.8pts (14B, multi-hop QA) @ equal sampling cost 8B–14B math (tool), multi-hop QA, function calling —+
+> shared success predictor; turn-level tree expansion; multi-turn only DUET [20] wall-clock 1.62 ×;
+> 2.51 ×@ half budget
+> ≥full-budget baselines @ half budget 1.7B–4B math, code, QA 8 H100 +
+> per-prompt variance history; marker-gated abort with 𝜀 -keep + importance reweighting; two thresholds ( 𝐾 1poll,
+> 𝐾 280th pct.)
+
+G Survey Methodology 
+
+We build the taxonomy in four stages—search, screen, classify, group—summarized in Figure 2 in the main text. 
+
+Search. We searched ACM Digital Library, IEEE Xplore, arXiv, and OpenReview for work published between January 2024 and September 2026 with the query ("rollout" OR "trajectory generation") AND ("reinforcement learning") AND ("LLM" OR "language model") AND ("efficien*" OR "throughput" OR "asynchronous") , adapted to each interface, and added scans of major ML and systems venues, backward and forward snowballing from included papers, and framework release notes and technical reports that introduce a rollout-efficiency mechanism not otherwise represented. Database hits were pooled with the snowballed and report-sourced records and de-duplicated to 150 candidate records. 
+
+De-duplication. A preprint and its published version count as one work; we cite the published version where one exists and the most recent preprint otherwise. Multiple papers describing one system count as one work when they share the system name and the later paper supersedes the earlier evaluation. 
+
+Screen. We kept work that meets all three inclusion criteria: it targets training-time trajectory generation (I1), operates in an LLM reasoning-RL setting (I2), and changes the cost or the amount of rollout generation (I3). We excluded serving- or test-time methods with no training loop (E1), work on data efficiency or credit assignment with no rollout-cost contribution (E2), and classical non-LLM RL (E3). Title and abstract screening followed by full-text inspection against I1–I3 and E1–E3 left 86 included works. Of the 86, 80 receive comparison rows in Table 9; one test-time allocation study is kept as related context and marked as such where discussed (Section 6). 
+
+Unit of analysis. A method is a named technique with its own efficiency evaluation. Frame-work papers (HybridFlow, DISTFLOW, StreamRL, AsyncFlow) are included works but receive no comparison row because their reported gains measure the framework as a whole against a different baseline class (Section 5.1, Table 6). Kimi k1.5 is included but has no row because it reports no efficiency measurement isolatable to one lever. A paper contributing two mechanisms is assigned one primary family by rule (iii) of Section 4. 
+
+Classify. We ask how each method reduces the rollout cost in Equation (1). Methods that make a fixed rollout workload cheaper or faster take the system lever ; methods that reduce the rollout 
+
+ACM Comput. Surv., Vol. 1, No. 1, Article 1. Publication date: September 2026. Rollout Efficiency in RL for Reasoning LLMs 1:43 
+
+work needed to reach the target quality 𝑄 ∗ take the algorithmic lever . This separates the mechanism of improvement from the paper’s venue or application. For each method we extracted: primary family, primary bottleneck, lever(s) with quantitative evidence, headline gain and unit, baseline, phase measured, evaluation setting (model, task, hardware), and quality or trade-off statement—the columns of Table 9. 
+
+Group. Methods with similar dominant mechanisms form the seven families used throughout the survey: pipeline decoupling, resource-aware execution, scheduling and load balancing, partial and early-stop rollout, speculative decoding, rollout selection, and prompt filtering and selection. Partial and early-stop rollout sits on the boundary between the two levers, and resource-aware execution cuts across several families. The joint frontier is left open because it describes combinations of existing families rather than a family of its own.
