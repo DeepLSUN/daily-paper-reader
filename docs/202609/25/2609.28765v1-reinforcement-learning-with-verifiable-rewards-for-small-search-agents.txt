@@ -1,0 +1,513 @@
+Title: Reinforcement Learning with Verifiable Rewards for Small Search Agents
+
+URL Source: https://arxiv.org/pdf/2609.28765v1
+
+Published Time: Fri, 25 Sep 2026 00:16:35 GMT
+
+Number of Pages: 31
+
+Markdown Content:
+# Reinforcement Learning with Verifiable Rewards for Small Search Agents 
+
+Gaurisankar Jayadas 1, Aske Plaat 1, Álvaro Serra-Gómez 1, and Sandheep P 2 
+
+> 1
+
+Leiden Institute of Advanced Computer Science, Leiden University, Leiden, The Netherlands 
+
+gaurisankarj1996@gmail.com  
+
+> 2
+
+sandheep.p01@gmail.com 
+
+Abstract. Reinforcement Learning with Verifiable Rewards (RLVR) performs well on problems with clear rewards, such as mathematics and coding, but whether it also works where the reward is less clear remains open. The reason-over-search recipe applies RLVR to open-domain ques-tion answering, where retrieval grounds the answer and a match against the reference supplies the reward. So far it has been demonstrated on large models, and below one billion parameters only with distillation from a larger teacher. We test the recipe on a small model. We train Qwen3.5-0.8B with Group Relative Policy Optimization (GRPO) and an interleaved Wikipedia-search tool on MuSiQue, varying only the re-ward across three shapes over three seeds each, and we evaluate every checkpoint held-out on a seven-benchmark question-answering suite. The recipe works: the best run reaches 0.352 average exact match against a 0.092 untrained floor, a 3.8-fold gain, with no distillation step in the training loop. The reward shape also matters. The Search-R1-faithful exact-match-only reward is the worst of the three at every seed at the matched training horizon, and it is worst even on exact match, the metric it directly optimises. We conclude that the sparse exact-match reward, RLVR’s default in mathematics and code, is the wrong starting point for models of this size. The reason-over-search setting can supply a suitable reward for RLVR on small models, but small-model RLVR needs its own reward-design study rather than a scaled-down copy of a large-model recipe. 
+
+Keywords: Reinforcement Learning with Verifiable Rewards · Retrieval-Augmented Generation · GRPO · Small Language Models · Reward Shaping · Tool Use 
+
+1 Introduction 
+
+Large Language Models (LLMs) acquire broad competence from next-token pre-training [27], but their most striking recent gains on multi-step problems come from Reinforcement Learning (RL) applied afterwards. Two independent sys-tems, o1 [23] and DeepSeek-R1 [4], showed that large-scale RL over long rea-soning traces , the intermediate tokens a model generates before its final answer, arXiv:2609.28765v1 [cs.AI] 23 Sep 2026 2 G. Jayadas et al. 
+
+keeps improving accuracy as test-time computation grows. What makes this training scale is that the reward is verifiable: for domains with checkable an-swers, such as mathematics and code, a deterministic function of the generated answer and a reference answer returns the reward directly, so no learned reward model is needed, unlike Reinforcement Learning from Human Feedback [24]. This paradigm, Reinforcement Learning with Verifiable Rewards (RLVR) [16], is at the core of most recent progress on LLM reasoning benchmarks. Such a model can still answer only from what its weights encode. Retrieval-Augmented Generation (RAG) [17] lifts that bound by concatenating documents fetched from an external corpus into the input. One retrieve-then-read step, however, forms its single query from the question alone, which is insufficient when the answer requires several linked facts: there the second query can be formed only after the first retrieved passage has been read, because that passage supplies the entity the second query must name. One family of previous work addresses this by generating the queries and the answer as one token sequence [49,25,36]: the model generates tokens until it emits a search query, the retrieved passages are concatenated into its context, and generation resumes, until it emits an answer. A second family trains that same sequence end-to-end with RL against a single reward computed from the final answer [10,3,34], which removes the hand-written control flow. We call that second family, RL over an interleaved search tool with an answer-match reward, the reason-over-search recipe. Its results are reported almost exclusively at 3B to 32B parameters, on previous model generations. Smaller models are far cheaper, both to train and at inference time. They are arguably the more suitable class for agentic systems [39,2]. But pretraining leaves them with a weaker prior : their initial next-token distribution places less probability mass on the behaviour the reward is meant to select, so RL has less useful behaviour to reinforce and depends more on how informative the reward signal is. The shape of that reward should therefore become a more decisive design choice as the model gets smaller, although a newer generation’s pretraining and post-training partially offset the deficit. The little evidence at sub-1B scale is cautionary: previous work finds pure RL too unstable to bootstrap search behaviour from a cold start at 0.5B to 1B, and recovers it only by distilling from a larger teacher [14]. 
+
+Problem statement and research questions. Whether the reason-over-search recipe transfers to a sub-1B model trained from its own initialisation, and which reward shape works best at that scale, is open. We ask: can RL with verifiable rewards over a search tool be made to work on a sub-1B language model, and what reward shape is best? Three research questions decompose it. RQ1 (feasibility and generalisation): can Group Relative Policy Optimization (GRPO) [32] with a search tool train a sub-1B model to beat its untrained baseline on held-out multi-hop question answering (QA)? RQ2 (reward shape, accuracy): which reward shape gives the best held-out exact match? RQ3 (reward shape, sta-bility): which reward shape is the most stable across random seeds and training horizon? We phrase the questions as “sub-1B” with Qwen3.5-0.8B as the single RLVR for Small Search Agents 3
+
+instance; single-model scope is a limitation (Section 7), not a claim about all sub-1B models. 
+
+Approach. We train Qwen3.5-0.8B [26] with GRPO on MuSiQue [35], the hardest multi-hop dataset in the reference papers’ evaluations, and we evaluate every checkpoint on a held-out seven-benchmark QA suite. To test whether the reward shape changes held-out accuracy and seed stability, we train the model under three reward shapes spanning a sparse-to-dense axis while keeping every other component of the recipe fixed (Section 5). 
+
+Contributions. 
+
+– C1 (feasibility). GRPO with a search tool trains Qwen3.5-0.8B from its own initialisation, with no distillation step inside the training loop, to clear its untrained floor by a wide margin on the held-out seven-benchmark suite, showing that the reason-over-search recipe transfers below one billion pa-rameters, in contrast with the distillation-dependent earlier evidence at that scale [14]. 
+
+– C2 (reward shape). In a controlled ablation of three reward shapes across three seeds, the Search-R1-faithful exact-match-only reward is the worst shape at every seed at the matched horizon, worst even on the exact-match metric it directly optimises, while the dense token-F1 reward carries the gains. Section 6.3 discusses which training-time measurements are, and are not, con-sistent with a proposed explanation of C2. 
+
+2 Related Work 
+
+2.1 RL for LLM reasoning 
+
+RL entered LLM post-training as a way to align models with human intent, through supervised fine-tuning, a learned preference reward model, and PPO [24,31]. The shift since then is from learned preference rewards to verifiable ones, where a deterministic function scores the answer and the reward model disappears: DeepSeek-R1 [4] incentivises reasoning traces by RL alone, with no supervised traces, and the paradigm was crystallised as RLVR in open recipes such as Tulu 3 [16], over the step-by-step output form introduced by Chain-of-Thought prompting [43]. GRPO, the algorithm at the centre of this work, was introduced with the DeepSeekMath recipe [32]; it removes PPO’s learned value critic, a network typically as large as the policy, and so roughly halves training memory and compute (Section 3 states the objective we optimise). The headline RLVR results sit in mathematics and code, where the check is near-unambiguous, and almost entirely at 1.5B parameters and above. Our setting moves RLVR to open-domain QA, where the signal is a noisy answer-match, and down to a sub-1B policy. 4 G. Jayadas et al. 
+
+2.2 Retrieval-augmented reasoning with tool use 
+
+Multi-hop questions exposed the limits of one-shot retrieval and motivated a fam-ily of prompted methods that interleave retrieval with reasoning [49,25,36,9,1], alongside Toolformer [30], which learns tool calls self-supervised (Self-Ask [25] also contributes our Bamboogle benchmark). All either hand-engineer the con-trol flow in the prompt or learn it through supervision rather than from an outcome reward. The RL turn replaced that hand-engineering with a single outcome reward. Search-R1 [10] trains a policy with PPO or GRPO to interleave reasoning with multi-turn search calls over a frozen corpus, masking retrieved tokens from the policy-gradient loss and rewarding only exact match on the final answer. It is the reference recipe and the baseline we reproduce. ReSearch [3] trains the same behaviour with GRPO and a token-F1 reward carrying a small partial-credit format floor, and shows that training on a single multi-hop dataset generalises across benchmarks. It is the recipe we port. R1-Searcher [34] instead uses a two-stage outcome-based scheme with no supervised cold start, and reports a small answer-reward ablation comparing exact match and token-F1, finding token-F1 better at 7B. A recent wave of work treats the single outcome reward as too sparse and adds dense per-step credit, rewarding the necessity of each search decision or the per-turn information gain [44,40,46,19,45]. Two gaps separate that work from ours. First, every RL-trained reason-over-search result above sits between 3B and 32B parameters, almost all on previous-generation model families; below 1B the recipe has been tested only with dis-tillation guidance [14], not from the model’s own initialisation. Second, none of these recipes makes the reward shape itself the controlled variable: Search-R1 fixes a sparse exact-match reward and leaves richer reward terms to future work, ReSearch fixes a dense token-F1 reward with a format floor, and R1-Searcher’s comparison is a single-seed side ablation at 7B. We stay at the outcome level deliberately, treating the dense per-step cluster as the foil a minimal recipe is positioned against rather than as a component we adopt. 
+
+2.3 Reward shaping, and whether tricks help 
+
+GRPO has spawned a family of stabilising modifications [50,20,53]. A counter-current questions whether any is needed at small scale. JustRL [7] shows that a single-stage, essentially plain GRPO recipe with one fixed hyperparameter set, reused across two 1.5B models, matches or beats elaborate pipelines at a fraction of the compute. It also shows that standard additions can actively hurt. Closest to this work, a study of how to train deep-research agents [47] runs a direct reward ablation in the Search-R1 setting at 3B and above and finds reward shape decisive, but in the opposite direction. There, a naive token-F1 reward underperforms exact match through an answer-avoidance collapse , in which the policy stops emitting a final answer at all, and only an added action penalty lifts F1 above EM. RLVR for Small Search Agents 5
+
+JustRL’s “a minimal recipe can win” is our design rationale: we vary only the reward shape and keep plain GRPO otherwise, so any effect is attributable to the reward rather than to a stack of interacting tricks. Our result also helps place the apparent contradiction with [47]. Token-F1 beats exact match in two of the three reward ablations across scales (at 7B [34] and at 0.8B here) and loses only where the naive-token-F1 answer-avoidance collapse fires. Our own floorless F1-only reward is likewise unprotected by a format term, yet does not trigger that collapse at 0.8B, so the contradiction tracks neither model scale nor the presence of a format floor, but whether that failure mode fires; what predicts its firing remains open. 
+
+2.4 Efficiency in agentic RL, and small-model post-training 
+
+Previous work shortens agentic rollouts by explicit intervention, either on the training batch (rollout response recomposition [18]) or on the reward (tool-call budgets [41], penalties on unnecessary search [44]). A second line studies length as an emergent property, and Concise Reasoning [6] shows analytically that the default effect of RL is to grow response length, so explicit reduction requires a dedicated phase. We report an effect that sits against both lines (Section 6.4). Most RLVR results, finally, sit at 1.5B parameters and above [4,7,51,37,38]; the evidence specific to small agentic-search models is the distillation-dependent study already discussed [14], against which our lever is training from the model’s own post-trained initialisation. 
+
+3 Preliminaries 
+
+3.1 Problem setting 
+
+The task is open-domain multi-hop question answering with an interleaved re-trieval tool. Given a question x, the policy πθ generates a token sequence. When-ever the generated text completes a search query q, generation halts, a retriever returns the top-k passages for q, those passages are concatenated into the con-text as a tool-response block, and generation resumes conditioned on everything in the context so far. The sequence terminates when the model emits an answer block, at end-of-sequence, or when a turn or token budget is exhausted. We call one such sequence a rollout o. Retrieved passages are inputs rather than model outputs, so they are excluded from the training loss (Section 4). One scalar re-ward r(o) ∈ [0 , 1] is computed per rollout, as a deterministic function of the answer block it ends with and the reference answers; no intermediate step is scored. 
+
+3.2 Group Relative Policy Optimization 
+
+GRPO [32] samples a group of G rollouts per question and maximises a clipped surrogate with an additive Kullback-Leibler (KL) penalty to a frozen reference 6 G. Jayadas et al. 
+
+policy: 
+
+J(θ) = E
+
+"
+
+1
+
+G
+
+> G
+
+X
+
+> i=1
+
+min 
+
+
+
+ρiAi, clip( ρi, 1 − ε, 1 + ε) Ai
+
+
+
+− β D KL (πθ ∥ πref )
+
+#
+
+. (1) Here πref is the frozen initialisation the KL term anchors to, ε the clip range and 
+
+β the KL weight (values in Section 5). Writing oi for the i-th rollout, ri = r(oi)
+
+for its reward, and πold for the policy that sampled the group, which lags πθ and is not πref , the importance ratio and the group-relative advantage are 
+
+ρi = πθ (oi | x)
+
+πold (oi | x) , Ai = ri − mean( {rj }Gj=1 )std( {rj }Gj=1 ) . (2) In place of PPO’s learned value critic, Equation 2 baselines each rollout against the mean and standard deviation of the rewards of the G rollouts sampled for the same question. That equation is the one our central result turns on. The update is driven by the spread of rewards inside a group, so a reward function that assigns most rollouts of a group the same score drives Ai toward zero, and with it that group’s contribution to the gradient, however many of those rollouts were wrong. 
+
+4 Method 
+
+Figure 1 overviews the training pipeline: the critic-free GRPO loop of Section 3, with the reward node branching into the three ablated shapes. 
+
+4.1 Rollout construction and loss masking 
+
+Three implementation choices define our instantiation of the rollout of Section 3. First, the tool interface uses the Qwen3.5-native nested-XML tool-call and tool-response tags rather than the invented string tags of the reference recipes, so the format the policy must produce is in-distribution for the model it is trained from. Second, retrieved tokens are masked from the loss, as in both reference papers: the GRPO loss and its KL term are computed only over model-generated tokens, implemented here by message-role typing rather than by string offsets. Without this the policy would be trained to predict corpus text it never chose. Third, the training overlay imports the reward scorer, tool-call parser, and prompt template from the evaluation package, so training and evaluation render byte-identical prompts from one shared code object and no score difference between them can hide a formatting drift. 
+
+4.2 The three reward shapes 
+
+The ablated variable is the function r(o) of Section 3. All three shapes read the last answer block and normalise it SQuAD-style [28]. Exact match (EM) RLVR for Small Search Agents 7(a) GRPO optimisation loop 
+
+critic-free, group-relative 
+
+One optimisation step. Reward shaping branches into three ablated reward shapes (sparse to dense). 
+
+Question x
+
+Policy LLM πθ
+
+> Qwen3.5‑0.8B · trainable
+
+Group of G = 5 rollouts Reward shaping 
+
+> R E WA R D S H A P E · A B L AT I O N S
+> dense sparse
+
+F1 + 0.1 format ReSearch reward 
+
+F1-only ours ( fl oor-drop) 
+
+EM-only (0 / 1) Search-R1 reward 
+
+Group baseline 
+
+Aᵢ = (rᵢ − mean)/std 
+
+Policy update 
+
+> clipped surrogate, ε = 0.2
+
+Frozen ref 
+
+πref 
+
+> KL penalty β = 1×10⁻³
+
+Baseline is the group mean+std of rewards over the G rollouts. The KL term regularises π θ toward the frozen π ref .
+
+(b) One rollout: the reason-search-read loop 2-
+
+Blue = model-generated (loss on) ; grey = retrieved (loss masked) . Only mode 
+
+# Tools auto-injected into the system context: the search tool is a JSON sc 
+
+{ "type": "function", "function": { "name": "search", "description": "retrieve top-k Wikipedia passages", "parameters": { "query": { "type": "string" } } } }
+
+model π θ · gradient ON 
+
+user · question 
+
+In what year did Google acquire the company that develop program? 
+
+// 2-hop bridge: AlphaGo → developer → acquisition year 
+
+assistant ◆ think 
+
+<think> Two facts: who built AlphaGo, then when Google acquired it. Search the developer first. </think> 
+
+assistant ◆ tool_call 
+
+<tool_call> <function=search> <parameter=query> developer of AlphaGo </parameter> </function> </tool_call>     
+
+> ↑Qwen3.5-native nested-XML tool tag
+
+tool_response · retrieved 
+
+<tool_response> [doc 1] AlphaGo : a Go program by DeepMind Technologies, a British AI lab later owned by Google… </tool_respon 
+
+masked from the GRPO loss : gradient  fl ows only on model to conditions but is never optimised. 
+
+assistant ◆ think 
+
+<think> Developer = DeepMind. Hop 2: look up the acquisition year. </think> 
+
+assistant ◆
+
+<tool_call> <function=search> <parameter=query> year Google acquired DeepMind </parame </function> </tool_call> 
+
+tool_response · retrieved 
+
+<tool_response> [doc 2] D
+
+2014 Google acquired Deep for ≈ US$525 million… </t 
+
+same masking : loss o ff  on every tok 
+
+assistant REWARD ANCHOR 
+
+<answer>2014</answer> 
+
+↑ scored: rᵢ = format-gated F1("2014", gold) → reward sPiecewise definition in Appendix C. 
+
+blue = model, loss ON grey = retrieved, loss MASKED 
+
+The search tool is wired via the auto-injected # Tools JSON schema (not prose), emitted with the Qwen3.5 nested-XML tags <function=…> / <parameter=…> .
+
+Fig. 1. The critic-free GRPO loop. A group of G = 5 rollouts per question is scored; the reward node branches into the three ablated shapes (F1 with a 0.1 format floor, F1-only, and sparse EM-only); the group mean and standard deviation set the advantage baseline, with no value critic; the update is the clipped, KL-regularised surrogate of Section 3. A worked reason-search-read rollout, showing the interleaved tool calls and the loss masking of retrieved spans, is in Appendix G. 
+
+is all-or-nothing: 1 only if the answer matches a gold answer word for word, 0 otherwise. Token-F1 gives partial credit for word overlap (the harmonic mean of word precision and recall, taken as the best over the gold-answer list). Writing 
+
+ˆa for the parsed answer, fmt( o) for the format-validity check on a rollout o, and 
+
+Y for the gold-answer set, the three shapes are 
+
+rEM (o) = EM(ˆ a, Y ), rF1 (o) = F1(ˆ a, Y ), (3) both 0 when ˆa is absent, and the floored shape 
+
+rF1+fmt (o) = 
+
+
+
+F1(ˆ a, Y ), F1(ˆ a, Y ) > 00.1, F1(ˆ a, Y ) = 0 ∧ fmt( o)0, F1(ˆ a, Y ) = 0 ∧ ¬ fmt( o).
+
+(4) The 0.1 is a floor that replaces F1, not an additive bonus: an F1 of 0.5 yields a reward of 0.5. The three shapes are chosen to span a reward-density axis from sparse to dense while keeping two of them anchored to published recipes. EM-only is 8 G. Jayadas et al. 
+
+Search-R1’s outcome reward [10], at the sparse end: a rollout scores 0 unless it is exactly right. F1+format is ReSearch’s reward [3] at the dense end, except that we drop its \boxed{} gate, making it value-equivalent rather than byte-identical. F1-only is our own floor-drop ablation, and isolates the contribution of the 0.1 floor: it was motivated by an earlier pilot of ours on a 0.6B model, where the floor appeared to mask the tool-use signal, and it tests whether that finding carries to 0.8B. Under Equation 2, moving along this axis changes how often the G rollouts of a group receive distinguishable scores, which is why we expect the axis to matter at all. 
+
+5 Experimental Setup 
+
+Nine runs cross the three reward shapes of Section 4 with three random seeds. Because the model, training data, prompt, retriever, and optimiser settings are identical across all nine, any difference that exceeds seed variance is attributable to the reward shape. 
+
+5.1 Model, data, and retrieval 
+
+The policy is Qwen3.5-0.8B [26], a post-trained hybrid model that can generate a reasoning trace before answering or answer directly; we avoid calling it “distilled”, since no primary source documents how the small variants were produced. The prompt was fixed by its own two-step ablation before any reward run (a minimal user message in place of a verbose system-protocol default lifted untrained EM 6.6-fold; a 12-variant selection then chose the terse form, worth roughly a further 1.7-fold), so all nine runs share one prompt-optimised baseline. We train on MuSiQue [35] only, a 2-to-4-hop dataset and the hardest bench-mark in the reference papers’ evaluations; the single-dataset corpus is by design, so that generalisation is measured strictly on held-out data. The held-out suite comprises seven benchmarks: the single-hop Natural Questions [15], TriviaQA [12], and PopQA [21]; the 2-hop HotpotQA [48] and Bamboogle [25]; and the 2-to-4-hop 2WikiMultiHopQA [8] and MuSiQue, totalling 51,713 rows per check-point. Six of the seven are therefore strictly out-of-distribution. Retrieval uses the Wikipedia-2018 corpus [13] with the E5-base-v2 encoder [42] through FlashRAG [11], over an IVF4096-SQ8 quantised index [5], for both training and evaluation. The reference papers use an exact flat inner-product index; we use it nowhere, because under training rollout load it times out, and it needs roughly 65 GB of host RAM against about 16 GB for the quantised index, whose recall@10 we observed at 96 to 99% of the flat index during bring-up (an engineering observation, not a logged experiment). Our Search-R1 3B reproduction keeps that pipeline’s top-3 default while our own runs use top-5, the one retrieval-depth difference between them. RLVR for Small Search Agents 9
+
+5.2 Training configuration 
+
+We use G = 5 rollouts per question, clip ε = 0 .2, and KL weight β = 10 −3 with the k3 estimator. Generation runs until a stop string or end-of-sequence; on a tool call the retriever service is queried at top-5, each retrieved chunk is injected as its own tool-response block, and generation resumes. A rollout ends on an answer, on end-of-sequence, or at a cap of 10 turns and 8192 tokens. The turn cap rarely binds in training; the token cap binds often early and is central to Section 6.4. The pilot study ran on verl [33]; the main study moved to NeMo-RL [22] because verl does not support Qwen3.5, a port forced by tooling rather than preference. Training ran on a four-GPU RTX PRO 6000 Blackwell node, at roughly $120 to $140 of rented compute per full-epoch run, which is the budget that fixed the horizons below. Appendix I lists the full shared configuration. 
+
+5.3 Horizon, seeds, and evaluation protocol 
+
+The training horizon is roughly one epoch, about 312 steps on MuSiQue, with three seeds per reward shape (42, 43, 44). Seeds control data ordering and rollout sampling, so the three shapes at a given seed share a data order: the comparison is paired within seed and independent across seeds. We cap each seed at 180, 230, and 312 steps respectively (checkpoints saved every 10 steps, to step 310; we call each 10-step evaluation interval a cadence ). Realised lengths differ, and three legs that ran past their cap are truncated to it, with no effect on the ranking (Appendix I). Runs were length-bounded by the compute grant, not stopped on any performance criterion. We therefore report cross-seed claims at the matched horizon (the best checkpoint at step ≤ 180 , the largest horizon common to all nine legs), since best-of-run is length-biased, alongside the explicitly flagged seed horizon (best checkpoint within each seed’s own length). Evaluation uses greedy decoding, matching the convention in the official code of both reference recipes [10,3] (neither paper states its evaluation decoding in text). The primary metrics are EM and token-F1, with substring-cover accu-racy (ACC, 1 if a normalised gold answer appears as a substring of the nor-malised prediction) as a third, more lenient check. All three are computed on the extracted answer span after the same normalisation, and all three are de-fined independently of the training rewards that happen to reuse two of them. Each checkpoint is evaluated over all 51,713 rows using the byte-aligned prompt shared with training, and every reported figure is the unweighted macro-average over the seven benchmarks. Each reported cell is the best checkpoint within the stated horizon, selected on the same evaluation suite it is reported on; we had no separate validation split, and Section 7 discusses what that costs. 
+
+6 Results 
+
+We evaluate nine GRPO runs (three reward shapes times three seeds), scoring every checkpoint on the 51,713-row held-out suite; every EM number is the seven-benchmark average, and the untrained floor is 0.092. 10 G. Jayadas et al.                                         
+
+> Table 1. Held-out average EM by reward shape under both horizon rules. Upper panel: the matched horizon (best checkpoint at step ≤180 ), where EM-only is worst at every seed. Lower panel: each seed’s own horizon (seed 42 at ≤180 , 43 at ≤230 , 44 at ≤312 ), where F1-only owns the single best run and F1+format has the tightest spread. Reward shape seed 42 seed 43 seed 44 mean range
+> Matched horizon (step ≤180 )
+> F1+format 0.322 0.292 0.308 0.307 0.030
+> F1-only 0.313 0.283 0.318 0.305 0.035 EM-only 0.301 0.264 0.249 0.271 0.052
+> Each seed’s own horizon
+> F1-only 0.313 0.291 0.352 0.318 0.061 F1+format 0.322 0.313 0.309 0.315 0.013
+> EM-only 0.301 0.264 0.318 0.294 0.054
+
+6.1 Feasibility below one billion parameters (C1) 
+
+Every trained run clears the 0.092 untrained floor by a wide margin, at every seed and under both horizon rules (Table 1). The best run reaches 0.352 average EM (F1-only, seed 44, step 310), an absolute gain of +0 .260 and a 3.8-fold improvement; Table 3 in Appendix J breaks each of the nine runs out over the seven benchmarks. Because training is on MuSiQue only, six of those seven are strictly out-of-distribution, so the lift on them is generalisation rather than memorisation. This reproduces the ReSearch [3] headline that a model trained on MuSiQue alone generalises across benchmarks, and extends it in two ways: to a sub-1B model, and to the three single-hop benchmarks that ReSearch never evaluated. The best run was still climbing at the budget horizon (Figure 4, Appendix A), so 0.352 is a conservative lower bound rather than a converged ceiling. 
+
+Evaluation-pipeline validation. That lift is only interpretable if the evaluation pipeline is itself sound, so we validate it against published numbers: run on our pipeline, the Search-R1 Qwen2.5-3B GRPO checkpoints reproduce within ±2.5
+
+percentage points of the values reported for them [10] (base −2.4, instruct +0 .5). Those same reproduction runs also place our 0.8B endpoint next to a previous-generation 3B one. Since the two differ in model, generation, corpus, reward, and recipe, we report that comparison as context in Appendix E rather than as a result. 
+
+6.2 The reward-shape ablation (C2) 
+
+Table 1 gives the central result. At the matched horizon (its upper panel), EM-only is the worst shape at all three seeds (0.301, 0.264, 0.249) and has the widest seed range (0.052): it is both lowest and least stable. Figure 9 in Appendix D plots the same nine cells as one bar per seed. RLVR for Small Search Agents 11 
+
+Three seeds are enough for an exact test of the headline ranking. Under the null that reward shape has no effect, the three shapes are exchangeable within each seed, so the probability that a pre-specified shape ranks last at all three independent seeds is (1 /3) 3 = 1 /27 ≈ 0.037 . EM-only is pre-specified in the required sense: it is the Search-R1-faithful arm the ablation was designed to test, fixed before any held-out number was read, and the 0.6B pilot in fact predicted a different loser (the floored shape). The direction, however, was not pre-registered, so we report two conservative variants alongside: the two-sided read on the same arm is 2/27 ≈ 0.074 , and without pre-specifying any shape, the probability that some shape ranks last at all three seeds is 3/27 ≈ 0.111 .The token-F1 and accuracy orderings below score the same predictions and are not independent evidence. All three readings are conditional on the matched horizon: at each seed’s own horizon EM-only ranks last at two of three seeds (lower panel of Table 1). Appendix A plots the per-seed held-out trajectories behind both panels. The one place EM-only looks competitive is at seed 44’s full horizon (0.318, edging out F1+format’s 0.309 in the lower panel of Table 1), but that leg ran to step 310, and at the matched step ≤ 180 horizon it scores only 0.249. We read that as a length effect; Section 7 gives the slow-start reading we cannot rule out. 
+
+The ordering is metric-robust. A natural objection is that EM-only is being judged on a metric that flatters its rivals. It is not. Figure 10 (Appendix D) reads all three metrics at each run’s best-EM checkpoint at the matched horizon. EM-only is lowest on all three (EM 0.271, F1 0.340, ACC 0.300) against F1-only (0.305 / 0.393 / 0.370) and F1+format (0.307 / 0.389 / 0.353), and all three shapes clear every metric’s untrained floor (EM 0.092, F1 0.123, ACC 0.146). Its deficit on token-F1 is in fact larger than on EM, and it is lowest even on substring accuracy, the only metric that is no shape’s training objective, so the ranking is a property of the policy rather than of the scoring metric (Appendix J tabulates per-seed token-F1 and accuracy cells under their own selection rules). 
+
+Which F1 shape wins is seed-dependent. In both panels of Table 1, F1+format wins seeds 42 and 43 while F1-only wins seed 44. We report this as seed-dependent rather than collapsing it: the F1+format minus F1-only gap at the matched horizon is +0 .9, +0 .9, and −1.0 percentage points, a mean of +0 .3
+
+whose sign flips, well inside seed noise. The one robust matched-horizon order-ing is EM-only last: both F1 shapes beat it at every seed, F1-only by +1 .2, +1 .9,and +6 .9 points. Across both panels, F1+format has the tightest seed range and F1-only the highest ceiling (0.352, at the cost of the full 310-step leg), which gives a practical trade-off: prefer F1+format for low-variance behaviour across seeds, F1-only for the best attainable endpoint. At n = 3 the stability half of that advice rests on a three-point spread and the ceiling half on the single full-epoch seed. Cadence-to-cadence trajectory stability (Figures 2 to 4) also ranks mostly by seed rather than by shape, so F1+format’s seed-robustness should not be over-read as the calmest trajectory. 12 G. Jayadas et al. 
+
+Where the format floor’s seed-42 advantage comes from. Observed , over the held-out rollouts that produce the seed-42 column of Table 1, at the two runs’ matched-horizon best checkpoints: F1+format’s +0 .9 percentage-point EM lift over F1-only comes with a +8 .9 point higher valid-answer rate (89.3% to 98.2%) and a +5 .5 point higher answer-token retrieval-grounding, the fraction of answer tokens appearing in the retrieved passages (0.830 to 0.885), both far larger than the EM difference they accompany. Hypothesised : the format gate acts upstream of the exact match, pulling the policy toward a well-formed, retrieval-grounded answer, only a fraction of which converts into an additional exact match. We intervened on neither intermediate quantity, so we cannot test that ordering here, and the lift is within seed noise and reverses at seed 44. What is established is narrower: at seed 42 the floor did not mask the tool-use signal, the opposite of what our 0.6B pilot suggested. 
+
+6.3 A proposed mechanism for the exact-match deficit 
+
+This subsection continues the discussion of C2, and is a hypothesis with sup-porting evidence rather than a further result. The hypothesis is that the deficit is produced by the group-relative advantage of Equation 2. At this scale exact matches are rare, so a sparse 0/1 reward gives most of a group’s G rollouts the same score of 0; the within-group spread, and with it the advantage, goes to zero, and the group contributes almost nothing to the update even though nearly all of its rollouts were wrong. A dense token-F1 reward separates those same rollouts by partial overlap and keeps the spread informative. Directly testing this would require the per-group reward variance, which we did not log. What we can report is that two training-time quantities behave as the hypothesis predicts, computed over all nine runs and plotted for seed 42 in Figure 11 (Appendix F). EM-only has the lowest gradient norm of the three shapes at every seed. Read to each seed’s own horizon it also fails to sharpen its policy entropy at two of the three seeds, ending near its cold-start value at seeds 42 and 43 while entropy declines for five of the six F1 legs. That entropy gap is a full-leg read: within step 180 it is present at seed 42 alone. Neither observation is decisive on its own, since other differences between the shapes could produce them. What they do rule out is a competing explanation: gradient norm stays bounded at every seed and none of the nine data-parallel runs diverged, so EM-only’s deficit is a weak-signal effect rather than a training instability. Figure 5 (Appendix B) shows the compact cross-seed read of the behaviour that results. Averaged across seeds at the matched horizon, the F1 shapes lean (falling tool calls and response length) while their reward climbs, whereas EM-only stays highest on tool calls. Reward levels are not comparable across shapes (Section 6.5), so only the within-shape trends and the behavioural panels carry weight here. The reward panel of Figure 5 also separates three trajectory archetypes, visible per seed in Figures 6 to 8. F1-only shows a slow ramp and a smooth climb with no catastrophic collapse. F1+format shows a medium-fast ramp and RLVR for Small Search Agents 13 
+
+the highest peak, and is also the steadiest of the three in training reward (per-step coefficient of variation 0.12 to 0.15 from step 50, against 0.24 to 0.26 for EM-only). EM-only shows the fastest early ramp and then a flat, low plateau. At seed 43 its held-out EM peaks early and then slips (Figure 3); at seed 44 it instead recovers late (Figure 4), which we read as a length effect but which a slow-start reading would also predict. If the hypothesis holds, the deficit should appear at evaluation time as de-graded rollout-level behaviour rather than as uniformly worse answers, and that is what we find. Pooled over the three seeds on the four multi-hop benchmarks at each run’s best-EM checkpoint (67,569 rollouts per shape, Figure 13), completed rollouts trace the same inverted-U, peaking at two searches for every shape, and at that peak EM-only is the strongest answerer, not the weakest (0.386 against F1-only’s 0.378 and F1+format’s 0.341). What changes is the abort rate, 22.8% for EM-only against 12.7% for F1-only and 5.0% for F1+format, and an aborted rollout scores zero by construction, so EM-only’s multi-hop held-out deficit is better read as a failure to terminate than as worse answers. Conditioning on completion selects a different fraction of rollouts per shape, so we read these curves as descriptive (Appendix H). 
+
+6.4 Emergent compression, and its reward dependence 
+
+Reward density has a second, practical consequence. Under an unmodified out-come reward carrying no length term, all three shapes shorten their rollouts early, but only the F1 shapes stay short. The separation that holds at every seed is in the length-clip ratio, the fraction of rollouts truncated at the generation cap. Both F1 shapes drive it to about 1% by the end of every leg, while EM-only still leaves 9.7%, 14.1% and 35.6% at seeds 42, 43 and 44. Over a full epoch the gap widens into raw budget: at seed 44 (Table 2, Appendix C) F1-only cuts tool calls from 6.6 to 3.4 and total tokens from 6435 to 3694, and F1+format similarly, while EM-only leans mid-horizon and then re-expands to end near its cold start, at 6.2 calls and 6031 tokens. We hypothesise that the driver is the 8192-token generation cap acting as an implicit length penalty: a rollout that runs to the cap never closes its answer and scores 0, so shortening rollouts raises expected reward without any length term in r(o). Three measurements over the training logs are consistent with it. First, hitting the cap and failing to produce a scorable answer are almost the same event: the length-clip ratio and the no-valid-answer rate correlate at Pearson 
+
++0 .98 to +0 .99 in every run. Second, reward anti-correlates with the clip ratio for the F1 shapes ( −0.44 to −0.52 across all six legs). Third, at the full-epoch seed-44 leg that anti-correlation is much weaker for EM-only ( −0.20 against F1-only’s −0.44 ), as it should be if the pressure is what EM-only lacks, since under EM-only a finished-but-wrong rollout scores 0 exactly like a truncated one. Across seeds, though, EM-only spans −0.20 to −0.50 , so this third measurement is suggestive rather than decisive (Appendix C). The evidence is correlational, and one alternative is untested: Qwen3.5’s post-training may already favour 14 G. Jayadas et al. 
+
+concise tool use, and we did not run the base-model control that would separate the model prior from the cap. Compression is a cost property, not an accuracy lever. Across all the check-point evaluations behind Table 3, held-out EM correlates positively with tool-call count in 7 of the 9 runs, so leanness itself buys no accuracy. The win is against the starting point rather than across checkpoints: at seed 44 F1-only ends the epoch at 3.4 tool calls and 3694 tokens per sample, roughly half its cold start, while held-out average EM rises from the 0.092 untrained floor to 0.352. That is a deployment-cost win, not “leaner means more accurate”. It runs opposite to the growing budget reported at larger scale [10,3] and is driven by fewer searches rather than shorter reasoning. 
+
+6.5 A higher training reward is not more exact matches 
+
+A caution for anyone comparing training curves across shapes: a shape can raise the optimisation scalar without producing more correct answers. The numbers in this subsection come from the training logs behind Figures 6 to 8, not from the held-out suite. At seed 44, F1+format posts the highest run-high reward (0.358) but the lowest run-high training-time exact-match rate (20.5%), against F1-only (0.314, 21.9%) and EM-only (0.216, 21.6%), because the 0.1 floor pays well-formed wrong answers. At the first cadence the three shapes are tied on exact match (4.5 to 4.8%) while their scalars already differ 2.5-fold (EM-only 0.045, F1-only 0.072, F1+format 0.113) from formatting alone. Training reward is therefore not comparable across shapes, which is why we rank on held-out EM throughout. All three shapes also peak at a training-time exact-match rate of 20 to 22%, a cross-shape spread of only 1.4 percentage points, which we read as a ceiling on the training signal set by the model-and-data scale; the reward shape nonetheless separates the runs on held-out EM. The dominant residual failure mode in the rollouts we inspected is failure to resolve the bridge entity linking one hop to the next; no shape fixes it, and we did not quantify its share. 
+
+7 Limitations and Future Work 
+
+Our results rest on a single model family and size : every trained check-point is Qwen3.5-0.8B, with no cross-architecture or cross-scale validation, so the findings are about one small model, not retrieval-augmented RL in general. Training was likewise confined to a single dataset , a precedented choice (Re-Search [3] also trains on MuSiQue alone), but we do not ablate data diversity, so the reward-shape effect is not separated from the training distribution. The 
+
+training horizon is limited: the matched horizon is 180 steps, about 0.58 of one epoch, and several runs were still improving when stopped. That cuts against our headline as well as for it, since sparse rewards can be slow starters and seed-44 EM-only’s late recovery to 0.318 fits a slow-start reading we cannot exclude. Our seed count is small : three seeds suffice for the exact test on the headline last-place ranking ( p ≈ 0.037 ; conservative variants 0.074 and 0.111) but not for RLVR for Small Search Agents 15 
+
+tight variance estimates, so the seed-44 inversion between the two F1 shapes is left open rather than resolved. Checkpoint selection is not independent of reporting : each cell is the best of roughly 18 to 31 per-checkpoint evaluations chosen on the same suite it is reported on, with no held-out validation split. Since the per-checkpoint series are noisy this inflates every cell, potentially un-evenly across arms, and of the per-seed EM-only gaps only seed-44’s 6.9 points is clearly larger than that effect. A selection rule independent of the reported score would most strengthen the result. Several recipe settings are untested con-founds for the mechanism : the probability that a group degenerates to zero reward variance is itself a function of the group size, so a larger group than our 
+
+G = 5 may be the operative fix rather than a denser reward. We ran no super-vised control , so C1 is about this pipeline rather than RL specifically, and we report only automatic surface metrics , with no human or judge-based eval-uation of reasoning-chain quality. Finally, all three shapes plateau at the same 
+
+training-time exact-match rate of 20 to 22% on MuSiQue rollouts, which we attribute to the model-and-data scale rather than the reward (Section 6.5); it bounds the training signal, not the held-out averages. These point to a coherent set of follow-ups: a same-generation control , sep-arating what Appendix E owes to model generation versus parameter count; a 2B-or-above run , testing whether “EM-only is worst” persists or inverts with scale; a semantic-similarity reward [29,52]; and retrieval-side levers on the ceil-ing. 
+
+8 Conclusion 
+
+We asked whether RL with verifiable rewards over a search tool can be made to work on a sub-1B language model, and which reward shape is best. The feasibility answer is yes: GRPO-training Qwen3.5-0.8B with an interleaved search tool for up to one epoch on a single multi-hop corpus, on one four-GPU node, raises held-out average exact match from a 0.092 untrained floor to between 0.271 and 0.307 on average at the matched horizon, and to 0.352 in the best run, across a seven-benchmark suite of which six were never trained on, under plain GRPO with no distillation step. The reward-shape answer is a negative result about the field’s default. With the rest of the recipe held fixed, the Search-R1-faithful exact-match-only reward is the worst of the three at every seed at the matched horizon, worst even on the exact-match metric it directly optimises, and the least seed-stable there. Between the two partial-credit shapes the ordering is seed-dependent, so we report a trade-off rather than a ranking: F1+format for seed-robustness, F1-only for the ceiling. We propose a mechanism for the deficit, resting on the within-group reward spread GRPO learns from, but do not establish it (Section 6.3). Bounded by one model, one corpus, and three seeds (Section 7), the practical reading is that small-model RLVR needs its own reward-design study rather than a scaled-down copy of a large-model recipe. 16 G. Jayadas et al. 
+
+Acknowledgments. Training ran on a four-GPU RTX PRO 6000 Blackwell node provided by a CloudRift compute grant. We thank the maintainers of NeMo-RL [22] and FlashRAG [11]. 
+
+Disclosure of Interests. The authors have no competing interests to declare. 
+
+References 
+
+1. Asai, A., Wu, Z., Wang, Y., Sil, A., Hajishirzi, H.: Self-RAG: Learning to re-trieve, generate, and critique through self-reflection. In: International Conference on Learning Representations (ICLR) (2024), arXiv:2310.11511 (Oral) 2. Belcak, P., Heinrich, G., Diao, S., Fu, Y., Dong, X., Muralidharan, S., Lin, Y.C., Molchanov, P.: Small language models are the future of agentic ai (2025), https: //arxiv.org/abs/2506.02153 3. Chen, M., Sun, L., Li, T., Sun, H., Zhou, Y., Zhu, C., Wang, H., Pan, J.Z., Zhang, W., Chen, H., Yang, F., Zhou, Z., Chen, W.: Research: Learning to reason with search for LLMs via reinforcement learning. In: Advances in Neural Information Processing Systems (NeurIPS) (2025), arXiv:2503.19470 4. DeepSeek-AI, Guo, D., Yang, D., Zhang, H., Song, J., Wang, P., Zhu, Q., Xu, R., et al.: Deepseek-r1: Incentivizing reasoning capability in LLMs via reinforcement learning. Nature 645 , 633–638 (2025). https://doi.org/10.1038/ s41586-025-09422-z, arXiv:2501.12948 5. Douze, M., Guzhva, A., Deng, C., Johnson, J., Szilvasy, G., Mazaré, P.E., Lomeli, M., Hosseini, L., Jégou, H.: The Faiss library (2024), https://arxiv.org/abs/2401. 08281 6. Fatemi, M., Rafiee, B., Tang, M., Talamadupula, K.: Concise reasoning via rein-forcement learning (2025), https://arxiv.org/abs/2504.05185 7. He, Qu, Liu, et al.: JustRL: Scaling a 1.5B LLM with a simple RL recipe. ICLR 2026 Blogpost Track (2025), https://arxiv.org/abs/2512.16649, arXiv:2512.16649 8. Ho, X., Duong Nguyen, A.K., Sugawara, S., Aizawa, A.: Constructing a multi-hop QA dataset for comprehensive evaluation of reasoning steps. In: Proceedings of the 28th International Conference on Computational Linguistics (COLING) (2020), arXiv:2011.01060 (2WikiMultiHopQA) 9. Jiang, Z., Xu, F.F., Gao, L., Sun, Z., Liu, Q., Dwivedi-Yu, J., Yang, Y., Callan, J., Neubig, G.: Active retrieval augmented generation. In: Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing (EMNLP) (2023), arXiv:2305.06983 (FLARE) 10. Jin, B., Zeng, H., Yue, Z., Yoon, J., Arik, S., Wang, D., Zamani, H., Han, J.: Search-r1: Training LLMs to reason and leverage search engines with reinforcement learning. In: Conference on Language Modeling (COLM) (2025), arXiv:2503.09516 11. Jin, J., Zhu, Y., Yang, X., Zhang, C., Dou, Z.: FlashRAG: A modular toolkit for efficient retrieval-augmented generation research. In: Companion Proceedings of the ACM Web Conference (WWW), Resource Track (2025). https://doi.org/10. 1145/3701716.3715313, arXiv:2405.13576 12. Joshi, M., Choi, E., Weld, D.S., Zettlemoyer, L.: TriviaQA: A large scale distantly supervised challenge dataset for reading comprehension. In: Proceedings of the 55th Annual Meeting of the Association for Computational Linguistics (ACL) (2017), arXiv:1705.03551 RLVR for Small Search Agents 17 13. Karpukhin, V., Oğuz, B., Min, S., Lewis, P., Wu, L., Edunov, S., Chen, D., Yih, W.t.: Dense passage retrieval for open-domain question answering. In: Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing (EMNLP). pp. 6769–6781 (2020), https://aclanthology.org/2020.emnlp-main.550/ 14. Kotoge, R., Nishimura, M., Ma, J.: Can compact language models search like agents? distillation-guided policy optimization for preserving agentic RAG capabil-ities. In: Proceedings of the Annual Meeting of the Association for Computational Linguistics (ACL) (2026), arXiv:2508.20324 (DGPO) 15. Kwiatkowski, T., Palomaki, J., Redfield, O., Collins, M., Parikh, A., Alberti, C., Epstein, D., Polosukhin, I., Devlin, J., Lee, K., et al.: Natural questions: A bench-mark for question answering research. Transactions of the Association for Compu-tational Linguistics (TACL) 7, 452–466 (2019) 16. Lambert, N., Morrison, J., Pyatkin, V., Huang, S., Ivison, H., Brahman, F., et al.: Tulu 3: Pushing frontiers in open language model post-training. In: Conference on Language Modeling (COLM) (2025), arXiv:2411.15124 17. Lewis, P., Perez, E., Piktus, A., Petroni, F., Karpukhin, V., Goyal, N., Küttler, H., Lewis, M., Yih, W.t., Rocktäschel, T., Riedel, S., Kiela, D.: Retrieval-augmented generation for knowledge-intensive NLP tasks. In: Advances in Neural Information Processing Systems (NeurIPS) (2020), arXiv:2005.11401 18. Li, G., Qin, Y., Tan, X., Yang, D., Shi, Y., Xu, Z., Li, X., Sun, X., Li, K.: RoRe-comp: Enhancing reasoning efficiency via rollout response recomposition in rein-forcement learning (2025), https://arxiv.org/abs/2509.25958, arXiv:2509.25958 19. Liang, Z., Ma, Y., Chen, B., Qian, Z., Dai, H., Mao, L., Zhang, X., Lei, C., Ou, W.: IG-Search: Step-level information gain rewards for search-augmented reasoning (2026), https://arxiv.org/abs/2604.15148, arXiv:2604.15148 20. Liu, Z., Chen, C., Li, W., Pang, T., Du, C., Lin, M.: Understanding r1-zero-like training: A critical perspective. In: Conference on Language Modeling (COLM) (2025), arXiv:2503.20783 (Dr. GRPO) 21. Mallen, A., Asai, A., Zhong, V., Das, R., Khashabi, D., Hajishirzi, H.: When not to trust language models: Investigating effectiveness of parametric and non-parametric memories. In: Proceedings of the 61st Annual Meeting of the Associa-tion for Computational Linguistics (ACL) (2023), arXiv:2212.10511 (PopQA) 22. NVIDIA NeMo Team: NeMo RL: A scalable and efficient post-training library. https://github.com/NVIDIA-NeMo/RL (2025) 23. OpenAI: Learning to reason with LLMs. https://openai.com/index/ learning-to-reason-with-llms/ (2024), accessed: 2026-06-09 24. Ouyang, L., Wu, J., Jiang, X., Almeida, D., Wainwright, C.L., Mishkin, P., Zhang, C., Agarwal, S., Slama, K., Ray, A., et al.: Training language models to follow instructions with human feedback. In: Advances in Neural Information Processing Systems (NeurIPS) (2022), arXiv:2203.02155 25. Press, O., Zhang, M., Min, S., Schmidt, L., Smith, N.A., Lewis, M.: Measuring and narrowing the compositionality gap in language models. In: Findings of the Association for Computational Linguistics: EMNLP 2023 (2023), arXiv:2210.03350 (Self-Ask; Bamboogle) 26. Qwen Team: Qwen3.5: Towards native multimodal agents. Alibaba Qwen blog and Hugging Face model cards (Qwen/Qwen3.5-0.8B) (2026), https://qwen.ai/blog? id=qwen3.5 27. Radford, A., Wu, J., Child, R., Luan, D., Amodei, D., Sutskever, I.: Lan-guage models are unsupervised multitask learners. OpenAI technical report (2019), https://cdn.openai.com/better-language-models/language_models_are_ unsupervised_multitask_learners.pdf 18 G. Jayadas et al. 28. Rajpurkar, P., Zhang, J., Lopyrev, K., Liang, P.: SQuAD: 100,000+ questions for machine comprehension of text. In: Proceedings of the 2016 Conference on Em-pirical Methods in Natural Language Processing (EMNLP). pp. 2383–2392 (2016). https://doi.org/10.18653/v1/D16-1264, https://aclanthology.org/D16-1264/ 29. Reimers, N., Gurevych, I.: Sentence-BERT: Sentence embeddings using siamese BERT-networks. In: Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing and the 9th International Joint Conference on Natural Language Processing (EMNLP-IJCNLP) (2019), arXiv:1908.10084 30. Schick, T., Dwivedi-Yu, J., Dessì, R., Raileanu, R., Lomeli, M., Hambro, E., Zettle-moyer, L., Cancedda, N., Scialom, T.: Toolformer: Language models can teach themselves to use tools. In: Advances in Neural Information Processing Systems (NeurIPS) (2023), arXiv:2302.04761 31. Schulman, J., Wolski, F., Dhariwal, P., Radford, A., Klimov, O.: Proximal policy optimization algorithms (2017), https://arxiv.org/abs/1707.06347 32. Shao, Z., Wang, P., Zhu, Q., Xu, R., Song, J., Zhang, M., Li, Y.K., Wu, Y., Guo, D.: Deepseekmath: Pushing the limits of mathematical reasoning in open language models (2024), https://arxiv.org/abs/2402.03300 33. Sheng, G., Zhang, C., Ye, Z., Wu, X., Zhang, W., Zhang, R., Peng, Y., Lin, H., Wu, C.: Hybridflow: A flexible and efficient RLHF framework (2024). https://doi. org/10.1145/3689031.3696075, https://arxiv.org/abs/2409.19256, verl; published at EuroSys 2025 34. Song, H., Jiang, J., Min, Y., Chen, J., Chen, Z., Zhao, W.X., Fang, L., Wen, J.R.: R1-searcher: Incentivizing the search capability in LLMs via reinforcement learning (2025), https://arxiv.org/abs/2503.05592 35. Trivedi, H., Balasubramanian, N., Khot, T., Sabharwal, A.: MuSiQue: Multihop questions via single-hop question composition. Transactions of the Association for Computational Linguistics (TACL) 10 , 539–554 (2022), arXiv:2108.00573 36. Trivedi, H., Balasubramanian, N., Khot, T., Sabharwal, A.: Interleaving retrieval with chain-of-thought reasoning for knowledge-intensive multi-step questions. In: Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (ACL) (2023), arXiv:2212.10509 (IRCoT) 37. Wang, Asilis, Akgül, et al.: Tina: Tiny reasoning models via LoRA (2025), https: //arxiv.org/abs/2504.15777 38. Wang, Yang, Zeng, et al.: Reinforcement learning for reasoning in large language models with one training example (2025), https://arxiv.org/abs/2504.20571 39. Wang, F., Zhang, Z., Zhang, X., Wu, Z., Mo, T., Lu, Q., Wang, W., Li, R., Xu, J., Tang, X., He, Q., Ma, Y., Huang, M., Wang, S.: A comprehensive survey of small language models in the era of large language models: Techniques, enhancements, applications, collaboration with llms, and trustworthiness (2024), https://arxiv. org/abs/2411.03350 40. Wang, G., Dai, S., Ye, G., Gan, Z., Yao, W., Deng, Y., Wu, X., Ying, Z.: Informa-tion gain-based policy optimization: A simple and effective approach for multi-turn search agents. In: International Conference on Learning Representations (ICLR) (2026), arXiv:2510.14967 (IGPO) 41. Wang, H., Qian, C., Zhong, W., Chen, X., Qiu, J., Huang, S., Jin, B., Wang, M., Wong, K.F., Ji, H.: Acting less is reasoning more! teaching model to act efficiently (2025), https://arxiv.org/abs/2504.14870, arXiv:2504.14870 (OTC / OTC-PO) 42. Wang, L., Yang, N., Huang, X., Jiao, B., Yang, L., Jiang, D., Majumder, R., Wei, F.: Text embeddings by weakly-supervised contrastive pre-training (2022), https://arxiv.org/abs/2212.03533, e5 RLVR for Small Search Agents 19 43. Wei, J., Wang, X., Schuurmans, D., Bosma, M., Ichter, B., Xia, F., Chi, E.H., Le, Q.V., Zhou, D.: Chain-of-thought prompting elicits reasoning in large language models. In: Advances in Neural Information Processing Systems (NeurIPS) (2022), arXiv:2201.11903 44. Wu, P., Zhang, M., Wan, K., Zhao, W., He, K., Du, X., Chen, Z.: HiPRAG: Hierar-chical process rewards for efficient agentic retrieval augmented generation. In: Inter-national Conference on Learning Representations (ICLR) (2026), arXiv:2510.07794 45. Xia, T., Xu, M., Hu, L., Sun, Y., Li, W., Shang, L., Liu, L., Shu, P., Yu, H., Jiang, J.: Search-P1: Path-centric reward shaping for stable and efficient agentic RAG training. In: Proceedings of the Association for Computational Linguistics (ACL), Industry Track (2026), arXiv:2602.22576 46. Xie, Y., Thomas, N., Hansen, N., Fu, Y., Li, L.E., Wang, X.: TIPS: Turn-level information-potential reward shaping for search-augmented LLMs. In: Interna-tional Conference on Learning Representations (ICLR) (2026), arXiv:2603.22293 47. Xu, Y., Lu, S., Cheng, J., Wang, M., Xie, Q., Wang, X., He, R., Liang, J.: How to train your deep research agent? prompt, reward, and policy optimization in Search-R1 (2026), https://arxiv.org/abs/2602.19526, arXiv:2602.19526 48. Yang, Z., Qi, P., Zhang, S., Bengio, Y., Cohen, W.W., Salakhutdinov, R., Manning, C.D.: HotpotQA: A dataset for diverse, explainable multi-hop question answering. In: Proceedings of the 2018 Conference on Empirical Methods in Natural Language Processing (EMNLP) (2018), arXiv:1809.09600 49. Yao, S., Zhao, J., Yu, D., Du, N., Shafran, I., Narasimhan, K., Cao, Y.: ReAct: Synergizing reasoning and acting in language models. In: International Conference on Learning Representations (ICLR) (2023), arXiv:2210.03629 50. Yu, Q., Zhang, Z., Zhu, R., Yuan, Y., Zuo, X., Yue, Y., et al.: DAPO: An open-source LLM reinforcement learning system at scale (2025), https://arxiv.org/abs/ 2503.14476 51. Zhan, Li, Wang, et al.: ExGRPO: Learning to reason from experience. In: Interna-tional Conference on Learning Representations (ICLR) (2026), arXiv:2510.02245 52. Zhang, T., Kishore, V., Wu, F., Weinberger, K.Q., Artzi, Y.: BERTScore: Evalu-ating text generation with BERT. In: International Conference on Learning Rep-resentations (ICLR) (2020), arXiv:1904.09675 53. Zheng, C., Liu, S., Li, M., Chen, X.H., Yu, B., Lin, J., et al.: Group sequence policy optimization (2025), https://arxiv.org/abs/2507.18071 
+
+A Per-seed Held-out Trajectories 
+
+Figures 2 to 4 show one seed each, overlaying the three reward shapes against the untrained floor. Seed 44 runs the full epoch and is where EM-only’s late rise appears. 20 G. Jayadas et al. 
+
+Fig. 2. Seed 42 held-out EM by reward shape (to step 180); F1+format leads and all three shapes clear the 0.092 floor early. 
+
+Fig. 3. Seed 43 held-out EM by reward shape (to step 230); F1+format leads and is the most stable, while F1-only is the noisiest leg, with a deep collapse over steps 130 to 190. RLVR for Small Search Agents 21 
+
+Fig. 4. Seed 44 held-out EM by reward shape (full epoch, to step 310); F1-only reaches the run-high 0.352 at step 310, and EM-only rises late, on the longest leg in the study. 
+
+B Training Dynamics 
+
+Figure 5 is the cross-seed summary discussed in Section 6.3. Figures 6 to 8 then overlay the three reward shapes on reward, tool calls per sample, response length, total tokens per sample, and length-clip ratio, one seed per figure. Each line is a centred moving average drawn over the faint raw per-step series, so both the trend and the background noise are visible. 
+
+Fig. 5. Cross-seed mean with minimum-to-maximum range per reward shape, matched to step ≤ 180 , for reward, tool calls, and response length. The F1 shapes lean while reward climbs; EM-only stays highest on tool calls (reward levels are not comparable across shapes, Section 6.5). 22 G. Jayadas et al. 
+
+Fig. 6. Seed 42 training dynamics, capped at step 180. 
+
+Fig. 7. Seed 43 training dynamics, capped at step 230. RLVR for Small Search Agents 23 
+
+Fig. 8. Seed 44 training dynamics (full epoch; last full cadence at step 310). Reward climbs while tool calls, length, total tokens, and clip ratio all fall for the F1 shapes, while EM-only stays high. 24 G. Jayadas et al. 
+
+C Emergent-compression Detail 
+
+Table 2 gives the cold-start-to-end magnitudes for the full-epoch seed-44 leg (step 1 to step 310) behind Section 6.4. The no-valid-answer (aborted) rate tracks the length-clip ratio almost exactly in every run (Pearson +0 .98 to +0 .99 ), so hitting the generation cap and failing to produce a scorable answer are effectively the same event; at cold start 62 to 68% of rollouts hit the cap and 72 to 75% emit no valid answer. Reward anti-correlates with the length-clip ratio, computed over each leg truncated to its seed cap as everywhere else in this paper, at Pearson −0.50 ,
+
+−0.45 , −0.44 (F1-only) and −0.47 , −0.52 , −0.49 (F1+format) at seeds 42, 43 and 44. For EM-only the corresponding values are −0.50 , −0.38 and −0.20 . The weakening that the cap-as-implicit-penalty reading predicts is therefore clear only at seed 44, the one leg on which EM-only does not stay compressed; at seed 42 EM-only sits inside the F1 range. We report the third measurement of Section 6.4 as seed-44 evidence rather than a cross-seed regularity. (The seed-42 EM-only leg is the one case where the truncation matters: read to its full 211 steps instead of its 180-step cap it falls to −0.33 , outside the F1 range.)                                         
+
+> Table 2. Seed-44 cold-start-to-end magnitudes (step 1 to step 310). The F1 shapes compress on every axis shown; EM-only leans mid-horizon and then re-enters over-search. Per-rollout response length is not shown because it does not move in one direc-tion across shapes (Section 6.4). Quantity (step 1 →310) F1-only F1+format EM-only Tool calls per sample 6.6 →3.4 6.5 →4.3 6.5 →6.2 Total tokens per sample 6435 →3694 6360 →4730 6380 →6031 Length-clip ratio 0.63 →0.01 0.63 →0.01 0.62 →0.36 No-valid-answer ratio 0.72 →0.01 0.72 →0.01 0.72 →0.37
+
+The residual share of rollouts still at the generation cap at the last full cadence separates the shapes cleanly: EM-only leaves 9.7%, 14.1%, and 35.6% at seeds 42, 43, and 44 respectively, against about 1% for both F1 shapes. 
+
+D Held-out Bars and Metric Robustness 
+
+Figure 9 plots the nine matched-horizon cells of Table 1 as bars, and Figure 10 repeats the matched-horizon comparison on all three evaluation metrics. RLVR for Small Search Agents 25 
+
+Fig. 9. Matched-horizon average EM by reward shape, one bar per seed (the same cells as the upper panel of Table 1). EM-only is the shortest group at every seed; the bar spread shows seed variance (F1+format tightest, EM-only widest). All cells are best checkpoints under the same step ≤ 180 cap, so this is not a training-length effect. 
+
+Fig. 10. Matched-horizon cross-seed mean of EM, token-F1, and substring accuracy at each run’s best-EM checkpoint, by reward shape; dashed lines mark each metric’s untrained floor. EM-only is lowest on all three metrics and the two F1 shapes are close and higher, so the ranking is not an artifact of scoring on the metric EM-only optimises. 26 G. Jayadas et al. 
+
+E Cross-generation Context 
+
+Our Search-R1 reproduction runs (Section 6) also supply a reference point one model generation back, which we record here as context. The previous-generation Qwen2.5-3B (instruct) moves from a 0.199 untrained floor to 0.341 trained, against our 0.092 to 0.352, an endpoint the 0.8B model reaches on roughly one twenty-sixth of the 3B checkpoint’s training-prompt exposure. Read narrowly, a current-generation sub-1B model plus RLVR matches, and nominally exceeds, a roughly four-times-larger previous-generation model measured on the same pipeline, and the far smaller training budget makes that reading more conserva-tive, not less. It is not a result. The two endpoints differ by 1.1 points, inside our own reproduction error, and the two settings differ in model, generation, corpus, reward, and recipe, so nothing about the effect of RL as a function of parameter count alone follows. 
+
+F Training-health Diagnostics 
+
+Figure 11 plots the two quantities the mechanism in Section 6.3 rests on, gradient norm and policy entropy, together with loss, KL divergence, the aborted ratio, and the natural-termination rate, for seed 42. Gradient norm stays bounded throughout; entropy declines (sharpening) for the F1 shapes while EM-only stays pinned high. Note that the entropy panel is an approximate token-level entropy logged during training, not an exact policy entropy. RLVR for Small Search Agents 27 
+
+Fig. 11. Seed-42 training-health diagnostics by reward shape: gradient norm, loss, KL divergence, approximate policy entropy, aborted ratio, and natural-termination rate. Seed 42 is shown; the bounded-gradient-norm and lowest-EM-only-gradient-norm reads are computed over all nine runs (the other seeds, not shown, are similar). 
+
+G Worked Rollout and Loss Masking 
+
+Figure 12 shows one schematic reason-search-read rollout on a two-hop question: the model interleaves reasoning with Qwen3.5-native tool calls, reads retrieved passages, and ends in an answer. Retrieved spans are shaded to mark that the GRPO loss is computed only on model-generated tokens. The transcript is illus-trative, not a verbatim MuSiQue trace. 28 G. Jayadas et al. (a) GRPO optimisation loop 
+
+critic-free, group-relative 
+
+One optimisation step. Reward shaping branches into three ablated reward shapes (sparse to dense). 
+
+Question x
+
+Policy LLM πθ
+
+Qwen3.5‑0.8B · trainable 
+
+Group of G = 5 rollouts Reward shaping 
+
+R E WA R D S H A P E · A B L AT I O N S 
+
+dense sparse 
+
+F1 + 0.1 format ReSearch reward 
+
+F1-only ours ( fl oor-drop) 
+
+EM-only (0 / 1) Search-R1 reward 
+
+Group baseline 
+
+Aᵢ = (rᵢ − mean)/std 
+
+Policy update 
+
+clipped surrogate, ε = 0.2 
+
+Frozen ref 
+
+πref 
+
+KL penalty β = 1×10⁻³ 
+
+Baseline is the group mean+std of rewards over the G rollouts. The KL term regularises π θ toward the frozen π ref .
+
+(b) One rollout: the reason-search-read loop 2-hop worked example 
+
+Blue = model-generated (loss on) ; grey = retrieved (loss masked) . Only model tokens receive gradient. 
+
+# Tools auto-injected into the system context: the search tool is a JSON schema, not prose 
+
+{ "type": "function", "function": { "name": "search", "description": "retrieve top-k Wikipedia passages", "parameters": { "query": { "type": "string" } } } }
+
+model π θ · gradient ON retriever / env · gradient OFF 
+
+user · question 
+
+In what year did Google acquire the company that developed the AlphaGo program? 
+
+// 2-hop bridge: AlphaGo → developer → acquisition year 
+
+assistant ◆ think 
+
+<think> Two facts: who built AlphaGo, then when Google acquired it. Search the developer first. </think> 
+
+assistant ◆ tool_call 
+
+<tool_call> <function=search> <parameter=query> developer of AlphaGo </parameter> </function> </tool_call> 
+
+↑ Qwen3.5-native nested-XML tool tag 
+
+tool_response · retrieved MASKED 
+
+<tool_response> [doc 1] AlphaGo : a Go program by DeepMind Technologies, a British AI lab later owned by Google… </tool_response> 
+
+masked from the GRPO loss : gradient  fl ows only on model tokens; retrieved text conditions but is never optimised. 
+
+assistant ◆ think 
+
+<think> Developer = DeepMind. Hop 2: look up the acquisition year. </think> 
+
+assistant ◆ tool_call 
+
+<tool_call> <function=search> <parameter=query> year Google acquired DeepMind </parameter> </function> </tool_call> 
+
+tool_response · retrieved MASKED 
+
+<tool_response> [doc 2] DeepMind : in 2014 Google acquired DeepMind Technologies for ≈ US$525 million… </tool_response> 
+
+same masking : loss o ff  on every token inside <tool_response> .
+
+assistant REWARD ANCHOR 
+
+<answer>2014</answer> 
+
+↑ scored: rᵢ = format-gated F1("2014", gold) → reward shaping (panel a). Piecewise definition in Appendix C. 
+
+blue = model, loss ON grey = retrieved, loss MASKED amber = reward anchor 
+
+The search tool is wired via the auto-injected # Tools JSON schema (not prose), emitted with the Qwen3.5 nested-XML tags <function=…> / <parameter=…> .
+
+Fig. 12. One reason-search-read rollout, with the retrieved spans shaded to mark the loss mask. The reward is computed on the final answer block only. This panel and Figure 1 are two halves of one source drawing, so its in-figure lettering is inherited: “panel a” is Figure 1, and the “Appendix C” it cites for the piecewise reward definition is a stale pointer, superseded here by Equation 4. RLVR for Small Search Agents 29 
+
+H Held-out Search-count Profile and the Termination Gap 
+
+At each run’s best-EM checkpoint we recovered, for every held-out question on the four multi-hop benchmarks (MuSiQue, 2WikiMultiHopQA, HotpotQA, Bamboogle), the number of search calls the policy issued and whether the an-swer was an exact match; pooling the three seeds gives 67,569 graded rollouts per reward shape (Figure 13). Held-out exact match against search count is an inverted-U peaking at two searches for every shape and every dataset; among completed rollouts, two searches scores 0.378 (F1-only), 0.341 (F1+format), and 0.386 (EM-only). The shapes separate by 1 to 5 points at a given bin, but not in the direction that would explain the held-out gap: EM-only, the weakest shape overall, is at or above both F1 shapes at the peak. Its held-out deficit therefore does not come from answering worse at a given completed search count. What differs is termination: 22.8% of EM-only rollouts abort (reach the turn budget or emit no parseable answer) against 12.7% for F1-only and 5.0% for F1+format, and EM-only places 22.0% of its rollouts in the fully-aborted top search bin against 4.6% for F1+format. Three cautions apply. The steep drop at the top of the curve is the truncation tail (those rollouts score zero by construction), not over-searching degrading a finished answer. The milder decline from two to four searches is confounded by question difficulty. And conditioning on completion selects a different fraction of rollouts per shape. We therefore read the curve as descriptive, not causal.  
+
+> Fig. 13. Held-out behaviour by search count at each run’s best-EM checkpoint, pooled over three seeds and the four multi-hop benchmarks. Left: mean exact match against search count for completed rollouts; all three shapes peak at two searches. Right: the search-count distribution per shape with the per-shape abort rate; EM-only places far more mass in the aborted turn-budget bin, the main source of its lower held-out exact match.
+
+30 G. Jayadas et al. 
+
+I Training Configuration 
+
+All nine runs share one configuration; the reward shape and the seed are the only varied axes. Policy Qwen3.5-0.8B (post-trained hybrid); GRPO with group size G = 5 , clip ε = 0 .2, KL penalty β = 10 −3 with the k3 estimator, and a group mean-and-standard-deviation baseline; learning rate 10 −6, constant, no warmup; 64 prompts per optimiser step; generation capped at 10 turns and 8192 tokens; retrieved tokens masked from the loss by message role. Training data is the MuSiQue training split (19,968 prompts, about one epoch per run). Re-trieval is E5-base-v2 over the Wikipedia-2018 corpus through FlashRAG, with an IVF4096-SQ8 index at top-5 for training and evaluation, and top-3 for the Search-R1 3B reproduction. Evaluation is greedy, over 51,713 rows, with check-points saved every 10 steps. Training ran on four RTX PRO 6000 Blackwell GPUs (data-parallel degree 4, colocated vLLM), at roughly $120 to $140 per full-epoch run. Three legs ran past the seed cap of Section 5 and are truncated to it: EM-only seed-42 to step 210 and EM-only seed-43 to step 240, neither of which affects the reported cell, since each one’s best checkpoint lies inside the cap; and F1+format seed-43 to step 250, which reached 0.317 there against the 0.313 we report at 
+
+≤ 230 . Reinstating that 0.317 would widen the F1+format margin over EM-only, so the truncation is the conservative choice. 
+
+J Supporting Tables 
+
+Table 3 breaks the nine runs out over the seven benchmarks. Table 4 reports token-F1 at each run’s best-F1 checkpoint at the matched horizon, and Table 5 substring accuracy at each run’s seed-horizon best-EM checkpoint; note the two use different selection rules and different horizons, as their captions state. 
+
+Table 3. Per-benchmark EM at each run’s seed-horizon best checkpoint (step in the avg-EM column). MuSiQue is the single in-distribution set; the other six are out-of-distribution, so the generalisation claim rests on them.                                                                                  
+
+> Run NQ TriQA PopQA HotQA 2Wiki MuSiQue Bambgl avg EM F1-only s42 0.301 0.492 0.319 0.309 0.287 0.130 0.352 0.313 @110 F1-only s43 0.301 0.489 0.321 0.259 0.274 0.093 0.296 0.291 @210 F1-only s44 0.363 0.531 0.370 0.359 0.285 0.161 0.392 0.352 @310 F1+format s42 0.319 0.500 0.335 0.311 0.313 0.117 0.360 0.322 @100 F1+format s43 0.335 0.533 0.352 0.322 0.296 0.092 0.264 0.313 @210 F1+format s44 0.310 0.521 0.340 0.307 0.278 0.121 0.288 0.309 @270 EM-only s42 0.314 0.492 0.342 0.306 0.238 0.103 0.312 0.301 @170 EM-only s43 0.289 0.479 0.321 0.243 0.236 0.071 0.208 0.264 @120 EM-only s44 0.343 0.524 0.383 0.315 0.283 0.110 0.264 0.318 @310
+
+TriviaQA is highest everywhere (about 0.48 to 0.53) and MuSiQue lowest (about 0.07 to 0.16, the hardest set and the only in-distribution one). PopQA is RLVR for Small Search Agents 31 
+
+where EM-only is least disadvantaged, its short entity answers rewarding exact match. Bamboogle carries only 125 rows, by far the smallest benchmark in the suite. 
+
+Table 4. Matched horizon, average token-F1 per reward shape at each run’s best-F1 checkpoint, showing the same ordering on the dense metric. Reward shape seed 42 seed 43 seed 44 mean range F1-only 0.402 0.369 0.407 0.393 0.038 F1+format 0.413 0.370 0.390 0.391 0.043 EM-only 0.368 0.333 0.319 0.340 0.049 
+
+Table 5. Substring-cover accuracy (ACC) at each run’s seed-horizon best-EM check-point. EM-only is worst on the most lenient metric as well. Reward shape seed 42 seed 43 seed 44 mean F1-only 0.394 0.355 0.397 0.382 
+
+F1+format 0.378 0.359 0.355 0.364 EM-only 0.334 0.293 0.340 0.323
