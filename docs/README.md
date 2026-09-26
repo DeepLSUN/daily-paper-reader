@@ -6,97 +6,98 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-25
-- 运行时间：2026-09-25 22:58:13 UTC
+- 最新运行日期：2026-09-26
+- 运行时间：2026-09-26 22:37:49 UTC
 - 运行状态：成功
 - 本次总论文数：25
 - 精读区：10
 - 速读区：15
 
 ### 今日简报（AI）
-9月25日日报：从25篇中精读10篇、速读15篇，最高分锁定FLARE（9.0）与Hunyuan-A13B技术报告（9.0）。  
-最值得看的是长程编码智能体全生命周期稠密监督与生成式奖励模型，以及混元A13B技术报告；速读中SkillGym、TS-OPD（均8.0）也值得扫读。  
-普通读者建议先读两篇9.0分精读，再按兴趣选SkillGym或TS-OPD，时间紧可暂缓7.0分的Score Centering。
-- 详情：[/202609/25/README](/202609/25/README)
+- 今日共生成 25 篇推荐（精读 10 篇，速读 15 篇）
+- 精读：《Trustworthy Agentic AI: Failure Modes, Mitigation Strategies, and a Lifecycle Framework for Autonomous LLM Systems》（8.0/10）, 《BabelArena: A Large-Scale Multilingual Benchmark for LLM Agents》（8.0/10）
+- 速读：《Epistemic-Probabilistic Model for Guarded Multi-Agent LLM Coordination》（8.0/10）, 《Beyond Average Safety: Chance-Constrained LLM Fine-tuning》（8.0/10）, 《What Should We Ask Next? Retrieval-Aware Question Learning under Partial Evidence》（7.0/10）
+- 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
+- 详情：[/202609/26/README](/202609/26/README)
 
 ### 精读区论文标签
-1. [FLARE: A Full-Lifecycle Dense Supervision Paradigm for Long-Horizon Coding Agents via Generative Reward Model](/202609/25/2609.23808v1-flare-a-full-lifecycle-dense-supervision-paradigm-for-long-horizon-coding-agents-via-generative-reward-model)  
-   标签：评分：9.0/10、query:agent
-   evidence：面向长时程编码智能体的稠密监督与奖励模型
-2. [Hunyuan-A13B Technical Report](/202609/25/2609.27284v1-hunyuan-a13b-technical-report)  
-   标签：评分：9.0/10、query:llm-reports
-   evidence：开源大模型技术报告，含架构与训练细节
-3. [Pistis Technical Report](/202609/25/2609.28554v1-pistis-technical-report)  
-   标签：评分：9.0/10、query:llm-reports
-   evidence：多模态大模型家族的技术报告
-4. [Reinforcement Learning with Verifiable Rewards for Small Search Agents](/202609/25/2609.28765v1-reinforcement-learning-with-verifiable-rewards-for-small-search-agents)  
-   标签：评分：9.0/10、query:agent
-   evidence：用可验证奖励强化学习训练小型搜索智能体
-5. [LastOPD: Taming Collapse in Latent On-Policy Distillation](/202609/25/2609.28845v1-lastopd-taming-collapse-in-latent-on-policy-distillation)  
-   标签：评分：9.0/10、query:post-train
-   evidence：面向语言模型训练的潜在在线策略蒸馏
-6. [Rufus-Air: An Open LLM Post-Training Recipe](/202609/25/2609.29421v1-rufus-air-an-open-llm-post-training-recipe)  
-   标签：评分：9.0/10、query:post-train
-   evidence：包含SFT与RL多阶段及智能体能力的开放LLM后训练配方
-7. [IterSynth: Rethinking Deep Search Agents via Role-Decoupled Iterative Synthesis](/202609/25/2609.29444v1-itersynth-rethinking-deep-search-agents-via-role-decoupled-iterative-synthesis)  
-   标签：评分：9.0/10、query:agent
-   evidence：面向深度搜索智能体的角色解耦范式
-8. [Trustworthy Agentic AI: Failure Modes, Mitigation Strategies, and a Lifecycle Framework for Autonomous LLM Systems](/202609/25/2609.22712v1-trustworthy-agentic-ai-failure-modes-mitigation-strategies-and-a-lifecycle-framework-for-autonomous-llm-systems)  
+1. [Trustworthy Agentic AI: Failure Modes, Mitigation Strategies, and a Lifecycle Framework for Autonomous LLM Systems](/202609/26/2609.22712v1-trustworthy-agentic-ai-failure-modes-mitigation-strategies-and-a-lifecycle-framework-for-autonomous-llm-systems)  
    标签：评分：8.0/10、query:agent
-   evidence：自主LLM智能体系统的可信性与生命周期框架
-9. [REFLEX with Jev for Efficient Selective Control in LLM Agents](/202609/25/2609.26532v1-reflex-with-jev-for-efficient-selective-control-in-llm-agents)  
+   evidence：综述自主LLM智能体系统的可信性与生命周期框架
+2. [BabelArena: A Large-Scale Multilingual Benchmark for LLM Agents](/202609/26/2609.23490v1-babelarena-a-large-scale-multilingual-benchmark-for-llm-agents)  
    标签：评分：8.0/10、query:agent
-   evidence：采用快速类型化决策层与选择性调用强模型的智能体架构
-10. [Qwen-Planner-Agent: A Closed-Loop AI-for-AI Framework for Real-World Mobile Planner Agents](/202609/25/2609.29892v1-qwen-planner-agent-a-closed-loop-ai-for-ai-framework-for-real-world-mobile-planner-agents)  
+   evidence：面向LLM智能体的大规模多语言基准
+3. [SkillGym: Internalizing Human Skills into LLMs for Real-World Problem Solving](/202609/26/2609.27717v1-skillgym-internalizing-human-skills-into-llms-for-real-world-problem-solving)  
    标签：评分：8.0/10、query:agent
-   evidence：面向移动规划智能体的闭环智能体框架设计
+   evidence：将人类技能转化为LLM智能体训练环境的框架
+4. [SkillGym: Internalizing Human Skills into LLMs for Real-World Problem Solving](/202609/26/2609.27717v2-skillgym-internalizing-human-skills-into-llms-for-real-world-problem-solving)  
+   标签：评分：8.0/10、query:agent
+   evidence：将人类智能体技能转化为可验证训练环境的框架
+5. [Log-Depth Recurrent Language Modeling](/202609/26/2609.28212v1-log-depth-recurrent-language-modeling)  
+   标签：评分：8.0/10、query:llm
+   evidence：对数深度递归的语言模型新架构
+6. [The Fellowship of the Query: Learning Retrieval Actions](/202609/26/2609.28653v1-the-fellowship-of-the-query-learning-retrieval-actions)  
+   标签：评分：8.0/10、query:agent
+   evidence：检索动作控制器、教师搜索轨迹
+7. [TS-OPD: Reconciling ASR and QA in Speech Language Models via Task-Specific On-Policy Distillation](/202609/26/2609.29464v1-ts-opd-reconciling-asr-and-qa-in-speech-language-models-via-task-specific-on-policy-distillation)  
+   标签：评分：8.0/10、query:post-train
+   evidence：任务特定在线蒸馏调和ASR与问答
+8. [MILO: Efficient Many-shot In-Context Learning with Block-wise Low-rank Compression](/202609/26/2609.29913v1-milo-efficient-many-shot-in-context-learning-with-block-wise-low-rank-compression)  
+   标签：评分：8.0/10、query:llm
+   evidence：通过KV缓存压缩实现大模型高效推理
+9. [Let Training Guide Selection: Online Synthetic Data Filtering via Real-Anchored Utility](/202609/26/2609.29988v1-let-training-guide-selection-online-synthetic-data-filtering-via-real-anchored-utility)  
+   标签：评分：8.0/10、query:llm-synth
+   evidence：面向LLM微调的在线合成数据过滤
+10. [PoEM: Predicting RL Outcomes from Existing Policies](/202609/26/2609.30226v1-poem-predicting-rl-outcomes-from-existing-policies)  
+   标签：评分：8.0/10、query:post-train
+   evidence：预测强化学习后训练结果
 
 ### 速读区论文标签
-1. [SkillGym: Internalizing Human Skills into LLMs for Real-World Problem Solving](/202609/25/2609.27717v1-skillgym-internalizing-human-skills-into-llms-for-real-world-problem-solving)  
+1. [Epistemic-Probabilistic Model for Guarded Multi-Agent LLM Coordination](/202609/26/2609.29366v1-epistemic-probabilistic-model-for-guarded-multi-agent-llm-coordination)  
    标签：评分：8.0/10、query:agent
-   evidence：将人类编写的智能体技能转为大模型智能体的可执行训练环境
-2. [TS-OPD: Reconciling ASR and QA in Speech Language Models via Task-Specific On-Policy Distillation](/202609/25/2609.29464v1-ts-opd-reconciling-asr-and-qa-in-speech-language-models-via-task-specific-on-policy-distillation)  
-   标签：评分：8.0/10、query:post-train
-   evidence：面向语言模型后训练的任务特定在线策略蒸馏
-3. [Score Centering Stabilizes Off-policy Reinforcement Learning](/202609/25/2609.20807v1-score-centering-stabilizes-off-policy-reinforcement-learning)  
-   标签：评分：7.0/10、query:post-train
-   evidence：缓解训练推理不一致下大模型强化学习的不稳定
-4. [Proxifield: Decentralized Multi-Agent Communication through Semantic Proximity](/202609/25/2609.20889v1-proxifield-decentralized-multi-agent-communication-through-semantic-proximity)  
+   evidence：面向多智能体LLM协调的神经符号架构
+2. [Beyond Average Safety: Chance-Constrained LLM Fine-tuning](/202609/26/2609.29960v1-beyond-average-safety-chance-constrained-llm-fine-tuning)  
+   标签：评分：8.0/10、query:llm
+   evidence：面向大模型微调的安全保持机会约束方法
+3. [What Should We Ask Next? Retrieval-Aware Question Learning under Partial Evidence](/202609/26/2609.21924v1-what-should-we-ask-next-retrieval-aware-question-learning-under-partial-evidence)  
    标签：评分：7.0/10、query:agent
-   evidence：面向LLM智能体的去中心化多智能体通信协议
-5. [Measured Joules, Learned Routes: Learning to Route for Energy-Efficient LLM Serving](/202609/25/2609.23085v1-measured-joules-learned-routes-learning-to-route-for-energy-efficient-llm-serving)  
+   evidence：检索感知的强化学习智能体决策提问
+4. [A Governance-Aware Large Language Model Orchestrated Agentic Digital Twin for Transmission System Operator Control Room Decision Support](/202609/26/2609.22476v1-a-governance-aware-large-language-model-orchestrated-agentic-digital-twin-for-transmission-system-operator-control-room-decision-support)  
+   标签：评分：7.0/10、query:agent
+   evidence：治理感知的LLM编排智能体系统
+5. [NSP: Accelerating Variable-Length LLM Training via Nested Sequence Parallelism](/202609/26/2609.22755v1-nsp-accelerating-variable-length-llm-training-via-nested-sequence-parallelism)  
    标签：评分：7.0/10、query:llm
-   evidence：面向节能LLM推理的自适应路由
-6. [BabelArena: A Large-Scale Multilingual Benchmark for LLM Agents](/202609/25/2609.23490v1-babelarena-a-large-scale-multilingual-benchmark-for-llm-agents)  
+   evidence：加速变长LLM训练的序列并行系统
+6. [From Ranked Documents to Reliable Contexts: An Answer-Oriented Context Construct Framework for AI Search](/202609/26/2609.23354v2-from-ranked-documents-to-reliable-contexts-an-answer-oriented-context-construct-framework-for-ai-search)  
    标签：评分：7.0/10、query:agent
-   evidence：面向LLM智能体的大规模多语言评测基准
-7. [XYEval: Agents say yes to bad advice](/202609/25/2609.23939v1-xyeval-agents-say-yes-to-bad-advice)  
+   evidence：面向AI搜索的答案导向上下文构建
+7. [PSD: Pseudo Self-Distillation of Memory Representation Capabilities for LLM Agents](/202609/26/2609.23449v1-psd-pseudo-self-distillation-of-memory-representation-capabilities-for-llm-agents)  
+   标签：评分：7.0/10、query:post-train
+   evidence：面向LLM智能体记忆表征的蒸馏框架
+8. [Constrained Decoding Eliminates Structural Failures in Small LLMs but Reveals a Scale-Dependent Semantic Gap](/202609/26/2609.23742v1-constrained-decoding-eliminates-structural-failures-in-small-llms-but-reveals-a-scale-dependent-semantic-gap)  
+   标签：评分：7.0/10、query:llm
+   evidence：大模型结构化输出评测基准
+9. [VPRune: Efficient Training-free Pre-LLM Visual Token Pruning](/202609/26/2609.24485v2-vprune-efficient-training-free-pre-llm-visual-token-pruning)  
+   标签：评分：7.0/10、query:llm
+   evidence：免训练视觉Token剪枝以降低LVLM推理开销
+10. [Epi-Logic: A Conceptual Framework for Epistemic Runtime Control, Schema Validity Checking, and Controlled Accommodation in Autonomous AI Agents](/202609/26/2609.24755v1-epi-logic-a-conceptual-framework-for-epistemic-runtime-control-schema-validity-checking-and-controlled-accommodation-in-autonomous-ai-agents)  
    标签：评分：7.0/10、query:agent
-   evidence：智能体在误导性用户建议下的评测
-8. [DUMA-Bench: A Dual-Control Multi-Agent Benchmark for Evaluating LLM Agent Security](/202609/25/2609.24662v1-duma-bench-a-dual-control-multi-agent-benchmark-for-evaluating-llm-agent-security)  
-   标签：评分：7.0/10、query:agent
-   evidence：评估LLM智能体安全的多智能体基准
-9. [DolphinBench: Mapping the Pareto Frontier of Agent Memory](/202609/25/2609.24971v1-dolphinbench-mapping-the-pareto-frontier-of-agent-memory)  
-   标签：评分：7.0/10、query:agent
-   evidence：通过任务完成度评测智能体长期记忆的基准
-10. [DolphinBench: Mapping the Pareto Frontier of Agent Memory](/202609/25/2609.24971v2-dolphinbench-mapping-the-pareto-frontier-of-agent-memory)  
-   标签：评分：7.0/10、query:agent
-   evidence：通过任务完成评估智能体记忆的基准
-11. [Not All AI Agents Are Equal: Characterizing Resource and Performance Dynamics](/202609/25/2609.19947v1-not-all-ai-agents-are-equal-characterizing-resource-and-performance-dynamics)  
-   标签：评分：6.0/10、query:agent
-   evidence：基于LLM的AI代理资源与性能动态
-12. [When AI Reviews Train AI Reviewers: Scientific-Judgment Collapse and Mitigation](/202609/25/2609.20942v1-when-ai-reviews-train-ai-reviewers-scientific-judgment-collapse-and-mitigation)  
-   标签：评分：6.0/10、query:llm-synth
-   evidence：将模型生成的合成评审用作微调训练数据
-13. [Supporting Industrial Test-Failure Analysis with LLM-Based Systems: An Experience Report](/202609/25/2609.21843v1-supporting-industrial-test-failure-analysis-with-llm-based-systems-an-experience-report)  
-   标签：评分：6.0/10、query:agent
-   evidence：用于根因分析的单智能体与编排式多智能体大模型系统
-14. [Value-Sensitive Delegation in Everyday AI Agent Use: Evidence from OpenClaw](/202609/25/2609.22067v1-value-sensitive-delegation-in-everyday-ai-agent-use-evidence-from-openclaw)  
-   标签：评分：6.0/10、query:agent
-   evidence：自主AI代理使用与委托价值
-15. [Vox-Infinity: Benchmarking the Limits of Long-Context Spoken Language Models](/202609/25/2609.22452v1-vox-infinity-benchmarking-the-limits-of-long-context-spoken-language-models)  
+   evidence：面向自主AI智能体的认知运行时控制框架
+11. [LogicTrack: Auditing Reasoning Trajectories of Large Language Models with Formal Logic Solvers](/202609/26/2609.21492v1-logictrack-auditing-reasoning-trajectories-of-large-language-models-with-formal-logic-solvers)  
    标签：评分：6.0/10、query:llm
-   evidence：面向长上下文语音语言模型评测的新基准
+   evidence：用求解器奖励审计大模型推理轨迹
+12. [Supporting Industrial Test-Failure Analysis with LLM-Based Systems: An Experience Report](/202609/26/2609.21843v1-supporting-industrial-test-failure-analysis-with-llm-based-systems-an-experience-report)  
+   标签：评分：6.0/10、query:agent
+   evidence：单智能体与多智能体编排的LLM配置
+13. [Machine-Interpretable Information: Compiling Documents into Searchable and Readable Protocol States](/202609/26/2609.23371v1-machine-interpretable-information-compiling-documents-into-searchable-and-readable-protocol-states)  
+   标签：评分：6.0/10、query:agent
+   evidence：面向智能体间文档到状态的可搜索协议
+14. [Layer-Aware Position Embeddings for Visual Token Pruning in Multimodal Large Language Models](/202609/26/2609.23715v1-layer-aware-position-embeddings-for-visual-token-pruning-in-multimodal-large-language-models)  
+   标签：评分：6.0/10、query:llm
+   evidence：视觉token剪枝以降低多模态大模型推理开销
+15. [Vibe-GUIDE: A Graph-based User Interface in IDEs for Oversight in Vibe Coding](/202609/26/2609.23859v1-vibe-guide-a-graph-based-user-interface-in-ides-for-oversight-in-vibe-coding)  
+   标签：评分：6.0/10、query:agent
+   evidence：支持智能体编程中编码智能体监督的界面
 
 
 <div class="dpr-home-promo-card">
