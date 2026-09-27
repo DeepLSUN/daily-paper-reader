@@ -1,0 +1,1316 @@
+Title: Toolcompass: Guiding Tool Trialing, Not Suppressing It
+
+URL Source: https://arxiv.org/pdf/2609.25678v1
+
+Published Time: Wed, 23 Sep 2026 00:53:02 GMT
+
+Number of Pages: 23
+
+Markdown Content:
+> September 2026
+
+# ToolCompass: Guiding Tool Trialing, Not Suppressing It      
+
+> Junlin Fang 1Chong Zhang Do Nguyen-Thanh 1Xiaogang Xu 2Zhen Fang 3Sean Du 1,*
+> 1
+
+College of Computing and Data Science, Nanyang Technological University 
+
+> 2
+
+Zhejiang University 
+
+> 3
+
+Australian Artificial Intelligence Institute, University of Technology Sydney 
+
+> *
+
+Corresponding author 
+
+Large language model (LLM) agents must generalize from tools seen during training to unseen tools at deployment. A key challenge is tool trialing , i.e., excessive trials waste the interaction budget, whereas selective trials enable exploration of unfamiliar tools. Existing outcome-based post-training leaves wasteful trials unguided, while turn-level supervision may suppress necessary exploration. We introduce ToolCompass, a post-training framework that guides tool trialing by organizing tool-call representations according to shared functions. Specifically, ToolCompass models each function class as a von Mises–Fisher distribution and jointly reduces intra-function variation across domains and increases inter-function separation. This structure transfers experience from seen tools to functionally similar unseen tools, directing exploration away from unrelated alternatives. ToolCompass requires no ground-truth call traces or unseen-tool access and incurs no inference overhead. Experiments on AppWorld and FTRL show consistent gains across GRPO, RFT, and DMPO. ToolCompass improves AppWorld OOD task success by up to 10.71 percentage points over vanilla post-training and performs best among competitive baselines on both benchmarks.   
+
+> Contact: junlin001@e.ntu.edu.sg ;xuefeng.du@ntu.edu.sg
+
+1 Introduction 
+
+Large language model (LLM) agents interact with external environments through tools such as search engines and application APIs [26, 28, 29, 32, 51]. A reliable agent should not only use tools seen during training, but also transfer learned functions to unseen tools in out-of-distribution (OOD) environments [8, 23, 41]. For example, experience with amazon.search_products should help the agent invoke spotify.search_songs . In multi-turn environments, an agent may try a plausible call, observe an error, and revise its tool choice or arguments. We refer to this trial-and-correction behavior as tool trialing [5]. Unnecessary trials consume the interaction budget and can cause solvable tasks to fail [18, 21]. Yet trialing might be essential for unfamiliar tools, whose behavior must be learned through environment feedback. The agent must therefore reduce wasteful calls without losing the exploration required for OOD transfer (Figure 1a). Existing post-training methods do not effectively resolve this trade-off. Outcome-based methods for tool use [4, 10, 27], such as GRPO [33], assign the same trajectory-level advantage across tool turns, learning wasteful trials together with useful solution steps. Recent methods instead introduce turn-level supervision [53, 56], either by matching predicted calls to a ground-truth trace (MatchTIR [30]) or estimating each turn’s contribution to the final outcome (TRACE [42]; StepTool [53]). Despite the promise, such supervision can discourage deviations from known trajectories, including exploration that becomes necessary for unseen tools. Our pilot study confirms this limitation on held-out AppWorld applications [44]: MatchTIR substantially reduces tool calls and rarely reaches the turn limit, yet achieves lower task success than GRPO (Figure 1b). This motivates the central question of our work: 
+
+How can post-training enable OOD exploration without reinforcing wasteful tool trialing? 
+
+To understand this failure, we examine the rollouts and tool-call representations of a Qwen3.5-9B [43] agent post-trained with GRPO on AppWorld. When an unseen tool shares a function with a seen tool, the agent does not exploit this similarity to narrow its exploration. Instead, it trials unrelated tools before reaching a useful call (related examples in Appendix B.5). The representation space exhibits a corresponding pattern that calls from the same domain lie close together despite performing different functions, whereas calls sharing a function remain far apart across domains (Figure 2a). The learned representations therefore encode domain identity rather than the function-level commonality needed to transfer experience across tools. Motivated by this finding, we propose ToolCompass, a vMF-based post-training framework that shapes tool-call representations by shared function. Our key idea is to promote low intra-function variation across domains and high 
+
+> 1arXiv:2609.25678v1 [cs.AI] 22 Sep 2026
+
+ToolCompass: Guiding Tool Trialing, Not Suppressing It Radio Lab Wasteful Tool Trialing  (tools seen in training)                  
+
+> Add "Nights" by Frank Ocean to my library.
+> {Name: like_song, Parameters: {song_id :str }} —seen in training
+> TURN LIMIT REACHED
+> think: try direct add
+> spotify.add_song(song="Nights")
+> Wrong Argument
+> think: maybe create a track
+> spotify.create_track(title="Nights")
+> Not Found
+> think: save it instead
+> spotify.save_to_library(song="Nights")
+> Missing Field
+> think: just push raw data
+> spotify.add_track(data="Nights")
+> Failed Again
+> ... endless retry, no new information ...
+> Essential OOD Tool Trialing (tools never seen)
+> Add a black 1 TB SSD to my wish list.
+> {Name: add_product_to_wish_list, Parameters: {?}} —must explore
+> TASK COMPLETED
+> think: try a direct add
+> wishlist.add(item="1TB SSD")
+> Wrong Tool → switch to the wish -list API
+> think: use wish-list API
+> amazon.add_product_to_wish_list(product_name="SSD")
+> Missing product_id → search the catalog first
+> think: search first
+> amazon.search_products(query="1TB black SSD")
+> 3 matches → pick the top match <p3>
+> think: add with right id
+> amazon.add_product_to_wish_list(product_id=<p3>)
+> Added to wish list
+
+(a) Tool trialing: wasteful on seen tools, essential for OOD exploration 
+
+> 15
+> 20
+> 25
+> 30
+> 35
+> Avg. tool calls  31.55
+> GRPO
+> 20.87
+> MatchTIR
+
+saves 10.68 calls 
+
+> 52
+> 54
+> 56
+> 58
+> OOD task success (%)
+> 56.75
+> GRPO
+> 53.96
+> MatchTIR
+
+drops by 2.80 
+
+> percentage points
+
+(b) Suppressing trials lowers OOD success 
+
+Figure 1. Tool trialing should be guided rather than suppressed. (a) Excessive trialing wastes the interaction budget to find the needed tool “like_song", whereas selective trialing enables exploration of unfamiliar tools of “add_product_to_wish_list". (b) On held-out AppWorld applications, MatchTIR makes fewer calls than GRPO but achieves lower task success, revealing the cost of suppressed exploration. 
+
+inter-function separation. Specifically, ToolCompass maps each tool-call representation onto the unit hypersphere. Each function class can then be naturally modeled as a von Mises–Fisher (vMF) distribution [22] centered at a prototype (Figure 3). A variation loss draws calls toward their function prototype, while a separation loss keeps different prototypes apart. The resulting objective is optimized jointly with the original post-training objective. By organizing the policy’s hidden representations around tool functions, ToolCompass makes experience with seen tools more transferable to functionally similar unseen tools, directing exploration away from unrelated alternatives (Figure 2b). Importantly, ToolCompass requires only the function-class assignments of seen tools, without ground-truth call traces, access to unseen tools, or frozen turn-level models during training. It can be readily combined with GRPO [33], RFT [54], and DMPO [35]. The projection head and prototypes are removed after post-training, introducing no additional inference overhead. ToolCompass therefore guides where the agent trials rather than directly penalizing 
+
+how much it trials. Extensive experiments on AppWorld and FTRL [52], using Qwen3.5-4B and Qwen3.5-9B, show that ToolCompass consistently improves task success across all three post-training methods, with strong performance on OOD tasks requiring unseen tools. On AppWorld, ToolCompass improves OOD task success over vanilla GRPO by up to 8.87 percentage points, reaching 70.02% with Qwen3.5-9B. Further analyses show that ToolCompass produces shorter trajectories, reduces trials of unrelated tools, increases the adoption of task-relevant unseen tools, and organizes representations by shared function rather than domain (Section 4.3). Our key contributions are summarized as follows: 
+
+• We identify a tool-trialing trade-off in OOD tool use, i.e., outcome rewards leave wasteful trials unguided, whereas strict turn-level supervision can suppress necessary exploration. We further connect this failure to representations organized by domain rather than function. 
+
+• We propose ToolCompass, a vMF-based framework that reduces intra-function variation and increases inter-function separation during post-training, guiding exploration without ground-truth call traces, unseen-tool access, or additional inference computation. 
+
+• Extensive experiments on AppWorld and FTRL demonstrate consistent improvements across models and post-training objectives, including on OOD tasks, alongside more efficient trialing and stronger adoption of unseen tools. 
+
+2 Problem Setup 
+
+Formally, we describe the tool-use agent, post-training and deployment settings, and learning goal. 
+
+Post-training for tool-use agents. A tool-use agent is a policy 𝜋 𝜃 that interacts with an environment over a trajectory 
+
+𝜏 = (𝑠 1, 𝑎 1, 𝑜 1, . . . , 𝑠 𝑇 , 𝑎 𝑇 , 𝑜 𝑇 ). At turn 𝑡 , the state 𝑠 𝑡 contains the user request, interaction history, and specifications of the available tools; the action 𝑎 𝑡 is either a language response or a call to tool 𝑢 𝑡 ∈ U ; and the observation 𝑜 𝑡 is the resulting environment feedback, such as an execution result or error message. Tools from different domains may implement the same function. For example, amazon.search_products and 
+
+spotify.search_songs both perform Search. We group such tools into function classes and denote the function class of tool 𝑢 by 𝑐 (𝑢 ) ∈ C . The agent is post-trained on tasks involving a fixed set of seen tools Utrain using an objective Lpost (𝜃 ).
+
+2ToolCompass: Guiding Tool Trialing, Not Suppressing It Radio Lab 
+
+OOD tool generalization. At deployment, the agent encounters in-distribution (ID) tasks solvable with tools in Utrain ,as well as OOD tasks requiring tools from an unseen set Uunseen , where Utrain ∩ U unseen = ∅. These unseen tools belong to held-out domains but may share similar functions with the seen tools. Their specifications are provided to the agent only at deployment through 𝑠 𝑡 ; neither the tools nor their annotations are available during post-training. Our goal is to transfer function-level knowledge from Utrain to Uunseen while preserving performance on ID tasks. todoist todoist todoist todoist todoist todoist todoist todoist todoist 
+
+> amazon amazon amazon amazon amazon amazon amazon amazon amazon
+> file system file system file system file system file system file system file system file system file system
+> phone phone phone phone phone phone phone phone phone
+> gmail gmail gmail gmail gmail gmail gmail gmail gmail venmo venmo venmo venmo venmo venmo venmo venmo venmo
+> spotify spotify spotify spotify spotify spotify spotify spotify spotify
+
+(a) GRPO  (b) ToolCompass 
+
+> AUTH
+> CHECK
+> CONTROL
+> CREATE
+> DELETE
+> ORGANIZE
+> READ·ITEM
+> READ·LIST
+> SEND
+> TOGGLE
+> TRANSFER
+> TRANSFORM
+> UPDATE
+> WORKFLOW
+
+Figure 2. Tool-call representations on AppWorld. After GRPO post-training (a), representations cluster primarily by application domain (dashed ellipses) rather than function class (colors). In contrast, ToolCompass (b) aligns tool calls sharing the same function across domains. 
+
+Challenge and learning goal. A tool-use tra-jectory may contain useful trials of functionally plausible tools as well as unproductive trials of unrelated tools. The latter consume the in-teraction budget and can cause a solvable task to fail [18, 21], whereas the former provide feedback needed to use unfamiliar tools. This challenge is reflected in the representation space learned by standard post-training: as shown in Figure 2(a), GRPO organizes tool calls pri-marily by domain (e.g., different applications) rather than by shared function, providing little structure for transferring experience to unseen tools. Penalties that indiscriminately discourage trialing may instead suppress both useful and unproductive calls. We therefore aim to learn function-level representations, as shown in Fig-ure 2(b), that guide trialing toward functionally relevant tools without suppressing the exploration required for OOD generalization. 
+
+3 Method 
+
+Framework overview. Our framework ToolCompass guides tool trialing by shaping the representations of tool calls according to their functions. Central to our framework is to reduce variation among calls implementing the same function across domains, while separating calls implementing different functions. As illustrated in Figure 3, ToolCompass first extracts and normalizes tool-call representations (Section 3.1). It then models each function class with a von Mises–Fisher (vMF) distribution and optimizes intra-function variation and inter-function separation (Section 3.2). The resulting objective is trained jointly with the original post-training objective (Section 3.3). 
+
+3.1 Tool-Call Representation 
+
+Representation extraction. For each tool call 𝑎 𝑡 in a sampled trajectory, we extract the hidden representation from the agent (with parameter 𝜃 ): 
+
+h𝑡 = 𝐻 (𝑙 ) 
+
+> 𝜃
+
+(𝑠 𝑡 , 𝑎 𝑡 ) ∈ R𝑑 ℎ , (1) where 𝐻 (𝑙 ) 
+
+> 𝜃
+
+returns the hidden state at layer 𝑙 and the final token of 𝑎 𝑡 , and 𝑑 ℎ is the hidden dimension. Since the final token attends to the preceding context, h𝑡 summarizes the selected tool, its arguments, and the current interaction state. We study the choice of layer 𝑙 in Section 4. 
+
+Hyperspherical normalization. A lightweight projection head 𝑔 𝜓 : R𝑑 ℎ → R𝑑 maps h𝑡 to z𝑡 = 𝑔 𝜓 (h𝑡 )∥𝑔 𝜓 (h𝑡 ) ∥ 2 ∈ S𝑑 −1.
+
+The unit norm places all tool-call representations on the unit hypersphere, where angular similarity characterizes their relationships and the vMF distribution is naturally defined [22]. 
+
+3.2 Modeling Tool Functions with vMF Distributions 
+
+Our core idea is to model each function class as a compact directional distribution, allowing calls from different domains to share a common direction whenever they implement the same function. 
+
+vMF model. For each function class 𝑘 ∈ C , we model its normalized representations with a vMF distribution, which is analogous to spherical Gaussian distributions for embeddings with unit norms: 
+
+𝑝 (z | 𝑐 = 𝑘 ) = 𝐶 𝑑 (𝛽 ) exp  𝛽 𝝁 ⊤ 
+
+> 𝑘
+
+z, (2) where 𝝁 𝑘 ∈ S𝑑 −1 is the prototype direction, 𝛽 ≥ 0 is the concentration, and 𝐶 𝑑 (𝛽 ) is the normalizing constant. A larger 𝛽 concentrates the distribution more tightly around 𝝁 𝑘 , whereas 𝛽 = 0 yields a uniform distribution on the hypersphere. 
+
+3ToolCompass: Guiding Tool Trialing, Not Suppressing It Radio Lab gradients update the agent (policy θ and projection head ψ, jointly)                        
+
+> LLM Agent πθ
+> reasons & issues tool calls
+> calls feedback
+> Environment (tools)
+> executes tool calls
+> §3.1 Tool-Call Representation
+> Tool-call extraction
+> hidden state of each tool call gψ
+> e.g. tool calls in one rollout
+> flights.search(…)
+> hotels.search(…)
+> cart.add_item(…)
+> §3.2 Modeling Tool Functions with vMF Distributions
+> Sd−1
+> project & normalize
+> (train-time only)
+> Lvar pull calls to prototype
+> Lsep push prototypes apart
+> ◆unseen tool lands in its function class
+> ★prototype μ k●tool call
+> ◆unseen tool color = function class
+> §3.3 Joint Optimization
+> L=Lpost + λ vMF LvMF
+> LvMF =Lvar + λ sep Lsep
+> Lpost task outcome
+> GRPO RFT DMPO …
+> Guided trialing (unseen tools)
+> its function class
+> random jump
+> another class
+
+Figure 3. Overview of ToolCompass. For each tool call, ToolCompass extracts its final-token representation and maps it onto the unit hypersphere. Calls implementing the same function are aligned with a shared vMF prototype, while calls implementing different functions are separated. The resulting objective is optimized jointly with the post-training objective. The projection head and prototypes are not used at deployment. 
+
+Under this probability model, the posterior probability of function class 𝑘 is 
+
+𝑝 (𝑐 = 𝑘 | z) = 𝐶 𝑑 (𝛽 ) exp (𝛽 𝝁 ⊤ 
+
+> 𝑘
+
+z)
+
+Í 𝑗 ∈ C 𝐶 𝑑 (𝛽 ) exp (𝛽 𝝁 ⊤ 
+
+> 𝑗
+
+z) = exp ( 𝝁 ⊤ 
+
+> 𝑘
+
+z/𝜏 )
+
+Í 𝑗 ∈ C exp ( 𝝁 ⊤ 
+
+> 𝑗
+
+z/𝜏 ) , 𝛽 = 1
+
+𝜏 . (3) where 𝜏 > 0 is the temperature. Since 𝝁 𝑘 and z have unit norm, their inner product is the cosine similarity. A smaller 
+
+𝜏 , equivalently a larger 𝛽 , produces a more concentrated function distribution. 
+
+Reducing intra-function variation. Consider a minibatch of tool calls B = {( z𝑖 , 𝑐 𝑖 )} 𝑁 𝑖 =1, where 𝑐 𝑖 = 𝑐 (𝑢 𝑖 ) is the function class of the called training tool. We minimize the negative log-likelihood of the observed function assignments: 
+
+Lvar = − 1
+
+𝑁 
+
+> 𝑁
+
+∑︁ 
+
+> 𝑖 =1
+
+log 𝑝 (𝑐 = 𝑐 𝑖 | z𝑖 ). (4) Minimizing Lvar aligns each tool call with its function prototype, thereby reducing intra-function variation across tools, domains, and interaction contexts. 
+
+Increasing inter-function separation. The softmax denominator in Lvar already contrasts calls with competing prototypes; Lsep adds class-level separation. For each function class represented in the minibatch, we compute its normalized batch direction ¯ z𝑘 = Í𝑖 ∈ I 𝑘 z𝑖 / Í𝑖 ∈ I 𝑘 z𝑖 2 , I𝑘 = { 𝑖 : 𝑐 𝑖 = 𝑘 }, 𝑘 ∈ C B , where CB = {𝑐 𝑖 : (z𝑖 , 𝑐 𝑖 ) ∈ B} 
+
+denotes the function classes appearing in the minibatch. We then define 
+
+Lsep = 1
+
+|C B |∑︁ 𝑘 ∈ C B
+
+log 
+
+
+
+1
+
+|C| − 1∑︁ 𝑗 ∈ C , 𝑗 ≠𝑘 
+
+exp 
+
+ ¯z⊤ 
+
+> 𝑘
+
+𝝁 𝑗 
+
+𝜏 
+
+ 
+
+. (5) Minimizing Lsep pushes each batch direction away from the prototypes of other function classes, increasing their angular separation. The prototypes are treated as stop-gradient targets when computing both losses, so Lvar and Lsep 
+
+update the policy and projection head through the current representations. 
+
+Prototype estimation. We maintain each function prototype using an exponential moving average. After processing a minibatch, the prototype of every observed class is updated as 
+
+𝝁 𝑘 ← Normalize (𝛼 𝝁 𝑘 + ( 1 − 𝛼 ) ¯z𝑘 ) , 𝑘 ∈ C B , (6) where 𝛼 ∈ [ 0, 1) is the update factor. The prototypes track the evolving tool-call representations. 
+
+Representation-shaping objective. The complete objective is 
+
+LvMF = Lvar + 𝜆 sep Lsep , (7) where 𝜆 sep is the weight coefficient modulating the relative importance of the two losses. The two losses organize tool-call representations into compact and separated function clusters. This structure makes knowledge learned from a seen tool transferable to unseen tools implementing the same function, directing trialing toward functionally plausible tools rather than unrelated alternatives. 
+
+4ToolCompass: Guiding Tool Trialing, Not Suppressing It Radio Lab (a) GRPO  (b) ToolCompass    
+
+> class 0 class 2
+> class 1 class 3
+> 1.0
+> 0.8
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> normalized density (class 0)
+> Figure 4. The surface shows the spherical kernel density of one function class (class 0) under GRPO (a) and ToolCompass (b), on a shared color scale. We showcase four classes for visual clarity; colors denote function classes and markers denote tools.
+
+Comparison with existing methods. Outcome-based methods such as GRPO apply the same trajectory-level advantage to the tool calls within a rollout, indicating whether the trajectory suc-ceeds but not what function each call performs. In contrast, LvMF 
+
+provides function-level supervision: calls implementing the same function share a directional target even when they involve differ-ent tools or domains. Unlike trace-matching supervision [30], ToolCompass does not prescribe a gold sequence of calls; unlike turn-contribution methods [42, 48], it does not require estimating the contribution of individual turns. It therefore complements outcome supervision by guiding where the agent trials without directly penalizing exploration. Figure 4 visualizes the normal-ized representation space, with the spherical surface showing the kernel density of a representative function class; compared with GRPO’s diffuse distribution, ToolCompass forms a compact cluster across tools (see Appendix B.9). 
+
+3.3 Joint Optimization with Post-Training 
+
+We optimize the representation-shaping objective jointly with the original post-training objective: 
+
+L( 𝜃, 𝜓 ) = Lpost (𝜃 ) + 𝜆 vMF LvMF (𝜃, 𝜓 ). (8) Here, Lpost uses task feedback to learn which tool-use behaviors help complete the task. LvMF aligns call representations across tools that perform the same function. Joint training encourages the policy to transfer useful tool-use experience from seen tools to unseen tools with matching functions. The host objective can be instantiated with GRPO [33], RFT [54], or DMPO [35] without changing its original formulation. The overall procedure is provided in Algorithm A.1 in Appendix A. Our training components consist only of the projection head 𝑔 𝜓 and one prototype per function class. Both are not utilized at deployment. Since LvMF has already shaped the policy parameters 𝜃 , the agent uses its original policy without an auxiliary scoring module or additional inference pass. 
+
+4 Experiments 
+
+4.1 Setup 
+
+Benchmarks, models, and evaluation. We evaluate ToolCompass on AppWorld [44] and FTRL [52], two multi-turn tool-use benchmarks with executable tools and verifiable task outcomes. We additionally evaluate semantic OOD transfer to three jointly held-out function classes on FTRL (Appendix B.1). In the main experiments, we partition the available tools into a seen set Utrain and a held-out set Uunseen . ID tasks can be completed using tools from 
+
+Utrain , whereas OOD tasks require at least one tool from Uunseen . The unseen tools and their function annotations are inaccessible during post-training; their specifications are provided to the agent only at evaluation time. The AppWorld test set contains 168 ID and 417 OOD tasks, and the FTRL test set contains 168 ID and 32 OOD tasks. We use Qwen3.5-4B and Qwen3.5-9B [43] as policy backbones. Throughout all experiments, we adopt the ReAct interaction scaffold [51], in which the agent interleaves language reasoning with executable tool calls and revises its subsequent decisions based on environment observations, including execution results and error messages. Following AppWorld [44], we use its state-based evaluator and report Task Success Rate, defined as the percentage of tasks for which all task-specific evaluation tests are passed. Following MatchTIR [30], we report Solve-F1 on FTRL, which balances tool-invocation precision and task-completion recall. For both benchmarks, we report performance on the ID subset, the OOD subset, and the entire test set. Detailed benchmark versions, post-training data, ID/OOD split construction, function-class annotations, prompts, interaction protocols, metric implementations, training and inference configurations, and computational resources are provided in Appendix A. 
+
+Baselines. We compare ToolCompass against six categories of baselines. First, prompting-based agents include GPT-5.5 [25], Claude Opus 4.8 [1], GLM-5.2 [55], and DeepSeek V4 Pro [49]. These agents use the same ReAct scaffold [51], tool specifications, interaction budget, and evaluation protocol described above. Second, general post-training objectives include GRPO [33], RFT [54], and DMPO [35]; we additionally augment each objective with ToolCompass to evaluate its compatibility with different host objectives. Unless otherwise stated, ToolCompass uses GRPO as the base objective in all remaining experiments. Third, turn-level tool-use post-training methods include StepTool [53], FTRL-M [52], MatchTIR [30], SOAR [13], and TRACE [42]. Fourth, tool-use RL methods include SimpleTIR [50], ToolMaster [5], and LOOP [2]. Fifth, we include SEAL [15] as a representation-learning baseline. Finally, the OOD-generalization comparison includes CORAL [40], Group DRO [31], ToolRL [27], and PAFT [20]. All trainable baselines use the same policy initialization, post-training data, tool specifications, and interaction budget whenever applicable. Baseline-specific adaptations and reproduction details are provided in Appendix A.6.   
+
+> 5ToolCompass: Guiding Tool Trialing, Not Suppressing It Radio Lab
+> Table 1.
+
+ToolCompass across post-training objectives. Results are task success rate (%) on AppWorld and Solve-F1 (%) on FTRL. Each objective is compared with its ToolCompass-augmented counterpart under the same backbone and training setup. AppWorld FTRL Method Variant ID OOD Total ID OOD Total 
+
+Qwen3.5-4B 
+
+GRPO [33] Original 58.33 56.83 57.26 34.82 60.40 38.91 
+
++ToolCompass 70.63 64.75 66.44 46.97 64.01 49.70 
+
+RFT [54] Original 44.64 35.01 37.78 34.93 52.17 37.69 
+
++ToolCompass 46.43 39.09 41.20 40.98 55.78 43.35 
+
+DMPO [35] Original 39.29 30.94 33.33 36.79 45.68 38.21 
+
++ToolCompass 44.44 33.97 36.98 42.37 52.92 44.06 
+
+Qwen3.5-9B 
+
+GRPO [33] Original 70.83 61.15 63.93 38.70 61.20 42.30 
+
++ToolCompass 78.17 70.02 72.36 48.99 64.98 51.55 
+
+RFT [54] Original 55.36 40.05 44.44 35.94 46.70 37.66 
+
++ToolCompass 60.12 50.76 53.45 40.70 57.39 43.37 
+
+DMPO [35] Original 60.71 49.16 52.48 37.63 53.93 40.24 
+
++ToolCompass 65.67 55.32 58.29 46.90 55.73 48.31 Full w/o var              
+
+> w/o sep
+> w/o vMF
+> Variant
+> 57 60 63 66
+> Task Success (%)  (a) Loss component
+> 0.05 0.1 0.2 0.4 0.6 0.8 1.0
+> Temperature τ
+> 57 60 63 66
+> (b) Temperature τ
+> 32 64 128 256 512
+> Dimension
+> 57 60 63 66
+> (c) Projection dimension d
+> 4812 16 20 24 28 32
+> Layer
+> 57 60 63 66
+> (d) Representation layer ℓ
+> Figure 5.
+
+Ablation studies. (a) Effect of loss components, (b) effect of the vMF temperature 𝜏 , (c) effect of projection dimension 
+
+𝑑 , and (d) effect of representation layer 𝑙 . Results are AppWorld task success rates using Qwen3.5-4B with GRPO and are averaged over three seeds. The orange horizontal line denotes vanilla GRPO. 
+
+4.2 Main Results 
+
+ToolCompass benefits across post-training objectives. Table 1 compares each post-training objective with its ToolCompass-augmented counterpart. ToolCompass improves every reported ID, OOD, and total score across both benchmarks and model scales. On Qwen3.5-4B, it improves the AppWorld and FTRL total scores by 9.18 and 10.79 percentage points with GRPO, 3.42 and 5.66 points with RFT, and 3.65 and 5.85 points with DMPO, respectively. The improvements remain consistent on Qwen3.5-9B, reaching up to 9.01 points on AppWorld and 9.25 points on FTRL. These results demonstrate that ToolCompass is consistently effective across different post-training objectives and model scales. 
+
+Comparison with competitive baselines. Table 2 compares ToolCompass with prompting-based agents and trainable tool-use methods. ToolCompass achieves the best OOD and total scores across both benchmarks and model scales. On AppWorld with Qwen3.5-9B, it reaches a total task success rate of 72.36%, compared with 68.26% for LOOP [2], the strongest baseline on this metric, a gain of 4.10 percentage points. We note that a few proprietary models remain competitive on the AppWorld ID split, likely because their training corpora may already cover related applications and tool-use data , yet ToolCompass surpasses all prompting-based agents on every OOD and total score. 
+
+Comparison with OOD-generalization methods. Table 3 compares ToolCompass with general and agent-oriented OOD-generalization methods under GRPO with Qwen3.5-4B. On AppWorld, ToolCompass achieves an OOD score of 64.75% and a total score of 66.44%, exceeding CORAL, the strongest baseline on both metrics, by 6.48 and 6.27 percentage points, respectively. On FTRL, ToolCompass reaches an OOD score of 64.01% and a total score of 49.70%, exceeding GRPO by 3.61 points on OOD and ToolRL by 7.12 points on total performance. ToolCompass thus generalizes to tasks requiring unseen tools more effectively than the compared baselines. 
+
+4.3 Analysis 
+
+Effect of loss components. We ablate each loss component by removing it from the full objective. As shown in Figure 5 (a), removing any component degrades performance. Removing LvMF causes the largest drop, from 66.44% to 57.21%, as the policy no longer receives function-level representation shaping. Removing Lvar allows tool calls implementing the same function to spread apart, while removing Lsep reduces the separation between different function prototypes. Both losses contribute to the performance of the full objective.  
+
+> 6ToolCompass: Guiding Tool Trialing, Not Suppressing It Radio Lab
+
+Table 2. Main comparison on AppWorld and FTRL. Results are task success rate (%) on AppWorld and Solve-F1 (%) on FTRL. All prompting models use the same ReAct scaffold [51]. Rep. learning abbreviates representation learning, and FTRL-M is the multi-turn variant of the FTRL method. For brevity, we report mean ± standard deviation over the same three seeds for LOOP, SEAL, and ToolCompass. AppWorld FTRL Method Category ID OOD Total ID OOD Total 
+
+Prompting-based 
+
+GPT-5.5 [25] Prompting 70.24 63.07 65.13 33.06 54.32 36.46 Claude Opus 4.8 [1] Prompting 70.83 58.51 62.05 44.18 49.64 45.05 GLM-5.2 [55] Prompting 58.33 54.92 55.90 40.64 43.85 41.15 DeepSeek V4 Pro [49] Prompting 70.24 55.64 59.83 35.52 52.23 38.20 
+
+Qwen3.5-4B 
+
+GRPO [33] Base RL 58.33 56.83 57.26 34.82 60.40 38.91 DMPO [35] Base RL 39.29 30.94 33.33 36.79 45.68 38.21 StepTool [53] Turn-level RL 65.48 52.76 56.41 40.11 49.59 41.63 FTRL-M [52] Turn-level RL 65.48 53.00 56.58 36.81 59.01 40.36 MatchTIR [30] Turn-level RL 69.05 53.96 58.29 39.91 50.41 41.59 SOAR [13] Turn-level RL 64.88 50.12 54.36 35.55 57.64 39.08 TRACE [42] Turn-level RL 69.05 55.16 59.15 39.26 55.94 41.93 SimpleTIR [50] Tool RL 63.69 55.64 57.95 42.94 55.45 44.95 ToolMaster [5] Tool RL 60.12 57.55 58.29 42.85 48.26 43.71 LOOP [2] Tool RL 65 .87 ±0.43 58 .99 ±0.92 60 .97 ±0.65 41 .83 ±1.03 57 .72 ±2.14 44 .37 ±1.07 
+
+SEAL [15] Rep. learning 67 .26 ±1.19 59 .23 ±0.96 61 .54 ±1.03 38 .02 ±1.49 57 .94 ±2.51 41 .21 ±1.63 
+
+ToolCompass (ours) Rep. learning 70 .63 ±0.91 64 .75 ±1.27 66 .44 ±1.09 46 .97 ±1.76 64 .01 ±2.39 49 .70 ±1.53 
+
+Qwen3.5-9B 
+
+GRPO [33] Base RL 70.83 61.15 63.93 38.70 61.20 42.30 DMPO [35] Base RL 60.71 49.16 52.48 37.63 53.93 40.24 StepTool [53] Turn-level RL 74.40 59.95 64.10 46.50 44.23 46.13 FTRL-M [52] Turn-level RL 72.02 61.63 64.62 42.79 51.36 44.16 MatchTIR [30] Turn-level RL 75.60 58.27 63.25 48.41 45.36 47.93 SOAR [13] Turn-level RL 62.50 53.24 55.90 42.85 52.28 44.36 TRACE [42] Turn-level RL 74.40 57.79 62.56 48.89 49.92 49.05 SimpleTIR [50] Tool RL 72.02 65.71 67.52 46.04 58.27 47.99 ToolMaster [5] Tool RL 71.43 61.87 64.62 44.67 54.96 46.31 LOOP [2] Tool RL 71 .03 ±0.57 67 .15 ±0.91 68 .26 ±0.71 43 .61 ±1.27 58 .55 ±1.41 46 .00 ±0.99 
+
+SEAL [15] Rep. learning 76 .79 ±1.19 63 .47 ±0.97 67 .29 ±1.03 46 .92 ±1.48 58 .53 ±2.46 48 .78 ±1.57 
+
+ToolCompass (ours) Rep. learning 78 .17 ±1.37 70 .02 ±1.87 72 .36 ±1.55 48 .99 ±1.21 64 .98 ±2.18 51 .55 ±1.07 EMA Learnable Batch 60 63 66  
+
+> Task Success (%)
+> 66.44 62.28 64.62
+> (a) Prototype estimation
+> Cosine L2 60 63 66
+> 66.44 60.28
+> (b) Distance metric
+
+Figure 6. Analysis of design choices. (a) Effect of prototype estimation and (b) effect of distance metric. Results are AppWorld task success rates using Qwen3.5-4B with GRPO and are averaged over three seeds. 
+
+Effect of the temperature 𝜏 . We vary the temperature 
+
+𝜏 of the vMF objective. Figure 5 (b) shows that perfor-mance peaks at 𝜏 = 0.4 and remains competitive across a wide range, suggesting that ToolCompass is robust to the temperature setting. 
+
+Effect of the output dimension 𝑑 . We vary the output dimension of the projection head. As shown in Figure 5 (c), performance peaks at 𝑑 = 128 and remains competitive across a wide range, showing that ToolCompass is not sensitive to a specific projection dimension. 
+
+How do different layers impact ToolCompass? In Figure 5 (d), we extract tool-call representations from different layers. Performance peaks at layer 𝑙 = 8, suggesting that early-to-intermediate layers preserve the most transferable function-level information. ToolCompass remains above vanilla GRPO across all tested layers, indicating that it does not rely on a specific layer depth to be effective. Performance at the top layers degrades, likely because their representations become specialized for next-token prediction and drift away from the function-level semantics of the call. 
+
+Effect of prototype estimation. We compare EMA prototypes with learnable and batch-estimated prototypes. As shown in Figure 6(a), EMA prototype estimation achieves the best performance, suggesting that smoothly tracking the evolving representation space provides more stable function-level targets. We further ablate the EMA factor 𝛼 in Appendix B.4. 
+
+7ToolCompass: Guiding Tool Trialing, Not Suppressing It Radio Lab  
+
+> Table 3.
+
+Comparison with OOD generalization methods. All methods use GRPO with Qwen3.5-4B. Results are task success rate (%) on AppWorld and Solve-F1 (%) on FTRL. 
+
+AppWorld FTRL Method Category ID OOD Total ID OOD Total GRPO [33] Vanilla RL 58.33 56.83 57.26 34.82 60.40 38.91 CORAL [40] General OOD 64.88 58.27 60.17 33.73 58.98 37.77 Group DRO [31] General OOD 67.86 54.68 58.46 35.55 58.98 39.30 ToolRL [27] Agentic OOD 68.45 56.12 59.66 39.20 60.32 42.58 PAFT [20] Agentic OOD 60.12 51.56 54.02 36.47 57.84 39.89 
+
+ToolCompass (ours) Agentic OOD 70.63 64.75 66.44 46.97 64.01 49.70 GRPO ToolCompass MatchTIR       
+
+> 010 20 30
+> Average calls per task  31.55 26.51 20.87
+> (a) Total tool calls
+> GRPO ToolCompass MatchTIR
+> 04812 10.47 12.61 4.21
+> (b) Useful trialing
+> GRPO ToolCompass MatchTIR
+> 04812
+> 12.75 4.07 6.95
+> (c) Unproductive trialing
+> Figure 7.
+
+Tool-call analysis on AppWorld OOD tasks. (a) Total tool calls, (b) useful trialing, and (c) unproductive trialing. ToolCompass shows more useful trialing and less unproductive trialing than GRPO. 
+
+Effect of distance metric. We compare cosine similarity with negative unsquared L2 scores at a fixed temperature (Appendix A.3). Figure 6(b) shows that cosine achieves 66.44% task success, compared with 60.28% for L2 under the same configuration.  
+
+> Table 4.
+
+Generalization across datasets. Results (%) compare vanilla GRPO and ToolCompass using Qwen3.5-4B. Test dataset GRPO ToolCompass 
+
+Training dataset: AppWorld 
+
+AppWorld 57.21 66.44 
+
+FTRL 35.72 42.31 
+
+Training dataset: FTRL 
+
+AppWorld 53.03 60.51 
+
+FTRL 38.91 49.70 
+
+Generalization across datasets. We train GRPO and Tool-Compass on a source dataset and directly evaluate them on a different target dataset. As shown in Table 4, ToolCompass outperforms vanilla GRPO in both transfer directions. For example, training ToolCompass on FTRL yields 60.51% task success on AppWorld, compared with 66.44% when trained on AppWorld itself. These results suggest that the benefits of ToolCompass extend to cross-dataset transfer. 
+
+Does ToolCompass guide rather than suppress tool tri-aling? We categorize tool calls following Appendix B.8. Figure 7 shows that ToolCompass makes fewer calls than GRPO (26.51 vs. 31.55) but more than MatchTIR (20.87). It retains more useful trials than GRPO and MatchTIR (12.61 vs. 10.47 and 4.21) and fewer unproductive trials than GRPO (4.07 vs. 12.75). These results are consistent with guided tool trialing: ToolCompass retains more useful trials while reducing unproductive ones. 
+
+Additional analysis. We provide further analyses in the Appendix: (1) semantic OOD analysis on FTRL with three jointly held-out function classes (Appendix B.1); (2) comparisons with alternative training objectives (Appendix B.2); (3) ablations on loss weights (Appendix B.3) and the EMA factor 𝛼 in Equation 6 (Appendix B.4); (4) qualitative case studies on AppWorld OOD tasks (Appendix B.5); and (5) AppWorld metrics on Scenario Goal Completion (Appendix B.6). 
+
+5 Related Work 
+
+OOD generalization. Conventional OOD generalization improves robustness through domain alignment, robust optimization, or representation learning [31, 40]. These methods study fixed prediction, whereas tool-use agents face shifts in tasks, tools, observations, and interactions. Recent studies expose weak transfer across agent environments [20, 47], while tool-specific work uses synthetic environments [3, 8, 39, 41], self-verification or interface optimization [7, 23], open-world retrieval [9, 24, 46, 59], generalization-aware rewards [27, 57], and documentation adaptation for evolving tools [45]. ToolCompass instead organizes tool-call representations by shared function during post-training, enabling transfer to unseen tools without accessing them or adding test-time adaptation. 
+
+Tool-use agents. LLM agents use external tools through prompting, pretraining, and instruction tuning [14, 17, 26, 28, 32, 34, 51]. Post-training methods optimize trajectory outcomes [2, 4, 10, 27, 50, 57], while environment-feedback and teacher-guided methods learn self-correction and trial-and-error [6, 36, 37, 38]. Sparse long-horizon rewards  
+
+> 8ToolCompass: Guiding Tool Trialing, Not Suppressing It Radio Lab
+
+motivate turn-level and error-localized supervision [12, 16, 19, 30, 42, 48, 53, 56], which matches gold traces, estimates turn contributions, or localizes irrecoverable actions. ToolMaster [5] is a related approach to tool trialing; however, it requires an additional teacher model to generate trialing trajectories. ToolCompass instead guides trialing through shared-function representations, without additional trajectory supervision, frozen turn scorers, or inference overhead. 
+
+6 Conclusion 
+
+We propose ToolCompass, a novel framework for guiding tool trialing to improve OOD tool use. Our framework leverages function-class assignments and a vMF objective to shape the tool-call representation space, enabling experience to transfer from seen tools to functionally related unseen tools. ToolCompass requires neither ground-truth call traces nor unseen-tool access, introduces no inference overhead, and can be readily plugged into diverse post-training methods. Extensive experiments show that ToolCompass consistently improves tool-use performance across benchmarks, model scales, and post-training methods. We hope our work can inspire future research on guided tool trialing and more broadly on building generalizable tool-use agents in the wild. 
+
+References 
+
+[1] Anthropic. Claude Opus 4.8 system card. Technical report, Anthropic, May 2026. [2] Kevin Chen, Marco Cusumano-Towner, Brody Huval, Aleksei Petrenko, Jackson Hamburger, Vladlen Koltun, and Philipp Krähenbühl. Reinforcement learning for long-horizon interactive llm agents. arXiv preprint arXiv:2502.01600 , 2025. [3] Weihua Du, Hailei Gong, Zhan Ling, Kang Liu, Lingfeng Shen, Xuesong Yao, Yufei Xu, Dingyuan Shi, Yiming Yang, and Jiecao Chen. Generalizable end-to-end tool-use RL with synthetic codegym. In The Fourteenth International Conference on Learning Representations , 2026. URL https://openreview.net/forum?id=QRSeFZfu8E .[4] Jiazhan Feng, Shijue Huang, Xingwei Qu, Ge Zhang, Yujia Qin, Baoquan Zhong, Chengquan Jiang, Jinxin Chi, and Wanjun Zhong. ReTool: Reinforcement learning for strategic tool use in LLMs. In International Conference on Learning Representations , volume 2026, pages 37909–37926, 2026. [5] Xingjie Gao, Pengcheng Huang, Zhenghao Liu, Yukun Yan, Shuo Wang, Zulong Chen, Chen Qian, Ge Yu, and Yu Gu. Teaching LLMs to learn tool trialing and execution through environment interaction. arXiv preprint arXiv:2601.12762 , 2026. [6] Zhibin Gou, Zhihong Shao, Yeyun Gong, yelong shen, Yujiu Yang, Nan Duan, and Weizhu Chen. CRITIC: Large language models can self-correct with tool-interactive critiquing. In International Conference on Learning Representations , volume 2024, pages 57734–57811, 2024. [7] Ruocheng Guo, Kaiwen Dong, Xiang Gao, and Kamalika Das. Learning to rewrite tool descriptions for reliable llm-agent tool use. arXiv preprint arXiv:2602.20426 , 2026. [8] Jie He, Jennifer Neville, Mengting Wan, Longqi Yang, Hui Liu, Xiaofeng Xu, Xia Song, Jeff Z Pan, and Pei Zhou. GenTool: Enhancing tool generalization in language models through zero-to-one and weak-to-strong simulation. In Findings of the Association for Computational Linguistics: ACL 2025 , pages 1097–1122, 2025. [9] Shouzheng Huang, Meishan Zhang, Baotian Hu, and Min Zhang. Toolomni: Enabling open-world tool use via agentic learning with proactive retrieval and grounded execution. In Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 37421–37439, 2026. [10] Bowen Jin, Hansi Zeng, Zhenrui Yue, Jinsung Yoon, Sercan Arik, Dong Wang, Hamed Zamani, and Jiawei Han. Search-R1: Training LLMs to reason and leverage search engines with reinforcement learning. arXiv preprint arXiv:2503.09516 , 2025. [11] Prannay Khosla, Piotr Teterwak, Chen Wang, Aaron Sarna, Yonglong Tian, Phillip Isola, Aaron Maschinot, Ce Liu, and Dilip Krishnan. Supervised contrastive learning. Advances in neural information processing systems , 33:18661–18673, 2020. [12] Junbo Li, Peng Zhou, Rui Meng, Meet P Vadera, Lihong Li, and Yang Li. Turn-ppo: Turn-level advantage estimation with ppo for improved multi-turn rl in agentic llms. In Findings of the Association for Computational Linguistics: EACL 2026 ,pages 6227–6243, 2026. [13] Meng Li, Lei Li, Xiting Wang, Yi Yuan, Zheng Wei, Zang Li, et al. Soar: Supervision from observation for agentic reinforcement learning. In Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 35175–35197, 2026. [14] Minghao Li, Yingxiu Zhao, Bowen Yu, Feifan Song, Hangyu Li, Haiyang Yu, Zhoujun Li, Fei Huang, and Yongbin Li. Api-bank: A comprehensive benchmark for tool-augmented llms. In Proceedings of the 2023 conference on empirical methods in natural language processing , pages 3102–3116, 2023. [15] Wendi Li, Shawn Im, and Sharon Li. Cyclical entropy eruption: Entropy dynamics in agent reinforcement learning. arXiv preprint arXiv:2605.27954 , 2026. [16] Qiao Liang, Yuke Zhu, Chao Ge, Lei Yang, Ying Shen, Bo Zheng, and Sheng Guo. Learning from the irrecoverable: Error-localized policy optimization for tool-integrated llm reasoning. In Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 11008–11028, 2026. [17] Yaobo Liang, Chenfei Wu, Ting Song, Wenshan Wu, Yan Xia, Yu Liu, Yang Ou, Shuai Lu, Lei Ji, Shaoguang Mao, et al. Taskmatrix. ai: Completing tasks by connecting foundation models with millions of apis. Intelligent Computing , 3:0063, 2024.  
+
+> 9ToolCompass: Guiding Tool Trialing, Not Suppressing It Radio Lab
+
+[18] Tengxiao Liu, Zifeng Wang, Jin Miao, I Hsu, Jun Yan, Jiefeng Chen, Rujun Han, Fangyuan Xu, Yanfei Chen, Ke Jiang, et al. Budget-aware tool-use enables effective agent scaling. arXiv preprint arXiv:2511.17006 , 2025. [19] Xufang Luo, Yuge Zhang, Zhiyuan He, Zilong Wang, Siyun Zhao, Dongsheng Li, Luna K Qiu, and Yuqing Yang. Agent lightning: Train any ai agents with reinforcement learning. arXiv preprint arXiv:2508.03680 , 2025. [20] Song-Lin Lv, Weiming Wu, Rui Zhu, Zi-Jian Cheng, and Lan-Zhe Guo. Can agents generalize to the open world? unveiling the fragility of static training in tool use. arXiv preprint arXiv:2607.01084 , 2026. [21] Isham Kalappurackal Mansoor, Abhishek Phadke, and Pratip Rana. Verified tool calls improve llm agent reliability under non-atomic failures. arXiv preprint arXiv:2608.02645 , 2026. [22] Kanti V Mardia and Peter E Jupp. Directional statistics . John Wiley & Sons, 2009. [23] Dheeraj Mekala, Jason E Weston, Jack Lanchantin, Roberta Raileanu, Maria Lomeli, Jingbo Shang, and Jane Dwivedi-Yu. ToolVerifier: Generalization to new tools via self-verification. In Findings of the Association for Computational Linguistics: EMNLP 2024 , pages 5026–5041, 2024. [24] Lorenzo Molfetta, Giacomo Frisoni, Nicolò Monaldini, and Gianluca Moro. Ports: Preference-optimized retrievers for tool selection with large language models. In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing , pages 10018–10041, 2025. [25] OpenAI. GPT-5.5 system card. Technical report, OpenAI, April 2026. [26] Shishir G Patil, Tianjun Zhang, Xin Wang, and Joseph E Gonzalez. Gorilla: Large language model connected with massive APIs. Advances in Neural Information Processing Systems , 37:126544–126565, 2024. [27] Cheng Qian, Emre Can Acikgoz, Qi He, Hongru WANG, Xiusi Chen, Dilek Hakkani-Tur, Gokhan Tur, and Heng Ji. ToolRL: Reward is all tool learning needs. In Advances in Neural Information Processing Systems , volume 38, Main Conference, pages 105523–105553, 2025. doi: 10.52202/085713-3524. [28] Yujia Qin, Shihao Liang, Yining Ye, Kunlun Zhu, Lan Yan, Yaxi Lu, Yankai Lin, Xin Cong, Xiangru Tang, Bill Qian, et al. ToolLLM: Facilitating large language models to master 16000+ real-world APIs. In International Conference on Learning Representations , volume 2024, pages 9695–9717, 2024. [29] Changle Qu, Sunhao Dai, Xiaochi Wei, Hengyi Cai, Shuaiqiang Wang, Dawei Yin, Jun Xu, and Ji-Rong Wen. Tool learning with large language models: A survey. Frontiers of Computer Science , 19(8):198343, 2025. [30] Changle Qu, Sunhao Dai, Hengyi Cai, Jun Xu, Shuaiqiang Wang, and Dawei Yin. MatchTIR: Fine-grained supervision for tool-integrated reasoning via bipartite matching. In Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 11953–11968, 2026. [31] Shiori Sagawa, Pang Wei Koh, Tatsunori B. Hashimoto, and Percy Liang. Distributionally robust neural networks. In 
+
+International Conference on Learning Representations , 2020. URL https://openreview.net/forum?id=ryxGuJrFvS .[32] Timo Schick, Jane Dwivedi-Yu, Roberto Dessì, Roberta Raileanu, Maria Lomeli, Eric Hambro, Luke Zettlemoyer, Nicola Cancedda, and Thomas Scialom. Toolformer: Language models can teach themselves to use tools. Advances in neural information processing systems , 36:68539–68551, 2023. [33] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, YK Li, Yang Wu, et al. DeepSeekMath: Pushing the limits of mathematical reasoning in open language models. arXiv preprint arXiv:2402.03300 , 2024. [34] Yongliang Shen, Kaitao Song, Xu Tan, Dongsheng Li, Weiming Lu, and Yueting Zhuang. Hugginggpt: Solving ai tasks with chatgpt and its friends in hugging face. Advances in Neural Information Processing Systems , 36:38154–38180, 2023. [35] Wentao Shi, Mengqi Yuan, Junkang Wu, Qifan Wang, and Fuli Feng. Direct multi-turn preference optimization for language agents. In Conference on Empirical Methods in Natural Language Processing (EMNLP) , 2024. [36] Noah Shinn, Federico Cassano, Ashwin Gopinath, Karthik Narasimhan, and Shunyu Yao. Reflexion: Language agents with verbal reinforcement learning. Advances in neural information processing systems , 36:8634–8652, 2023. [37] Yifan Song, Da Yin, Xiang Yue, Jie Huang, Sujian Li, and Bill Yuchen Lin. Trial and error: Exploration-based trajectory optimization of LLM agents. In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 7584–7600, 2024. [38] Junhao Su, Yuanliang Wan, Junwei Yang, Hengyu Shi, Tianyang Han, Yurui Qiu, and Junfeng Luo. Failure makes the agent stronger: Enhancing accuracy through structured reflection for reliable tool interactions. In Findings of the Association for Computational Linguistics: ACL 2026 , pages 12712–12734, 2026. [39] Michael Sullivan, Mareike Hartmann, and Alexander Koller. Procedural environment generation for tool-use agents. In 
+
+Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing , pages 18555–18573, 2025. [40] Baochen Sun and Kate Saenko. Deep coral: Correlation alignment for deep domain adaptation. In European conference on computer vision , pages 443–450. Springer, 2016. [41] Qiaoyu Tang, Ziliang Deng, Hongyu Lin, Xianpei Han, Qiao Liang, Boxi Cao, and Le Sun. ToolAlpaca: Generalized tool learning for language models with 3000 simulated cases. arXiv preprint arXiv:2306.05301 , 2023. [42] Leitian Tao, Baolin Peng, Wenlin Yao, Tao Ge, Hao Cheng, Mike Hang Wang, Jianfeng Gao, and Sharon Li. TRACE: Turn-level reward assignment via credit estimation for long-horizon agents. arXiv preprint arXiv:2607.13988 , 2026. [43] Qwen Team. Qwen3.5: Accelerating productivity with native multimodal agents, February 2026. URL https://qwen.ai/ blog?id=qwen3.5 . 
+
+> 10 ToolCompass: Guiding Tool Trialing, Not Suppressing It Radio Lab
+
+[44] Harsh Trivedi, Tushar Khot, Mareike Hartmann, Ruskin Manku, Vinty Dong, Edward Li, Shashank Gupta, Ashish Sabharwal, and Niranjan Balasubramanian. AppWorld: A controllable world of apps and people for benchmarking interactive coding agents. In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 16022–16076, 2024. [45] Bin Wu, Edgar Meij, and Emine Yilmaz. Beyond static toolsets: Self-evolving llm tool agents via continual documentation adaptation. In Findings of the Association for Computational Linguistics: ACL 2026 , pages 21519–21539, 2026. [46] Mengsong Wu, Tong Zhu, Han Han, Xiang Zhang, Wenbiao Shao, and Wenliang Chen. Chain-of-tools: Utilizing massive unseen tools in the cot reasoning of frozen language models. arXiv preprint arXiv:2503.16779 , 2025. [47] Zhiheng Xi, Xin Guo, Jiaqi Liu, Jiazheng Zhang, Yutao Fan, Zhihao Zhang, Shichun Liu, Mingxu Chai, Xiaowei Shi, Yitao Zhai, et al. Can rl improve generalization of llm agents? an empirical study. arXiv preprint arXiv:2603.12011 , 2026. [48] Yutao Xie, Nathaniel Thomas, Nick Hansen, Yang Fu, Li Li, and Xiaolong Wang. TIPS: Turn-level information-potential reward shaping for search-augmented LLMs. In International Conference on Learning Representations , volume 2026, pages 156549–156584, 2026. [49] Anyi Xu, Bangcai Lin, Bing Xue, Bingxuan Wang, Bingzheng Xu, Bochao Wu, Bowei Zhang, Chaofan Lin, Chen Dong, Chenchen Ling, et al. Deepseek-v4: Towards highly efficient million-token context intelligence. arXiv preprint arXiv:2606.19348 , 2026. [50] Zhenghai Xue, Longtao Zheng, Qian Liu, Yingru Li, Xiaosen Zheng, Zejun Ma, and Bo An. Simpletir: End-to-end reinforcement learning for multi-turn tool-integrated reasoning. In International Conference on Learning Representations ,volume 2026, pages 8424–8449, 2026. [51] Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak Shafran, Karthik R Narasimhan, and Yuan Cao. ReAct: Synergizing reasoning and acting in language models. In The Eleventh International Conference on Learning Representations , 2023. [52] Junjie Ye, Changhao Jiang, Zhengyin Du, Yufei Xu, Xuesong Yao, Zhiheng Xi, Xiaoran Fan, Qi Zhang, Tao Gui, Xuan-Jing Huang, et al. Feedback-driven tool-use improvements in large language models via automated build environments. In 
+
+Findings of the Association for Computational Linguistics: ACL 2026 , pages 2293–2323, 2026. [53] Yuanqing Yu, Zhefan Wang, Weizhi Ma, Shuai Wang, Chuhan Wu, Zhiqiang Guo, and Min Zhang. StepTool: Enhancing multi-step tool usage in LLMs via step-grained reinforcement learning. In Proceedings of the 34th ACM International Conference on Information and Knowledge Management , pages 3952–3962, 2025. [54] Zheng Yuan, Hongyi Yuan, Chengpeng Li, Guanting Dong, Keming Lu, Chuanqi Tan, Chang Zhou, and Jingren Zhou. Scaling relationship on learning mathematical reasoning with large language models. arXiv preprint arXiv:2308.01825 , 2023. [55] Aohan Zeng, Xin Lv, Zhenyu Hou, Zhengxiao Du, Qinkai Zheng, Bin Chen, Da Yin, Chendi Ge, Chenghua Huang, Chengxing Xie, et al. Glm-5: from vibe coding to agentic engineering. arXiv preprint arXiv:2602.15763 , 2026. [56] Siliang Zeng, Quan Wei, William Brown, Oana Frunza, Yuriy Nevmyvaka, Yang Katie Zhao, and Mingyi Hong. Reinforcing multi-turn reasoning in LLM agents via turn-level credit assignment. In ICML 2025 Workshop on Computer Use Agents ,2025. [57] Yirong Zeng, Xiao Ding, Yutai Hou, Yuxian Wang, Li Du, Juyi Dai, Qiuyang Ding, Duyu Tang, Dandan Tu, Weiwen Liu, et al. Tool zero: Training tool-augmented llms via pure rl from scratch. In EMNLP (Findings) , pages 9135–9147, 2025. [58] Lianmin Zheng, Wei-Lin Chiang, Ying Sheng, Siyuan Zhuang, Zhanghao Wu, Yonghao Zhuang, Zi Lin, Zhuohan Li, Dacheng Li, Eric Xing, et al. Judging llm-as-a-judge with mt-bench and chatbot arena. Advances in neural information processing systems , 36:46595–46623, 2023. [59] Luyao Zhuang, Qinggang Zhang, Huachi Zhou, Yujing Zhang, and Xiao Huang. Losemb: Logic-guided semantic bridging for inductive tool retrieval. In Proceedings of the ACM Web Conference 2026 , pages 3835–3846, 2026.  
+
+> 11 ToolCompass: Guiding Tool Trialing, Not Suppressing It Radio Lab
+
+# Appendix 
+
+A Additional Experimental Details 
+
+A.1 Dataset Details 
+
+We evaluate ToolCompass on two multi-turn tool-use benchmarks, AppWorld and FTRL, both of which provide executable tools and verifiable task outcomes. For each benchmark, we describe the dataset contents, the ID/OOD split construction, and the evaluation protocol below. 
+
+AppWorld. We use the publicly released AppWorld benchmark [44], 1 with 90 training tasks across 30 scenarios and 473 APIs. The benchmark provides two official test splits: Test-C contains all tasks that require at least one API from the designated unseen applications (i.e., Amazon and Gmail), and Test-N contains the test tasks that do not require them. Therefore, we treat Test-N as the ID test set and Test-C as the OOD test set, containing 168 and 417 tasks, respectively. No training task requires the unseen applications. Each task is scored by the official state-based evaluator, which runs task-specific tests against the final environment state. Post-training uses the outcome reward returned by this evaluator. We report the task success rate, i.e., the percentage of tasks that pass all evaluation tests. Results under the stricter Scenario Goal Completion (SGC) metric are provided in Appendix B.6. 
+
+FTRL. FTRL [52] covers single-hop and multi-hop tool-use queries, each associated with a subject domain. To construct a covariate-shift OOD split, we hold out five domains: Health, Medicine and Public Health; Music and Performing Arts; Politics, Governance and Law; Sports and Competitions; and Zoology and Animal Science. Their tools are excluded during post-training, while their function classes remain covered by the seen domains. The test set contains 168 ID queries and 32 OOD queries; an OOD query requires at least one held-out-domain tool. Post-training uses 1,615 training instances that do not require these tools. Following the official protocol, we compute the metrics per query: for a trajectory with 𝑝 tool calls that solves 𝑞 of the 𝑛 required sub-questions, Solve-P = 𝑞 /𝑝 measures tool-invocation precision, Solve-R = 𝑞 /𝑛 measures task-completion recall, and Solve-F1 is their harmonic mean. 
+
+A.2 Input Prompts 
+
+We use the official task prompts of AppWorld [44] and FTRL [52], shown in Figures A.1 and A.2. 
+
+A.3 Implementation Details 
+
+General setup. We use Qwen3.5-4B and Qwen3.5-9B [43] as policy backbones and adopt the same ReAct interaction scaffold [51] for all methods. Unless otherwise specified, ToolCompass uses GRPO as the host objective. All trainable methods are optimized with Adam. Following AppWorld [44], we select hyperparameters on its official development split. On FTRL [52], we follow MatchTIR’s released protocol [30], using the test split for hyperparameter selection. We apply the same selection protocol to ToolCompass and all baselines. The default online training configurations for both benchmarks are summarized in Table A.1. 
+
+Interaction and inference. We follow the released interaction protocol of each benchmark. In AppWorld, the agent retrieves app descriptions and API specifications on demand through the api_docs interface, and the specifications of Amazon and Gmail become available only at evaluation time. In FTRL, each query is paired with a fixed candidate set of tool schemas, which is passed to the policy through the native tool-calling interface. Training rollouts and evaluation both use sampled decoding with temperature 1.0 and top-𝑝 = 1.0. Each reported three-seed result trains and evaluates the complete pipeline with three random seeds, which control the initialization of the projection head and prototypes, the data order, and rollout sampling. 
+
+ToolCompass configuration. For each tool call, we extract the hidden state of the call’s final token from layer 
+
+𝑙 = 8 of the policy backbone; Appendix A.4 illustrates the extraction. The projection head 𝑔 𝜓 is implemented as a two-layer MLP with output dimension 𝑑 = 128. Function prototypes are randomly initialized as unit vectors and updated with an exponential moving average (EMA). We set the temperature 𝜏 = 0.4, the loss weights 𝜆 vMF = 0.02 and 𝜆 sep = 2, and the EMA factor 𝛼 = 0.9. Both the projection head and the prototypes are not used at deployment, so ToolCompass adds no inference-time overhead. For the distance-metric ablation in Figure 6(b), we replace the cosine score a⊤b/𝜏 with the negative unsquared Euclidean score −∥ a − b∥2/𝜏 in both Lvar and Lsep . Here, a is the unit-normalized tool-call representation or batch direction, and b is the unit prototype. Both variants use 𝜏 = 0.4, with the projection head, EMA update, and loss weights unchanged.  
+
+> 1https://github.com/StonyBrookNLP/appworld
+> 12 ToolCompass: Guiding Tool Trialing, Not Suppressing It Radio Lab
+> AppWorld ReAct Prompt
+
+I am your supervisor and you are a super intelligent AI Assistant whose job is to achieve my day-to-day tasks completely autonomously. You will interact with apps using their associated APIs through a multi-step conversation in a Python REPL. Write Python code; the environment will execute it and return the result, which you can use in the next step. # List the available apps. print(apis.api_docs.show_app_descriptions()) # List the APIs of an app. print(apis.api_docs.show_api_descriptions(app_name=’<app_name>’)) # Show the specification of an API. print(apis.api_docs.show_api_doc( app_name=’<app_name>’, api_name=’<api_name>’)) Use only the provided APIs. Write one small code block at each step and use results from previous steps when needed. When the task is complete, call apis.supervisor.complete_task(); if an answer is required, pass it through the answer argument. My name is: {supervisor_first_name} {supervisor_last_name}. My personal email is {supervisor_email} and phone number is {supervisor_phone_number}. Your task is: {task_description} Reason about the next API call within <think> </think> tags and place the code body within <code> </code> tags.  
+
+> Figure A.1.
+
+Task-facing AppWorld ReAct prompt. The demonstration and standard environment disclaimers in the released prompt are omitted for space. 
+
+> FTRL ReAct Prompt
+
+Please call given tools to answer the question. Please note that all your information must be obtained by calling tools and not by answering the question directly. If the call fails, you need to try to correct it and continue until you arrive at an answer. Question: {question}  
+
+> Figure A.2.
+
+Task prompt used for FTRL. The query-specific tool schemas are supplied through the native tool-calling interface. 
+
+A.4 Tool-Call Representation Extraction 
+
+ToolCompass represents each tool call by the hidden state of the call’s final token. When a code block contains multiple API calls, we extract a separate representation for each call at its own final token. Figure A.3 illustrates a code block with two API calls. For call 𝑖 , we take the layer-𝑙 = 8 hidden state at its final token as h𝑖 and compute 
+
+z𝑖 = Normalize (𝑔 𝜓 (h𝑖 )) . The two calls therefore contribute two representations to the representation-shaping objective. The same extraction rule applies to the FTRL tool-calling format. 
+
+A.5 Domain and Function-Class Annotations 
+
+Following Zheng et al. [58], we use GPT-5.6-sol to annotate the tools in both benchmarks with domain labels and function-class labels.   
+
+> 13 ToolCompass: Guiding Tool Trialing, Not Suppressing It Radio Lab
+> Table A.1. Default online training configuration.
+
+Hyperparameter AppWorld FTRL Prompts per update 40 256 Rollouts per prompt 6 16 Global batch size 240 4,096 Maximum training turns 40 10 Maximum evaluation turns 40 20 Maximum generated tokens per turn 2,000 4,096 Maximum response length 2,000 23,000 Learning rate 1 × 10 −6
+
+Weight decay 0.01 KL coefficient 0.001 Entropy coefficient 0.001 Clipping range 0.2 Gradient clipping 1.0 Training duration 10 epochs 3 epochs          
+
+> Tool-Call Representation Extraction
+> <think> I first find the artist, then search for their songs. </think> <code> artists = apis.spotify.search_artists(query="Lily Moon") # call 1 ends here artist_id = artists[0]["artist_id"] songs = apis.spotify.search_songs( query="Lily Moon", artist_id=artist_id )# call 2 ends here </code>
+> Figure A.3. Tool-call representation extraction from a code block containing two AppWorld API calls. The final token of each call provides its own layer-𝑙 =8 hidden state, h1and h2, which are independently projected and normalized.
+> Table A.2. Statistics of the function-class annotations. The ten AppWorld meta APIs are excluded from the representation-shaping objective.
+
+Dataset Tools/APIs Function classes Average class size AppWorld 463 14 33.1 FTRL 4,545 9 505.0 
+
+Domain annotation. Both benchmarks share the same domain-annotation prompt, shown in Figure A.4; the closed taxonomy is instantiated per benchmark. This yields nine application domains for AppWorld and 27 subject domains for FTRL. The ten AppWorld meta APIs ( api_docs and supervisor ) are infrastructure and receive no domain label. 
+
+Function-class annotation. GPT-5.6-sol assigns a function-class label to each of the 473 AppWorld APIs and 4,545 FTRL tools. The 463 ordinary AppWorld APIs are grouped into 14 function classes, while the ten meta APIs are labeled META and excluded from the representation-shaping objective; the FTRL tools are grouped into nine function classes. Only the labels of tools observed during post-training enter the objective, and the annotations of OOD tools are never accessed. The prompts are shown in Figures A.5 and A.6, and Table A.2 summarizes the statistics of the resulting annotations. 
+
+Annotation verification. To assess annotation quality, three annotators independently verify all 463 AppWorld APIs and a random sample of 200 FTRL tools, and we compute Fleiss’s kappa over the three sets of labels. The kappa scores are 0.86 on AppWorld and 0.83 on FTRL, with raw agreement rates of 88.77% and 85.17%, respectively; the remaining disagreements are resolved by discussion. The strong agreement indicates that the function classes can be consistently identified from tool specifications. 
+
+A.6 Baseline Details 
+
+We follow the baseline formulations in the cited papers and use the interaction and evaluation protocols described in Appendix A.3. Baseline-specific objectives are summarized below.   
+
+> 14 ToolCompass: Guiding Tool Trialing, Not Suppressing It Radio Lab
+> Domain Annotation Prompt
+> You label software tools by their DOMAIN. The domain is the real-world topic or application area that a tool operates on, not the operation it performs. Use the tool description as the primary evidence. The tool name is supporting evidence only. Choose exactly one domain from the closed taxonomy below: {domain_taxonomy} Important boundaries: - Judge the topic of the data the tool reads or writes, not the action type; functional intent is labeled separately. - A tool that searches, computes, or verifies within one topic area belongs to that area. - If several domains are involved, label the dominant one. Lower confidence when the description is genuinely underspecified. Input: tool_name: {tool_name} description: {description} Return strict JSON only: {"domain": "<ONE_DOMAIN>", "reason": "<one sentence>", "confidence": <0.0--1.0>}
+> Figure A.4. Prompt used to annotate tool domains with GPT-5.6-sol. The closed taxonomy is instantiated per benchmark.
+
+Prompting-based agents. GPT-5.5 [25], Claude Opus 4.8 [1], GLM-5.2 [55], and DeepSeek V4 Pro [49] are evaluated without any post-training. Each model receives the same ReAct prompt, tool specifications, observations, and interaction budget as in the main setup. 
+
+General post-training objectives. GRPO [33] optimizes the outcome reward and applies the same trajectory-level advantage to all tool calls in a rollout. RFT [54] fine-tunes on successful rollouts selected by the task evaluator, while DMPO [35] constructs trajectory-level preference pairs from the same evaluator scores. 
+
+Turn-level tool-use post-training methods. StepTool [53] and FTRL-M [52] assign turn-level rewards, where FTRL-M denotes the multi-turn variant of FTRL. MatchTIR [30] uses the KM variant with AppWorld’s reference API calls and FTRL’s released tool-call annotations, combining turn-level and trajectory-level advantages. SOAR [13] derives supervision from observation tokens, while TRACE [42] follows the authors’ turn-level credit-assignment setup. 
+
+Tool-use RL methods. SimpleTIR [50] applies void-turn filtering during training, and ToolMaster [5] combines trajectory-based supervised fine-tuning with subsequent reinforcement learning. LOOP [2] retains its leave-one-out advantage estimation and rollout reuse. 
+
+Representation-learning method. SEAL [15] is run with its released implementation without further modification. 
+
+OOD-generalization methods. CORAL [40] aligns representation covariances, while Group DRO [31] reweights training-group losses. On AppWorld, CORAL aligns tool-call representations across training applications, and Group DRO reweights application-group policy losses. ToolRL [27] and PAFT [20] use their tool-call reward and training-time trajectory perturbations, respectively. 
+
+A.7 Compute Resources and Time 
+
+Software and hardware. We conduct all experiments using Python 3.12.13 and PyTorch 2.11.0 with CUDA 12.8 on four NVIDIA H200 GPUs with 141 GB memory. 
+
+Training time. With Qwen3.5-4B, a complete ToolCompass run takes approximately 6.6 hours on AppWorld and 21.9 hours on FTRL. Compared with vanilla GRPO under the same configuration, the projection head, the prototype updates, and the representation-shaping losses add less than 1% training time.  
+
+> 15 ToolCompass: Guiding Tool Trialing, Not Suppressing It Radio Lab
+> AppWorld Annotation Prompt
+
+You label AppWorld APIs by their dominant externally visible function. Classify what the API does, rather than its application, domain, or surface name. Choose exactly one family from the closed taxonomy below: - AUTH_ACTION: Manage an account, authentication, authorization, or session lifecycle. - CHECK_STATE: Check existence or make an explicit state judgment. - CONTROL_ACTION: Control a transient process, such as playback or a device. - CREATE_OBJECT: Create a new record, object, or piece of content. - DELETE_ACTION: Delete, cancel, or remove an object. - ORGANIZE_ACTION: Change membership, order, location, or association. - READ_ITEM: Retrieve a known item, detail, scalar value, or state. - READ_LIST: Search, discover, filter, or enumerate candidate items. - SEND_ACTION: Send, reply, forward, invite, notify, or remind. - TOGGLE_ACTION: Change a discrete flag or lifecycle status. - TRANSFER_ACTION: Move money or assets between parties. - TRANSFORM_ACTION: Copy, compress, decompress, convert, or transform supplied content. - UPDATE_OBJECT: Modify fields or content of an existing object. - WORKFLOW_ACTION: Commit an order, return, subscription, approval, or related application workflow. Important boundaries: - READ_LIST returns a collection; READ_ITEM returns one known item or property. - UPDATE_OBJECT changes free-form content; TOGGLE_ACTION changes a discrete status; CONTROL_ACTION controls a transient process. - ORGANIZE_ACTION changes a relationship or collection without creating the primary object. - Use TRANSFER_ACTION whenever money or assets move, even if the API name contains "create" or "record." - Reserve WORKFLOW_ACTION for application-level commitments. - If the API belongs to api_docs or supervisor, return META.META; otherwise choose one of the 14 families above. Input: tool_name: {tool_name} description: {description} arguments: {arguments} response: {response_specification} Return strict JSON only: {"family": "<ONE_FAMILY>", "reason": "<one sentence>", "confidence": <0.0--1.0>}  
+
+> Figure A.5.
+
+Prompt used to annotate AppWorld APIs with GPT-5.6-sol.  
+
+> 16 ToolCompass: Guiding Tool Trialing, Not Suppressing It Radio Lab
+> FTRL Annotation Prompt
+
+You label software tools by their dominant FUNCTIONAL INTENT. Use the tool description as the primary evidence. The tool name is supporting evidence only. Choose exactly one family from the closed taxonomy below: - RETRIEVE_PROVIDE: Retrieve or provide factual information about a known subject, item, record, or property; no discovery, comparison, verification, or transformation is dominant. - SEARCH_LOCATE: Find, search, query, filter, or locate candidate entities, people, places, records, works, or resources. - IDENTIFY_CLASSIFY: Determine identity, type, category, author, creator, owner, origin, membership, or another categorical attribute. - ANALYZE_SUMMARIZE: Analyze, explain, synthesize, interpret, correlate, or summarize information rather than merely retrieving one fact. - CALCULATE_MEASURE: Calculate, count, estimate, aggregate, convert, measure, or derive a numeric value. - COMPARE_SELECT: Compare, rank, score, optimize, recommend, or select among alternatives, including superlatives. - TRACK_FORECAST: Track or monitor change over time, reconstruct progression or history, or forecast a future value or state. - VERIFY_VALIDATE: Check, verify, validate, test, assess compliance, availability, or consistency, or return a yes/no validity judgment. - TRANSFORM_EXTRACT: Extract structured content, parse, translate, normalize, convert representation, map, or transform supplied content. Important boundaries: - SEARCH_LOCATE discovers candidate entities; RETRIEVE_PROVIDE fetches facts about a subject already specified by the caller. - IDENTIFY_CLASSIFY resolves identity, type, category, origin, or ownership. - COMPARE_SELECT includes ranking, recommendation, best, nearest, largest, and choosing among candidates. - VERIFY_VALIDATE is an explicit check or validity judgment, not an ordinary lookup. - CALCULATE_MEASURE must have a derived numeric result as the dominant function. - TRACK_FORECAST concerns temporal progression or prediction. - TRANSFORM_EXTRACT operates on supplied content or changes its representation. - If several operations are mentioned, label the dominant externally visible result. Lower confidence when the description is genuinely underspecified. Input: tool_name: {tool_name} description: {description} Return strict JSON only: {"family": "<ONE_FAMILY>", "primitive": "<concise verb phrase>", "reason": "<one sentence>", "confidence": <0.0--1.0>}  
+
+> Figure A.6.
+
+Prompt used to annotate FTRL tools with GPT-5.6-sol.  
+
+> 17 ToolCompass: Guiding Tool Trialing, Not Suppressing It Radio Lab
+> Algorithm A.1. Post-training with T OOL COMPASS
+
+Input: Policy 𝜋 𝜃 ; projection head 𝑔 𝜓 ; function labels 𝑐 (𝑢 ); host objective Lpost ; layer 𝑙 ; temperature 𝜏 ; loss weights 𝜆 vMF and 𝜆 sep ; EMA factor 𝛼 
+
+Randomly initialize the projection head 𝑔 𝜓 and unit prototypes {𝝁 𝑘 }𝑘 ∈ C 
+
+for each post-training update do 
+
+Sample a batch of trajectories with 𝜋 𝜃 and compute Lpost 
+
+Initialize the minibatch of tool-call representations B ← ∅ 
+
+for each observed tool call 𝑎 𝑖 invoking tool 𝑢 𝑖 do 
+
+Extract h𝑖 from layer 𝑙 (Eq. 1) and compute z𝑖 = Normalize (𝑔 𝜓 (h𝑖 )) 
+
+Assign 𝑐 𝑖 = 𝑐 (𝑢 𝑖 ) and add (z𝑖 , 𝑐 𝑖 ) to B
+
+Compute Lvar (Eq. 4) and Lsep (Eq. 5) from B, treating the prototypes as stop-gradient targets Update 𝜃 and 𝜓 using Lpost + 𝜆 vMF (L var + 𝜆 sep Lsep ) (Eqs. 7 and 8) 
+
+for each function class 𝑘 observed in B do 
+
+Compute its normalized batch direction ¯ z𝑘 
+
+Update 𝝁 𝑘 ← Normalize (𝛼 𝝁 𝑘 + ( 1 − 𝛼 ) ¯z𝑘 ) (Eq. 6) 
+
+return the post-trained policy 𝜋 𝜃  
+
+> Table B.1. Semantic OOD results (%) on FTRL using Qwen3.5-4B.
+
+Method Solve-P Solve-R Solve-F1 GRPO 50.84 64.09 56.70 
+
+ToolCompass 53.02 70.21 60.42 
+
+A.8 Training Algorithm 
+
+We provide the complete post-training procedure of ToolCompass in Algorithm A.1, which summarizes the joint optimization of the host objective and the representation-shaping objective, together with the EMA prototype updates. 
+
+B Additional Analysis 
+
+Unless otherwise specified, we use Qwen3.5-4B with GRPO as the host objective. 
+
+B.1 Semantic OOD Analysis 
+
+We evaluate semantic OOD transfer on FTRL by jointly holding out CALCULATE_MEASURE , ANALYZE_SUMMARIZE ,and IDENTIFY_CLASSIFY during post-training. GRPO and ToolCompass use the same Qwen3.5-4B initialization and filtered training data. We hold out 300 examples from the training data as a validation set. Evaluation includes test queries requiring at least one held-out function. Table B.1 reports Solve-P, Solve-R, and Solve-F1; other configurations follow Appendix A.3. Table B.1 shows that ToolCompass improves Solve-P and Solve-R over GRPO by 2.18 and 6.12 points, respectively, on semantic OOD tasks. We attribute this gain to function-level supervision, which encourages the shared backbone to capture operational intent across tools. Together with pretrained semantic knowledge and tool descriptions, this abstraction helps the policy select appropriate calls for functions unseen during post-training. To further examine this transfer, we visualize tool-call representations for the three held-out functions with t-SNE (Figure B.1). The visualization shows more coherent within-function groups and clearer separation under ToolCompass than GRPO, illustrating how function-level organization can extend to unseen functions. 
+
+B.2 Comparison of Auxiliary Objectives 
+
+We compare ToolCompass with Function CE (linear classification) and SupCon [11] under the same function labels, representation layer, projection head, normalization, and training budget. Each objective uses the same development-set tuning budget. ToolCompass outperforms Function CE and SupCon by 7.44 and 3.12 percentage points in OOD task success, respectively, supporting the benefit of the proposed objective beyond generic function supervision.  
+
+> 18 ToolCompass: Guiding Tool Trialing, Not Suppressing It Radio Lab
+
+(a) GRPO (b) ToolCompass    
+
+> Calculate / measure Analyze / summarize Identify / classify
+> Figure B.1.
+
+t-SNE visualization of jointly held-out functions. Colors denote the three function classes excluded from post-training. The two panels compare tool-call representations under GRPO and TOOLCOMPASS.  
+
+> Table B.2.
+
+Comparison of auxiliary objectives on AppWorld with Qwen3.5-4B and GRPO. Values are task success rates (%). 
+
+Method ID OOD Total GRPO 58.33 56.83 57.26 GRPO + Function CE 69.05 57.31 60.68 GRPO + SupCon 60.71 61.63 61.37 
+
+ToolCompass 70.63 64.75 66.44 0.005 0.01 0.02 0.04 0.08 0.16 0.32 
+
+> λvMF
+> 60 62 64 66 Task Success (%)
+
+(a) Overall loss weight       
+
+> 63.99 65.81 66.44 64.44 63.99 63.82 60.51 00.25 0.5 1248
+> λsep
+> 60 62 64 66
+
+(b) Separation loss weight  
+
+> 63.02 64.44 63.13 64.05 66.44 64.44 65.24
+> Figure B.2.
+
+Effect of loss weights on AppWorld task success. We vary one weight while fixing the other to its default value. 
+
+B.3 Effect of Loss Weights 
+
+ToolCompass uses two weighting hyperparameters: 𝜆 vMF balances the representation-shaping objective against the host objective, and 𝜆 sep controls the strength of inter-function separation within it. We independently vary each weight while fixing the other to its default value, and report the task success rate in Figure B.2. As shown in Figure B.2(a), performance peaks at 𝜆 vMF = 0.02, reaching 66.44%, and remains competitive for nearby values, indicating that ToolCompass is not overly sensitive to the precise choice of this weight. A very small weight provides insufficient function-level supervision, whereas an overly large weight overemphasizes representation shaping relative to the host objective. Figure B.2(b) shows a similar trend for 𝜆 sep , which performs best at 2 .0 with 66.44%: weaker separation does not sufficiently distinguish different function classes, while stronger separation reduces the flexibility within each class. 
+
+B.4 Effect of the EMA Factor 
+
+We vary the EMA factor 𝛼 of the prototype update in Eq. 6 while keeping all other hyperparameters at their default values. The endpoint 𝛼 = 0 reduces to the batch-estimated prototypes in Figure 6(a), and 𝛼 = 1.0 freezes the prototypes at their initial estimates. As shown in Figure B.3, performance peaks at 𝛼 = 0.9, reaching 66.44%: a small 𝛼 lets the prototypes fluctuate with individual minibatches, while a large 𝛼 makes them adapt too slowly to the evolving representations.  
+
+> 19 ToolCompass: Guiding Tool Trialing, Not Suppressing It Radio Lab
+
+0 0.5 0.9 0.99 0.999 1
+
+## α
+
+57 60 63 66 
+
+> Task Success (%)
+
+64.62 62.05 66.44 60.51 62.11 58.52     
+
+> Figure B.3. Effect of the EMA factor 𝛼 on AppWorld task success.
+> Table B.3. AppWorld SGC results (%) using Qwen3.5-4B.
+
+Method ID OOD Total LOOP 39.88 24.22 28.72 SEAL 41.07 26.38 30.60 
+
+ToolCompass 48.21 29.50 34.87  
+
+> Table B.4. FTRL results (%) using Qwen3.5-4B. Each cell reports Solve-P / Solve-R / Solve-F1.
+
+Method ID OOD Total LOOP 37.80 / 57.60 / 41.83 51.90 / 76.40 / 57.72 40.06 / 60.61 / 44.37 SEAL 33.40 / 56.70 / 38.02 53.70 / 73.80 / 57.94 36.65 / 59.44 / 41.21 
+
+ToolCompass 43.20 / 63.70 / 46.97 59.50 / 80.20 / 64.01 45.81 / 66.34 / 49.70 
+
+B.5 Qualitative Analysis 
+
+We present two AppWorld Test-C case studies to show how ToolCompass guides tool trialing on tasks that require the unseen applications. For each task, we show the complete trajectories of GRPO, MatchTIR, and ToolCompass, and every call is labeled as direct tool use, useful trialing, or unproductive trialing following the protocol in Appendix B.8. The task instructions, resource identifiers, and environment observations come from the executable benchmark instances; authentication and API-documentation calls are omitted. Sample 1 (Figure B.4) requires comparing two gift-wrapping options and completing a checkout on Amazon. Sample 2 (Figure B.5) requires replacing an attachment in a Gmail draft with a file from the file system. The two cases show the same pattern from different sides. ToolCompass explores when exploration is needed: its trials stay on functionally related APIs, and each error is followed by a corrective call. GRPO explores without guidance, which wastes the budget in Sample 2 and causes a failure in Sample 1. MatchTIR suppresses exploration and terminates before the required final actions in both cases. This matches the aggregate behavior in Figure 7: ToolCompass keeps the useful trials while cutting the unproductive ones. 
+
+B.6 AppWorld SGC Results 
+
+In addition to the task success rate, we report Scenario Goal Completion (SGC), a stricter metric that credits a scenario only when all of its task variants are completed successfully. The results are shown in Table B.3. As shown in Table B.3, ToolCompass achieves the best SGC on all splits. In particular, it improves OOD SGC by 5.28 points over LOOP and by 3.12 points over SEAL. These results indicate that the gains of ToolCompass extend beyond individual tasks and remain consistent across the task variants of the same scenario. 
+
+B.7 FTRL Solve-P, Solve-R, and Solve-F1 Results 
+
+We compare ToolCompass with LOOP and SEAL on FTRL using Solve-P and Solve-R to distinguish tool-invocation precision from task-completion recall. Table B.4 reports Solve-P, Solve-R, and Solve-F1 on the ID, OOD, and entire test sets using Qwen3.5-4B. ToolCompass achieves the best results on all three metrics across the ID, OOD, and total test sets. The gains cover both tool-invocation precision and task-completion recall. 
+
+> 20
+
+ToolCompass: Guiding Tool Trialing, Not Suppressing It Radio Lab Sample 1 
+
+Task. Buy one Samsung Galaxy Buds Pro and use the cheaper option: Amazon direct gift wrapping or a separately purchased wrapper. OOD app. Amazon 
+
+AppWorld Test-C ec437da 2 . Target: product 735 ($200); cheapest separate wrapper: product 2323 ($10); direct wrap fee: $5. 
+
+D: Direct tool use U: Useful trialing P: Unproductive trialing 
+
+GRPO Failure 
+
+T1 P amazon.show_wish_list() → empty; task never uses it. 
+
+T2 P amazon.show_recommended_products() →
+
+unrelated products. 
+
+T3 U amazon.search products("Samsung Galaxy Buds") → several models; refine the name. 
+
+T4 D amazon.search products("Samsung Galaxy Buds Pro") → id 735, $200. 
+
+T5 D amazon.show_product(735) → inventory 8. 
+
+T6 P amazon.show_product_rating_ distribution(735) → ratings do not price wrapping. 
+
+T7 U amazon.show_product_reviews(735) → no fee stated; inspect Q&A. 
+
+T8 U amazon.show_product_questions(735) →
+
+no fee stated; compare wrapper listings. 
+
+T9 U amazon.search products("gift wrap", max price=3) → empty; raise ceiling. 
+
+T10 U amazon.search products("gift wrap", max price=5) → empty; raise again. 
+
+T11 U amazon.search products("gift wrap", max price=8) → empty; remove ceiling. 
+
+T12 U amazon.search products("gift bag", sort by="price") → cheapest candidate $12. 
+
+T13 U amazon.search products("wrapping paper", sort by="price") → candidate id 2323, $10. 
+
+T14 D amazon.search products("gift wrap", sort by="price") → confirms id 2323 is cheapest, $10. 
+
+T15 U
+
+amazon.add_gift_wrapping_to_product(735, 1) 
+
+→ product not in cart. 
+
+T16 P amazon.update_product_quantity_in_ cart(735, 1) → repeats the cart prerequisite. 
+
+T17 P amazon.delete_product_from_cart(735) 
+
+→ repeats the same prerequisite. 
+
+T18 D
+
+amazon.add_product_to_cart(735, 1, True) →
+
+added. 
+
+T19 U
+
+amazon.add_gift_wrapping_to_product(735, 2) 
+
+→ cart only has 1. 
+
+T20 P
+
+amazon.add_gift_wrapping_to_product(735, 2) 
+
+→ repeats T19 unchanged. 
+
+T21 D
+
+amazon.add_gift_wrapping_to_product(735, 1) 
+
+→ 1/1 marked. 
+
+T22 D amazon.show_cart() → gift-wrap fee $5, below $10. 
+
+T23 U amazon.place_order(1, 1) → invalid owned-resource IDs; retrieve account IDs. 
+
+T24 D amazon.show_payment_cards() → active card 410. 
+
+T25 D amazon.show_addresses() → Home address 183. 
+
+T26 P amazon.show_browsing_history() →
+
+unrelated history. 
+
+T27 P amazon.show_orders() → no current order. 
+
+T28 P amazon.show_recommended_products() →
+
+repeats unrelated suggestions. 
+
+T29 P amazon.show_wish_list() → still irrelevant. 
+
+T30 P amazon.show_product_reviews(735) →
+
+repeats T7. 
+
+T31 P amazon.show_product_questions(735) →
+
+repeats T8. 
+
+T32 P amazon.show_cart() → unchanged; no progress toward checkout. 
+
+T33 P amazon.show_product_purchases(735) →
+
+unrelated purchase records. 
+
+T34 P
+
+amazon.show_product_feature_choices(735) →
+
+rechecks a resolved branch. 
+
+T35 P amazon.show_cart() → unchanged again; trajectory terminates. 
+
+MatchTIR Failure 
+
+T1 D amazon.search products("Samsung Galaxy Buds Pro") → id 735, $200. 
+
+T2 D amazon.show_product(735) → inventory 8. 
+
+T3 P amazon.show_product_rating_ distribution(735) → irrelevant to wrap price. 
+
+T4 U amazon.search products("gift wrap", max price=5) → empty; remove ceiling. 
+
+T5 D amazon.search products("gift wrap", sort by="price") → id 2323, $10. 
+
+T6 D amazon.show_product(2323) → separate wrapper is available. 
+
+T7 P amazon.search products("gift bag") →
+
+no cheaper option than T5. 
+
+T8 U 
+
+amazon.add_gift_wrapping_to_product(735, 1) 
+
+→ product not in cart. 
+
+T9 P amazon.update_product_quantity_in_ cart(735, 1) → repeats the same prerequisite. 
+
+T10 D 
+
+amazon.add_product_to_cart(735, 1, True) →
+
+added. 
+
+T11 U 
+
+amazon.add_gift_wrapping_to_product(735, 2) 
+
+→ cart only has 1. 
+
+T12 D 
+
+amazon.add_gift_wrapping_to_product(735, 1) 
+
+→ 1/1 marked. 
+
+T13 D amazon.show_cart() → direct fee $5, cheaper than $10. 
+
+T14 P amazon.show_browsing_history() →
+
+unrelated history. 
+
+T15 P amazon.show_orders() → no current order; trajectory stops before checkout. 
+
+TOOL COMPASS Success 
+
+T1 P amazon.show_wish_list() → empty; not part of the task. 
+
+T2 U amazon.search products("Samsung Galaxy Buds") → multiple models; refine query. 
+
+T3 D amazon.search products("Samsung Galaxy Buds Pro") → id 735, $200. 
+
+T4 D amazon.show_product(735) → inventory 8. 
+
+T5 P amazon.show_product_rating_ distribution(735) → no price evidence. 
+
+T6 U amazon.show_product_reviews(735) → no wrap fee; inspect Q&A. 
+
+T7 U amazon.show_product_questions(735) →
+
+no fee; test product options. 
+
+T8 U 
+
+amazon.show_product_feature_choices(735) →
+
+no wrap variant; use cart-level API. 
+
+T9 U amazon.search products("gift wrap", max price=3) → empty; raise ceiling. 
+
+T10 U amazon.search products("gift wrap", max price=5) → empty; raise again. 
+
+T11 U amazon.search products("gift wrap", max price=8) → empty; remove ceiling. 
+
+T12 U amazon.search products("gift bag", sort by="price") → cheapest candidate $12. 
+
+T13 U amazon.search products("wrapping paper", sort by="price") → id 2323, $10. 
+
+T14 U amazon.search products("gift box", max price=5) → empty; $5 threshold stands. 
+
+T15 U amazon.search products("gift wrapper", sort by="price") → same id 2323; synonym resolved. 
+
+T16 D amazon.search products("gift wrap", sort by="price") → confirms id 2323, $10. 
+
+T17 D amazon.show_product(2323) → wrapper available. 
+
+T18 U 
+
+amazon.add_gift_wrapping_to_product(735, 1) 
+
+→ product not in cart. 
+
+T19 D 
+
+amazon.add_product_to_cart(735, 1, True) →
+
+added. 
+
+T20 U 
+
+amazon.add_gift_wrapping_to_product(735, 2) 
+
+→ cart only has 1. 
+
+T21 D 
+
+amazon.add_gift_wrapping_to_product(735, 1) 
+
+→ 1/1 marked. 
+
+T22 D amazon.show_cart() → direct fee $5, below $10. 
+
+T23 P amazon.show_browsing_history() →
+
+unrelated history. 
+
+T24 U amazon.place_order(1, 1) → invalid owned-resource IDs; retrieve them. 
+
+T25 D amazon.show_payment_cards() → active card 410. 
+
+T26 D amazon.show_addresses() → Home address 183. 
+
+T27 P amazon.show_orders() → no current order; no new signal. 
+
+T28 P amazon.show_recommended_products() →
+
+unrelated suggestions. 
+
+T29 D amazon.place_order(410, 183) → order created; gift-wrap quantity 1. 
+
+Method Calls Direct Useful Unproductive Outcome 
+
+GRPO 35 8 11 16 Failure MatchTIR 15 7 3 5 Failure TOOL COMPASS 29 10 14 5 Success 
+
+Figure B.4. Sample 1 (Amazon: compare gift-wrapping options and check out). ToolCompass turns each error into a corrective next step and keeps its trials on checkout-relevant APIs, completing the order in 29 calls with only 5 unproductive ones. GRPO finds the same evidence but spends 16 calls on unrelated or repeated queries and exhausts the interaction budget before checkout. MatchTIR stops after 15 calls without attempting checkout. 
+
+21 ToolCompass: Guiding Tool Trialing, Not Suppressing It Radio Lab Sample 2 
+
+Task. In the reply draft to my manager, replace the mistakenly attached resume with the headshot stored in my file system, then send the email. OOD app. Gmail 
+
+AppWorld Test-C bcb9696 1 . Manager: Brandon Weber; target draft 518; resume attachment 8483; distractor thread 47823. 
+
+D: Direct tool use U: Useful trialing P: Unproductive trialing 
+
+GRPO Success 
+
+T1 U gmail.show_inbox_threads("manager") →
+
+many threads; refine by headshot. 
+
+T2 D gmail.show_inbox_threads("headshot") 
+
+→ threads 47821 and 47823. 
+
+T3 U gmail.show_thread(47823) → Adrian, not the manager; rule out. 
+
+T4 D gmail.show_thread(47821) → Brandon request, email 20867. 
+
+T5 U gmail.show_drafts(query="headshot") →
+
+empty; filter by recipient. 
+
+T6 D gmail.show_drafts(recipient_email= "brandon- webe@gmail.com") → draft 518. 
+
+T7 P gmail.show_outbox_threads("headshot") 
+
+→ distractor only. 
+
+T8 P gmail.show_spam_threads("headshot") →
+
+empty. 
+
+T9 P gmail.show_snoozed_threads("headshot") 
+
+→ empty. 
+
+T10 U gmail.remove_attachment_from_ draft(518, 20867) → no such attachment; inspect draft IDs. 
+
+T11 D gmail.show_draft(518) → resume attachment 8483. 
+
+T12 D gmail.remove_attachment_from_ draft(518, 8483) → deleted. 
+
+T13 U file_system.file_exists("/home/ norman/headshot.jpeg") → false; search directories. 
+
+T14 P file_system.show_file("/home/norman/ headshot.jpeg") → repeats T13 as an error. 
+
+T15 U file_system.show_directory("/home/ norman", "headshot", "files", False) →
+
+empty; descend. 
+
+T16 U file_system.show_directory("/home/ norman/documents", "headshot", "files", False) 
+
+→ empty; recurse. 
+
+T17 U file_system.show_directory("/home/ norman/documents", "headshot", "files", True) 
+
+→ exact work path. 
+
+T18 D file_system.show_file(".../work/ professional_headshot.jpeg") → target file. 
+
+T19 P file_system.show_directory("/", "resume", "files") → irrelevant files. 
+
+T20 P file_system.show_directory("/home/ norman/downloads") → irrelevant folder. 
+
+T21 U
+
+gmail.upload_attachments_to_draft(518, []) 
+
+→ at least one path required. 
+
+T22 P gmail.upload_attachments_to_ draft(518, ["/home/norman/headshot.jpeg"]) 
+
+→ repeats resolved path error. 
+
+T23 D
+
+gmail.upload_attachments_to_draft(518, ["... /professional_headshot.jpeg"]) → id 8485. 
+
+T24 P gmail.show_thread(47823) → repeats distractor branch. 
+
+T25 P gmail.show_outbox_threads("Brandon") 
+
+→ premature check. 
+
+T26 P gmail.show_inbox_threads("headshot") 
+
+→ repeats T2. 
+
+T27 D gmail.show_draft(518) → only headshot 8485 remains. 
+
+T28 D gmail.send_email_from_draft(518) →
+
+sent email 20870 to Brandon. 
+
+MatchTIR Failure 
+
+T1 D gmail.show_inbox_threads("headshot") 
+
+→ threads 47821 and 47823. 
+
+T2 U gmail.show_thread(47823) → Adrian, not the manager; rule out. 
+
+T3 D gmail.show_thread(47821) → Brandon request, email 20867. 
+
+T4 D gmail.show_email(20867) → confirms the headshot request. 
+
+T5 P gmail.show_email(20869) → revisits distractor evidence. 
+
+T6 D gmail.show_drafts(recipient_email= "brandon- webe@gmail.com") → draft 518. 
+
+T7 P gmail.show_outbox_threads("headshot") 
+
+→ no target draft. 
+
+T8 P 
+
+gmail.show_archived_threads("headshot") →
+
+empty. 
+
+T9 P gmail.show_starred_threads("headshot") 
+
+→ empty. 
+
+T10 P gmail.show_spam_threads("headshot") 
+
+→ empty. 
+
+T11 U gmail.remove_attachment_from_ draft(518, 20867) → no such attachment; inspect IDs. 
+
+T12 D gmail.show_draft(518) → resume attachment 8483. 
+
+T13 D gmail.remove_attachment_from_ draft(518, 8483) → deleted. 
+
+T14 U file_system.file_exists("/home/ norman/headshot.jpeg") → false. 
+
+T15 P file_system.show_file("/home/norman/ headshot.jpeg") → repeats T14. 
+
+T16 U file_system.show_directory("/home/ norman", "headshot", "files", False) →
+
+empty; recurse. 
+
+T17 U file_system.show_directory("/home/ norman/documents", "headshot", "files", False) 
+
+→ empty; enable recursion. 
+
+T18 D file_system.show_directory("/home/ norman", "headshot", "files", True) → exact work path. 
+
+T19 D file_system.show_file(".../work/ professional_headshot.jpeg") → target file. 
+
+T20 D 
+
+gmail.upload_attachments_to_draft(518, ["... /professional_headshot.jpeg"]) → id 8485. 
+
+T21 D gmail.show_draft(518) → only headshot remains. 
+
+T22 P 
+
+gmail.show_snoozed_threads("headshot") →
+
+empty. 
+
+T23 P gmail.show_inbox_threads("headshot") 
+
+→ repeats T1; still unsent. 
+
+T24 P file_system.show_directory("/home/ norman/downloads") → unrelated folder; stops before send. 
+
+TOOL COMPASS Success 
+
+T1 U gmail.show_inbox_threads("manager") →
+
+broad results; refine by headshot. 
+
+T2 D gmail.show_inbox_threads("headshot") 
+
+→ threads 47821 and 47823. 
+
+T3 U gmail.show_thread(47823) → Adrian, not the manager; rule out. 
+
+T4 D gmail.show_thread(47821) → Brandon request, email 20867. 
+
+T5 U gmail.show_drafts(query="headshot") →
+
+empty; change filter. 
+
+T6 D gmail.show_drafts(recipient_email= "brandon- webe@gmail.com") → draft 518. 
+
+T7 P 
+
+gmail.show_archived_threads("headshot") →
+
+empty. 
+
+T8 U gmail.remove_attachment_from_ draft(518, 20867) → no such attachment; inspect IDs. 
+
+T9 D gmail.show_draft(518) → resume attachment 8483. 
+
+T10 D gmail.remove_attachment_from_ draft(518, 8483) → deleted. 
+
+T11 U file_system.file_exists("/home/ norman/headshot.jpeg") → false; search. 
+
+T12 U file_system.show_directory("/home/ norman", "headshot", "files", False) →
+
+empty; descend. 
+
+T13 U file_system.show_directory("/home/ norman/documents", "headshot", "files", False) 
+
+→ empty; recurse. 
+
+T14 U file_system.show_directory("/home/ norman/documents", "headshot", "files", True) 
+
+→ exact work path. 
+
+T15 D file_system.show_file(".../work/ professional_headshot.jpeg") → target file. 
+
+T16 P file_system.show_directory("/", "resume", "files") → irrelevant files. 
+
+T17 U 
+
+gmail.upload_attachments_to_draft(518, []) 
+
+→ at least one path required. 
+
+T18 U gmail.upload_attachments_to_ draft(518, ["/home/norman/documents/work"]) 
+
+→ file path, not directory, required. 
+
+T19 D 
+
+gmail.upload_attachments_to_draft(518, ["... /professional_headshot.jpeg"]) → id 8485. 
+
+T20 P gmail.show_thread(47823) → one redundant distractor recheck. 
+
+T21 D gmail.show_draft(518) → only headshot 8485 remains. 
+
+T22 D gmail.send_email_from_draft(518) →
+
+sent email 20870 to Brandon. 
+
+Method Calls Direct Useful Unproductive Outcome 
+
+GRPO 28 9 9 10 Success MatchTIR 24 10 5 9 Failure TOOL COMPASS 22 9 10 3 Success 
+
+Figure B.5. Sample 2 (Gmail: replace a draft attachment and send). All three methods locate the correct thread and draft, but they spend the remaining budget differently. ToolCompass resolves the path and upload-format errors with targeted follow-ups and finishes in 22 calls with only 3 unproductive ones. GRPO also succeeds but spends 10 of its 28 calls on unrelated mailbox checks and repeats. MatchTIR ends after 24 calls without sending the email. 
+
+22 ToolCompass: Guiding Tool Trialing, Not Suppressing It Radio Lab  
+
+> Tool-Call Categorization Prompt
+> You label the current call using only the task, tool specifications, prior history, current call, and its immediate feedback. Choose one label: - DIRECT_TOOL_USE: Directly performs a required operation or obtains information needed to complete the task. - USEFUL_TRIALING: A plausible exploration that provides new, task-relevant information about tool capabilities, arguments, or execution conditions. - UNPRODUCTIVE_TRIALING: An unrelated or redundant call, or an exploration that provides no new task-relevant information. Apply DIRECT_TOOL_USE first. Assess novelty against the tool specifications and prior history. Errors can be useful if they reveal new relevant information. Do not use later actions or the final task outcome. Input: task: {task_instruction} tools: {tool_specifications} history: {prior_interaction_history} call: {current_call} feedback: {current_feedback} Return strict JSON only: {"turn": <turn_id>, "label": "<ONE_LABEL>", "reason": "<one sentence>"}
+> Figure B.6. Prompt used to categorize tool calls with GPT-5.6-sol.
+
+B.8 Tool-Call Categorization 
+
+For the tool-use behavior analysis in Figure 7 and Appendix B.5, GPT-5.6-sol serves as the LLM-as-a-judge [58] and assigns each tool call to one of three categories: direct tool use , which performs a required operation or obtains information needed to complete the task; useful trialing , a plausible exploratory call that provides new, task-relevant information about tool capabilities, argument requirements, or execution conditions; and unproductive trialing ,which is unrelated, redundant, or provides no new task-relevant information. The judge receives the task instruction, tool specifications, prior interaction history, current call, and its immediate feedback. The full prompt is shown in Figure B.6. Information novelty is assessed against the supplied tool specifications and prior interaction history. Subsequent actions and final task outcomes are excluded from the judgment. To assess annotation quality, three annotators independently verify a random sample of 200 tool calls with the same information provided to the judge, and we compute Fleiss’s kappa over the three sets of labels. The kappa score is 0.73, with a raw agreement rate of 82.00%; the remaining disagreements are resolved by discussion. Moreover, the LLM annotations agree with the final reviewed labels on 86.00% of the calls, supporting their use for the full behavior analysis. 
+
+B.9 Representation-Space Visualization Details 
+
+For the visualization in Figure 4, we select four function classes and extract their raw layer-𝑙 = 8 backbone hidden states, without applying the projection head. These states are normalized and mapped onto the three-dimensional unit sphere for rendering. The two panels share the same viewpoint and a jointly normalized color scale, and the surface shows the spherical kernel density of the displayed class.
