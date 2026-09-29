@@ -1,0 +1,713 @@
+Title: LoopCD: Loop-wise Contrastive Decoding for Improving Reasoning in Looped Language Models
+
+URL Source: https://arxiv.org/pdf/2609.24196v1
+
+Published Time: Tue, 22 Sep 2026 02:13:27 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+# LoopCD: Loop-wise Contrastive Decoding for Improving Reasoning in Looped Language Models 
+
+Byeongho Yu 1∗ Junhyuk So 1∗ Eunhyeok Park 21Department of Computer Science and Engineering 
+
+> 2
+
+Graduate School of Artificial Intelligence Pohang University of Science and Technology (POSTECH) 
+
+{bhyu418, junhyukso, eh.park}@postech.ac.kr 
+
+Abstract 
+
+Looped Language Models (LoopLMs) perform “latent reasoning” by recursively refining inter-nal latent representations with shared weights, offering a more effective alternative to explicit verbal reasoning. Despite their effectiveness, we find that LoopLMs remain prone to loop instability : unstable refinement across itera-tions can produce localized uncertain “hard” tokens associated with reasoning errors. To ad-dress this, we propose LoopCD , loop-wise con-trastive decoding that enhances the reasoning performance of LoopLMs by intervening on these tokens at inference time. Specifically, we exploit the internal dynamics of LoopLMs and contrast the logits from earlier iterations with logits from the last refined iteration to form the final sampling distribution. We find that this strategy is highly efficient, introducing only negligible inference overhead and requiring no additional training, while effectively improving reasoning performance by naturally refining reasoning-critical hard tokens. Extensive ex-periments show that our method improves the performance of recent representative LoopLMs across various reasoning tasks. 
+
+1 Introduction 
+
+Recent advances in large language models (LLMs) have shown that scaling both model size (Singh et al., 2026; DeepSeek-AI et al., 2025) and inference-time computation through verbal think-ing , such as chain-of-thought (Wei et al., 2022), can substantially enhance reasoning capabilities. How-ever, this paradigm can be inherently inefficient: models require massive parameter capacity to sup-port different stages of inference (Lad et al., 2025), and verbalized thinking in discrete tokens imposes a linguistic bottleneck that leads to information col-lapse of rich continuous space (Hao et al., 2024). As an emerging alternative, Looped Language Models (LoopLMs) (Geiping et al., 2025; Zhu 
+
+> *These authors contributed equally.
+
+Figure 1: Overview of LoopCD at each decoding step. 
+
+et al., 2026) have been explored for latent reason-ing , where models perform recursive computation directly in hidden space with shared weights, more naturally supporting different stages of inference and allowing models to reason in a richer continu-ous semantic space (Darlow et al., 2025). Recent studies have shown that this design yields strong parameter efficiency (Zhu et al., 2026) and strong performance across diverse reasoning tasks. Despite their effectiveness, we observe loop in-stability in LoopLMs: for a small subset of tokens, additional latent iterations do not monotonically improve predictions, but can induce unstable dy-namics such as premature confidence, failed revi-sion, or erroneous refinements. Crucially, we find that this instability is often concentrated around reasoning-critical hard tokens, where localized er-rors can accumulate along the reasoning trajectory and eventually propagate to the final answer. To mitigate this issue, we propose LoopCD ,1 atraining-free inference-time decoding method for LoopLMs that substantially improves reasoning performance. Our key idea is to exploit the internal dynamics exposed by looped computation: while later iterations provide more refined predictions, earlier iterations retain complementary intermedi-ate signals useful for contrast. By leveraging this loop-wise discrepancy, we construct the final sam-pling distribution by contrasting logits from earlier iterations with those from the final refined itera-               
+
+> 1https://github.com/hoeng4/LoopCD arXiv:2609.24196v1 [cs.CL] 21 Sep 2026 0.0 0.2 0.4 0.6 0.8 1.0
+> Trace Entropy Htr
+> 0123
+> Density
+> Correct Incorrect mean (a) 510 15 20 25 30
+> Loop Iteration
+> 123456
+> Logit Margin
+> Easy tokens Hard tokens (b) 10 20 30
+> Loop Iteration
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Entropy
+> Easy tokens Hard tokens (c)
+
+Figure 2: (a) Histogram of trace entropy Htr for correct and incorrect GSM8K reasoning trajectories. (b, c) Logit margin and token entropy trajectories of easy and hard tokens across loop iterations. 
+
+tion. Our method requires neither auxiliary amateur models nor architectural modifications, and adds negligible computational overhead by reusing hid-den states already produced during looping. More-over, it naturally refines reasoning-critical hard to-kens rather than the entire trajectory, achieving re-liable reasoning. Extensive experiments show that LoopCD consistently improves LoopLM reason-ing across arithmetic reasoning, code generation, and question answering benchmarks, outperform-ing standard and advanced decoding baselines. 
+
+2 Preliminaries 
+
+Looped Transformer. A Looped Transformer ap-plies recurrence along the depth dimension by repeatedly reusing a fixed stack of Transformer blocks. We denote its architecture by (p, k ⊗ d, l ),where p and l denote the numbers of layers in pre-lude and coda , corresponding to the layer stacks before and after the loop. k denotes the number of recurrent layers, and d is the recurrence depth. Let Sx denote an x-layer Transformer stack. S′(·)
+
+denotes untied Transformer stacks, while S(·) de-notes weight-tied stacks across recurrences. Given input hidden states X, a simplified forward compu-tation of Looped Transformer is 
+
+H = S′
+
+> l
+
+ 
+
+Sk ◦ Sk ◦ · · · ◦ Sk
+
+| {z } 
+
+> dtimes
+
+
+
+(S′
+
+> p
+
+(X)) 
+
+
+
+. (1) Thus, the model has parameter depth p + k + l
+
+but realized computational depth p + kd + l. Fi-nally, logits are produced after the last recurrence: 
+
+p(xi+1 | x≤i) = softmax( Wout Hi). Unless other-wise specified, verbalization is performed at a fixed maximum recurrence depth dmax shared by all to-kens. We mainly consider the case of (2 , 4 ⊗ 32 , 2) 
+
+Huginn-0125 (Geiping et al., 2025). 
+
+3 Motivation 
+
+Recent works on evaluating the reasoning perfor-mance of large language models have shown that reasoning quality can be effectively estimated using the model’s internal signals (Fu et al., 2025; Yang et al., 2026; Kang et al., 2025). We also observe that the same approach can be safely applied to evaluating the reasoning performance of LoopLMs. We first define trace entropy Htr to measure the model’s uncertainty along the reasoning trajectory. 
+
+Htr = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+Hi , H i = − X
+
+> j
+
+pi(j) log pi(j)
+
+where i denotes the token position. In Fig. 2(a), we plot the histograms of Htr for correct and incorrect reasoning trajectories on the arithmetic reasoning task GSM8K. As shown, incorrect reasoning tra-jectories generally exhibit higher entropy, whereas correct trajectories tend to have lower entropy. This suggests that, although LoopLMs are implicitly trained to reason in latent space, they can still pro-duce uncertain tokens during verbalization, which substantially affects reasoning performance. This naturally raises the question: which tokens in the decoding process of LoopLMs give rise to such uncertainty? To investigate this, we use logit-lens (nostalgebraist, 2020) to examine how tokens are refined across different recurrence iterations. We observe two distinct patterns. As shown in Fig. 2(b), most tokens exhibit monotonic improvement behavior, where the margin between the top-1 and top-2 predictions increases over iterations. How-ever, a minority subset of tokens exhibits the op-posite behavior: the model becomes confident too early and later attempts to revise its initially con-fident prediction. We refer to the former case as 
+
+easy tokens and the latter as hard tokens (formal definitions in Appendix C). As shown in Fig. 2(c), these hard tokens usually result in high-entropy dis-tributions, and they account for about 10% –15% of the reasoning trace (Appendix Figure 4). We observe that these hard tokens have a strong impact on reasoning quality. (1) As shown in Fig. 2(c), hard tokens generally lead to higher entropy Correct →Incorrect Easy Tokens Hard Tokens     
+
+> GSM8K 31.3% 52.9%
+> StrategyQA 25.9% 71.9%
+> Table 1: Percentage of originally correct trajectories that become incorrect after token replacement; accuracy is strict-match. Protocol details in Appendix D.
+
+and therefore tend to contribute more to incorrect reasoning trajectories, as reflected in Fig. 2(a). (2) We further investigate the impact of hard tokens through random token replacement. As shown in Table 1, replacing hard tokens drops accuracy more substantially than replacing easy tokens, suggest-ing that the generated outputs are more sensitive to perturbations of hard tokens. This trend is further supported by the selective-intervention analysis in Section 5.4, where LoopCD’s gains are concen-trated on hard tokens. 
+
+4 Method: LoopCD 
+
+Motivated by the observations above, we propose 
+
+LoopCD to efficiently modulate the behavior of hard tokens during LoopLM inference. Our method is based on contrastive decoding (CD) (Li et al., 2023), but instead of using an external amateur model, it constructs the contrast internally from different iterations of looping. Specifically, at de-coding step t, let p(ℓ) 
+
+> t
+
+(v) denote the probability assigned to token v ∈ V at loop iteration ℓ. We treat the distribution from a final iteration ℓe as the 
+
+expert distribution, and the distribution from an earlier iteration ℓa < ℓ e as the amateur distribution. We compute a contrastive score as: 
+
+st(v) = log p(ℓe) 
+
+> t
+
+(v) − λ log p(ℓa) 
+
+> t
+
+(v), (2) and select the next token from the normalized dis-tribution p(v) = exp( st(v)) P  
+
+> u∈V exp( st(u))
+
+. Here, λ is the contrastive coefficient, controlling how strongly the amateur distribution is penalized. We empirically choose the amateur loop index ℓa, as discussed in more detail in Section 5.3. To avoid promoting im-plausible tokens through contrastive scoring, we ad-ditionally apply the adaptive plausibility constraint described in Appendix B.1. 
+
+Mechanism. We now explain how our LoopCD improves reasoning by intervening on hard tokens from two perspectives. i) It serves as a correc-tive mechanism for early-overconfident predictions. If an earlier iteration assigns high probability to an incorrect token, subtracting the early amateur log probability suppresses this premature prefer-ence and allows the later distribution to recover alternative tokens. ii) It can be viewed as a form of contrasting guidance , analogous to guidance commonly used in image generation. For exam-ple, diffusion models (Ho et al., 2020) often con-struct a score of the form (1 + α)ϵθ(x) − αϵ bad (x),
+
+where ϵbad represents an undesirable or less infor-mative score, such as an unconditional score or under-trained model (Ho and Salimans, 2022; Kar-ras et al., 2024). In LoopCD, the earlier loop itera-tion can naturally play the role of this less refined “bad” predictor. We provide further empirical evi-dence supporting this mechanism in Appendix F. 
+
+LoopCD primarily affects hard tokens. One direct approach would be to explicitly identify hard tokens and selectively intervene on them during decoding, like MTI (Yang et al., 2026). However, this requires tracking token confidence during iter-ation, and introduces an additional hyperparameter for hardness threshold. Here, we show that our LoopCD can naturally avoid these issues by having a stronger effect on confusing hard tokens. Consider two candidate tokens y and z at decod-ing position t, and define the margin at loop iter-ation ℓ as ∆(ℓ)(y, z ) = log p(ℓ) 
+
+> t
+
+(y) − log p(ℓ) 
+
+> t
+
+(z).
+
+Under LoopCD, the margin becomes: 
+
+(1 − λ) ∆ (ℓe)(y, z )
+
+| {z }
+
+> Me
+
++λ  ∆(ℓe)(y, z ) − ∆(ℓa)(y, z )| {z }
+
+> MCD
+
+.
+
+For tokens exhibiting the typical easy token be-havior in Fig. 2(b), the margin increases from the amateur to the expert iteration, yielding MCD >
+
+0, so LoopCD preserves the top-1 prediction. In contrast, hard tokens exhibit larger changes be-tween the amateur and expert iterations due to peak-drop confidence dynamics, which can yield 
+
+(1 − λ)Me + λM CD < 0 and change the top-1 prediction. Our contrastive term is naturally much more influential for these hard tokens, allowing LoopCD to naturally refine hard tokens without explicitly detecting hard tokens or introducing an additional hyperparameter. We further investigate this implicit selectivity in Section 5.4. 
+
+5 Experiments 
+
+Models. We focus our experiments on two dif-ferent pretrained LoopLMs: Huginn-0125 (Geip-ing et al., 2025) and Ouro-1.4B (Zhu et al., 2026), which was trained with substantially more compute and on a larger dataset. 
+
+Benchmarks. We evaluate our method on three Model Method GSM8K MATH-500 HumanEval MBPP StrQA Rel. Tok/s Flex Strict Flex Strict HE HE+ MBPP MBPP+ Huginn-0125                                                                                                                     
+
+> Greedy 33.21 23.12 13.60 12.20 24.39 20.73 40.74 33.60 54.02 1.00 ×
+> MTI 33.51 24.11 15.20 13.40 25.00 20.73 42.06 35.71 54.19 0.93 ×
+> Self-Eval 34.04 24.03 13.80 12.60 21.95 19.51 40.48 33.60 53.62 0.28 ×
+> NoiseCD 33.36 22.06 14.20 13.40 23.78 20.73 42.59 35.45 53.14 0.98 ×
+> Ours 36.62 26.46 15.60 15.20 30.49 27.44 42.06 36.77 55.24 0.98 ×
+> +3.41 +3.34 +2.00 +3.00 +6.10 +6.71 +1.32 +3.17 +1.22 Ouro-1.4B
+> Greedy 78.70 60.65 50.20 34.60 69.50 65.85 72.75 61.90 64.00 1.00 ×
+> MTI 76.88 57.85 54.20 22.60 70.73 65.24 74.07 62.96 65.07 0.93 ×
+> Self-Eval 77.06 54.66 46.80 27.80 74.39 69.51 69.31 58.73 56.86 0.25 ×
+> NoiseCD 77.03 57.92 51.00 34.20 71.95 67.68 71.16 59.26 64.72 0.99 ×
+> Ours 81.05 64.06 51.40 37.40 74.39 70.12 74.60 62.96 66.81 0.99 ×
+> +2.35 +3.41 +1.20 +2.80 +4.89 +4.27 +1.85 +1.06 +2.81
+
+Table 2: Performance and inference-speed comparison for Huginn and Ouro. Tokens/s is measured on MATH-500. Flex/Strict: flexible/canonical matching; “+”: EvalPlus. See Appendix B.3 for details. 
+
+reasoning domains: (1) Mathematical reasoning on GSM8K (Cobbe et al., 2021) and MATH-500 (Hendrycks et al., 2021), (2) Code generation on HumanEval (Chen et al., 2021) and MBPP (Austin et al., 2021), and (3) commonsense QA on Strate-gyQA (Geva et al., 2021). Further details are pro-vided in Appendix B.3. 
+
+Baselines. We primarily compare our method with 
+
+greedy decoding , which corresponds to the stan-dard decoding of LoopLMs. We further compare our method with several advanced decoding base-lines: (a) MTI (Yang et al., 2026) is the most closely related baseline to ours, which intervenes on high-entropy tokens using negative-prompted classifier-free guidance. (b) Self-Eval (Ren et al., 2023) samples multiple candidate reasoning tra-jectories and selects the final output through self-evaluation-based reranking, at the cost of increased computation. (c) NoiseCD. We also test a CD vari-ant that injects noise into final-loop hidden states and contrasts the resulting logits, following com-mon CD strategies in VLMs (Leng et al., 2024). 
+
+Implementation Details. LoopCD has two hyper-parameters: CD coefficient λ and the amateur loop index ℓa. The expert loop index ℓe is fixed to the final recurrent iteration of each model, i.e., 32 for Huginn-0125 and 4 for Ouro-1.4B. For a fair com-parison, we choose each baseline using the same protocol and report its best setting. Further details are provided in Appendices B.1 and B.2. 
+
+5.1 Main Results 
+
+As shown in Table 2, LoopCD shows the best over-all performance compared to standard greedy de-coding and other decoding variants. We summarize the main observations below: (a) MTI. Although MTI can improve over greedy decoding, it requires                
+
+> Method GSM8K MATH-500 Tok/s Greedy 33.21 13.60 5.09 (1.00 ×)
+> Ours 36.62 15.60 4.99 (0.98 ×)EE 33.66 14.60 10.06 (1.98 ×)EE+ Ours 34.12 15.60 9.89 (1.94 ×)
+
+Table 3: Flex accuracy and throughput of LoopCD with Early Exit (EE) on Huginn.                
+
+> Loop Idx. 4812 16 20 GSM8K 35.41 36.39 34.42 33.51 32.90 HumanEval 26.83 30.49 26.22 24.39 25.00
+
+Table 4: Amateur loop sensitivity on Huginn ( λ = 0 .3). 
+
+a sensitive entropy-threshold hyperparameter and an additional negative-condition KV-cache pass, re-ducing throughput. In contrast, LoopCD achieves better performance without such extra components, suggesting that earlier-loop logits provide a more suitable contrastive signal for LoopLMs. (b) Self-Eval. Compared with this method based on mul-tiple parallel rollouts, which substantially reduces throughput, LoopCD achieves strong reasoning per-formance while remaining efficient. (c) NoiseCD. 
+
+NoiseCD shows improvement in only limited cases. Unlike LoopCD, it also affects easy tokens due to hidden-state noise injection, which can limit its per-formance gains. This supports our motivation for intervening on reasoning-critical hard tokens and shows the effectiveness of logit-space contrasting. 
+
+5.2 Compatibility with Early Exit 
+
+We also combine LoopCD with early exit, which stops recurrence before the final loop when the hidden states change only marginally across con-secutive iterations. As shown in Table 3, early exit substantially improves throughput by reducing re-current computation. LoopCD can be combined with early exit to improve reasoning quality while 0 . $ = 1 2 2 is , 5 1 The the of So 3 4 4 answer +
+
+> 0100 200 300
+> Hard token count Incorrect trajectories Correct trajectories
+
+Figure 3: Top-20 hard token types from Huginn-0125 greedy generations on 600 GSM8K examples. Numerical tokens, arithmetic operators, punctuation, and reasoning-step markers appear frequently, suggesting that hard tokens are concentrated on tokens that affect intermediate computations and reasoning structure. 
+
+retaining the efficiency gains of early exit. 
+
+5.3 Amateur Loop Index Sensitivity 
+
+We study the sensitivity to the amateur loop in-dex in LoopCD. As shown in Table 4, choosing an early loop, roughly 15–30% of the recurrence depth, often works well across tasks and models. This suggests that early representations are pre-dictive enough while remaining distinct from the final iteration. We further analyze why this inter-mediate amateur range is particularly effective in Appendix E.3. 
+
+5.4 Ablation: Where Do LoopCD’s Gains Come From? 
+
+Due to their non-monotonic loop-wise dynamics, hard tokens are expected to be more strongly af-fected by LoopCD. We empirically examine this implicit selectivity and whether it accounts for LoopCD’s performance gains. We first examine what kinds of tokens exhibit hard dynamics during reasoning. As shown in Fig-ure 3, hard tokens frequently include numbers and arithmetic operators, which affect intermediate computations, as well as punctuation and reasoning-step markers such as The and So , which mark boundaries and transitions between reasoning steps. This suggests that loop instability is concentrated on tokens that shape intermediate quantities and the structure of the reasoning trajectory. We next test whether hard tokens drive LoopCD’s gains by selectively applying it to hard or easy tokens. As shown in Table 5, hard-only in-tervention recovers much of the full gain despite af-fecting far fewer tokens, while easy-only interven-tion yields smaller improvements. This confirms that LoopCD’s gains are concentrated on hard to-kens. The same trend holds within numeric and operator tokens, where hard subsets consistently outperform their easy counterparts. Nevertheless,                           
+
+> Setting Acc. (%) ∆Interv. (%) Greedy 33.21 0LoopCD (full) 36.39 +3.18 100
+> Hard only 35.71 +2.50 10.7
+> Easy only 34.65 +1.44 89.0
+> Hard numeric only 34.04 +0.83 2.9
+> Easy numeric only 32.52 -0.68 26.2
+> Hard operator only 33.51 +0.30 0.7
+> Easy operator only 33.28 +0.08 6.9
+
+Table 5: Performance of LoopCD under selective in-tervention on hard/easy tokens and numeric/operator tokens on Huginn ( ℓa = 8 , λ = 0 .3). 
+
+full LoopCD performs best, suggesting that explic-itly restricting intervention to predefined token sub-sets can miss useful corrections. This supports our design of applying LoopCD to all tokens and rely-ing on its implicit selectivity, rather than explicitly detecting hard tokens. 
+
+5.5 Further Analysis 
+
+We also present an extensive analysis of loop insta-bility and the behavior of LoopCD (Appendix E), along with qualitative studies (Appendix H). To assess the robustness of LoopCD, we report results with fixed hyperparameter settings across bench-marks and multi-seed evaluations (Appendix G). 
+
+6 Conclusion 
+
+In this work, we showed that LoopLM reason-ing trajectories contain reasoning-critical hard to-kens whose non-monotonic loop-wise dynamics can substantially affect reasoning outcomes. To address this, we proposed LoopCD, an efficient inference-time method that contrasts earlier-loop logits with final-loop logits to effectively intervene on such tokens. Extensive experiments show that our LoopCD can consistently improve reasoning performance without additional training or archi-tectural changes across diverse reasoning tasks. Limitations 
+
+One limitation of LoopCD is that it relies on a training-free heuristic for selecting the contrastive signal. While this makes the method simple and efficient, the chosen amateur loop may not always provide an optimal contrast for every token, task, or model. We expect further improvements to be achievable by learning a verifier that identifies more reliable contrastive signals, or by adaptively se-lecting the optimal contrasting loop index during decoding. 
+
+Acknowledgments 
+
+This work was supported by IITP and NRF grant funded by the Korea government(MSIT) (RS-2026-25490269, RS-2019-II191906) 
+
+References 
+
+Jacob Austin, Augustus Odena, Maxwell Nye, Maarten Bosma, Henryk Michalewski, David Dohan, Ellen Jiang, Carrie Cai, Michael Terry, Quoc Le, and Charles Sutton. 2021. Program synthesis with large language models. Preprint , arXiv:2108.07732. Shaojie Bai, J Zico Kolter, and Vladlen Koltun. 2019. Deep equilibrium models. Advances in neural infor-mation processing systems , 32. Shaojie Bai, Vladlen Koltun, and J Zico Kolter. 2020. Multiscale deep equilibrium models. Advances in neural information processing systems , 33:5238– 5250. Mark Chen, Jerry Tworek, Heewoo Jun, Qiming Yuan, Henrique Ponde de Oliveira Pinto, Jared Kaplan, Harri Edwards, Yuri Burda, Nicholas Joseph, Greg Brockman, Alex Ray, Raul Puri, Gretchen Krueger, Michael Petrov, Heidy Khlaaf, Girish Sastry, Pamela Mishkin, Brooke Chan, Scott Gray, and 39 others. 2021. Evaluating large language models trained on code. Preprint , arXiv:2107.03374. Yung-Sung Chuang, Yujia Xie, Hongyin Luo, Yoon Kim, James R Glass, and Pengcheng He. 2024. Dola: Decoding by contrasting layers improves factuality in large language models. In International Conference on Learning Representations , volume 2024, pages 54158–54183. Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, Christopher Hesse, and John Schulman. 2021. Training verifiers to solve math word prob-lems. Preprint , arXiv:2110.14168. Luke Darlow, Ciaran Regan, Sebastian Risi, Jeffrey Seely, and Llion Jones. 2025. Continuous thought machines. In Advances in Neural Information Pro-cessing Systems , volume 38, Main Conference, pages 21548–21594. Curran Associates, Inc. DeepSeek-AI, Aixin Liu, Bei Feng, Bing Xue, Bingxuan Wang, Bochao Wu, Chengda Lu, Chenggang Zhao, Chengqi Deng, Chenyu Zhang, Chong Ruan, Damai Dai, Daya Guo, Dejian Yang, Deli Chen, Dongjie Ji, Erhang Li, Fangyun Lin, Fucong Dai, and 181 others. 2025. Deepseek-v3 technical report. Preprint ,arXiv:2412.19437. Jeffrey L Elman. 1990. Finding structure in time. Cog-nitive science , 14(2):179–211. Yichao Fu, Xuewei Wang, Yuandong Tian, and Jiawei Zhao. 2025. Deep think with confidence. arXiv preprint arXiv:2508.15260 .Zitian Gao, Lynx Chen, Yihao Xiao, He Xing, Ran Tao, Haoming Luo, Joey Zhou, and Bryan Dai. 2025. Universal reasoning model. arXiv preprint arXiv:2512.14693 .Jonas Geiping, Sean McLeish, Neel Jain, John Kirchen-bauer, Siddharth Singh, Brian Bartoldson, Bhavya Kailkhura, Abhinav Bhatele, and Tom Goldstein. 2025. Scaling up test-time compute with latent rea-soning: A recurrent depth approach. In Advances in Neural Information Processing Systems , volume 38, Main Conference, pages 41340–41391. Curran Associates, Inc. Ariel Gera, Roni Friedman, Ofir Arviv, Chulaka Gu-nasekara, Benjamin Sznajder, Noam Slonim, and Eyal Shnarch. 2023. The benefits of bad advice: Autocontrastive decoding across model layers. In 
+
+Proceedings of the 61st Annual Meeting of the As-sociation for Computational Linguistics (Volume 1: Long Papers) , pages 10406–10420. Mor Geva, Daniel Khashabi, Elad Segal, Tushar Khot, Dan Roth, and Jonathan Berant. 2021. Did aristotle use a laptop? a question answering benchmark with implicit reasoning strategies. Transactions of the Association for Computational Linguistics , 9:346– 361. Shibo Hao, Sainbayar Sukhbaatar, DiJia Su, Xian Li, Zhiting Hu, Jason Weston, and Yuandong Tian. 2024. Training large language models to reason in a contin-uous latent space. arXiv preprint arXiv:2412.06769 .Dan Hendrycks, Collin Burns, Saurav Kadavath, Akul Arora, Steven Basart, Eric Tang, Dawn Song, and Ja-cob Steinhardt. 2021. Measuring mathematical prob-lem solving with the math dataset. arXiv preprint arXiv:2103.03874 .Jonathan Ho, Ajay Jain, and Pieter Abbeel. 2020. De-noising diffusion probabilistic models. Advances in neural information processing systems , 33:6840– 6851. Jonathan Ho and Tim Salimans. 2022. Classifier-free diffusion guidance. arXiv preprint arXiv:2207.12598 .Sepp Hochreiter and Jürgen Schmidhuber. 1997. Long short-term memory. Neural computation , 9(8):1735– 1780. Alexia Jolicoeur-Martineau. 2025. Less is more: Re-cursive reasoning with tiny networks. arXiv preprint arXiv:2510.04871 .Zhewei Kang, Xuandong Zhao, and Dawn Song. 2025. Scalable best-of-n selection for large language mod-els via self-certainty. In Advances in Neural Infor-mation Processing Systems , volume 38, Main Con-ference, pages 19720–19745. Curran Associates, Inc. Tero Karras, Miika Aittala, Tuomas Kynkäänniemi, Jaakko Lehtinen, Timo Aila, and Samuli Laine. 2024. Guiding a diffusion model with a bad version of itself. 
+
+Advances in Neural Information Processing Systems ,37:52996–53021. Vedang Lad, Jin Hwa Lee, Wes Gurnee, and Max Tegmark. 2025. Remarkable robustness of llms: Stages of inference? In Advances in Neural Infor-mation Processing Systems , volume 38, Main Con-ference, pages 130050–130083. Curran Associates, Inc. Sicong Leng, Hang Zhang, Guanzheng Chen, Xin Li, Shijian Lu, Chunyan Miao, and Lidong Bing. 2024. Mitigating object hallucinations in large vision-language models through visual contrastive decod-ing. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 13872–13882. Aitor Lewkowycz, Anders Andreassen, David Dohan, Ethan Dyer, Henryk Michalewski, Vinay Ramasesh, Ambrose Slone, Cem Anil, Imanol Schlag, Theo Gutman-Solo, Yuhuai Wu, Behnam Neyshabur, Guy Gur-Ari, and Vedant Misra. 2022. Solving quan-titative reasoning problems with language models. 
+
+Preprint , arXiv:2206.14858. Xiang Lisa Li, Ari Holtzman, Daniel Fried, Percy Liang, Jason Eisner, Tatsunori B Hashimoto, Luke Zettle-moyer, and Mike Lewis. 2023. Contrastive decoding: Open-ended text generation as optimization. In Pro-ceedings of the 61st annual meeting of the associa-tion for computational linguistics (volume 1: Long papers) , pages 12286–12312. Hunter Lightman, Vineet Kosaraju, Yura Burda, Harri Edwards, Bowen Baker, Teddy Lee, Jan Leike, John Schulman, Ilya Sutskever, and Karl Cobbe. 2023. Let’s verify step by step. Preprint ,arXiv:2305.20050. Jiawei Liu, Chunqiu Steven Xia, Yuyao Wang, and LINGMING ZHANG. 2023. Is your code gener-ated by chatgpt really correct? rigorous evaluation of large language models for code generation. In 
+
+Advances in Neural Information Processing Systems ,volume 36, pages 21558–21572. Curran Associates, Inc. Jieyi Long. 2023. Large language model guided tree-of-thought. arXiv preprint arXiv:2305.08291 .Qing Lyu, Shreya Havaldar, Adam Stein, Li Zhang, Delip Rao, Eric Wong, Marianna Apidianaki, and Chris Callison-Burch. 2023. Faithful chain-of-thought reasoning. In Proceedings of the 13th In-ternational Joint Conference on Natural Language Processing and the 3rd Conference of the Asia-Pacific Chapter of the Association for Computational Lin-guistics (Volume 1: Long Papers) , pages 305–329. Niklas Muennighoff, Zitong Yang, Weijia Shi, Xi-ang Lisa Li, Li Fei-Fei, Hannaneh Hajishirzi, Luke Zettlemoyer, Percy Liang, Emmanuel Candès, and Tatsunori Hashimoto. 2025. s1: Simple test-time scaling. In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing ,pages 20275–20321, Suzhou, China. Association for Computational Linguistics. nostalgebraist. 2020. Interpreting gpt: The logit lens. https://www.lesswrong. com/posts/AcKRB8wDpdaN6v6ru/ interpreting-gpt-the-logit-lens . Accessed: 2026-05-26. Sean O’Brien and Mike Lewis. 2023. Contrastive de-coding improves reasoning in large language models. 
+
+arXiv preprint arXiv:2309.09117 .Jie Ren, Yao Zhao, Tu Vu, Peter J. Liu, and Balaji Lak-shminarayanan. 2023. Self-evaluation improves se-lective generation in large language models. In Pro-ceedings on "I Can’t Believe It’s Not Better: Failure Modes in the Age of Foundation Models" at NeurIPS 2023 Workshops , volume 239 of Proceedings of Ma-chine Learning Research , pages 49–64. PMLR. Aaditya Singh, Adam Fry, Adam Perelman, Adam Tart, Adi Ganesh, Ahmed El-Kishky, Aidan McLaughlin, Aiden Low, AJ Ostrow, Akhila Ananthram, Akshay Nathan, Alan Luo, Alec Helyar, Aleksander Madry, Aleksandr Efremov, Aleksandra Spyra, Alex Baker-Whitcomb, Alex Beutel, Alex Karpenko, and 467 others. 2026. Openai gpt-5 system card. Preprint ,arXiv:2601.03267. Jiaming Song, Chenlin Meng, and Stefano Ermon. 2020. Denoising diffusion implicit models. arXiv preprint arXiv:2010.02502 .Guan Wang, Jin Li, Yuhao Sun, Xing Chen, Changling Liu, Yue Wu, Meng Lu, Sen Song, and Yasin Abbasi Yadkori. 2025. Hierarchical reasoning model. arXiv preprint arXiv:2506.21734 .Xintong Wang, Jingheng Pan, Liang Ding, and Chris Biemann. 2024. Mitigating hallucinations in large vision-language models with instruction contrastive decoding. In Findings of the Association for Compu-tational Linguistics: ACL 2024 , pages 15840–15853, Bangkok, Thailand. Association for Computational Linguistics. Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc Le, Ed Chi, Sharan Narang, Aakanksha Chowdhery, and Denny Zhou. 2022. Self-consistency improves chain of thought reasoning in language models. arXiv preprint arXiv:2203.11171 .Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, brian ichter, Fei Xia, Ed Chi, Quoc V Le, and Denny Zhou. 2022. Chain-of-thought prompt-ing elicits reasoning in large language models. In     
+
+> Advances in Neural Information Processing Systems ,volume 35, pages 24824–24837. Curran Associates, Inc. Xumeng Wen, Zihan Liu, Shun Zheng, Shengyu Ye, Zhi-rong Wu, Yang Wang, Zhijian Xu, Xiao Liang, Junjie Li, Ziming Miao, Jiang Bian, and Mao Yang. 2025. Reinforcement learning with verifiable rewards im-plicitly incentivizes correct reasoning in base llms.
+> Preprint , arXiv:2506.14245. Zhen Yang, Mingyang Zhang, Feng Chen, Ganggui Ding, Liang Hou, Xin Tao, and Ying-Cong Chen. 2026. Less is more: Improving LLM reasoning with minimal test-time intervention. In Proceedings of the 64th Annual Meeting of the Association for Compu-tational Linguistics (Volume 1: Long Papers) , pages 20124–20137, San Diego, California, United States. Association for Computational Linguistics. Shunyu Yao, Dian Yu, Jeffrey Zhao, Izhak Shafran, Tom Griffiths, Yuan Cao, and Karthik Narasimhan. 2023. Tree of thoughts: Deliberate problem solving with large language models. Advances in neural informa-tion processing systems , 36:11809–11822. Byeongho Yu, Changhun Lee, Jun-gyu Jin, and Eun-hyeok Park. 2025. PruneCD: Contrasting pruned self model to improve decoding factuality. In Proceed-ings of the 2025 Conference on Empirical Methods in Natural Language Processing , pages 32462–32473, Suzhou, China. Association for Computational Lin-guistics. Rui-Jie Zhu, Zixuan Wang, Kai Hua, Tianyu Zhang, Ziniu Li, Haoran Que, Boyi Wei, Zixin Wen, Fan Yin, He Xing, Lu Li, Jiajun Shi, Kaijing Ma, Shanda Li, Taylor Kergan, Andrew Smith, Xingwei Qu, Mude Hui, Bohong Wu, and 14 others. 2026. Scaling latent reasoning via looped language models. Preprint ,arXiv:2510.25741.
+
+A Related Works 
+
+Reasoning in Language Models. With the devel-opment of large language models, research interest has gradually shifted from simple text generation to whether LLMs can perform reasoning required for real problem solving. A growing line of CoT-based reasoning methods (Wei et al., 2022; Muennighoff et al., 2025; Lyu et al., 2023) has shown the effec-tiveness of verbalizing intermediate reasoning steps for improving LLM reasoning. Following this line, later studies explored how models can learn to gen-erate better CoT reasoning through training or rein-forcement learning (Wen et al., 2025; DeepSeek-AI et al., 2025). Another line of work has attempted to further improve reasoning through inference-time scaling. Tree of Thoughts (Yao et al., 2023; Long, 2023) explores multiple reasoning trajectories and selects more plausible paths through evaluation. Recent studies have further investigated whether reason-ing quality can be estimated without a separate reward model, using signals from the model itself. Self-Consistency (Wang et al., 2022) shows that sampling multiple reasoning paths and selecting answers based on their agreement can serve as an effective inference-time strategy. More recent work such as DeepThink (Fu et al., 2025) shows that localized log-probability-based confidence within reasoning trajectories can effectively measure rea-soning quality and enable more efficient test-time scaling. 
+
+Recurrence Models. Recurrence models, which repeatedly apply a fixed set of weights to refine representations in latent space, have been widely explored across many areas of machine learning. Early recurrent architectures, such as RNNs and LSTMs (Elman, 1990; Hochreiter and Schmidhu-ber, 1997), achieved strong results in time-series modeling and natural language processing by re-peatedly applying shared parameters over sequen-tial inputs. Deep Equilibrium Models (Bai et al., 2019, 2020) apply a shared transformation recur-rently in latent space and directly solve for its fixed point, providing an implicit-depth architecture that can achieve competitive performance. A major recent application of recurrence appears in generative modeling. Diffusion models (Ho et al., 2020; Song et al., 2020) generate data by iteratively applying a denoising network to progressively re-fine noisy variables, and have shown strong per-formance across image, text, and audio generation. More recently, instead of relying on the standard sequential stack of distinct neural network layers, looped or recursive thinking models have attracted attention by repeatedly applying the same layer or module weights (Wang et al., 2025; Jolicoeur-Martineau, 2025; Gao et al., 2025). Recent studies find that such recurrent computation can achieve strong performance on reasoning tasks such as Su-doku and maze solving with far fewer parameters than conventional large neural networks. 
+
+Contrastive Decoding. Contrastive Decoding (CD) was originally proposed to improve the qual-ity of open-ended text generation by contrasting an expert language model with a weaker amateur model, using their likelihood difference to reduce undesirable patterns such as repetition and incoher-ence (Li et al., 2023). Beyond its original setting, subsequent work has shown that contrastive de-coding can improve reasoning (O’Brien and Lewis, 2023) and mitigate hallucination (Leng et al., 2024). A separate line of work constructs contrastive views from the same model using intermediate or early exit layers, model perturbations, or input distor-tion (Chuang et al., 2024; Gera et al., 2023; Yu et al., 2025; Wang et al., 2024). These methods suggest that CD does not require a separate model, but rather an informative negative view of undesir-able or premature predictions. Recent work further shows that such intervention need not be applied uniformly across tokens. In particular, MTI (Yang et al., 2026) identifies high-entropy tokens as major sources of reasoning errors and applies test-time intervention only at such uncertain positions. 
+
+B Experimental Details 
+
+B.1 Implementation Details Adaptive Plausibility Constraint. Contrastive decoding can assign a high score to tokens that have low probability under the amateur distribu-tion, even when those tokens are unlikely under the expert distribution. To avoid selecting such implau-sible tokens, we follow prior work (Li et al., 2023) and adopt an Adaptive Plausibility Constraint. 
+
+Vhead (x<i ) = (3) 
+
+xi ∈ V : pe(xi | x<i ) ≥ α max  
+
+> w∈V
+
+pe(w | x<i ) .
+
+Only tokens in Vhead (x<i ) are considered when applying the CD objective. In all experiments, we set α = 0 .1, following the original setup. MTI and NoiseCD also employ the adaptive plausibility constraint with α = 0 .1.
+
+Deterministic Initialization. Huginn (Geiping et al., 2025) begins recurrent computation from an initial recurrent state, which is randomly initialized from a Gaussian distribution in the original model. For deterministic evaluation, we instead set this initial state to zero in our main experiments. We further verify robustness to stochastic initialization across multiple random seeds in Appendix G.2. 
+
+MTI (Yang et al., 2026). MTI intervenes only at uncertain decoding positions, using the model itself to construct a negative condition. At decoding step 
+
+t, we take the distribution obtained after the full recurrence as pcond  
+
+> t
+
+= p(ℓe) 
+
+> t
+
+, and regard the position as uncertain when its Shannon entropy exceeds a threshold, Ht > τ .
+
+Ht = − X
+
+> v∈V
+
+pcond  
+
+> t
+
+(v) log pcond  
+
+> t
+
+(v). (4) For such positions, we obtain an unconditional distribution by appending a fixed negative prompt 
+
+cneg to the prefix, and combine the two with classifier-free guidance: 
+
+sMTI  
+
+> t
+
+(v) = 
+
+(
+
+sCFG  
+
+> t
+
+(v), Ht > τ, 
+
+log pcond  
+
+> t
+
+(v), otherwise , (5) 
+
+sCFG  
+
+> t
+
+(v) = (1 − ω) log puc  
+
+> t
+
+(v) + ω log pcond  
+
+> t
+
+(v).
+
+(6) The next token is selected as arg max v sMTI  
+
+> t
+
+(v).We use the original negative prompt cneg =
+
+OUTPUT ERROR .The official Hugging Face implementation deep-copies the KV cache before computing puc  
+
+> t
+
+, which is expensive for LoopLMs due to their recurrent cache. We instead apply the negative prompt di-rectly to the cache and truncate the appended en-tries afterwards. This yields the same puc  
+
+> t
+
+without cache copying, so each intervention requires only one additional negative-prompt forward pass. 
+
+Self-Evaluation (Ren et al., 2023). For each problem xi, we generate N = 4 candidate answers 
+
+{yi,k }Nk=1 and select one using self-evaluation. The candidate generation procedure differs by model. For Ouro, we use stochastic decoding with temper-ature. For Huginn, we keep token decoding greedy and rely on randomized initial recurrent states to produce different candidates, since temperature-based token sampling degraded performance in our preliminary trials. We then score each candidate with the same de-terministic self-evaluation procedure. Given a can-didate answer yi,k , we construct a prompt asking whether the answer is correct: 
+
+> Q: {question} Answer: {candidate answer} Is the above answer correct? A) Yes B) No Answer:
+
+We run one deterministic forward pass and extract the logits of the single-token labels “ A” and “ B” at the final position. Let zA(yi,k ) and zB (yi,k ) denote these logits. We define the self-evaluation score as 
+
+s(yi,k ) = zA(yi,k ) − zB (yi,k ), (7) and select the candidate with the highest score: 
+
+y⋆i = yi,k ⋆ , k⋆ = arg max  
+
+> k
+
+s(yi,k ). (8) 
+
+NoiseCD. To test whether the improvement of LoopCD comes from the structured recurrent tra-jectory or merely from contrasting against a cor-rupted distribution, we introduce a noisy-amateur contrastive decoding baseline. Instead of using an earlier loop iteration as the amateur distribution, this baseline constructs an artificial amateur by per-turbing the final hidden state with Gaussian noise. Let h(ℓe) 
+
+> t
+
+∈ Rd denote the final expert hidden state at decoding position t. We construct a cor-rupted hidden state as 
+
+ht, noise = h(ℓe) 
+
+> t
+
++ σ · RMS 
+
+
+
+h(ℓe)
+
+> t
+
+
+
+· ϵt (9) 
+
+ϵt ∼ N (0 , I ),
+
+where σ controls the relative noise strength. The RMS is computed over the hidden dimension: 
+
+RMS( h) = 
+
+vuut 1
+
+d
+
+> d
+
+X
+
+> j=1
+
+h2 
+
+> j
+
+. (10) We then obtain the noisy-amateur distribution by applying the same language-model head to the cor-rupted hidden state: 
+
+p(noise)  
+
+> t
+
+(v) = softmax( gθ(ht, noise )) v . (11) Finally, we apply the same contrastive decoding rule as LoopCD: 
+
+sNoiseCD  
+
+> t
+
+(v) = log p(ℓe) 
+
+> t
+
+(v) − λ log p(noise)  
+
+> t
+
+(v).
+
+(12) This baseline removes the temporal structure of the recurrent trajectory while preserving a com-parable corrupted-amateur setup. Therefore, com-paring LoopCD against NoiseCD isolates whether the benefit comes from the earlier loop iteration it-self, rather than from subtracting an arbitrary noisy distribution. 
+
+Early Exit. LoopLMs compute by repeatedly ap-plying a recurrent block to refine latent hidden states. However, once the hidden state changes only marginally between consecutive recurrent steps, the remaining iterations may provide little additional computation for the current token. This observation motivates early exit, which terminates the recurrent loop when the latent representation has sufficiently stabilized. For Huginn, we follow the early exit criterion de-scribed in the original paper (Geiping et al., 2025). At recurrent iteration r, we compute the normalized change of the hidden state between two consecutive iterations: 
+
+dr = 1
+
+T
+
+> T
+
+X
+
+> j=1
+
+∥hr,j − hr−1,j ∥2
+
+∥hr,j ∥2
+
+. (13) We exit at the first recurrent iteration satisfying 
+
+dr < τ . We set τ = 0 .03 . When combining early exit with LoopCD, we allow early exit only after 15 recurrent iterations and use the early exit itera-tion as the expert loop. We separately search the amateur loop index for the combined setting. 
+
+B.2 Hyperparameters 
+
+We describe the hyperparameters considered for LoopCD and each baseline. For fair comparison, we use the best-performing setting for each method in our reported results. 
+
+LoopCD. LoopCD has two hyperparameters: the amateur loop index ℓa and the CD coefficient λ.The amateur loop index selects the intermediate loop output used as the amateur distribution. Very early iterations can be noisy, while later itera-tions can be too close to the expert distribution, weakening the contrastive signal. We therefore search ℓa over {6, 8, 10 } for Huginn and {0, 1}
+
+for Ouro. For the contrastive strength, we search 
+
+λ ∈ { 0.1, 0.2, 0.3} for both models. 
+
+MTI. MTI has two hyperparameters: the guid-ance scale and the entropy threshold. For the guid-ance scale, we follow the original MTI setting and set it to 1.5. Since the entropy threshold can vary across models and benchmarks, we search it over 
+
+{0.5, 1.0, 1.5} for both Huginn and Ouro. Self-Evaluation. For Ouro, we use temperature sampling with nucleus sampling. In addition to the original Ouro decoding setting ( T = 1 .0, p = 0 .7), we also evaluate ( T = 0 .7, p = 0 .9) and report the better performing configuration. 
+
+NoiseCD. NoiseCD uses the same contrastive coefficient λ as LoopCD, and we fix λ = 0 .3 in all experiments. Its additional hyperparameter is the noise scale σ, which controls the strength of the Gaussian perturbation added to the expert hidden state. We set σ = 0 .5 as a perturbation level. 
+
+B.3 Benchmark Details GSM8K. We evaluate on the official GSM8K test split of 1,319 problems using the 3-shot prompt. We report both Strict and Flex accuracy. Strict requires the canonical final-answer format, while Flex ex-tracts the final numerical answer from the comple-tion. 
+
+MATH-500. We evaluate on MATH-500, a 500-problem subset of MATH (Hendrycks et al., 2021), introduced by Lightman et al. (2023), using the 4-shot Minerva prompt (Lewkowycz et al., 2022). We report Strict accuracy with the Minerva-MATH evaluator and Flex accuracy with math_verify ,which accepts mathematically equivalent answer forms. 
+
+HumanEval / HumanEval+. We evaluate Hu-manEval, a Python code-generation benchmark consisting of 164 function-completion problems, and HumanEval+, its EvalPlus-augmented ver-sion (Liu et al., 2023) with additional test cases. We use zero-shot greedy decoding with the origi-nal function signature and docstring as the prompt. Following EvalPlus, we report both base-test and plus-test results. In our tables, HE and HE+ denote the base and plus test results, respectively. 
+
+MBPP / MBPP+. We evaluate MBPP, a Python code-generation benchmark consisting of short natural-language programming tasks, and MBPP+, its EvalPlus-augmented version with additional test cases. We use the sanitized 378-problem MBPP+ split and perform zero-shot greedy decoding. Fol-lowing EvalPlus, we report both base-test and plus-test results. In our tables, MBPP and MBPP+ de-note the base and plus test results, respectively. 
+
+StrategyQA. We evaluate StrategyQA, a binary commonsense QA benchmark requiring implicit multi-step reasoning. We use the 2,290-question training split because the official test labels are hidden. We use a 6-shot Chain-of-Thought prompt and greedy decoding. We extract the final yes /no 
+
+prediction and report accuracy. 
+
+C Formal Definition of Hard Tokens 
+
+For our Huginn-0125 analyses, we define hard to-kens as follows. For each generated position, let 
+
+zi(v) denote the logit assigned to token v at recur-rent iteration i, and let 
+
+y⋆ = arg max  
+
+> v∈V
+
+z32 (v)
+
+be the final winner token at the last recurrent itera-tion. We define the fixed-target logit margin of y⋆
+
+at iteration i as 
+
+mi = zi(y⋆) − max   
+
+> v∈V , v ̸=y⋆
+
+zi(v).
+
+The peak margin and final margin are then 
+
+mpeak = max  
+
+> i
+
+mi, mfinal = m32 .
+
+We define the confidence drop of the final winner as 
+
+d = mpeak − mfinal .
+
+A generated token is classified as hard if 
+
+d ≥ ϵ, 
+
+and as easy otherwise. We set ϵ = 1 .5 through-out our experiments, under which approximately 
+
+89 .3% of generated tokens are classified as easy. 
+
+D Token replacement protocol 
+
+For each example correctly answered under greedy decoding, we sample k = min(5 , |HARD |, |EASY |)
+
+positions from either hard or easy tokens and re-place each with a token sampled uniformly from the top-3 candidates at that position, while keeping the rest of the completion fixed. We use the same replacement budget for both classes within each example to ensure a comparable setting. Examples lacking either class are excluded, leaving n = 303 
+
+for GSM8K and n = 551 for StrategyQA. We evaluate the perturbed completions using strict-match accuracy based on the benchmark-specific answer format. Under this protocol, per-turbing hard tokens causes a substantially larger accuracy drop than perturbing easy tokens, show-ing that the generated outputs are more sensitive to perturbations of hard tokens. This trend is further supported by the selective-intervention analysis in Section 5.4, where LoopCD’s gains are concen-trated on hard tokens. 0 5 10 15 20  
+
+> Hard token ratio (%) GSM8K HumanEval
+> 12.37% 15.32% 9.85% 12.18% Incorrect Correct
+
+Figure 4: Proportion of hard tokens in correct and in-correct reasoning trajectories. Hard tokens account for roughly 10-15% of generated tokens and are more preva-lent in incorrect trajectories.       
+
+> Metric Easy Tokens Hard Tokens Ratio
+> Margin Flip 0.82% 8.78% 10.7 ×
+
+Table 6: Margin-flip rates for easy and hard tokens on Huginn with GSM8K ( ℓa = 8 , λ = 0 .3). 
+
+E Analysis of Loop Instability and LoopCD Behavior 
+
+We provide additional analyses to complement the ablation in Section 5.4 and better understand why LoopCD’s gains are concentrated on hard tokens. We first examine whether hard tokens are more prevalent in incorrect reasoning trajectories, then quantify whether LoopCD naturally affects hard tokens more strongly than easy tokens, and finally analyze why early recurrent iterations provide ef-fective amateur distributions. 
+
+E.1 Finding 1: Hard Tokens Are More Prevalent in Incorrect Trajectories 
+
+We first examine whether hard tokens are associ-ated with unsuccessful reasoning trajectories. As shown in Figure 4, incorrect generations consis-tently contain a higher proportion of hard tokens than correct generations on both GSM8K and Hu-manEval. This suggests that loop instability is more prevalent in failed reasoning trajectories, further highlighting the importance of hard tokens in rea-soning failures. 
+
+E.2 Finding 2: LoopCD Disproportionately Affects Hard Tokens 
+
+Given that hard tokens are more prevalent in wrong reasoning trajectories, we next examine whether LoopCD naturally affects these tokens more strongly than easy tokens. For each gener-ated token t, let 
+
+y⋆t = arg max  
+
+> v
+
+z32 ,t (v)
+
+be the greedy prediction at the final recurrent itera-tion. Given an amateur iteration ℓa and contrastive weight λ, we define the LoopCD contrastive logit 0 5 10 15 20 25 30   
+
+> peak iter ( arg max
+> i
+> mi)
+> 0.00 0.05 0.10 0.15
+> density
+> all (n=58,447) Hard (n=6,244)
+> a= 8
+
+Figure 5: Peak iteration of the fixed-target margin 
+
+arg max i mt,i for hard and all tokens. 
+
+as 
+
+˜zt(v) = z32 ,t (v) − λz ℓa,t (v).
+
+We say that token t is margin-flipped if the con-trastive logit changes the original greedy predic-tion: 
+
+˜zt(y⋆t ) < max  
+
+> v̸=y⋆t
+
+˜zt(v).
+
+This diagnostic measures whether the LoopCD con-trast is strong enough to alter the final greedy de-cision without explicitly identifying hard tokens during decoding. 
+
+Result. As shown in Table 6, among 58,447 gen-erated tokens, hard tokens ( N = 6 ,244 ) are margin-flipped at a rate of 8.78%, whereas easy tokens (N = 52 ,203 ) are flipped at only 0.82%. This cor-responds to a 10.7 × higher margin-flip rate for hard tokens, showing that although LoopCD is ap-plied to all tokens, its contrastive effect naturally concentrates on hard tokens. 
+
+E.3 Finding 3: Hard Tokens Peak Near the Amateur Iteration 
+
+We next investigate why an intermediate recurrent iteration, around 15–30% of the recurrence depth, provides an effective amateur distribution. For each generated token t, we track the fixed-target margin of the final greedy prediction across recurrent itera-tions: 
+
+mt,i = zi,t (y⋆t ) − max  
+
+> v̸=y⋆t
+
+zi,t (v),
+
+and record the iteration where this margin is maxi-mized, arg max i mt,i .As shown in Figure 5, hard tokens concentrate sharply around iterations 6-12, with a mode near 
+
+ℓa = 8 . In contrast, the full token population, which is dominated by easy tokens, is more broadly dis-tributed and shifts toward later iterations. This sug-gests that ℓa = 8 is not merely an arbitrary hyper-parameter: it captures the transient overconfidence of hard tokens, where the amateur-expert contrast becomes most effective. This observation is also Type Correct Wrong Early Overconfidence 9.4% 11.1% Late-Flip 2.45% 2.96% 
+
+> Table 7: Frequency of early overconfidence and Late-Flip positions in Huginn GSM8K greedy generations.
+
+consistent with the performance sweep in the main text, where amateur iterations around ℓa ≈ 8 work best. 
+
+F Expert/Amateur Mechanism and Failure Mode Distinction 
+
+F.1 Justification of the Final-Loop Expert 
+
+In LoopCD, “expert” and “amateur” are relative terms inherited from contrastive decoding and do not imply guaranteed correctness. We use the final iteration as the expert because it is the distribu-tion from which the original LoopLM verbalizes, while an earlier iteration provides the contrastive signal. LoopCD therefore amplifies the early-to-final update direction, which improves reasoning on average, but may reinforce an error when later iterations move away from a better earlier predic-tion. We distinguish this failure mode from early over-confidence by analyzing Huginn-0125 on GSM8K. We define a Late-Flip position as one where the final-loop winner is not top-1 at least once dur-ing the latter half of the recurrent iterations. We define an early-overconfidence position as one sat-isfying the same confidence-drop criterion used to define hard tokens in Appendix C, while its final-loop winner remains top-1 throughout the latter half of the recurrence (i.e., it is not a Late-Flip). Since a Late-Flip can be beneficial or harmful, its frequency provides an upper bound on potential late-loop erroneous revisions. As shown in Table 7, Late-Flips are substantially less frequent than early-overconfidence positions, occurring at only about 2–3% of generated tokens. To examine whether these flips actually correspond to harmful revisions, we replace the final-loop win-ner at each Late-Flip position with the most fre-quent alternative top-1 token over iterations 17–32, excluding the final-loop winner, and resume greedy decoding. As shown in Table 8, this replacement can repair late-loop errors, but more often disrupts an other-wise correct trajectory. Thus, late-loop erroneous revisions do occur, but beneficial late revisions are        
+
+> Outcome Rate Incorrect →Correct 9.9% Correct →Incorrect 23.9%
+> Table 8: Effect of replacing Late-Flip positions with alternative top-1 predictions.
+
+more common, supporting the use of the final loop as the expert anchor on average. 
+
+F.2 Representative Failure Cases 
+
+We next examine failures introduced by LoopCD itself, where Greedy decoding would otherwise produce a correct trajectory. 
+
+CASE 1: Unnecessary intervention on an easy token. Although LoopCD disproportionately af-fects hard tokens, its implicit selectivity is not per-fect. For example: 
+
+Greedy [Correct]: . . . 43 × 3 = 129 . . . 
+
+LoopCD [Incorrect]: . . . 43 × 3 = 1 ,293 . . . 
+
+At the divergent position, both the expert and am-ateur prefer the correct token 2, but the amateur as-signs it slightly higher confidence. The contrastive term therefore over-penalizes 2 and promotes the comma token "," , thereby overturning an other-wise correct easy token prediction. Consistent with Appendix E.2, such easy token margin flips are rare (0.82%). 
+
+CASE 2: Initial-token trajectory divergence. 
+
+LoopCD can also change the initial generated to-ken and thereby redirect the subsequent reasoning trajectory: 
+
+Greedy [Correct]: 
+
+"The original piece of wire was 4 feet long . . . "
+
+LoopCD [Incorrect]: 
+
+"4 feet is 4 × 12 = 48 inches . . . "Here, the initial token changes from The to 4.Because subsequent predictions are conditioned on the generated prefix, this early intervention leads to a different reasoning path and ultimately an incor-rect answer. Such initial-token divergence occurs in approximately 1.2% of the evaluated trajectories. Overall, beneficial corrections remain more common: on GSM8K with Huginn, the ratio of incorrect-to-correct changes to correct-to-incorrect changes is 1.49. 
+
+G Robustness of LoopCD 
+
+G.1 Fixed-Hyperparameter Results 
+
+We evaluate whether LoopCD remains effec-tive without benchmark-specific tuning. For each Model Method GSM8K MATH-500 HumanEval MBPP StrQA Flex Strict Flex Strict HE HE+ MBPP MBPP+ Huginn-0125                                                     
+
+> Greedy 33.21 23.12 13.60 12.20 24.39 20.73 40.74 33.60 54.02 Ours 36.39 24.34 15.60 14.20 30.49 27.44 42.06 36.77 55.24 +3.18 +1.22 +2.00 +2.00 +6.10 +6.71 +1.32 +3.17 +1.22 Ouro-1.4B
+> Greedy 78.70 60.65 50.20 34.60 69.50 65.85 72.75 61.90 64.00 Ours 79.83 62.40 51.20 37.20 71.34 67.68 72.75 62.17 64.67 +1.13 +1.75 +1.00 +2.60 +1.84 +1.83 +0.00 +0.27 +0.67
+
+Table 9: Performance comparison for Huginn and Ouro with fixed hyperparameters.                                                        
+
+> Method GSM8K MATH-500 HE HE+ MBPP MBPP+ StrQA
+> Greedy 32.98 ±0.97 13.75 ±0.71 23.32 ±1.46 19.66 ±1.46 40.67 ±0.63 33.33 ±0.60 53.77 ±0.07 LoopCD 35.88 ±0.72 16.00 ±1.58 30.49 ±1.37 27.59 ±1.46 42.79 ±1.05 35.32 ±1.00 55.71 ±0.68 +2.90 +2.25 +7.17 +7.93 +2.12 +1.99 +1.94
+
+Table 10: Performance of Huginn-0125 with LoopCD averaged over four seeds. Results are mean accuracy (%) ±
+
+95% confidence intervals. GSM8K and MATH-500 use flex accuracy. 
+
+model, we use one fixed configuration across all benchmarks: ℓa = 8 and λ = 0 .3 for Huginn, and 
+
+ℓa = 1 and λ = 0 .2 for Ouro. As shown in Table 9, LoopCD improves over Greedy decoding on all benchmarks except MBPP with Ouro, where it matches Greedy. This sug-gests that LoopCD is robust to fixed, benchmark-agnostic hyperparameter settings. 
+
+G.2 Multi-Seed Evaluation 
+
+To further assess the robustness of LoopCD, we evaluate Huginn across four random seeds. Huginn initializes its recurrent state with Gaussian noise, so different seeds induce different latent trajectories even under greedy decoding. Table 10 reports the mean accuracy and 95% confidence intervals across the four seeds. LoopCD improves the mean perfor-mance over Greedy across all benchmarks. These results show that the improvements of LoopCD are robust to variations in the randomized initial recurrent state. 
+
+H Qualitative Examples 
+
+We present qualitative examples comparing Greedy decoding and LoopCD in Figure 6. The highlighted tokens indicate positions where the two decod-ing methods diverge. These examples show that LoopCD often modifies reasoning-critical tokens, leading to improved reasoning outcomes. Q: Ducks need to eat 3.5 pounds of insects each week to survive. If there is a flock of ten ducks, how many pounds of insects do they need per day? A. Ducks need to eat 3.5 pounds of insects each week. If there is a flock of ten ducks, then they need 3.5 x 10 = 35 pounds of insects per week. If there are 7 days in a week, then they need 35 x 7 = 245 pounds of insects per day. The answer is 245. A. Ducks need to eat 3.5 pounds of insects each week. If there is a flock of ten ducks, then they need 3.5 x 10 = 35 pounds of insects per week. If there are 7 days in a week, then they need 35 / 7 = 5 pounds of insects per day. The answer is 5. 
+
+Greedy [Incorrect] LoopCD [Correct] Q: The temperature was 2 degrees Celsius. It dropped 8 degrees Celsius overnight and then increased 3 degrees Celsius in the morning. What was the temperature, in degrees Celsius, in the morning? 
+
+A. The temperature was originally 2 degrees Celsius. It dropped 8 degrees Celsius overnight. So the temperature in the morning was 2 + 8 = 10 degrees Celsius. Then it increased 3 degrees Celsius in the morning. So the temperature in the morning was 10 + 3 = 13 degrees Celsius. The answer is 13. A. The temperature was originally 2 degrees Celsius. It dropped 8 degrees Celsius overnight. So the temperature in the morning was 2 - 8 = -6. Then it increased 3 degrees Celsius in the morning. So the temperature in the morning was -6 + 3 = -3. The answer is -3. 
+
+Greedy [Incorrect] LoopCD [Correct] Figure 6: Qualitative comparison between Greedy decoding and LoopCD. Tokens highlighted in red and green indicate positions where the generations of Greedy decoding and LoopCD diverge. LoopCD adjusts these reasoning-critical tokens, leading to more consistent reasoning trajectories and correct final answers.
