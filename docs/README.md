@@ -6,98 +6,97 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-28
-- 运行时间：2026-09-29 00:06:20 UTC
+- 最新运行日期：2026-09-29
+- 运行时间：2026-09-30 00:10:06 UTC
 - 运行状态：成功
 - 本次总论文数：25
 - 精读区：10
 - 速读区：15
 
 ### 今日简报（AI）
-- 今日共生成 25 篇推荐（精读 10 篇，速读 15 篇）
-- 精读：《Agensh: Scaling Organizational Intelligence to 1,024 Agents》（9.0/10）, 《Rufus-Air: An Open LLM Post-Training Recipe》（9.0/10）
-- 速读：《Compact Documentation for Coding Agents: A Benchmark, an Optimizer, and Why It Does Not Transfer》（8.0/10）, 《Online Automated Algorithm Design with Large Language Models》（7.0/10）, 《SSP-Bench: A Hybrid Data Generation Framework for Safety, Security, and Privacy Evaluation》（7.0/10）
-- 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
-- 详情：[/202609/28/README](/202609/28/README)
+9月29日日报：25篇中精读10篇，RMB与Dr. Free以9.0分领跑。
+最值得看的是奖励模型缓解奖励黑客、以及无需难度奖励的自进化搜索智能体，速读可跟进LoRA自动秩分配与多智能体协调/搜索。
+普通读者建议先读两篇9分精读，再按兴趣挑1篇8分速读，重点看方法能否迁移到自己的任务。
+- 详情：[/202609/29/README](/202609/29/README)
 
 ### 精读区论文标签
-1. [Agensh: Scaling Organizational Intelligence to 1,024 Agents](/202609/28/2609.26781v1-agensh-scaling-organizational-intelligence-to-1024-agents)  
-   标签：评分：9.0/10、query:agent
-   evidence：可扩展的自组织多智能体框架
-2. [Rufus-Air: An Open LLM Post-Training Recipe](/202609/28/2609.29421v2-rufus-air-an-open-llm-post-training-recipe)  
+1. [RMB: Reward Model Boosting Mitigates Reward Hacking](/202609/29/2609.33221v1-rmb-reward-model-boosting-mitigates-reward-hacking)  
    标签：评分：9.0/10、query:post-train
-   evidence：含SFT、RL与智能体阶段的开放LLM后训练配方
-3. [GradAgent: A Knowledge-Guided Multi-Agent System for Structure-Preserving Gradient-Flow Computation with an Application to Multicomponent Vesicle Dynamics](/202609/28/2609.24871v1-gradagent-a-knowledge-guided-multi-agent-system-for-structure-preserving-gradient-flow-computation-with-an-application-to-multicomponent-vesicle-dynamics)  
+   evidence：面向鲁棒RLHF奖励信号的奖励模型提升方法
+2. [Dr. Free: You Don't Need Difficulty Rewards for Self-Evolving Search Agents](/202609/29/2609.33565v1-dr-free-you-dont-need-difficulty-rewards-for-self-evolving-search-agents)  
+   标签：评分：9.0/10、query:agent
+   evidence：无需难度奖励的自演化搜索智能体
+3. [CompoWorld: Compositional Environment Scaling for General Agents](/202609/29/2609.33665v1-compoworld-compositional-environment-scaling-for-general-agents)  
+   标签：评分：9.0/10、query:agent
+   evidence：面向通用智能体训练的组合式环境扩展
+4. [Fisher-Informed Recalibration for Feedback-Based On-Policy Self-Distillation of LLMs](/202609/29/2609.34009v1-fisher-informed-recalibration-for-feedback-based-on-policy-self-distillation-of-llms)  
+   标签：评分：9.0/10、query:post-train
+   evidence：基于反馈的大模型在线自蒸馏
+5. [Teacher-Student Gaps Are Not Enough: Outcome-Guided On-Policy Distillation for Multi-Turn Autonomous Agents](/202609/29/2609.35319v1-teacher-student-gaps-are-not-enough-outcome-guided-on-policy-distillation-for-multi-turn-autonomous-agents)  
+   标签：评分：9.0/10、query:post-train
+   evidence：面向多轮自主智能体的结果引导在线策略蒸馏
+6. [Inductive Feedback for Mixed-Policy Distillation](/202609/29/2609.35390v1-inductive-feedback-for-mixed-policy-distillation)  
+   标签：评分：9.0/10、query:post-train
+   evidence：面向后训练的带语言反馈在线蒸馏
+7. [Frontier Learning: Training LLM Reasoners at the Edge of Capability](/202609/29/2609.35426v1-frontier-learning-training-llm-reasoners-at-the-edge-of-capability)  
+   标签：评分：9.0/10、query:post-train
+   evidence：在线持续生成训练问题的开放式强化学习后训练
+8. [Reward-Aligned Reweighting for On-Policy Distillation](/202609/29/2609.35517v1-reward-aligned-reweighting-for-on-policy-distillation)  
+   标签：评分：9.0/10、query:post-train
+   evidence：在线策略蒸馏的奖励对齐重加权
+9. [Learning from Failures: Heterogeneous Graph Memory for Small Language Model Tool-Using Agents](/202609/29/2609.28003v1-learning-from-failures-heterogeneous-graph-memory-for-small-language-model-tool-using-agents)  
    标签：评分：8.0/10、query:agent
-   evidence：协调三类智能体的知识引导多智能体系统
-4. [Toolcompass: Guiding Tool Trialing, Not Suppressing It](/202609/28/2609.25678v1-toolcompass-guiding-tool-trialing-not-suppressing-it)  
+   evidence：面向小语言模型工具智能体的记忆框架
+10. [Seek: Self-Evaluative Exploration for Knowledge Retrieval](/202609/29/2609.28980v1-seek-self-evaluative-exploration-for-knowledge-retrieval)  
    标签：评分：8.0/10、query:agent
-   evidence：引导LLM智能体工具试用的后训练框架
-5. [EmbodiedSWE: Coding Agents for Long Horizon Dexterous Robotics](/202609/28/2609.27308v2-embodiedswe-coding-agents-for-long-horizon-dexterous-robotics)  
-   标签：评分：8.0/10、query:agent
-   evidence：面向长时程机器人任务的编码智能体与基准
-6. [Epistemic-Probabilistic Model for Guarded Multi-Agent LLM Coordination](/202609/28/2609.29366v1-epistemic-probabilistic-model-for-guarded-multi-agent-llm-coordination)  
-   标签：评分：8.0/10、query:agent
-   evidence：多智能体LLM协调架构
-7. [Epstein Files Engine: Agentic Search for Investigative Journalism](/202609/28/2609.30611v1-epstein-files-engine-agentic-search-for-investigative-journalism)  
-   标签：评分：8.0/10、query:agent
-   evidence：面向调查性新闻的智能体搜索引擎
-8. [Self-Play Search Distillation for Large Language Model Reasoning](/202609/28/2609.30936v1-self-play-search-distillation-for-large-language-model-reasoning)  
-   标签：评分：8.0/10、query:llm-synth
-   evidence：自对弈生成超人类合成数据
-9. [Compress What You See, Not What You Say: Anchored Context Distillation for Latent-Observation Software Engineering Agents](/202609/28/2609.31430v1-compress-what-you-see-not-what-you-say-anchored-context-distillation-for-latent-observation-software-engineering-agents)  
-   标签：评分：8.0/10、query:agent
-   evidence：面向软件工程智能体的上下文蒸馏
-10. [AgentWorld: Benchmarking Long-Horizon Collaboration of Multi-agent LLMs](/202609/28/2609.31590v1-agentworld-benchmarking-long-horizon-collaboration-of-multi-agent-llms)  
-   标签：评分：8.0/10、query:agent
-   evidence：长程多智能体协作基准
+   evidence：免训练的LLM检索代理，进行迭代式语料交互
 
 ### 速读区论文标签
-1. [Compact Documentation for Coding Agents: A Benchmark, an Optimizer, and Why It Does Not Transfer](/202609/28/2609.31587v1-compact-documentation-for-coding-agents-a-benchmark-an-optimizer-and-why-it-does-not-transfer)  
+1. [Automatic Rank Allocation for Low-Rank Adaptation in Large Language Models via lp Regularization](/202609/29/2609.28998v1-automatic-rank-allocation-for-low-rank-adaptation-in-large-language-models-via-lp-regularization)  
+   标签：评分：8.0/10、query:llm
+   evidence：通过LoRA秩分配实现大模型参数高效微调
+2. [Symbolic Guidance for LLM Agents in Distributed Multiagent Coordination](/202609/29/2609.31963v1-symbolic-guidance-for-llm-agents-in-distributed-multiagent-coordination)  
    标签：评分：8.0/10、query:agent
-   evidence：面向编码智能体的文档基准与优化器
-2. [Online Automated Algorithm Design with Large Language Models](/202609/28/2609.25325v1-online-automated-algorithm-design-with-large-language-models)  
+   evidence：分布式多智能体协调中的LLM智能体
+3. [Multi-Agent System Search via Active Substructure-aware Policy Optimization](/202609/29/2609.32430v1-multi-agent-system-search-via-active-substructure-aware-policy-optimization)  
+   标签：评分：8.0/10、query:agent
+   evidence：面向查询级多智能体系统搜索的强化学习框架
+4. [CUA-SWE: When Computer-Use Agents Meet Visual Software Engineering](/202609/29/2609.32600v1-cua-swe-when-computer-use-agents-meet-visual-software-engineering)  
+   标签：评分：8.0/10、query:agent
+   evidence：面向编码与计算机使用智能体的基准与评测流程
+5. [IGSD: Environment-Verified Hindsight Self-Distillation for Search Agents](/202609/29/2609.32694v1-igsd-environment-verified-hindsight-self-distillation-for-search-agents)  
+   标签：评分：8.0/10、query:post-train
+   evidence：面向搜索智能体的环境验证自蒸馏
+6. [Online Automated Algorithm Design with Large Language Models](/202609/29/2609.25325v1-online-automated-algorithm-design-with-large-language-models)  
    标签：评分：7.0/10、query:agent
-   evidence：LLM智能体在线合成算法作为状态相关决策
-3. [SSP-Bench: A Hybrid Data Generation Framework for Safety, Security, and Privacy Evaluation](/202609/28/2609.25352v1-ssp-bench-a-hybrid-data-generation-framework-for-safety-security-and-privacy-evaluation)  
+   evidence：LLM智能体在线合成算法实现自动化设计
+7. [SSP-Bench: A Hybrid Data Generation Framework for Safety, Security, and Privacy Evaluation](/202609/29/2609.25352v2-ssp-bench-a-hybrid-data-generation-framework-for-safety-security-and-privacy-evaluation)  
    标签：评分：7.0/10、query:llm
-   evidence：面向LLM评测的动态数据生成
-4. [TelecomGPT-R1: Unified Post-Training for Reasoning Across Heterogeneous Telecom Tasks](/202609/28/2609.25356v1-telecomgpt-r1-unified-post-training-for-reasoning-across-heterogeneous-telecom-tasks)  
-   标签：评分：7.0/10、query:post-train
-   evidence：面向推理LLM的统一后训练
-5. [From Experts to Sub-experts: Fine-grained Parameter-Efficient Fine-Tuning for MoE LLMs](/202609/28/2609.25655v1-from-experts-to-sub-experts-fine-grained-parameter-efficient-fine-tuning-for-moe-llms)  
+   evidence：动态生成式大模型评测基准框架
+8. [Distilling Sequential Computation in Transformer Language Models](/202609/29/2609.27233v1-distilling-sequential-computation-in-transformer-language-models)  
    标签：评分：7.0/10、query:llm
-   evidence：面向MoE大模型的参数高效微调
-6. [CogenPVG: Cognitive-Enhanced Reflective Multi-Agent Framework for Persuasive Video Generation](/202609/28/2609.25821v1-cogenpvg-cognitive-enhanced-reflective-multi-agent-framework-for-persuasive-video-generation)  
+   evidence：蒸馏序列计算以提升推理效率
+9. [Agent Name Collision Attacks in Multi-Agent Systems](/202609/29/2609.27624v1-agent-name-collision-attacks-in-multi-agent-systems)  
    标签：评分：7.0/10、query:agent
-   evidence：反思式多智能体框架设计
-7. [Informed Masking: Structure-Aware Perturbation for Reinforcement Learning in Diffusion Large Language Models](/202609/28/2609.25927v1-informed-masking-structure-aware-perturbation-for-reinforcement-learning-in-diffusion-large-language-models)  
-   标签：评分：7.0/10、query:post-train
-   evidence：通过掩码子问题选择实现扩散大模型的强化学习对齐
-8. [Transcribe, Translate, and Optimize: Joint Reward Learning for Speech Translation](/202609/28/2609.26536v1-transcribe-translate-and-optimize-joint-reward-learning-for-speech-translation)  
-   标签：评分：7.0/10、query:post-train
-   evidence：面向LLM的GRPO强化学习后训练
-9. [EnSIMem: Entity-Structured Indexing for Long-Term Agent Memory](/202609/28/2609.27279v1-ensimem-entity-structured-indexing-for-long-term-agent-memory)  
+   evidence：多智能体系统中智能体名称冲突引发的安全漏洞
+10. [Controlling Collectives of AI Agents in Reasoning Space with Spatial Transformers](/202609/29/2609.28247v1-controlling-collectives-of-ai-agents-in-reasoning-space-with-spatial-transformers)  
    标签：评分：7.0/10、query:agent
-   evidence：面向智能体的实体结构化长期记忆架构
-10. [Attention Routing Stabilizes Early: Working-Set Inference for Recurrent Language Models](/202609/28/2609.27373v1-attention-routing-stabilizes-early-working-set-inference-for-recurrent-language-models)  
-   标签：评分：7.0/10、query:llm
-   evidence：免训练工作集推理降低循环语言模型注意力开销
-11. [Machine-Interpretable Information: Compiling Documents into Searchable and Readable Protocol States](/202609/28/2609.23371v1-machine-interpretable-information-compiling-documents-into-searchable-and-readable-protocol-states)  
-   标签：评分：6.0/10、query:agent
-   evidence：智能体间文档到状态的协议设计
-12. [Beyond Relevance: Structured Semantic Supervision for Product Search with LLM-Augmented Annotations](/202609/28/2609.23646v1-beyond-relevance-structured-semantic-supervision-for-product-search-with-llm-augmented-annotations)  
+   evidence：去中心化多智能体机器人控制架构
+11. [From Tables to Quantified Statements: Evaluating LLM Inference Generation through Executable Verification](/202609/29/2609.23966v1-from-tables-to-quantified-statements-evaluating-llm-inference-generation-through-executable-verification)  
+   标签：评分：6.0/10、query:llm
+   evidence：通过可执行验证评测LLM推理生成
+12. [Video-HopChain: Multi-Hop Questions and Confidence-Gated Exploration for Video Reasoning Models](/202609/29/2609.25773v1-video-hopchain-multi-hop-questions-and-confidence-gated-exploration-for-video-reasoning-models)  
    标签：评分：6.0/10、query:llm-synth
-   evidence：LLM生成标注用于监督
-13. [LoopCD: Loop-wise Contrastive Decoding for Improving Reasoning in Looped Language Models](/202609/28/2609.24196v1-loopcd-loop-wise-contrastive-decoding-for-improving-reasoning-in-looped-language-models)  
-   标签：评分：6.0/10、query:llm
-   evidence：推理时解码以提升LLM推理能力
-14. [The Probabilistic Structure of Large Language Models](/202609/28/2609.25134v1-the-probabilistic-structure-of-large-language-models)  
-   标签：评分：6.0/10、query:llm
-   evidence：从概率视角阐述LLM训练与生成
-15. [Robust Failure, Conservative Repair: Textual Knowledge Distillation from Cross-Model Failures](/202609/28/2609.25400v1-robust-failure-conservative-repair-textual-knowledge-distillation-from-cross-model-failures)  
+   evidence：面向视频推理与RLVR的多跳数据合成
+13. [From Static Personal Values to Contextualized Personalization: Bayesian Personalized Value Alignment for LLMs](/202609/29/2609.28942v1-from-static-personal-values-to-contextualized-personalization-bayesian-personalized-value-alignment-for-llms)  
    标签：评分：6.0/10、query:post-train
-   evidence：从跨模型失败中蒸馏可迁移规则原子的文本知识蒸馏
+   evidence：面向大模型的个性化价值对齐
+14. [Tag-Aware Structured Text Translation: Towards a Systematic Understanding](/202609/29/2609.29131v1-tag-aware-structured-text-translation-towards-a-systematic-understanding)  
+   标签：评分：6.0/10、query:llm-synth
+   evidence：面向LLM翻译的混合数据合成策略
+15. [EAGER: Enhancing Generative Event Extraction via Reinforcement Learning with Verifiable Rewards](/202609/29/2609.29230v1-eager-enhancing-generative-event-extraction-via-reinforcement-learning-with-verifiable-rewards)  
+   标签：评分：6.0/10、query:post-train
+   evidence：可验证奖励强化学习用于生成式事件抽取
 
 
 <div class="dpr-home-promo-card">
