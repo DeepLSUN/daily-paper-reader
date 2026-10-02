@@ -1,0 +1,1497 @@
+Title: TerMeZO: Ternary Sparse Zeroth-Order Optimization for Fine-tuning BitNet Models at the Edge
+
+URL Source: https://arxiv.org/pdf/2609.33548v1
+
+Published Time: Tue, 29 Sep 2026 02:08:58 GMT
+
+Number of Pages: 29
+
+Markdown Content:
+# TerMeZO: Ternary Sparse Zeroth-Order Optimization for Fine-tuning BitNet Models at the Edge 
+
+## Houssem Sifaou, Prabodh Katti, Bipin Rajendran, and Osvaldo Simeone Institute for Intelligent Networked Systems, Northeastern University London, UK 
+
+Abstract 
+
+Fine-tuning large language models (LLMs) with first-order optimizers requires a memory several times larger than that required for inference. Memory-efficient zeroth-order optimization (MeZO) sidesteps this cost by estimating gradients from forward passes only. However, for BitNet architectures, a family of LLMs with ternary {− 1, 0, 1} weights and 8-bit activations, fine-tuning requires updating full-precision latent weights, and thus the memory footprint of MeZO no longer matches that of inference. A promising solution is to finetune only a subset of the latent weights, but existing sparse zeroth-order (ZO) methods either ignore the ternary structure or require first-order gradient information to build a sparse mask, which is at odds with the purpose of ZO fine-tuning. We propose TerMeZO, a sparse MeZO scheme that exploits the geometry of the ternary quantizer itself to identify the latent weights that are more likely to change values during fine-tuning, at no additional data or memory cost. Our convergence analysis shows that TerMeZO can converge faster than full-parameter MeZO, owing to its optimized reduction of the fine-tuning effective dimension. We run extensive experiments on BitNet models ranging from 1B to 3B parameters, spanning classification, instruction-following, and mathematical reasoning tasks. TerMeZO matches or exceeds the performance of full-parameter MeZO while substantially reducing the fine-tuning memory footprint. 
+
+# 1 Introduction 
+
+Deploying large language models (LLMs) on resource-constrained and edge hardware has become a practical necessity for a growing range of applications, yet it remains difficult, since the memory, compute, and energy footprint of modern LLMs far exceeds what such platforms can afford (Rajbhandari et al., 2020; Dettmers et al., 2022). Extreme quantization has emerged as the most promising route around this barrier. The BitNet family of models (Wang et al., 2023; Ma et al., 2024, 2025) trains LLMs from scratch with ternary 
+
+{− 1, 0, 1} weights and 8-bit activations, replacing most matrix multiplications with integer additions and shrinking the memory footprint enough to make LLM inference viable on commodity and edge devices. Adapting such a model to a new task or user requires fine-tuning, and here the memory advantages of quantization are lost. In fact, fine-tuning with first-order (FO) optimizers must store gradients, optimizer states, and activations, incurring a footprint several times larger than inference (Rajbhandari et al., 2020; Dettmers et al., 2022). Our work is part of the broader effort to relieve this bottleneck and to bring the cost of fine-tuning quantized LLMs back down toward the cost of inference. Zeroth-order (ZO) optimization (Malladi et al., 2023) offers a promising direction for this goal, as it estimates gradients from forward passes alone through simultaneous perturbation stochastic approximation (SPSA) (Spall, 1992). Being backpropagation (BP)-free, ZO fine-tuning avoids storing gradients and activa-tions, and for standard LLMs, the memory-efficient ZO optimizer (MeZO) (Malladi et al., 2023) fine-tunes at roughly the memory cost of inference. However, this parity does not carry over to BitNet models, which are fine-tuned through full-precision latent weights that are quantized on the fly at each forward pass, accu-mulating updates in full precision. As a result, even MeZO must perturb and update every latent weight at each step, so that its memory footprint no longer matches that of inference for the quantized model. 
+
+> This project is funded by the Advanced Research + Invention Agency (ARIA).
+
+1arXiv:2609.33548v1 [cs.LG] 27 Sep 2026 As an alternative route to memory savings, parameter-efficient fine-tuning (PEFT) (Hu et al., 2022; Houlsby et al., 2019; Lester et al., 2021), reduces the number of trainable parameters, while still relying on BP. Accordingly, PEFT retains much of the activation and gradient overhead that ZO is designed to avoid. Closer to our setting, several sparse ZO optimization methods build on MeZO to lighten fine-tuning further, yet none are designed for heavily quantized models like BitNet. FIM-S-MeZO (Guo et al., 2024) restricts fine-tuning to a subset of parameters selected by FO gradient information, a process that itself requires BP and thus partially negates the memory benefits of ZO. S-MeZO (Liu et al., 2024b) selects a sparse working set by weight magnitude, a criterion that ignores the ternary decision boundaries. QZO (Shang et al., 2026) avoids FO overhead by freezing the integer weights entirely and tuning only the full-precision quantization scales. QZO is effective when the required knowledge is already present in the pre-trained model, but too restrictive on harder tasks that demand acquiring new knowledge. In this work, we propose TerMeZO, a sparse MeZO scheme tailored to BitNet models that does not require FO gradients. Our key observation is that the ternary quantizer itself provides a natural criterion for identifying the latent weights most likely to benefit from fine-tuning. Weights closest to the quantization boundaries are the most sensitive to perturbations, and therefore the most likely to flip their integer value during ZO fine-tuning. In contrast, weights far from the quantization boundaries are effectively frozen in ternary space. TerMeZO restricts perturbations and updates to this sparse, boundary-adjacent subset of latent weights, while also updating the remaining full-precision parameters in BitNet models (Wang et al., 2023; Ma et al., 2024, 2025), namely the embeddings, normalization layers, and language-modeling (LM) head. Unlike the selection rule in (Guo et al., 2024), which requires full-parameter FO gradients, TerMeZO’s selection rule requires only a linear scan of the latent weights. This scan can be performed offline, before the model is uploaded to the edge device, or on-device, provided the device has enough memory to hold the model together with its latent weights. We first show empirically that this boundary-proximity criterion selects the latent weights carrying the largest gradient signal, confirming that TerMeZO concentrates fine-tuning where it matters most. Then, we provide a convergence analysis proving that TerMeZO can converge faster than full-parameter MeZO by virtue of its reduced effective dimension (Section 4). The design and theory are validated through extensive experiments on BitNet models ranging from 1B to 3B parameters, including Microsoft’s BitNet-b1.58-2B-4T (Ma et al., 2025) and the Falcon-Edge family (Falcon-LLM Team, 2025). TerMeZO is seen to match full-parameter MeZO, exceeding it in several cases, while consistently outperforming existing sparse MeZO baselines that do not rely on FO gradient information (Section 6). The main contributions are as follows: • We propose TerMeZO, a sparse MeZO scheme tailored to BitNet models that enables ZO fine-tuning without sacrificing the memory benefits of quantization, making on-device adaptation at the edge more practical. • We provide a convergence analysis establishing that TerMeZO can converge faster than full-parameter MeZO owing to its reduced effective dimension. • We demonstrate across BitNet models from 1B to 3B parameters and a range of downstream tasks that TerMeZO matches or exceeds full-parameter MeZO at a reduced memory footprint. 
+
+# 2 Background and Related Work 
+
+Our work sits at the intersection of three lines of research, namely PEFT, ZO optimization for memory-efficient fine-tuning, and extreme quantization. We review these areas in the following, with additional details provided in Appendix A. 
+
+Parameter-Efficient Fine-Tuning. For modern LLMs, full fine-tuning via FO optimizers is increasingly impractical, especially for resource-constrained scenarios, requiring a memory footprint several times larger than that of inference to store optimizer states and activations (Rajbhandari et al., 2020; Dettmers et al., 2022). PEFT methods address this bottleneck by exploiting the observation that fine-tuning updates lie in a low-dimensional subspace of the full-parameter space (Aghajanyan et al., 2021; Lialin et al., 2023; Han et al., 2024). They freeze the pre-trained weights and introduce a small set of trainable parameters, achieving performance close to full-parameter fine-tuning. PEFT methods can be broadly grouped into four families, namely adapter-based methods (Houlsby et al., 2019; Pfeiffer et al., 2021; He et al., 2022; Mahabadi et al., 22021; Zhang et al., 2022), soft-prompt and prefix methods (Lester et al., 2021; Liu et al., 2022; Li & Liang, 2021; Lester et al., 2021; He et al., 2022), low-rank reparameterization (Hu et al., 2022; Dettmers et al., 2023; Xu et al., 2024b; Zhang et al., 2023; Liu et al., 2024a; Kopiczko et al., 2024), and sparse fine-tuning (Guo et al., 2021; Zaken et al., 2022; Sung et al., 2021; Ansell et al., 2022; Xu et al., 2024a). 
+
+Zeroth-Order Optimization and MeZO. ZO optimization estimates gradients from function evaluations alone, without requiring a backward pass. A widely adopted ZO estimator is SPSA (Spall, 1992), which approximates the gradient ∇F (w) of the objective function F (w) along a random direction z ∼ N (0, Id) as ̂
+
+∇F (w) = F (w + ϵz) − F (w − ϵz)2ϵ z, (1) where ϵ is a small constant, requiring only two function evaluations per step. Other choices of the random direction z include uniform (Duchi et al., 2015) and Rademacher (Dang et al., 2026). ZO optimization has historically been applied to non-differentiable or black-box objectives, arising in settings such as adversarial attacks (Chen et al., 2017; Ilyas et al., 2018) and reinforcement learning (Salimans et al., 2017), where gradients are inherently unavailable. More recently, memory-efficient ZO (MeZO) (Malladi et al., 2023) demonstrated that SPSA can also be used to fine-tune LLMs using only the memory footprint of inference. MeZO’s success in fine-tuning hinges on the locally well-conditioned loss landscape of pre-trained LLMs near initialization, which bypasses the dimension dependence of standard ZO convergence bounds (Malladi et al., 2023). A growing body of follow-up work has sought to improve MeZO along several directions. In particular, reduced-variance methods (Zhao et al., 2025; Cai et al., 2026; Dang et al., 2026; Dbouk et al., 2026) has been investigated in to enhance convergence. Other schemes optimize the perturbation using curvature-aware (Seung et al., 2025) or activation-guided (Lin et al., 2026) criteria, and gradient-informed perturbations (Mi et al., 2025). These methods are compatible with TerMeZO and they could be combined with it, although we do not explore this direction in this work. Information about curvature can be also leveraged to dynamically select which weights to update (Wang et al., 2026). However, such approach incur a memory requirement higher than full-parameter MeZO, and we therefore consider them poorly suited to the near-inference-memory of quantized models regime we target in this work. 
+
+Fine-Tuning Quantized Models. Quantization replaces full-precision weights and activations with low-bit representations to reduce memory and compute. Post-training quantization (PTQ) methods such as GPTQ (Frantar et al., 2022), AWQ (Lin et al., 2024), and SmoothQuant (Xiao et al., 2023) achieve 4-and 8-bit inference at a minor accuracy gap, while quantization-aware training (QAT) recovers the gap by simulating quantization during training (Nagel et al., 2021). Extreme quantization, 1-bit and ternary weights, has been studied for energy-constrained deployment. BinaryConnect (Courbariaux et al., 2015), XNOR-Net (Rastegari et al., 2016), and ternary weight networks (Li et al., 2016) demonstrated that aggressive weight quantization is feasible for vision models. More recently, the BitNet framework (Wang et al., 2023; Ma et al., 2024) has introduced training LLMs from scratch with {− 1, 0, 1} weights and 8-bit activations, enabling matrix-multiplication-free inference kernels (Ma et al., 2024, 2025). To further increase the availability of BitNet models, recent works have also explored pipelines for distilling existing pretrained models into BitNet versions (Wu et al., 2025). BitNet distillation is orthogonal to our work, as it is typically applied prior to fine-tuning. The straight-through estimator (STE) (Bengio et al., 2013) is the standard BP surrogate in this regime, treating the non-differentiable quantizer as the identity in the backward pass. However, STE is known to be a biased gradient surrogate (Yin et al., 2019) and to interact poorly with optimizer states stored at low precision (Li et al., 2021). This further motivates the use of ZO for fine-tuning extremely quantized models. FIM-S-MeZO (Guo et al., 2024) combines ZO fine-tuning with sparsity, fine-tuning a tiny fraction of pa-rameters identified at pre-training, while keeping the remaining weights quantized to 4 bits. The work (Yang et al., 2024) reduces the effective ZO dimension by inserting adapters and adapting the per-step query bud-get to stabilize convergence. QuZO (Zhou et al., 2025) adopts a stochastic rounding scheme that lowers gradient bias for quantized weights, allowing fine-tuning with low precision forward passes. However, we found that this approach fails for ternary quantization (See Appendix H). Most directly related to our work, QZO (Shang et al., 2026) fine-tunes quantized models with MeZO by keeping the quantized weights fixed and fine-tuning only the quantization scales as full-precision parameters. We instead target complex tasks that may require fine-tuning of the ternary weights. Table 1 summarizes the related work for memory-constrained, BitNet-style deployment along five axes. 3FO PEFT methods (Hu et al., 2022; Dettmers et al., 2023) require storing full-precision adapters, gradients, and activations throughout training; evaluate matrix multiplication in full-precision; and do not benefit from sparse updates. Among ZO methods, sparse MeZO variants (Liu et al., 2024b; Guo et al., 2024) and TerMeZO save memory by restricting the perturbation and update to a sparse full-precision working set. TerMeZO stands out by obtaining this set directly from the ternary quantization, thus avoiding both the FO optimization steps required to construct a mask in (Guo et al., 2024) and the scale-only update constraints of QZO (Shang et al., 2026).                                                      
+
+> Table 1: Comparison of fine-tuning methods for BitNet-style models (Matmul = matrix multiplication).
+> Method Near inference memory of BitNet Matmul-free (BitNet like) No FO overhead Sparsity Quantization-Aware Mask
+> PEFT — FO fine-tuning
+> LoRA (Hu et al., 2022) ✗✗✗✗✗
+> QLoRA (Dettmers et al., 2023) ✗✗✗✗✗
+> ZO fine-tuning
+> MeZO (Malladi et al., 2023) ✗✓✓✗✗
+> MeZO (LoRA) (Malladi et al., 2023) ✗✗✓✗✗
+> S-MeZO (Liu et al., 2024b) ✓✓✓✓✗
+> FIM-S-MeZO (Guo et al., 2024) ✗✓✗✓✗
+> LoZO (Chen et al., 2025) ✗✗✓✗✗
+> ZO fine-tuning — quantized models
+> QZO (Shang et al., 2026) ✓✓✓✗✗
+> QuZO (Zhou et al., 2025) ✓✓✓✗✗
+> TerMeZO (ours) ✓✓✓✓✓
+
+# 3 TerMeZO 
+
+In this section, we propose a sparse version of MeZO tailored to BitNet models, a family of LLMs with ternary weights (Ma et al., 2024, 2025). BitNet models apply ternary quantization to most linear projections of the transformer blocks, while keeping the token embeddings, normalization modules, and the language modeling (LM) head in full precision (Ma et al., 2025; Wang et al., 2023). Accordingly, ternarization is applied to every linear projection in the transformer blocks, i.e., the query, key, value, and output projections of the multi-head attention modules, as well as to all linear layers in the multi-layer perceptron (MLP) blocks. In the sequel, we refer to these layers as ternary linear projections . The proposed TerMeZO preserves the ternary arithmetic of BitNet in the ternary linear projections, perturbing a subset of the latent weights, which are quantized on-the-fly during the forward pass. 
+
+Ternary Quantization. Let w ∈ Rd denote the vector collecting all latent weights of the ternary linear projections, and θ ∈ Rp the vector collecting all full-precision parameters of the remaining blocks. The ternary weights dominate the parameter count, i.e., we have p ≪ d. For example, for the Bitnet model Falcon-E-3B-Instruct (Falcon-LLM Team, 2025), we have the ratio p/d = 0 .044. During full-parameter fine-tuning, each ternary linear projection maintains full-precision latent weights that are quantized on-the-fly in the forward pass. The latent weights w act as an accumulator for gradient updates. To elaborate, denote as 
+
+wℓ ∈ Rnℓ
+
+the vectorized latent weights of a ternary linear projection indexed by integer ℓ, where nℓ is the number of parameters in that projection. The ternary weight ˜wℓ is obtained element-wise as [ ˜wℓ]i = Q([ wℓ]i) = 
+
+
+
+1 if [ wℓ]i > τ ℓ
+
+−1 if [ wℓ]i < −τ ℓ
+
+0 otherwise ,
+
+(2) with threshold τ ℓ = 0 .5 ( γℓ + δ), where γℓ = ∑nℓ 
+
+> i=1
+
+|wℓi |/n ℓ is the average absolute value of the weights, and δ > 0 is a small constant for numerical stability (e.g., δ = 10 −5). Accordingly, weights far from either 4threshold are effectively frozen in ternary space when subject to small updates, while weights in the immediate vicinity of the thresholds are the most sensitive to adaptation. Based on this observation, TerMeZO restricts fine-tuning to the subset of latent weights closest to the decision boundaries. 
+
+TerMeZO. In TerMeZO, a subset of latent weights wℓ and the corresponding quantization threshold τ ℓ
+
+are updated at each fine-tuning iteration t. We denote by wℓt the current weight vector of ternary linear projection ℓ at iteration t and by τ ℓt the corresponding threshold. For a given latent-weight vector wℓt , the distance of the i-th entry [ wℓt ]i to the quantization boundary is measured by 
+
+dℓi,t (wℓt ) = min (|[wℓt ]i − τ ℓt |, |[wℓt ]i + τ ℓt |), (3) where [ ·]i denotes the i-th element of the argument vector. TerMeZO takes as input a target fraction 
+
+ρ0 ∈ (0 , 1] of latent weights [ wℓ]i to be fine-tuned. To this end, based on the pretrained model, it selects the subsets 
+
+Sℓ 
+
+> 0
+
+=
+
+{
+
+i : dℓi, 0
+
+(wℓ
+
+> 0
+
+) ≤ ξ0
+
+}
+
+, (4) where the threshold ξ0 is selected so that a fraction ρ0 of the total number of latent weights, across all layers, is retained. Concretely, this is done by computing the distances of all latent weights (across all projection layers) to their decision boundaries, setting ξ0 to the ρ0-quantile of all distances. A validation of this criterion based on a comparison with BP can be found in Appendix B. The sets {S ℓ
+
+> 0
+
+}Lℓ=1 are computed once, offline, and the complexity of this step is linear in the number of latent weights. For the following iterations t ≥ 1, we allow the active set only to shrink by retaining only previously-active indices whose latent weights still lie within distance ξ0 of the decision boundaries as 
+
+Sℓt =
+
+{
+
+i ∈ S ℓt−1 : dℓi,t 
+
+(wℓt
+
+) ≤ ξ0
+
+}
+
+. (5) We denote the sparsification mask by mℓt ∈ { 0, 1}nℓ
+
+, with [ mℓt ]i = 1 ⇐⇒ i ∈ S ℓt . We further let 
+
+mt = {mℓt }Lℓ=1 denote the vector collecting the masks across all layers, and we write the masked latent weights as wt = mt ⊙ wt. By construction of set (5), we have the inclusion Sℓt ⊆ S ℓt−1 via (5), so that the fraction of active latent weights is non-increasing in the iteration index t and upper-bounded by the prescribed budget ρ0. Once a weight drifts outside the band ξ0 around its threshold, it is permanently frozen for the remainder of fine-tuning. The pseudo-code of the TerMeZO algorithm can be found in Appendix C. At each iteration t, TerMeZO updates the sparse sets Sℓt via (4), and performs a standard ZO update on the full-precision parameters θt
+
+and the selected latent weights wt. To elaborate, we focus here on supervised fine-tuning (SFT), and refer to Appendix D for the application of TerMeZO for reinforcement learning (RL)-based fine-tuning as a form of evolution strategies (ES) (Qiu et al., 2025). Let f ( ˜ w, θ; x, y ) represent the sample-wise supervised loss for input-output data point ( x, y ), which is parameterized by ternary weights ˜ w and full-precision parameters θ. Accordingly, the population loss for BitNet models can be expressed as a function of the full-precision weights w and θ as ˜F (w, θ) = F (Q(w), θ) = E(x,y )
+
+[f (Q(w), θ; ( x, y )) ], (6) with Q(·) being the quantization function and E(x,y )[·] representing the expectation over the data distribution. A batch loss estimate using a mini-batch B of size |B| is denoted as ̂˜F (w, θ; B) = 1
+
+|B| 
+
+∑
+
+> (x,y )∈B
+
+[f (Q(w), θ; ( x, y )) ]. (7) At each iteration t, K Gaussian perturbations are applied to both the masked latent weights, i.e., the elements i of vector wt = mt ⊙ wt with [ mt]i = 1, and to the full-precision parameters θt. A two-sided SPSA estimator is used, where the loss is evaluated along each perturbation direction with scale ϵ > 0 on a shared mini-batch Bt, and the resulting finite differences are averaged over the K perturbations to update the model parameters. 54 Convergence Analysis 
+
+In this section, we study the convergence of TerMeZO. To facilitate the analysis, we assume that a single perturbation is applied at each iteration, i.e., K = 1, but the extension to general K follows by standard averaging arguments (Malladi et al., 2023)). The objective function ˜F (w, θ) in (6) is non-differentiable with respect to latent weights w, making it difficult to analyze the convergence to a local optimizer. However, SPSA with Gaussian perturbations z ∼ N (0, I) provides an unbiased estimator of the gradient of the Gaussian smoothed-objective (Nesterov & Spokoiny, 2015) ˜Fϵ(w, θ) = Ez∼N (0,I)[F (w + ϵz, θ)] , (8) i.e., 
+
+Ez∼N (0,I)
+
+[ ˜F (w + ϵz, θ) − ˜F (w − ϵz, θ)2ϵ z
+
+]
+
+= ∇w ˜Fϵ(w, θ). (9) For completeness, a proof of this result can be found in Appendix E. As in (Ghadimi & Lan, 2013; Liu et al., 2018; Malladi et al., 2023), we study convergence to a stationary point with respect to the smoothed objective (8) through the time-averaged expected squared gradient norm 1
+
+T 
+
+> T−1
+
+∑
+
+> t=0
+
+E∥∇ ˜Fϵ(wt, θt)∥2 = 1
+
+T 
+
+> T−1
+
+∑
+
+> t=0
+
+E[∥∇ w ˜Fϵ(wt, θt)∥2 + ∥∇ θ ˜Fϵ(wt, θt)∥2]. (10) To this end, we make the following four assumptions, which are formally stated in Appendix F.1: As-sumption 1) The objective function ˜F (w, θ) is uniformly bounded; Assumption 2) The loss function F (w, θ)is L-Lipschitz in w and has L-Lipschitz gradients in θ; Assumption 3) The masked gradient estimator cap-tures a c-fraction of the gradient energy of the smoothed objective ˜Fϵ(w, θ) along the latent weights w; and 
+
+Assumption 4) the minibatch gradients have variance at most σ2 
+
+> B
+
+. Furthermore, we define as kt the number of active coordinates during iteration t, and introduce the average boundary-crossing fraction qt to measure the average fraction of active weights that change value after a perturbation: 
+
+kt =
+
+> L
+
+∑
+
+> ℓ=1
+> nℓ
+
+∑
+
+> i=1
+
+[mℓt ]i, qt = 1
+
+ktL∑
+
+> ℓ=1
+
+∑ 
+
+> i: [ mℓt]i=1
+
+P[Q([ wℓt + ϵzℓ]i)̸ = Q([ wℓt ]i)]. (11) We donote by Nt = ∑Lℓ=1 
+
+∑nℓ 
+
+> i=1
+
+E[( Q([ wℓt + ϵzℓ]i) − Q([ wℓt ]i))2] the expected number of latent weights that change value after a perturbation. 
+
+Theorem 1. Let Assumptions 1–4 hold. Define Lw = √2k0 L/ϵ 2 and Lmax = max {Lw, 8c2L(p + 2) }.Consider TerMeZO with constant step sizes η = c/ (2 Lw) for the latent weights w and μ = c2/L max for the full-precision parameters θ. Then, after T steps of TerMeZO algorithm, the time-averaged gradient norm 
+
+(10) satisfies the inequality 
+
+1
+
+T 
+
+> T−1
+
+∑
+
+> t=0
+
+E∥∇ ˜Fϵ(wt, θt)∥2 ≤ 2Lmax ∆0
+
+c2T + O
+
+(
+
+ϵ2p2 + N + σ2 
+
+> B
+
++ Lmax σ2
+
+> w
+
+)
+
+, (12) 
+
+where N = 1
+
+> T
+
+∑T −1 
+
+> t=0
+
+Nt; σ2 
+
+> w
+
+= 1
+
+> T
+
+∑T −1 
+
+> t=0
+
+E[σ2
+
+> w,t
+
+], with σ2 
+
+> w,t
+
+= k2 
+
+> t
+
+qt + √3 kt
+
+√qt; ∆0 = ˜Fϵ(w0, θ0) − ˜F ∗ 
+
+> ϵ
+
+is the initial optimality gap; c ∈ (0 , 1] is the mask-overlap constant of Assumption 3; and σ2 
+
+> B
+
+is the minibatch variance of Assumption 4. 
+
+We make the following remarks about connections of Theorem 1 with prior art: • When no quantization is applied, only the terms corresponding to the full-precision parameters θ remain in the bound (12), and thus standard MeZO convergence rate O(p/T ) for p trainable parameters is recovered (Malladi et al., 2023; Liu et al., 2018). • When the initial mask size k0 dominates the number of trainable parameters, i.e., when k0 ≫ p, we have Lmax = Lw = √2k0 L/ϵ 2, and the bound (12) gives an overall convergence rate O(√k0/(ϵ2T )) to a neighborhood of a stationary point, which is governed by the number k0 of active latent weights. 6• A convergence rate of O(k/T ) was proved for sparse MeZO (Guo et al., 2024), where k is the mask size. Setting ϵ2 = 1 /√k0 in (12) recovers this rate. Note that this scale gives the range ϵ ∈ [3 · 10 −3, 10 −2]for active-parameter counts k0 ∈ [10 8, 10 10 ], matching the typical order of magnitude of the perturbation scale ϵ used in practice (Malladi et al., 2023). 
+
+# 5 Memory-Footprint Analysis 
+
+In this section, we elaborate on the memory savings afforded by TerMeZO over BP and full-parameter MeZO. We start by relating the memory footprints of full-parameter MeZO and TerMeZO for the same Bitnet model, and we then provide an experimental evaluation to support the analysis. The key difference between TerMeZO and full-parameter MeZO is that the former keeps a full-precision copy only of the active latent weights, while also additionally storing the sparsification mask. Let B be the number of bytes per full-precision weight, e.g., B = 2 for bfloat16, and let BQ be the effective number of bytes per packed ternary weight, e.g., BQ = 2 /8 for BitNet models (Wang et al., 2023; Ma et al., 2025). Downgrading a frozen latent weight from full precision to ternary saves B − BQ bytes. A fraction 1 − ρ0 of the weights are frozen in TerMeZO, while each of the ρ0d active weights additionally retains its BQ-byte quantized copy. Hence, the peak TerMeZO memory footprint MTerMeZO can be expressed as a function of the memory footpring of MeZO MMeZO as 
+
+MTerMeZO = MMeZO − ⌈ d (1 − ρ0) ( B − BQ)⌉ + ⌈ρ0d B Q⌉ + Mmask . (13) The mask size in (13) is given by Mmask = min (⌈d/ 8⌉, ⌈ρ0d⌈log 2 d⌉/8⌉) bytes, where the first term corre-sponds to the option of a dense bit-mask storing one bit per latent weight, and the second to an active-index list that records the ⌈log 2 d⌉-bit index of each active weight. Table 2 reports the measured memory footprint on GPU of BP, full-parameter MeZO, and TerMeZO, along with that of pure inference as a lower bound, for fine-tuning of Falcon-E-1B and Falcon-E-3B on an H100 GPU. Measuring the footprint of TerMeZO and of inference each requires a custom kernel. A BitNet inference kernel for GPUs is already available (Ma et al., 2025), and we implement an analogous kernel for TerMeZO. The table also shows the estimate (13) for comparison. The results in Table 2 confirm the significant memory savings of MeZO relative to BP (Katti et al., 2025). TerMeZO improves further on MeZO by a wide margin. In particular, at sparsity level ρ0 = 0 .05, it reduces the footprint by roughly 3 × relative to MeZO, and by around 4 × at level ρ0 = 0 .01, bringing the memory cost of fine-tuning close to that of inference.                      
+
+> Table 2: Memory footprint (GB) during fine-tuning of Falcon-E-1B and Falcon-E-3B on an H100 GPU. For TerMeZO, we report both measured and estimated values using (13). The TerMeZO and inference numbers assume 2-bit storage of the ternary weights. Results here are measured usi SFT with the context length fixed to 512.
+> BP MeZO TerMeZO TerMeZO Inference
+> (ρ0= 0 .05) (ρ0= 0 .01)
+> Falcon-E-1B 16.08 3.61 1.33 (est. 1.31) 0.94 (est. 0.93) 0.89
+> Falcon-E-3B 28.50 6.28 2.08 (est. 2.04) 1.36 (est. 1.34) 1.24
+
+# 6 Empirical Results 
+
+We conduct experiments on a set of publicly available BitNet models across a range of tasks. Specifically, we evaluate on Microsoft’s BitNet-b1.58-2B-4T (Ma et al., 2025), a 2B-parameter model pre-trained on 4T tokens, and the Falcon-Edge family (Falcon-LLM Team, 2025), a set of BitNet models ranging from 1B to 3B parameters designed for on-device deployment. Through these experiments, we aim to answer the following questions: 1) Does TerMeZO match the performance of full-parameter MeZO on BitNet models? 2) How does TerMeZO compare to existing sparse and PEFT variants of MeZO on BitNet models? 
+
+GLUE/SuperGLUE Classification Tasks. Here, we benchmark TerMeZO against the following base-lines: (i) standard BP fine-tuning with Adam optimizer; (ii) in-context learning (ICL) (Brown et al., 2020); 7(iii) full-parameter MeZO (Malladi et al., 2023), which applies ZO updates to all latent weights and full-precision parameters; (iv) MeZO with LoRA (LoRA-MeZO); (v) FIM-S-MeZO (Guo et al., 2024); and (vi) QZO (Shang et al., 2026), a MeZO variant tailored to quantized models that perturbs the quantization scales rather than the latent weights themselves. Following the conventional MeZO evaluation protocol (Malladi et al., 2023), fine-tuning is cast as language modeling over a task-specific prompt template. We report results on six standard classification benchmarks from the GLUE (Wang et al., 2018) and SuperGLUE (Wang et al., 2021) suites; namely SST2 (Socher et al., 2013), RTE (Dagan et al., 2005), CoPA (Roemmele et al., 2011), CB (CommitmentBank) (De Marneffe et al., 2019), BoolQ (Clark et al., 2019), and MultiRC (Khashabi et al., 2018). For all tasks, we report the accuracy on the validation set in Table 3 after fine-tuning using the BitNet-b1.58-2B-4T model. All ZO methods are run for the same number of optimization steps to ensure a fair comparison. Hyperparameters and experiment details can be found in Appendix G.1. We observe that TerMeZO is as effective as full-parameter MeZO fine-tuning on most of these tasks, and even exceeds it on some tasks. QZO, which fine-tunes only the scales of the ternary projections, is also observed to perform well. This is expected as these tasks are relatively simple, implying that the model already possesses the required knowledge and tuning only a subset of the full-precision parameters is sufficient. In contrast, LoRA-MeZO lags behind the other baselines. We attribute this to the known limitation of ZO optimization as a method for training from scratch (Malladi et al., 2023). In fact, unlike full fine-tuning, which starts from a well-conditioned pretrained initialization, LoRA introduces randomly initialized low-rank matrices. This effect is compounded in our setting, since, in order to remain compatible with the BitNet architecture, we constrain the LoRA projections to be ternary.                                                   
+
+> Table 3: Accuracy (%) of TerMeZO and baselines on classification tasks using the Microsoft/bitnet-b1.58-2B-4T BitNet model (Ma et al., 2025). The fraction of trainable latent weights is fixed to ρ0= 0 .05 for TerMeZO. SST2 RTE CoPA CB BoolQ MultiRC
+> BP 94.8 84.1 83 88.0 86.1 83.4
+> ICL 85.4 75.4 80 78.5 76.8 73.1
+> MeZO 93.2 81.9 78 87.9 82.3 82.2
+> LoRA-MeZO 55.0 71.6 73 55.5 54.5 66.6
+> FIM-S-MeZO 92.3 82.4 75 83.8 79.5 81.6
+> QZO 91.7 79.7 77 82.8 82.9 81.8
+> TerMeZO (Ours) 93.1 83.4 80 84.8 82.7 83.4
+
+Instruction Following and Reasoning Tasks. We now consider more challenging fine-tuning tasks that potentially require the acquisition of new knowledge, and for which optimizing the ternary weights is required. Specifically, we adopt an instruction-following dataset, MagiCoder (Wei et al., 2023), which measures the ability of the fine-tuned model to follow natural language instructions and generate correct code, as well as a mathematical reasoning task, GSM8K (Cobbe et al., 2021). We include here the S-MeZO baseline with two selection rules, namely maximum weight magnitude and minimum weight magnitude (Liu et al., 2024b).                                       
+
+> Table 4: Performance of TerMeZO with ρ0= 0 .05 and benchmarks on GSM8K and MagiCoder using two BitNet models, Falcon-E-1B-Base and Falcon-E-3B-Base. We report accuracy (%) on GSM8K and pass@1 (%) on MagiCoder.
+> Falcon-E-1B-Base Falcon-E-3B-Base
+> GSM8K MagiCoder GSM8K MagiCoder
+> Base Model 14.0 17.1 20.0 37.8
+> BP 37.7 32.9 57.4 49.4
+> MeZO 32.6 25.6 45.3 42.7
+> FIM-S-MeZO 32.5 25.0 44.5 43.3
+> S-MeZO (min) 27.8 15.8 26.8 41.5
+> S-MeZO (max) 22.1 14.6 27.4 42.1
+> QZO 18.6 16.4 23.3 42.0
+> TerMeZO (Ours) 31.8 24.4 44.4 43.3
+
+8Table 4 reports results on GSM8K and MagiCoder for two BitNet models, Falcon-E-1B-Base and Falcon-E-3B-Base. For GSM8K, we report the test accuracy, whereas for the models fine-tuned on MagiCoder, we report pass@1 on HumanEval (Chen et al., 2021), the percentage of problems for which the single sampled code completion passes all unit tests. TerMeZO substantially improves over the base model and closely tracks full-parameter MeZO. QZO, by contrast, fails to match TerMeZO, indicating that for these tasks, fine-tuning the quantization scales alone is insufficient. We also observe a consistent performance gap between BP and TerMeZO for a given model size. However, TerMeZO’s lower memory footprint makes it possible to fine-tune larger models than BP would allow under the same memory budget. For example, the 3B model fine-tuned with TerMeZO outperforms the 1B model fine-tuned with BP, despite the latter requiring considerably more memory on a smaller model size as shown in Table 2. S-MeZO, whose mask selection relies on latent weight magnitude and ignores the quantizer geometry, falls behind by a significant margin. In contrast, while FIM-S-MeZO matches the performance of TerMeZO, it requires initial SGD steps on a separate dataset prior to fine-tuning, resulting in a memory footprint comparable to BP. This performance parity with FIM-S-MeZO further validates the effectiveness of TerMeZO’s selection criteria. Although FIM-S-MeZO performs similarly to TerMeZO in these experirmnts, it does so under stronger requirements (e.g., access to FO gradient information). We also observe that TerMeZO is more robust to the choice of learning rate. Specifically, for the same fraction of latent weights, some learning rates (e.g., 5 ×10 −4)cause FIM-S-MeZO to diverge, whereas TerMeZO remains stable (see Appendix H.1). We attribute this to the fact that a large proportion of the weights selected by FIM-S-MeZO are not reachable by perturbations, since they lie far from the quantization boundaries, which yields pure noise in the updates. Finally, we note that when an FO warmup before fine-tuning is affordable (e.g., offline in the cloud), combining the selection criteria of TerMeZO and FIM-S-MeZO could capture the benefits of both. We leave this investigation to future work. 
+
+# 7 Conclusion 
+
+Summary. This paper proposed TerMeZO, a sparse MeZO scheme for LLM fine-tuning tailored to BitNet models. The sparse mask selection exploits the ternary weight geometry and is inexpensive to evaluate for this class of models, requiring only a pass through all latent weights before fine-tuning. A convergence analysis of the proposed scheme is provided. Extensive experiments on a variety of datasets confirm the effectiveness of TerMeZO, showing that it recovers, and in some cases exceeds, the performance of full-parameter MeZO, while enabling a substantial reduction in the memory required for fine-tuning. By reducing the fraction of latent weights needed during fine-tuning, fine-tuning BitNet models can be carried out on edge devices with a near-inference memory footprint. 
+
+Limitations. An efficient implementation of TerMeZO requires custom, hardware-dependent kernels to realize the memory savings in practice. Future work could target such kernels with a focus on both memory and latency. Additionally, due to the limited availability of larger open-source BitNet models, we have only evaluated our scheme on models ranging from 1B to 3B parameters. Validating the approach at larger scales is left for future work. 
+
+Perspectives. A natural extension of this work is to evaluate TerMeZO on BitNet-equipped linear-attention or hybrid-attention models, which would allow us to jointly address the memory footprint of the KV cache alongside that of the latent weights. This is particularly relevant for RL-based fine-tuning where long generation rollouts can make KV cache storage a significant bottleneck. Another important direction is to validate the memory savings reported in this paper on real edge hardware with custom kernels, beyond the GPU-based setup used in our experiments. 
+
+# References 
+
+Armen Aghajanyan, Sonal Gupta, and Luke Zettlemoyer. Intrinsic dimensionality explains the effectiveness of language model fine-tuning. In Proceedings of the 59th annual meeting of the association for computational linguistics and the 11th international joint conference on natural language processing (volume 1: long papers) , pp. 7319–7328, 2021. 9Alan Ansell, Edoardo Ponti, Anna Korhonen, and Ivan Vulić. Composable sparse fine-tuning for cross-lingual transfer. In ACL , 2022. Yoshua Bengio, Nicholas Léonard, and Aaron Courville. Estimating or propagating gradients through stochastic neurons for conditional computation. arXiv preprint arXiv:1308.3432 , 2013. Tom Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared D Kaplan, Prafulla Dhariwal, Arvind Neelakantan, Pranav Shyam, Girish Sastry, Amanda Askell, et al. Language models are few-shot learners. 
+
+Advances in neural information processing systems , 33:1877–1901, 2020. Zhijie Cai, Haolong Chen, and Guangxu Zhu. Adamezo: Adam-style zeroth-order optimizer for llm fine-tuning without maintaining the moments. arXiv preprint arXiv:2605.00650 , 2026. Mark Chen, Jerry Tworek, Heewoo Jun, et al. Evaluating large language models trained on code. arXiv preprint arXiv:2107.03374 , 2021. Pin-Yu Chen, Huan Zhang, Yash Sharma, Jinfeng Yi, and Cho-Jui Hsieh. ZOO: Zeroth order optimization based black-box attacks to deep neural networks without training substitute models. In Proceedings of the 10th ACM Workshop on Artificial Intelligence and Security , pp. 15–26, 2017. Yiming Chen, Yuan Zhang, Liyuan Cao, Kun Yuan, and Zaiwen Wen. Enhancing zeroth-order fine-tuning for language models with low-rank structures. ICML , 2025. Christopher Clark, Kenton Lee, Ming-Wei Chang, Tom Kwiatkowski, Michael Collins, and Kristina Toutanova. BoolQ: Exploring the surprising difficulty of natural yes/no questions. In NAACL , 2019. Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, Christopher Hesse, and John Schulman. Training verifiers to solve math word problems. arXiv preprint arXiv:2110.14168 , 2021. Matthieu Courbariaux, Yoshua Bengio, and Jean-Pierre David. Binaryconnect: Training deep neural net-works with binary weights during propagations. Advances in neural information processing systems , 28, 2015. Ido Dagan, Oren Glickman, and Bernardo Magnini. The PASCAL Recognising Textual Entailment Chal-lenge. In Proceedings of the First International Conference on Machine Learning Challenges: Evaluating Predictive Uncertainty Visual Object Classification, and Recognizing Textual Entailment , pp. 177–190, 2005. Sizhe Dang, Yangyang Guo, Yanjun Zhao, Xiaodong Zheng, Guang Dai, Ivor Tsang, and Haishan Ye. FZOO: Fast zeroth-order optimizer for fine-tuning large language models towards adam-scale speed. In 
+
+The Fourteenth International Conference on Learning Representations , 2026. Hassan Dbouk, Nidham Gazagnadou, Matthias Reisser, and Christos Louizos. On adaptivity in zeroth-order optimization. arXiv preprint arXiv:2605.03869 , 2026. Marie-Catherine De Marneffe, Mandy Simons, and Judith Tonhauser. The commitmentbank: Investigating projection in naturally occurring discourse. In proceedings of Sinn und Bedeutung , pp. 107–124, 2019. Tim Dettmers, Mike Lewis, Sam Shleifer, and Luke Zettlemoyer. 8-bit optimizers via block-wise quantization. 
+
+International Conference on Learning Representations (ICLR) , 2022. Tim Dettmers, Artidoro Pagnoni, Ari Holtzman, and Luke Zettlemoyer. QLoRA: Efficient finetuning of quantized LLMs. In Advances in Neural Information Processing Systems (NeurIPS) , volume 36, 2023. John C Duchi, Michael I Jordan, Martin J Wainwright, and Andre Wibisono. Optimal rates for zero-order convex optimization: The power of two function evaluations. IEEE Transactions on Information Theory ,61(5):2788–2806, 2015. 10 Falcon-LLM Team. Falcon-e, a series of powerful, universal and fine-tunable 1.58bit language models., May 2025. URL https://falcon-lm.github.io/blog/falcon-edge .Gerald B Folland. Real analysis: modern techniques and their applications . John Wiley & Sons, 1999. Jonathan Frankle and Michael Carbin. The lottery ticket hypothesis: Finding sparse, trainable neural networks. In ICLR , 2019. Elias Frantar, Saleh Ashkboos, Torsten Hoefler, and Dan Alistarh. GPTQ: Accurate post-training quanti-zation for generative pre-trained transformers. arXiv preprint arXiv:2210.17323 , 2022. Kanishk Gandhi, Denise H J Lee, Gabriel Grand, Muxin Liu, Winson Cheng, Archit Sharma, and Noah Goodman. Stream of search (sos): Learning to search in language. In First Conference on Language Modeling , 2024. URL https://openreview.net/forum?id=2cop2jmQVL .Tanmay Gautam, Youngsuk Park, Hao Zhou, Parameswaran Raman, and Wooseok Ha. Variance-reduced zeroth-order methods for fine-tuning language models. ICML , 2024. Saeed Ghadimi and Guanghui Lan. Stochastic first-and zeroth-order methods for nonconvex stochastic programming. SIAM journal on optimization , 23(4):2341–2368, 2013. Demi Guo, Alexander M. Rush, and Yoon Kim. Parameter-efficient transfer learning with diff pruning. In 
+
+ACL , 2021. Wentao Guo, Jikai Long, Yimeng Zeng, Zirui Liu, Xinyu Yang, Yide Ran, Jacob R. Gardner, Osbert Bastani, Christopher De Sa, Xiaodong Yu, Beidi Chen, and Zhaozhuo Xu. Zeroth-order fine-tuning of LLMs with extreme sparsity. In 2nd Workshop on Advancing Neural Network Training: Computational Efficiency, Scalability, and Resource Optimization (WANT@ICML 2024) , 2024. URL https://openreview.net/ forum?id=pW4MmsnVRq .Zeyu Han, Chao Gao, Jinyang Liu, Jeff Zhang, and Sai Qian Zhang. Parameter-efficient fine-tuning for large models: A comprehensive survey. Transactions on Machine Learning Research , 2024. ISSN 2835-8856. URL https://openreview.net/forum?id=lIsCS8b6zj .Junxian He, Chunting Zhou, Xuezhe Ma, Taylor Berg-Kirkpatrick, and Graham Neubig. Towards a unified view of parameter-efficient transfer learning. In ICLR , 2022. Neil Houlsby, Andrei Giurgiu, Stanislaw Jastrzebski, Bruna Morrone, Quentin De Laroussilhe, Andrea Ges-mundo, Mona Attariyan, and Sylvain Gelly. Parameter-efficient transfer learning for NLP. In International conference on machine learning , pp. 2790–2799. PMLR, 2019. Edward J. Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen. LoRA: Low-rank adaptation of large language models. In International Conference on Learning Representations (ICLR) , 2022. Andrew Ilyas, Logan Engstrom, Anish Athalye, and Jessy Lin. Black-box adversarial attacks with limited queries and information. In International conference on machine learning , pp. 2137–2146. PMLR, 2018. Prabodh Katti, Houssem Sifaou, Sangwoo Park, Bipin Rajendran, and Osvaldo Simeone. On-device fine-tuning via backprop-free zeroth-order optimization. arXiv preprint arXiv:2511.11362 , 2025. Daniel Khashabi, Snigdha Chaturvedi, Michael Roth, Shyam Upadhyay, and Dan Roth. Looking beyond the surface:a challenge set for reading comprehension over multiple sentences. In Proceedings of North American Chapter of the Association for Computational Linguistics (NAACL) , 2018. Dawid Jan Kopiczko, Tijmen Blankevoort, and Yuki M. Asano. VeRA: Vector-based random matrix adap-tation. In ICLR , 2024. Brian Lester, Rami Al-Rfou, and Noah Constant. The power of scale for parameter-efficient prompt tuning. In Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing (EMNLP) ,pp. 3045–3059, 2021. 11 Fengfu Li, Bin Liu, Xiaoxing Wang, Bo Zhang, and Junchi Yan. Ternary weight networks. arXiv preprint arXiv:1605.04711 , 2016. Xiang Lisa Li and Percy Liang. Prefix-tuning: Optimizing continuous prompts for generation. Proceedings of the 59th Annual Meeting of the Association for Computational Linguistics and the 11th International Joint Conference on Natural Language Processing , pp. 4582–4597, 2021. URL https://api.semanticscholar. org/CorpusID:230433941 .Yuhang Li, Ruihao Gong, Xu Tan, Yang Yang, Peng Hu, Qi Zhang, Fengwei Yu, Wei Wang, and Shi Gu. BRECQ: Pushing the limit of post-training quantization by block reconstruction. In ICLR , 2021. Vladislav Lialin, Vijeta Deshpande, Xiaowei Yao, and Anna Rumshisky. Scaling down to scale up: A guide to parameter-efficient fine-tuning. arXiv preprint arXiv:2303.15647 , 2023. Ji Lin, Jiaming Tang, Haotian Tang, Shang Yang, Wei-Ming Chen, Wei-Chen Wang, Guangxuan Xiao, Xingyu Dang, Chuang Gan, and Song Han. AWQ: Activation-aware weight quantization for on-device LLM compression and acceleration. In MLSys , 2024. Wei Lin, Yining Jiang, Qingyu Song, Qiao Xiang, and Hong Xu. AGZO: Activation-guided zeroth-order optimization for LLM fine-tuning. In Forty-third International Conference on Machine Learning , 2026. Shih-Yang Liu, Chien-Yi Wang, Hongxu Yin, Pavlo Molchanov, Yu-Chiang Frank Wang, Kwang-Ting Cheng, and Min-Hung Chen. DoRA: Weight-decomposed low-rank adaptation. In ICML , 2024a. Sijia Liu, Pin-Yu Chen, Bhavya Kailkhura, Gaoyuan Zhang, Alfred O Hero III, and Pramod K Varshney. Zeroth-order online alternating direction method of multipliers: Convergence analysis and applications. In International Conference on Artificial Intelligence and Statistics , 2018. Xiao Liu, Kaixuan Ji, Yicheng Fu, Weng Lam Tam, Zhengxiao Du, Zhilin Yang, and Jie Tang. P-tuning v2: Prompt tuning can be comparable to fine-tuning universally across scales and tasks. In ACL , 2022. Yong Liu, Zirui Zhu, Chaoyu Gong, Minhao Cheng, Cho-Jui Hsieh, and Yang You. Sparse MeZO: Less parameters for better performance in zeroth-order LLM fine-tuning. arXiv preprint arXiv:2402.15751 ,2024b. Shuming Ma, Hongyu Wang, Lingxiao Ma, Lei Wang, Wenhui Wang, Shaohan Huang, Li Dong, Ruiping Wang, Jilong Xue, and Furu Wei. The era of 1-bit LLMs: All large language models are in 1.58 bits. arXiv preprint arXiv:2402.17764 , 2024. Shuming Ma, Hongyu Wang, Shaohan Huang, Xingxing Zhang, Ying Hu, Ting Song, Yan Xia, and Furu Wei. BitNet b1.58 2B4T technical report. arXiv preprint arXiv:2504.12285 , 2025. Rabeeh Karimi Mahabadi, James Henderson, and Sebastian Ruder. Compacter: Efficient low-rank hyper-complex adapter layers. In NeurIPS , 2021. Sadhika Malladi, Tianyu Gao, Eshaan Nichani, Alex Damian, Jason D Lee, Danqi Chen, and Sanjeev Arora. Fine-tuning language models with just forward passes. Advances in Neural Information Processing Systems , 36:53038–53075, 2023. Stephen Merity, Caiming Xiong, James Bradbury, and Richard Socher. Pointer sentinel mixture models, 2016. Zhendong Mi, Qitao Tan, Grace Li Zhang, Zhaozhuo Xu, Geng Yuan, and Shaoyi Huang. Towards fast LLM fine-tuning through zeroth-order optimization with projected gradient-aligned perturbations. arXiv preprint arXiv:2510.18228 , 2025. Markus Nagel, Marios Fournarakis, Rana Ali Amjad, Yelysei Bondarenko, Mart van Baalen, and Tijmen Blankevoort. A white paper on neural network quantization. arXiv preprint arXiv:2106.08295 , 2021. 12 Yurii Nesterov and Vladimir G. Spokoiny. Random gradient-free minimization of convex functions. Foun-dations of Computational Mathematics , 17:527 – 566, 2015. URL https://api.semanticscholar.org/ CorpusID:2147817 .Jonas Pfeiffer, Aishwarya Kamath, Andreas Rücklé, Kyunghyun Cho, and Iryna Gurevych. Adapterfusion: Non-destructive task composition for transfer learning. In EACL , 2021. Xin Qiu, Yulu Gan, Conor F Hayes, Qiyao Liang, Yinggan Xu, Roberto Dailey, Elliot Meyerson, Babak Hodjat, and Risto Miikkulainen. Evolution strategies at scale: LLM fine-tuning beyond reinforcement learning. arXiv preprint arXiv:2509.24372 , 2025. Samyam Rajbhandari, Jeff Rasley, Olatunji Ruwase, and Yuxiong He. ZeRO: Memory optimizations toward training trillion parameter models. In Proceedings of the International Conference for High Performance Computing, Networking, Storage and Analysis . IEEE Press, 2020. Mohammad Rastegari, Vicente Ordonez, Joseph Redmon, and Ali Farhadi. Xnor-net: Imagenet classification using binary convolutional neural networks. In European conference on computer vision , pp. 525–542. Springer, 2016. Melissa Roemmele, Cosmin Adrian Bejan, and Andrew S Gordon. Choice of plausible alternatives: An evaluation of commonsense causal reasoning. In AAAI spring symposium: logical formalizations of com-monsense reasoning , pp. 90–95, 2011. Tim Salimans, Jonathan Ho, Xi Chen, Szymon Sidor, and Ilya Sutskever. Evolution strategies as a scalable alternative to reinforcement learning. arXiv preprint arXiv:1703.03864 , 2017. Hyunseok Seung, Jaewoo Lee, and Hyunsuk Ko. Low-rank curvature for zeroth-order optimization in llm fine-tuning. In AAAI Conference on Artificial Intelligence , 2025. URL https://api.semanticscholar. org/CorpusID:282922251 .Sifeng Shang, Jiayi Zhou, Chenyu Lin, Minxian Li, and Kaiyang Zhou. Fine-tuning quantized neural networks with zeroth-order optimization. In The Fourteenth International Conference on Learning Representations (ICLR) , 2026. Richard Socher, Alex Perelygin, Jean Y. Wu, Jason Chuang, Christopher D. Manning, Andrew Y. Ng, and Christopher Potts. Recursive deep models for semantic compositionality over a sentiment treebank. In 
+
+Proceedings of the 2013 Conference on Empirical Methods in Natural Language Processing (EMNLP) , pp. 1631–1642, 2013. James C. Spall. Multivariate stochastic approximation using a simultaneous perturbation gradient approxi-mation. IEEE Transactions on Automatic Control , 37(3):332–341, 1992. Yi-Lin Sung, Varun Nair, and Colin Raffel. Training neural networks with fixed sparse masks. In NeurIPS ,2021. Alex Wang, Amanpreet Singh, Julian Michael, Felix Hill, Omer Levy, and Samuel R. Bowman. GLUE: A multi-task benchmark and analysis platform for natural language understanding. In Proceedings of the 2018 EMNLP Workshop BlackboxNLP: Analyzing and Interpreting Neural Networks for NLP , pp. 353–355, 2018. Boxin Wang, Chejian Xu, Shuohang Wang, Zhe Gan, Yu Cheng, Jianfeng Gao, Ahmed Hassan Awadallah, and Bo Li. Adversarial GLUE: A multi-task benchmark for robustness evaluation of language models. 
+
+arXiv preprint arXiv:2111.02840 , 2021. Hongyu Wang, Shuming Ma, Li Dong, Shaohan Huang, Huaijie Wang, Lingxiao Ma, Fan Yang, Ruiping Wang, Yi Wu, and Furu Wei. BitNet: Scaling 1-bit transformers for large language models. arXiv preprint arXiv:2310.11453 , 2023. Shuo Wang, Ziyu Chen, and Ming Tang. CurvZO: Adaptive curvature-guided sparse zeroth-order optimiza-tion for efficient LLM fine-tuning. In Forty-third International Conference on Machine Learning , 2026. 13 Yuxiang Wei, Zhe Wang, Jiawei Liu, Yifeng Ding, and Lingming Zhang. Magicoder: Empowering code generation with OSS-Instruct. arXiv preprint arXiv:2312.02120 , 2023. Xun Wu, Shaohan Huang, Wenhui Wang, Ting Song, Li Dong, Yan Xia, and Furu Wei. Bitnet distillation. 
+
+arXiv preprint arXiv:2510.13998 , 2025. Guangxuan Xiao, Ji Lin, Mickael Seznec, Hao Wu, Julien Demouth, and Song Han. SmoothQuant: Accurate and efficient post-training quantization for large language models. In ICML , 2023. Mingyu Xu, Zheng Xu, Subhabrata Choudhury, et al. Random masking finds winning tickets for parameter efficient fine-tuning. ICML , 2024a. Yinggan Xu, Risto Miikkulainen, and Xin Qiu. Quantized evolution strategies: High-precision fine-tuning of quantized llms at low-precision cost. arXiv preprint arXiv:2602.03120 , 2026. Yuhui Xu, Lingxi Xie, Xiaotao Gu, Xin Chen, Heng Chang, Hengheng Zhang, Zhengsu Chen, Xiaopeng Zhang, and Qi Tian. QA-LoRA: Quantization-aware low-rank adaptation of large language models. In 
+
+The Twelfth International Conference on Learning Representations , 2024b. Yifan Yang, Kai Zhen, Ershad Banijamali, Athanasios Mouchtaris, and Zheng Zhang. Adazeta: Adaptive zeroth-order tensor-train adaption for memory-efficient large language models fine-tuning. In Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing , pp. 977–995, 2024. Penghang Yin, Jiancheng Lyu, Shuai Zhang, Stanley Osher, Yingyong Qi, and Jack Xin. Understanding straight-through estimator in training activation quantized neural nets. In ICLR , 2019. Elad Ben Zaken, Shauli Ravfogel, and Yoav Goldberg. BitFit: Simple parameter-efficient fine-tuning for transformer-based masked language models. In Proceedings of the 60th Annual Meeting of the Association for Computational Linguistics (ACL) , pp. 1–9, 2022. Qingru Zhang, Minshuo Chen, Alexander Bukharin, Nikos Karampatziakis, Pengcheng He, Yu Cheng, Weizhu Chen, and Tuo Zhao. Adaptive budget allocation for parameter-efficient fine-tuning. In In-ternational Conference on Learning Representations (ICLR) , 2023. Yaqing Zhang, Xiaodong Wang, Junjie Liu, et al. Adamix: Mixture-of-adaptations for parameter-efficient model tuning. In EMNLP , 2022. Yihua Zhang, Pingzhi Li, Junyuan Hong, Jiaxiang Li, Yimeng Zhang, Wenqing Zheng, Pin-Yu Chen, Jason D. Lee, Wotao Yin, Mingyi Hong, et al. Revisiting zeroth-order optimization for memory-efficient LLM fine-tuning: A benchmark. ICML , 2024. Haozhe Zhao et al. HELENE: Hessian layer-wise clipping and gradient annealing for accelerating fine-tuning LLM with zeroth-order optimization. arXiv preprint arXiv:2406.10923 , 2024. Yanjun Zhao, Sizhe Dang, Haishan Ye, Guang Dai, Yi Qian, and Ivor Tsang. Second-order fine-tuning without pain for LLMs: A hessian informed zeroth-order optimizer. In International Conference on Learning Representations , volume 2025, pp. 43496–43520, 2025. Jiajun Zhou, Yifan Yang, Kai Zhen, Ziyue Liu, Yequan Zhao, Ershad Banijamali, Athanasios Mouchtaris, Ngai Wong, and Zheng Zhang. QuZO: Quantized zeroth-order fine-tuning for large language models. In 
+
+Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing , pp. 5341–5359, 2025. 14 Appendix A Extended Related Work 
+
+## A.1 PEFT methods 
+
+Full fine-tuning of modern LLMs with first-order optimizers is often prohibitively expensive, particularly in resource-constrained settings, due to the substantial memory required for optimizer states and activa-tions (Rajbhandari et al., 2020; Dettmers et al., 2022). Parameter-efficient fine-tuning (PEFT) methods mitigate this cost by freezing the pre-trained model and optimizing only a small number of additional pa-rameters, motivated by the observation that fine-tuning updates typically lie in a low-dimensional subspace of the full parameter space (Aghajanyan et al., 2021; Lialin et al., 2023; Han et al., 2024). PEFT methods can be broadly classified into four families: 
+
+Adapter-based methods. Adapters insert small trainable modules between frozen layers of the back-bone (Houlsby et al., 2019; Pfeiffer et al., 2021). Variants reduce the additional inference cost by parallelizing adapters with the residual stream (He et al., 2022), sharing them across layers (Mahabadi et al., 2021), or making them sparsely activated (Zhang et al., 2022). 
+
+Soft-prompt and prefix methods. Prompt-tuning prepends a small set of trainable continuous tokens to the input embeddings (Lester et al., 2021; Liu et al., 2022), while prefix-tuning extends this to every transformer layer by injecting trainable key-value pairs into the attention mechanism (Li & Liang, 2021). These methods are extremely parameter-efficient but are known to be sensitive to initialization and to underperform on smaller backbones (Lester et al., 2021; He et al., 2022). 
+
+Low-rank reparameterization. LoRA (Hu et al., 2022) freezes the pre-trained weights and learns a low-rank additive update, so that only a small number of parameters are trained while inference cost remains unchanged after merging. It is typically applied to attention and feed-forward layers and has become the standard PEFT method. Extensions include QLoRA (Dettmers et al., 2023), QA-LoRA (Xu et al., 2024b), AdaLoRA (Zhang et al., 2023), DoRA (Liu et al., 2024a), and VeRA (Kopiczko et al., 2024). 
+
+Sparse parameter fine-tuning. A complementary line of work updates only a sparse subset of the original model weights, motivated by the lottery-ticket hypothesis (Frankle & Carbin, 2019) and by the observation that fine-tuning induces sparse changes (Guo et al., 2021). BitFit updates only bias terms (Zaken et al., 2022); Diff-Pruning learns a sparse difference vector with an L0 relaxation (Guo et al., 2021); FishMask selects parameters by Fisher information (Sung et al., 2021); and SAM/PaFi-style methods select coordinates by saliency or magnitude (Ansell et al., 2022; Xu et al., 2024a). Some recent works have also explored sparsity for ZO fine-tuning of LLMs. Existing sparse ZO fine-tuning methods select weights using criteria that either ignore the quantization structure or recover it only at high cost. S-MeZO (Liu et al., 2024b) picks weights by latent-weight magnitude, which is agnostic to the ternary decision boundaries, while FIM-S-MeZO (Guo et al., 2024) relies on first-order gradient information collected during pre-training to build its sparse mask. In practice, such information is often unavailable, necessitating first-order optimization on the target fine-tuning task or on a separate dataset as a prerequisite before the ZO fine-tuning process can even begin. 
+
+## A.2 Zeroth-Order Optimization and MeZO 
+
+ZO optimization has traditionally targeted non-differentiable or black-box objectives, as encountered in adversarial attacks (Chen et al., 2017; Ilyas et al., 2018) and reinforcement learning (Salimans et al., 2017), where analytical gradients are unavailable by construction. MeZO (Malladi et al., 2023) showed that the same SPSA estimator can fine-tune LLMs at the memory cost of inference alone, and a substantial body of subsequent work has sought to improve upon it. Sparse MeZO (S-MeZO) (Liu et al., 2024b) restricts perturbations to a subset of weights selected by magnitude. MeZO-SVRG (Gautam et al., 2024) reduces variance via control variates. HiZOO incorporates diagonal Hessian estimates (Zhao et al., 2024). LoZO and its variants combine MeZO with low-rank perturbations (Chen et al., 2025). Block-coordinate variants update only a subset of layers per step (Zhang et al., 2024). Several recent works (Guo et al., 2024; Zhou et al., 2025; Shang et al., 2026) extend MeZO to quantized models, which is the regime closest to ours and which we discuss next. More recently, ZO optimization has also proven effective for RL-based fine-tuning of LLMs (Qiu et al., 2025; Xu et al., 2026). 15 A.3 ZO Fine-tuning for Quantized Models 
+
+Severals efforts have explored fine-tuning quantized models using ZO optimization without needing STE. QuZO (Zhou et al., 2025) performs ZO fine-tuning entirely through low-precision forward passes, replacing the STE with optimized stochastic rounding to reduce gradient bias in settings with INT4 and INT8 weights. More recently, quantized evolution strategies (QES) (Xu et al., 2026) fine-tune quantized LLMs directly in the discrete parameter space via accumulated error feedback. QZO (Shang et al., 2026) proceeds by freezing the quantized weights entirely and fine-tuning the full-precision quantization scales solely. We show in our experiments that this is not sufficient for some fine-tuning tasks. 16 Appendix B Empirical Evaluation of the Selection Criterion 
+
+To further motivate the selection criterion in (5), we now evaluate experimentally the relationship between to the gradient of the population loss (6) over the latent weights and the distance to quantization boundaries (3). We aim to verify whether during a run of BP fine-tuning via stochastic gradient descent (SGD), implemented via STE (Bengio et al., 2013), there is sufficient overlap between the weights with the largest gradient signal and the weights close to the decision boundary as per the selection criterion (5). To this end, we partition the latent weights of each ternary linear projection layer ℓ at SGD step t into bins {Bk} according to their normalized distance to the nearest decision boundary, ˜dℓi,t = dℓi,t (wℓt )/τ ℓt with distance dℓi,t (wℓt ) defined in (3), and we let Iℓ,t k = {i : ˜dℓi,t ∈ Bk} be the corresponding index set. The per-coordinate gradient magnitude, averaged over all weights within each bin, across all ternary linear projection layers ℓ, and across T SGD steps, is 
+
+Gk = 1
+
+T L 
+
+> T
+
+∑
+
+> t=1
+> L
+
+∑
+
+> ℓ=1
+
+1
+
+|I ℓ,t k |
+
+∑
+
+> i∈I ℓ,t k
+
+∣∣∣∣
+
+∂ ˜F (wt, θt)
+
+∂[wℓt ]i
+
+∣∣∣∣ , (14) with |I ℓ,t k | denoting the cardinality of Iℓ,t k and ∂ ˜F (wt, θt)/∂ [wℓt ]i denoting the partial derivative of function ˜F with respect to parameter [ wℓt ]i. Figure 1a plots the per-coordinate gradient magnitude (14) as a function of the normalized distance to quantization boundaries ˜dℓi,t for the SST2 (Socher et al., 2013) and MultiRC (Khashabi et al., 2018) datasets. The results show that the gradient magnitudes are substantially higher for latent weights lying close to the decision boundaries, providing empirical support for the boundary-proximity selection criterion in (5). Moreover, Figure 1b shows the ratio of the sparsified gradient norm 
+
+∥mt ⊙ ∇ w ˜F (w, θ)∥ to the full gradient norm ∥∇ wt
+
+˜F (wt, θt)∥ during 100 SGD steps using the two datasets. It is observed that, even a small portion of the latent weights, namely ρt = 0 .01, recovers a significant fraction of the full gradient norm.        
+
+> 012300.511.52·10 −3
+> Normalized Distance to Quantization Boundary Avg Gradient Magnitude  MultiRC SST-2
+> (a)
+> 20 40 60 80 0.20.40.60.81Gradient Step
+> ∥mt⊙∇ w ˜F (w,θ)∥∥∇ w ˜F (w,θ)∥
+> SST2 MultiRC
+> (b)
+
+Figure 1: (a) Average per-coordinate gradient magnitude Gk in (14), as a function of the normalized distance to the quantization boundary, ˜dℓi,t = dℓi,t (wℓt )/τ ℓt , on SST2 dataset using Falcon-E-3B-Instruct model (Falcon-LLM Team, 2025). Results are averaged over all linear projection layers and 100 SGD steps. Gradient magnitudes are larger for weights closer to the quantization boundaries. (b) Ratio of the masked latent-weight gradient norm to the full latent-weight gradient norm, ∥mt ⊙∇ wt ˜F (wt, θt)∥ / ∥∇ wt ˜F (wt, θt)∥, as a function of the gradient steps for a sparsity fraction ρt = 0 .01, on MultiRC and SST2 datasets. 
+
+17 Appendix C TerMeZO Algorithm: Pseudo-code 
+
+Algorithm 1 TerMeZO: Ternary MeZO for BitNet Models 
+
+Require: Latent weights w0 ∈ Rd; full-precision parameters θ0 ∈ Rp; learning rate η; perturbation scale ϵ;initial sparsity fraction ρ0; number of steps T ; number of perturbations K; batch size B.Compute thresholds τ ℓ 
+
+> 0
+
+and distances {dℓi, 0(wℓ
+
+> 0
+
+)}i,ℓ across all layers and set ξ0 as the lower ρ0-quantile of these distances 
+
+Sℓ 
+
+> 0
+
+← {i : dℓi, 0(wℓ
+
+> 0
+
+) ≤ ξ0
+
+} for each ternary linear projection ℓ ▷ initial sparsity sets 
+
+for t = 0 , . . . , T − 1 do if t ≥ 1 then 
+
+Compute thresholds τ ℓt for each ℓ
+
+Sℓt ← {i ∈ S ℓt−1 : dℓi,t (wℓt ) ≤ ξ0
+
+} for each ℓ ▷ update sparsity sets 
+
+end if 
+
+Form mask mt from {S ℓt }Lℓ=1 
+
+Sample batch Bt of size B
+
+for k = 1 , . . . , K do 
+
+Sample seed st,k and use it to draw z(k) 
+
+> w
+
+∼ N (0 , I d) and z(k) 
+
+> θ
+
+∼ N (0 , I p)
+
+wt ← wt + ϵ (mt ⊙ z(k) 
+
+> w
+
+); θt ← θt + ϵz(k) 
+
+> θ
+
+; ˜F + ←̂ ˜F (wt, θt; Bt)
+
+wt ← wt − 2ϵ (mt ⊙ z(k) 
+
+> w
+
+); θt ← θt − 2ϵz(k) 
+
+> θ
+
+; ˜F − ←̂ ˜F (wt, θt; Bt)
+
+wt ← wt + ϵ (mt ⊙ z(k) 
+
+> w
+
+); θt ← θt + ϵz(k) 
+
+> θ
+
+▷ restore 
+
+g(k) ← ˜F +− ˜F − 
+
+> 2ϵ
+
+▷ projected gradient 
+
+end for for k = 1 , . . . , K do 
+
+Re-draw z(k) 
+
+> w
+
+and z(k) 
+
+> θ
+
+from seed st,k ▷ regenerate perturbations 
+
+wt+1 ← wt − ηK g(k) · (mt ⊙ z(k) 
+
+> w
+
+); θt+1 ← θt − ηK g(k) z(k) 
+
+> θ
+
+▷ weight update 
+
+end for end for return w T , θT
+
+18 Appendix D TerMeZO for RL-based Fine-tuning 
+
+A recent line of work has shown that ZO methods are effective for RL-based fine-tuning of LLMs (Qiu et al., 2025; Xu et al., 2026). Closely related to MeZO with multiple perturbations, the approach applies several perturbations, estimates the corresponding rewards, and updates the model with the reward-weighted sum of those perturbations. TerMeZO extends naturally to this setting by restricting latent weights to which the ES algorithm is applied. We report results below assessing the effectiveness of TerMeZO in this setting, in terms of both convergence speed and final accuracy. Figure 2 shows the train and test reward curves for fine-tuning Falcon-E-3B-Instruct (Falcon-LLM Team, 2025) on the Countdown task (Gandhi et al., 2024) using reinforcement learning with verifiable rewards (RLVR), following the same settings and hyperparameters as in (Qiu et al., 2025). The reward reflects both answer correctness and output format, with the former weighted at 0 .9. Unlike the GLUE classification tasks, QZO clearly struggles here, as restricting updates to the ternary scales is not enough to solve a task of this difficulty. TerMeZO, in contrast, outperforms full-parameter MeZO and converges noticeably faster. 0 100 200 300 400 500 00.20.40.6Iterations Train Reward 
+
+> MeZO TerMeZO QZO
+> (a) Train Reward
+
+0 100 200 300 400 500 00.20.40.6Iterations Test Reward 
+
+> (b) Test Reward
+> Figure 2: Reward curves during fine-tuning on the Countdown task for full-parameter MeZO, QZO, and the proposed TerMeZO. Falcon-E-3B-Instruct (Falcon-LLM Team, 2025) is used in this experiment.
+
+19 Appendix E Unbiasedness of SPSA for the Gaussian-Smoothed Objective 
+
+Here, we prove that the symmetric two-point SPSA estimator with Gaussian perturbations is an unbiased estimator of the gradient of the Gaussian-smoothed objective ˜Fϵ(w, θ) with respect to w. Throughout this appendix θ is fixed and omitted from the notation. Let z ∼ N (0, Id) denote a standard Gaussian random vector in Rd, with density 
+
+φ(z) = (2 π)−d/ 2 exp (− 12 ∥z∥2) . (15) The Gaussian-smoothed objective at smoothing level ϵ > 0 is ˜Fϵ(w) = Ez
+
+[ ˜F (w + ϵz)] =
+
+∫
+
+> Rd
+
+˜F (w + ϵz) φ(z) dz. (16) We show in Lemma 1 (Appendix F) that although ˜F is piecewise constant, and hence discontinuous, in w,the smoothed objective ˜Fϵ is infinitely differentiable in w. Substituting u = w + ϵz in (16) yields ˜Fϵ(w) = ϵ−d
+
+∫
+
+> Rd
+
+˜F (u) φ( u−w
+
+> ϵ
+
+) du. (17) Differentiating (17) with respect to w and using ∇wφ( u−w
+
+> ϵ
+
+) = 1 
+
+> ϵ
+> u−w
+> ϵ
+
+φ( u−w
+
+> ϵ
+
+), we obtain 
+
+∇w ˜Fϵ(w) = 1
+
+ϵ Ez
+
+[ ˜F (w + ϵz) z] . (18) The estimator in (18) is one-sided. To obtain the symmetric two-point form, observe that, since z and −z
+
+have the same distribution, 
+
+Ez
+
+[ ˜F (w + ϵz) z] = − Ez
+
+[ ˜F (w − ϵz) z] . (19) Combining (18) with (19) yields 
+
+∇w ˜Fϵ(w) = Ez
+
+[ ˜F (w + ϵz) − ˜F (w − ϵz)2ϵ z
+
+]
+
+, (20) which is the claimed identity. 
+
+# Appendix F Proof of Theorem 1 
+
+Before stating the assumptions, we use the following notations for the updates. The two blocks w and θ are updated simultaneously by 
+
+wt+1 = wt − η ˆgw,t , ˆgw,t = ˜ft(wt + ϵ¯zt, θt) − ˜ft(wt − ϵ¯zt, θt)2ϵ ¯zt, (21) 
+
+θt+1 = θt − μ ˆgθ,t , ˆgθ,t = ˜ft(wt, θt + ϵzθ,t ) − ˜ft(wt, θt − ϵzθ,t )2ϵ zθ,t , (22) where ˜ft(w, θ) = f (Q(w), θ; Bt) is the minibatch loss. 
+
+## F.1 Assumptions 
+
+Assumption 1 (Bounded loss) . The loss ˜F is uniformly bounded: | ˜F (w, θ)| = |F (Q(w), θ)| ≤ B for all 
+
+(w, θ) ∈ Rd+p and some constant B > 0.
+
+Assumption 2 (Lipschitz in w, smooth in θ). F is L-Lipschitz continuous in w, and ∇θ F is L-Lipschitz in (w, θ). We use a single constant L throughout, which is without loss of generality (otherwise take the maximum). That is, for all w, w′ ∈ Rd and θ, θ′ ∈ Rp,
+
+|F (w, θ) − F (w′, θ)| ≤ L ∥w − w′∥, (23) 
+
+∥∇ θ F (w, θ) − ∇ θ F (w′, θ′)∥ ≤ L (∥w − w′∥ + ∥θ − θ′∥). (24) 20 Each minibatch loss f (·, · ; B) satisfies the same two inequalities with a random constant L(B) in place of L,where EB[L(B)2] ≤ L2.
+
+Assumption 3 (Mask alignment) . The masked ternary gradient estimate (21) is aligned with the smoothed gradient: 
+
+〈∇w ˜Fϵ(wt, θt), Et[ˆ gw,t ]〉 ≥ c ∥∇ w ˜Fϵ(wt, θt)∥2, c ∈ (0 , 1] , (25) 
+
+where Et denotes expectation over the perturbations and the minibatch drawn at iteration t, with wt, θt and 
+
+mt fixed. 
+
+Assumption 4 (Minibatch variance) . For all ˜w ∈ {− 1, 0, 1}d and θ ∈ Rp,
+
+EBt
+
+∥∥∇θ f ( ˜ w, θ; Bt) − ∇ θ F ( ˜ w, θ)∥∥2 ≤ σ2 
+
+> B
+
+. (26) 
+
+For a minibatch of nB i.i.d. samples, σ2 
+
+> B
+
+= σ2/n B , with σ2 the per-sample variance. 
+
+## F.2 Proof of Theorem 1 
+
+Notation. For S ⊆ [d], split the perturbation vector z as z = ¯ z + zSc , where ¯ z keeps the coordinates of 
+
+z in S and zSc the remaining ones. Let DS (w, z) = ∥Q(w + ϵ¯z) − Q(w)∥2 = ∑ 
+
+> i∈S
+
+(Q(wi + ϵz i) − Q(wi)) 2
+
+be the squared change of the quantized weights in S, and let qS (w) = E[DS (w, z)] /|S|. With this notation, 
+
+kt = |St| is the mask size at iteration t, qt = qSt (wt) is the average expected squared change of the masked weights. 
+
+Lemma 1. Under Assumptions 1 and 2, the following hold. 
+
+• ˜Fϵ is C∞ in w for any fixed θ, and continuously differentiable in (w, θ).
+
+• Let S ⊆ [d] with |S| ≤ k0. Let w, u ∈ Rd with u supported on S, and let θ, θ′ ∈ Rp. Then, we have (i) ∣∣u⊤∇2 
+
+> ww
+
+˜Fϵ(w, θ) u∣∣ ≤ Lw ∥u∥2, (27) 
+
+(ii) ∣∣⟨∇ w ˜Fϵ(w, θ) − ∇ w ˜Fϵ(w, θ′), u⟩∣∣ ≤ Lwθ ∥u∥ ∥ θ − θ′∥, (28) 
+
+(iii) ∥∇ θ ˜Fϵ(w + u, θ) − ∇ θ ˜Fϵ(w, θ)∥ ≤ Lwθ ∥u∥, (29) 
+
+(iv) ∥∇ θ ˜Fϵ(w, θ) − ∇ θ ˜Fϵ(w, θ′)∥ ≤ L ∥θ − θ′∥, (30) 
+
+with Lw = √2k0 L/ϵ 2 and Lwθ = √k0 L/ϵ .Proof. Regularity of ˜Fϵ. For fixed θ, ˜Fϵ(w, θ) = ( ˜F (·, θ) ∗ ϕϵ)( w), a convolution of the bounded measurable function ˜F (·, θ) with the Gaussian kernel ϕϵ(v) = ϵ−d(2 π)−d/ 2e−∥ v∥2/(2 ϵ2). ϕϵ belongs to the Schwartz class defined as 
+
+S(Rd) = 
+
+{
+
+f ∈ C∞(Rd) : sup 
+
+> x∈Rd
+
+∥x∥k|Dαf (x)| < ∞ ∀ k ∈ N, ∀ α
+
+}
+
+. (31) Using closure of S(Rd) under differentiation and its inclusion in L1(Rd), together with Assumption 1 
+
+∫
+
+> Rd
+
+| ˜F (u, θ)| | Dαϕϵ(u − w)| du ≤ B ∥Dαϕϵ∥L1(Rd) < ∞, (32) for every multi-index α. By (Folland, 1999, Section 8.2), ˜Fϵ(·, θ) ∈ C∞(Rd), and derivatives can be taken under the integral for Gaussian z
+
+∇w ˜Fϵ(w, θ) = 1
+
+ϵ Ez
+
+[ ˜F (w + ϵz, θ) z], (33) 
+
+∇2 
+
+> ww
+
+˜Fϵ(w, θ) = 1
+
+ϵ2 Ez
+
+[ ˜F (w + ϵz, θ) ( zz ⊤ − Id)]. (34) 21 We now turn to the θ-gradient. Since Q takes values in the finite set {− 1, 0, 1}d, Assumption 2 implies that 
+
+∇θ F (Q(·), θ) is bounded, locally uniformly in θ. By dominated convergence, 
+
+∇θ ˜Fϵ(w, θ) = Ez
+
+[∇θ F (Q(w + ϵz), θ)]. (35) Joint continuity of (33) and (35) in ( w, θ) follows in the same way, so ˜Fϵ ∈ C1.Now define the objective smoothed only along S,˜F Sϵ (w, θ) = E¯z
+
+[ ˜F (w + ϵ¯z, θ)]. (36) Since ¯ z and zSc are independent, the full smoothing is an average of partial smoothings at shifted points, that is, ˜Fϵ(w, θ) = EzSc
+
+[ ˜F Sϵ (w + ϵzSc , θ)]. (37) By the regularity argument above, applied to the objective smoothed at the masked coordinates in S, ˜F Sϵ is 
+
+C∞ along S, with derivatives bounded uniformly. Hence, for u supported on S, we can write 
+
+u⊤∇2 
+
+> ww
+
+˜Fϵ(w, θ) u = d2
+
+ds 2 EzSc
+
+[ ˜F Sϵ (w + su + ϵzSc , θ)] 
+
+> s=0
+
+= EzSc
+
+[u⊤∇2 
+
+> ww
+
+˜F Sϵ (w + ϵzSc , θ) u], (38) and similarly for first derivatives along u. For such u, the partial smoothing has the same identities as (33)–(34) with z replaced by the masked ¯ z:
+
+⟨∇ w ˜F Sϵ (w, θ), u⟩ = 1 
+
+> ϵ
+
+E[ ˜F (w + ϵ¯z, θ) u⊤¯z], (39) 
+
+u⊤∇2 
+
+> ww
+
+˜F Sϵ (w, θ) u = 1 
+
+> ϵ2
+
+E[ ˜F (w + ϵ¯z, θ) (( u⊤¯z)2 − ∥ u∥2)]. (40) The shifted point w + ϵzSc has the same coordinates in S as w, so DS and qS are the same at both points. Consequently, any bound on the derivatives of ˜F Sϵ along S that depends on w only through DS or qS (w)transfers to ˜Fϵ with the same constant. It therefore suffices to prove (i)–(iii) for ˜F Sϵ . By the Lipschitz part of Assumption 2 and the definition of DS ,
+
+∣∣ ˜F (w + ϵ¯z, θ) − ˜F (w, θ)∣∣ ≤ L√DS (w, z), (41) 
+
+∥∥∇θ F (Q(w + ϵ¯z), θ) − ∇ θ F (Q(w), θ)∥∥ ≤ L√DS (w, z), (42) where E[DS (w, z)] = |S| qS (w) by definition. Squaring (41)–(42) and taking expectations over ¯ z therefore gives 
+
+E∣∣ ˜F (w + ϵ¯z, θ) − ˜F (w, θ)∣∣2 ≤ L2|S| qS (w), (43) 
+
+E∥∥∇θ F (Q(w + ϵ¯z), θ) − ∇ θ F (Q(w), θ)∥∥2 ≤ L2|S| qS (w). (44) Neglecting direct transition between −1 and 1, whose probability is low for sufficiently small ϵ, we have further 
+
+qS (w) ≤ 1. (45) 
+
+Proof of (i). Let u ∈ Rd be supported on S, so that u⊤¯z ∼ N (0 , ∥u∥2). Since E[( u⊤¯z)2 − ∥ u∥2] = 0, we may rewrite the Hessian identity (40) as 
+
+u⊤∇2 
+
+> ww
+
+˜F Sϵ (w, θ) u = 1
+
+ϵ2 E
+
+[( ˜F (w + ϵ¯z, θ) − ˜F (w, θ))( (u⊤¯z)2 − ∥ u∥2)]
+
+. (46) We apply the Cauchy–Schwarz inequality. The first factor is bounded using (43). For the second, ( u⊤¯z)2/∥u∥2 ∼
+
+χ2(1) has variance 2, so E[(( u⊤¯z)2 − ∥ u∥2)2] = 2 ∥u∥4. Thus, 
+
+∣∣u⊤∇2 
+
+> ww
+
+˜F Sϵ (w, θ) u∣∣ ≤ 1
+
+ϵ2 · L√|S| qS (w) · √2 ∥u∥2 =
+
+√2|S| qS (w) Lϵ2 ∥u∥2. (47) 22 By (37), the same bound holds for ˜Fϵ. Since qS (w) ≤ 1 and |S| ≤ k0, we get (i) .
+
+Proof of (ii). Let u ∈ Rd be supported on S, so that u⊤¯z ∼ N (0 , ∥u∥2). Let g(¯ z) = ˜F (w + ϵ¯z, θ) − ˜F (w +
+
+ϵ¯z, θ′). Since E[u⊤¯z] = 0, 
+
+⟨∇ w ˜F Sϵ (w, θ) − ∇ w ˜F Sϵ (w, θ′), u⟩ = 1 
+
+> ϵ
+
+E[(g(¯ z) − g(0)) u⊤¯z]. (48) Write a = Q(w + ϵ¯z), b = Q(w) and θr = θ′ + r(θ − θ′). Then 
+
+g(¯ z) − g(0) = 
+
+∫ 10
+
+⟨∇ θ F (a, θr ) − ∇ θ F (b, θr ), θ − θ′⟩ dr. (49) First, for each r ∈ [0 , 1], the Cauchy–Schwarz inequality for the inner product in Rp and the Lipschitz continuity of ∇θ F in its first argument (Assumption 2) give 
+
+∣∣⟨∇ θ F (a, θr ) − ∇ θ F (b, θr ), θ − θ′⟩∣∣ ≤ ∥∇ θ F (a, θr ) − ∇ θ F (b, θr )∥ ∥ θ − θ′∥ ≤ L∥a − b∥ ∥ θ − θ′∥. (50) The right-hand side does not depend on r, so integrating over r ∈ [0 , 1] and using ∥a − b∥ = √DS (w, z)yields 
+
+|g(¯ z) − g(0)| ≤ L√DS (w, z) ∥θ − θ′∥. (51) Applying the Cauchy–Schwarz inequality for expectations, 
+
+∣∣E[(g(¯ z) − g(0)) u⊤¯z]∣ ∣ ≤ L√|S| qS (w) ∥u∥ ∥ θ − θ′∥, (52) and dividing by ϵ, together with qS (w) ≤ 1 and |S| ≤ k0,
+
+|⟨∇ w ˜F Sϵ (w, θ) − ∇ w ˜F Sϵ (w, θ′), u⟩| ≤ Lϵ
+
+√|S|qS (w) ∥u∥ ∥ θ − θ′∥ ≤ Lwθ ∥u∥∥ θ − θ′∥, (53) and by (37), the same bound holds for ˜Fϵ.
+
+Proof of (iii). Fix a unit vector v ∈ Rp. Let χ(x) = ⟨v, ∇θ F (Q(x), θ)⟩, which is bounded and measurable, and let ψS (w) = E[χ(w + ϵ¯z)]. By (35) and (37), ⟨v, ∇θ ˜Fϵ(w, θ)⟩ = EzSc [ψS (w + ϵzSc )]. Since E[u⊤¯z] = 0, (42) gives, for every w′,
+
+|⟨∇ ψS (w′), u⟩| = 1
+
+> ϵ
+
+∣∣E[( χ(w′ + ϵ¯z) − χ(w′)) u⊤¯z]∣∣ ≤ Lwθ ∥u∥. (54) Let Ψ( w) = ⟨v, ∇θ ˜Fϵ(w, θ)⟩ = EzSc [ψS (w + ϵzSc )]. As for (38), the derivative along u can be taken under the expectation, and every shifted point w′ + ϵzSc satisfies the bound above. Hence, for every w′ ∈ Rd,
+
+|⟨∇ Ψ( w′), u⟩| = ∣∣EzSc
+
+[⟨∇ ψS (w′ + ϵzSc ), u⟩]∣ ∣ ≤ Lwθ ∥u∥. (55) The function r 7 → Ψ( w + ru) is continuously differentiable on [0 , 1] with derivative ⟨∇ Ψ( w + ru), u⟩. By the fundamental theorem of calculus, 
+
+∣∣Ψ( w + u) − Ψ( w)∣∣ =
+
+∣∣∣∫ 10
+
+⟨∇ Ψ( w + ru), u⟩ dr 
+
+∣∣∣ ≤
+
+∫ 10
+
+|⟨∇ Ψ( w + ru), u⟩| dr ≤ Lwθ ∥u∥, (56) that is, |⟨ v, ∇θ ˜Fϵ(w + u, θ) − ∇ θ ˜Fϵ(w, θ)⟩| ≤ Lwθ ∥u∥ for every unit vector v ∈ Rp. Taking the supremum over v yields (29). 
+
+Proof of (iv). By (35), applied at θ and at θ′ with the same w,
+
+∇θ ˜Fϵ(w, θ) − ∇ θ ˜Fϵ(w, θ′) = Ez
+
+[∇θ F (Q(w + ϵz), θ) − ∇ θ F (Q(w + ϵz), θ′)]. (57) Assumption 2, applied with w′ = w, gives, for every w,
+
+∥∥∇θ F (w, θ) − ∇ θ F (w, θ′)∥∥ ≤ L∥θ − θ′∥. (58) By Jensen’s inequality, we get 
+
+∥∥∇θ ˜Fϵ(w, θ) − ∇ θ ˜Fϵ(w, θ′)∥∥ ≤ Ez
+
+∥∥∇θ F (Q(w + ϵz), θ) − ∇ θ F (Q(w + ϵz), θ′)∥∥ ≤ L∥θ − θ′∥, (59) which is (30). 23 Lemma 2. Under Assumptions 1–4, and with all expectations taken as Et ( expectation over the perturbations and the minibatch drawn at iteration t), we have (a) E∥ˆgw,t ∥2 ≤ L2
+
+2ϵ2 σ2
+
+> w,t
+
+, σ2 
+
+> w,t
+
+= k2 
+
+> t
+
+qt + √3 kt
+
+√qt; (60) 
+
+(b) ∥∥Eˆgθ,t − ∇ θ ˜Fϵ(wt, θt)∥∥ ≤ bt := L(ϵ√p + √Nt
+
+); (61) 
+
+(c) E∥ˆgθ,t ∥2 ≤ 4( p + 2) ∥∇ θ ˜Fϵ(wt, θt)∥2 + 4( p + 2) L2Nt
+
++ 2( p + 2) σ2 
+
+> B
+
++ ϵ2L2 
+
+> 2
+
+p(p + 2)( p + 4) . (62) 
+
+Proof. (a) Write D± = DSt (wt, ±zt) for the squared changes under the two perturbations. A coordinate can change under at most one of the two perturbations under sufficiently small ϵ. Hence, each coordinate contributes to at most one of D+, D −, that is, 
+
+∥Q(wt + ϵ¯zt) − Q(wt − ϵ¯zt)∥2 = D+ + D−. (63) Fix the minibatch Bt. By Assumption 2 for the minibatch loss, the finite difference ∆ t = ˜ft(wt + ϵ¯zt, θt) −
+
+˜ft(wt − ϵ¯zt, θt), where ˜ft(w, θ) = f (Q(w), θ; Bt) is the quantized minibatch loss, therefore satisfies ∆ 2 
+
+> t
+
+≤
+
+L(Bt)2(D+ + D−), and 
+
+∥ˆgw,t ∥2 = ∆2
+
+> t
+
+4ϵ2 ∥¯zt∥2 ≤ L(Bt)2
+
+4ϵ2 (D+ + D−)∥¯zt∥2. (64) The map ¯ zt 7 → − ¯zt preserves the law of ¯ zt so E[D−∥¯zt∥2] = E[D+∥¯zt∥2]. Write Di for the squared change of coordinate i; neglecting direct ±1 transitions as before, Di ∈ { 0, 1}. Let πi = EDi, so that ∑ 
+
+> i∈St
+
+πi = ktqt.Then 
+
+E[D+∥¯zt∥2] = ∑
+
+> i,j ∈St
+
+E[Di z2 
+
+> j
+
+] ≤ (kt − 1) ∑
+
+> i∈St
+
+πi + ∑
+
+> i∈St
+
+√3πi ≤ k2 
+
+> t
+
+qt + √3 kt
+
+√qt. (65) The off-diagonal terms i̸ = j use independence of the coordinates. The diagonal terms use the Cauchy– Schwarz inequality with Ez4 
+
+> i
+
+= 3 and D2 
+
+> i
+
+= Di, followed by ∑
+
+> i
+
+√πi ≤ √kt
+
+∑ 
+
+> i
+
+πi. Taking expectations over 
+
+zt in the bound on ∥ˆgw,t ∥2 and using the symmetry gives, for a fixed minibatch, 
+
+Ezt ∥ˆgw,t ∥2 ≤ L(Bt)2
+
+2ϵ2 E[D+∥¯zt∥2] ≤ L(Bt)2
+
+2ϵ2 σ2
+
+> w,t
+
+. (66) Taking the expectation over the minibatch and using E[L(Bt)2] ≤ L2 proves (a). 
+
+(b) Let ht(θ) = F (Q(wt), θ) and ht, B(θ) = f (Q(wt), θ; Bt), which are L-smooth and L(Bt)-smooth by Assumption 2, and write ξ = zθ,t ∈ Rp. The estimator is linear in the loss and Bt is independent of ξ,so averaging over the minibatch replaces ht, B by ht. By Stein’s lemma, E[ht(θ + ϵξ)ξ] = ϵ E[∇ht(θ + ϵξ)]. Together with the symmetry ξ 7 → − ξ, this gives 
+
+Eˆgθ,t = Eξ[∇ht(θt + ϵξ)] . (67) We decompose the bias as 
+
+Eˆgθ,t − ∇ θ ˜Fϵ(wt, θt) = [Eˆgθ,t − ∇ ht(θt)] + [∇ht(θt) − ∇ θ ˜Fϵ(wt, θt)], (68) For the first term, since ∇ht is L-Lipschitz, 
+
+∥Eˆgθ,t − ∇ ht(θt)∥ = ∥∥Eξ[∇ht(θt + ϵξ) − ∇ ht(θt)] ∥∥ ≤ Lϵ E∥ξ∥ ≤ Lϵ √p. (69) For the second bracket, by (35), Assumption 2 and Jensen’s inequality, 
+
+∥∇ ht(θt) − ∇ θ ˜Fϵ(wt, θt)∥ ≤ L Ez∥Q(wt) − Q(wt + ϵz)∥ ≤ L
+
+√
+
+ED[d](wt, z) = L√Nt. (70) Applying the triangle inequality to (68) gives (b). 24 (c) Fix the minibatch Bt. By L(Bt)-smoothness of ht, B,
+
+ht, B(θt + ϵξ) − ht, B(θt − ϵξ) = 2 ϵ⟨∇ ht, B(θt), ξ⟩ + r, |r| ≤ L(Bt) ϵ2∥ξ∥2. (71) Hence 
+
+∥ˆgθ,t ∥2 ≤ 2⟨∇ ht, B, ξ⟩2∥ξ∥2 + L(Bt)2ϵ2 
+
+> 2
+
+∥ξ∥6. (72) For Gaussian ξ, E[⟨g, ξ⟩2∥ξ∥2] = ( p + 2) ∥g∥2 and E∥ξ∥6 = p(p + 2)( p + 4). Taking also the expectation over the minibatch, which is independent of ξ, and using E[L(Bt)2] ≤ L2 and EB∥∇ ht, B∥2 = ∥∇ ht∥2 +
+
+EB∥∇ ht, B − ∇ ht∥2 ≤ ∥∇ ht∥2 + σ2 
+
+> B
+
+(Assumption 4), 
+
+E∥ˆgθ,t ∥2 ≤ 2( p + 2) ∥∇ ht(θt)∥2 + 2( p + 2) σ2 
+
+> B
+
++ ϵ2L2 
+
+> 2
+
+p(p + 2)( p + 4) . (73) Finally, by (70), 
+
+∥∇ ht(θt)∥2 ≤ 2∥∇ θ ˜Fϵ(wt, θt)∥2 + 2 L2Nt, (74) which gives (c). We now combine Lemmas 1 and 2 to prove Theorem 1, using the common Lipschitz constant L of As-sumption 2 for both blocks. At iteration t, the two blocks take independent SPSA steps with Gaussian perturbations ¯ zt = mt ⊙ zt and zθ,t ∼ N (0, Ip), as in (21)–(22): 
+
+wt+1 = wt − ηt ˆgw,t , ˆgw,t = ˜ft(wt + ϵ¯zt, θt) − ˜ft(wt − ϵ¯zt, θt)2ϵ ¯zt, (75) 
+
+θt+1 = θt − μt ˆgθ,t , ˆgθ,t = ˜ft(wt, θt + ϵzθ,t ) − ˜ft(wt, θt − ϵzθ,t )2ϵ zθ,t , (76) where ˜ft(w, θ) = f (Q(w), θ; Bt) is the quantized loss on the minibatch Bt, and ηt and μt are the learning rates of the latent weights and of the full-precision parameters. The step wt+1 − wt = −ηt ˆgw,t is supported on St, with |St| = kt ≤ k0 since the mask can only shrink. Lemma 1 therefore gives, with all gradients evaluated at ( wt, θt), ˜Fϵ(wt+1 , θt+1 ) ≤ ˜Fϵ(wt, θt) + ⟨∇ w ˜Fϵ, wt+1 − wt⟩ + Lw
+
+2 ∥wt+1 − wt∥2
+
++ ⟨∇ θ ˜Fϵ, θt+1 − θt⟩ + L
+
+2 ∥θt+1 − θt∥2
+
++ Lwθ ∥wt+1 − wt∥ ∥ θt+1 − θt∥. (77) In (77), (27) and (30) give the two quadratic terms, and (28)–(29) each contribute half of the last term, which accounts for the fact that both blocks move in the same step. (27)–(29) apply because wt+1 − wt is supported on St. Substituting wt+1 − wt = −ηt ˆgw,t and θt+1 − θt = −μt ˆgθ,t into (77), ˜Fϵ(wt+1 , θt+1 ) ≤ ˜Fϵ(wt, θt) − ηt⟨∇ w ˜Fϵ, ˆgw,t ⟩ + Lwη2
+
+> t
+
+2 ∥ˆgw,t ∥2
+
+− μt⟨∇ θ ˜Fϵ, ˆgθ,t ⟩ + Lμ 2
+
+> t
+
+2 ∥ˆgθ,t ∥2
+
++ ηtμtLwθ ∥ˆgw,t ∥ ∥ ˆgθ,t ∥. (78) We take ηt = η and μt = μ satisfying 
+
+η ≤ c
+
+2Lw
+
+, μ ≤ min 
+
+{ 18L(p + 2) , 2cη 
+
+}
+
+. (79) The step sizes of Theorem 1 satisfy (79), since μ = c2/L max = min {c2/L w, 1/(8 L(p + 2)) } and 2 cη = c2/L w.We take the expectation Et in (78) and treat the terms separately. Assumption 3 and (60) give 
+
+−η Et⟨∇ w ˜Fϵ, ˆgw,t ⟩ + Lwη2
+
+2 Et∥ˆgw,t ∥2 ≤ − aw∥∇ w ˜Fϵ∥2 + LwL2η2
+
+4ϵ2 σ2
+
+> w,t
+
+, aw := c η. (80) 25 By (61) and applying xy ≤ x2/8 + 2 y2, we can write 
+
+Et⟨∇ θ ˜Fϵ, ˆgθ,t ⟩ ≥ ∥∇ θ ˜Fϵ∥2 − bt∥∇ θ ˜Fϵ∥ ≥ 78 ∥∇ θ ˜Fϵ∥2 − 2b2 
+
+> t
+
+, (81) with b2 
+
+> t
+
+≤ 2L2ϵ2p + 2 L2Nt. Since μ ≤ 1/(8 L(p + 2)), we have Lμ 2 
+
+> 2
+
+≤ μ 
+
+> 16( p+2)
+
+. Combining with (62), and keeping the minibatch term exact, 
+
+−μ Et⟨∇ θ ˜Fϵ, ˆgθ,t ⟩ + Lμ 2
+
+2 Et∥ˆgθ,t ∥2 ≤ − 5μ
+
+8 ∥∇ θ ˜Fϵ∥2 + μL 2(
+
+4ϵ2p + 17 4 Nt + ϵ2p(p + 4) 32 
+
+)
+
++ L(p + 2) μ2σ2 
+
+> B
+
+. (82) Conditionally on the minibatch, ˆ gw,t depends only on zt and ˆ gθ,t only on zθ,t , and these are independent. By Jensen’s inequality and (66), Ezt ∥ˆgw,t ∥ ≤ L(Bt)σw,t /(√2 ϵ) with σw,t = ( σ2
+
+> w,t
+
+)1/2. The Cauchy–Schwarz inequality over the minibatch, with E[L(Bt)2] ≤ L2, then gives 
+
+Et
+
+[∥ˆgw,t ∥ ∥ ˆgθ,t ∥] ≤ σw,t 
+
+√2 ϵ EBt
+
+[
+
+L(Bt) Ezθ,t ∥ˆgθ,t ∥
+
+]
+
+≤ Lσ w,t 
+
+√2 ϵ
+
+√
+
+Et∥ˆgθ,t ∥2. (83) By (62) and the subadditivity of the square root, 
+
+√
+
+Et∥ˆgθ,t ∥2 ≤ 2√p + 2 ∥∇ θ ˜Fϵ∥ + Rt + √2( p + 2) σB , (84) 
+
+Rt = 2 L√(p + 2) Nt + ϵL √p(p + 2)( p + 4) /2. (85) Let At = ηL wθ Lσ w,t /(√2 ϵ) = ηL wLσ w,t /2, using Lwθ = ϵL w/√2. We apply Young’s inequality to the three resulting products: xy ≤ x2/8 + 2 y2 to the first, ab ≤ a2 + b2/4 to the second, and ab ≤ λa 2 + b2/(4 λ)with λ = 1 /(ηL w) to the third. This gives 
+
+ημL wθ Et
+
+[∥ˆgw,t ∥ ∥ ˆgθ,t ∥] ≤ μA t
+
+(
+
+2√p + 2 ∥∇ θ ˜Fϵ∥ + Rt + √2( p + 2) σB
+
+)
+
+≤ μ
+
+8 ∥∇ θ ˜Fϵ∥2 + 9 μA 2 
+
+> t
+
+(p + 2) + μ R2
+
+> t
+
+4( p + 2) + μ ηL w
+
+( L2(p + 2) 4 σ2 
+
+> w,t
+
++ σ2
+
+> B
+
+2
+
+)
+
+, (86) with R2 
+
+> t
+
+/(4( p + 2)) ≤ 2L2Nt + ϵ2L2p(p + 4) /4 and 9 A2 
+
+> t
+
+= 94 η2L2
+
+> w
+
+L2σ2
+
+> w,t
+
+. Adding (82) and (86), and using 4ϵ2p + 932 ϵ2p(p + 4) ≤ 12 ϵ2(p + 6) 2 and 25 4 ≤ 8, the full-precision and cross-block terms together contribute at most, with aθ := μ/ 2, 
+
+−aθ ∥∇ θ ˜Fϵ∥2 + μL 2( ϵ2(p + 6) 2
+
+2 + 8 Nt
+
+)
+
++ μ
+
+( 94 η2L2 
+
+> w
+
++ ηL w
+
+4
+
+)
+
+L2(p + 2) σ2
+
+> w,t
+
++ μ
+
+(
+
+L(p + 2) μ + ηL w
+
+2
+
+)
+
+σ2 
+
+> B
+
+. (87) We insert (80) and (87) into (78) and take expectation. Summing over t = 0 , . . . , T − 1 and dividing by T
+
+gives the bound 1
+
+T 
+
+> T−1
+
+∑
+
+> t=0
+
+E
+
+[
+
+aw∥∇ w ˜Fϵ∥2 + aθ ∥∇ θ ˜Fϵ∥2]
+
+≤ ∆0
+
+T + LwL2η2
+
+4ϵ2 σ2 
+
+> w
+
++ μL 2( ϵ2(p + 6) 2
+
+2 + 8 N
+
+)
+
++ μ
+
+( 94 η2L2 
+
+> w
+
++ ηL w
+
+4
+
+)
+
+L2(p + 2) σ2
+
+> w
+
++ μ
+
+(
+
+L(p + 2) μ + ηL w
+
+2
+
+)
+
+σ2 
+
+> B
+
+. (88) 26 By (79), μ ≤ 2cη = 2 aw, so the smaller weight is aθ = μ/ 2. Dividing (88) by μ/ 2 gives, for any step sizes satisfying (79), 1
+
+T 
+
+> T−1
+
+∑
+
+> t=0
+
+E∥∇ ˜Fϵ∥2 ≤ 2∆ 0
+
+μT + L2ϵ2(p + 6) 2 + 16 L2 N + LwL2η2
+
+2μϵ 2 σ2
+
+> w
+
++
+
+( 92 η2L2 
+
+> w
+
++ ηL w
+
+2
+
+)
+
+L2(p + 2) σ2 
+
+> w
+
++ (2L(p + 2) μ + ηL w
+
+)σ2 
+
+> B
+
+. (89) With η = c/ (2 Lw) and μ = c2/L max , we have 2
+
+μ = 2Lmax 
+
+c2 , Lwη2
+
+2μ = Lmax 
+
+8Lw
+
+, 92 η2L2 
+
+> w
+
++ ηL w
+
+2 = 98 c2 + c
+
+4 ≤ 11 8 c, (90) and 2 L(p + 2) μ + ηL w = 2 c2L(p + 2) /L max + c/ 2 ≤ 14 + 12 = 34 , using Lmax ≥ 8c2L(p + 2) and c ≤ 1. Substituting into (89), the terms in σ2 
+
+> w
+
+become L2 σ2
+
+> w
+
+( Lmax  
+
+> 8Lwϵ2
+
++ 11 8 c(p + 2) ). Since Lwϵ2 = √2k0 L, and since 
+
+Lmax ≥ 8c2L(p + 2) gives 11 8 cL (p + 2) ≤ 11 64  
+
+> Lmax
+> c
+
+≤ Lmax  
+
+> c
+
+,
+
+L2 σ2
+
+> w
+
+( Lmax 
+
+8Lwϵ2 + 11 8 c(p + 2) 
+
+)
+
+≤ L L max σ2
+
+> w
+
+( 18√2k0
+
++ 1
+
+c
+
+)
+
+, (91) which yields 1
+
+T 
+
+> T−1
+
+∑
+
+> t=0
+
+E∥∇ ˜Fϵ(wt, θt)∥2 ≤ 2Lmax ∆0
+
+c2T + L2ϵ2(p + 6) 2 + 16 L2 N + 34 σ2 
+
+> B
+
++ L L max σ2
+
+> w
+
+( 18√2k0
+
++ 1
+
+c
+
+)
+
+. (92) Noting that 
+
+C = L2ϵ2(p + 6) 2 + 16 L2 N + 34 σ2 
+
+> B
+
++ L L max σ2
+
+> w
+
+( 18√2k0
+
++ 1
+
+c
+
+)
+
+(93) = O
+
+(
+
+ϵ2p2 + N + σ2 
+
+> B
+
++ Lmax σ2
+
+> w
+
+)
+
+, (94) completes the proof. □
+
+27 Appendix G Experiments Details 
+
+## G.1 GLUE/SuperGLUE Experiments 
+
+Unless stated otherwise, the fraction of trainable latent weights is set to ρ0 = 0 .05 for TerMeZO and sparse MeZO variants. For all ZO methods, K = 5 Gaussian perturbation directions per ZO step are applied with a perturbation scale ϵ = 10 −3, and the learning rate follows a linear decay schedule. Following MeZO protocol (Malladi et al., 2023), fine-tuning is cast as language modeling, i.e., each example is rendered with a task-specific prompt template. We use the full training split of each task and report the test accuracy. The ICL baseline uses the same templates with 32 demonstrations sampled from the train split. All ZO baselines use the same batch size, learning rate grid, and step budget (Table 5). LoRA-MeZO attaches rank-8 adapters ( α = 16) to every ternary linear layer, freezes the base ternary weights, and ternary-quantizes the adapters in the forward pass so that the no-full-precision-multiplication property of the BitNet architecture is preserved. QZO freezes the ternary latent weights entirely and perturbs the per-channel quantization scales together with the remaining full-precision parameters. FIM-S-MeZO uses the same latent weight fraction ρ0 as TerMeZO, with the sparsity mask fixed a priori from a Fisher information estimate obtained by performing a small number of BP steps on the WikiText dataset (Merity et al., 2016). 
+
+> Table 5: Hyperparameters for ZO methods and BP on the GLUE/SuperGLUE datasets.
+
+ZO Methods BP Batch size {16 , 32 } {8, 16 }
+
+Learning rate {1e−6, 5e−6, 1e−5} {1e−5, 5e−5, 1e−4}
+
+Learning rate scheduler Linear Cosine 
+
+## G.2 Instruction Following and Reasoning Experiments 
+
+Datasets and protocol. For the supervised fine-tuning experiments, we use GSM8K (Cobbe et al., 2021) and Magicoder-Evol-Instruct-110K (Wei et al., 2023). Both are formatted with a single-turn in-struction/response template, 
+
+Instruction: {instruction}\nResponse: {response} 
+
+and the loss is computed on the response tokens only. Sequences are truncated to 2048 tokens. GSM8K ships no validation split, so its test split is used only for the final evaluation, and the validation set is carved from the train split. For MagiCoder, we train on a quarter of the train set and use 1% of the samples as the validation split. 
+
+Hyperparameters. Table 6 reports the settings for both model sizes Falcon-E-1B and Falcon-E-3B. All ZO methods share the same batch size, learning rate grid, and step budget.       
+
+> Table 6: Hyperparameters for the instruction-following and reasoning experiments. Shared across all ZO runs: n= 5 Gaussian perturbations, ϵ= 10 −3, linear learning rate decay, and ρ0= 0 .05.
+
+ZO BP Batch size 16 8Learning rate {1e−5, 5e−5, 1e−4} {1e−5, 5e−5, 1e−4}
+
+Learning rate scheduler Linear Cosine 28 Appendix H Additional Results 
+
+## H.1 Validation loss curves for TerMeZO and FIM-S-MeZO             
+
+> 02,000 4,000 6,000 8,000 10 ,000 12 ,000 0.50.55 0.60.65 0.70.75 0.80.85 0.9
+
+Training step Validation loss   
+
+> η=1 ×10 −5η=1 ×10 −4η=5 ×10 −4
+> terMeZO FIM-MeZO
+
+Figure 3: Validation loss of TerMeZO and FIM-MeZO fine-tuning Falcon-E-3B-Base model on GSM8K at sparsity budget ρ = 0 .01, at different learning rates η. TerMeZO improves monotonically with η and is stable throughout. FIM-MeZO has slightly better loss at different learning rates but it starts to diverge earlier than TerMeZO at higher learning rates. 
+
+Figure 3 shows the validation loss of TerMeZO and FIM-S-MeZO when fine-tuning Falcon-E-3B-Base on GSM8K with sparsity budget ρ = 0 .01, for η ∈ { 10 −5, 10 −4, 5 × 10 −4}. TerMeZO decreases steadily at all three learning rates, and larger learning rates consistently yield lower loss. FIM-S-MeZO reaches a lower loss at η = 10 −5 and η = 10 −4, but becomes unstable at η = 5 × 10 −4. This behavior is consistent with our hypothesis that many of the weights selected by FIM-S-MeZO lie far from the quantization boundaries, so that perturbing them contributes mostly noise to the update. 
+
+## H.2 Comparison with QuZO 
+
+We include additional experiments comparing TerMeZO with QuZO (Zhou et al., 2025), which perturbs the quantized weights directly via stochastic rounding. Table 7 reports the GSM8K performance of both methods on Falcon-E-1B-Base. TerMeZO clearly outperforms QuZO, which barely improves over the base model. QuZO is also considerably more sensitive to the learning rate: it diverges at the learning rates used for TerMeZO and the other ZO baselines, which required us to search a lower range, and its best result is obtained with a learning rate more than two orders of magnitude smaller than that of TerMeZO. 
+
+Table 7: Accuracy after finetuning of TerMeZO and QuZO on GSM8K for Falcon-E-1B-Base . For each method, we report the best result over its learning-rate grid. We found QuZO diverges at the higher learning rates used for TerMeZO and the other ZO baselines and we searched a lower range for it to ensure convergence: η ∈ { 10 −6, 3 ×
+
+10 −7, 10 −7}.Method Test loss GSM8K (%) Base Model 1.13 14.0 TerMeZO 0.56 31 .84 
+
+QuZO 0.99 14 .71 
+
+29
