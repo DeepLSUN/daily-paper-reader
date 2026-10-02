@@ -1,0 +1,1413 @@
+Title: Learning Perturbation Robust Policies for LLM Agents with Stable Optimization
+
+URL Source: https://arxiv.org/pdf/2609.34064v1
+
+Published Time: Tue, 29 Sep 2026 03:22:57 GMT
+
+Number of Pages: 28
+
+Markdown Content:
+Preprint 
+
+# LEARNING PERTURBATION ROBUST POLICIES FOR 
+
+# LLM A GENTS WITH STABLE OPTIMIZATION 
+
+Pengxin Wang, Yuanzhe LI, Yuxin Ren Huanrui Yang, Jingdi Chen 
+
+Department of Electrical and Computer Engineering University of Arizona 
+
+## ABSTRACT 
+
+Reinforcement learning (RL) has become an effective post-training paradigm for long-horizon large language model (LLM) agents. However, we find that the re-sulting policies can be sensitive to various policy perturbations, such as hidden-state noise, pruning, and quantization. In this work, we study how to improve perturbation robustness during policy optimization. We first introduce the no-tion of a perturbation robust policy and analyze conditions under which perturbed policy updates preserve stable monotonic improvement. Based on this analysis, we introduce Stable Perturbation-Robust Policy Optimization (SPrPO), which ap-plies adaptive and sensitivity-aware perturbations during RL training. We evaluate SPrPO on ALFWorld and WebShop and conduct systematic experiments across multiple perturbation types and scales, showing improved perturbation robustness while maintaining stable policy optimization. 
+
+## 1 INTRODUCTION 
+
+RL has become an effective paradigm for post-training LLM agents on long-horizon decision mak-ing, where the model generates textual actions in interactive environments such as web navigation and embodied household tasks (Feng et al., 2024; Qi et al., 2025; Feng et al., 2025). In practice, the deployed policy is not always the exact policy that was trained: serving costs push practitioners to prune or quantize the model, and inference may run under a different numerical precision. On static, single-turn tasks such as language modeling and question answering, where the model never acts on an environment, such perturbations are largely benign: pruning and post-training quantization compress a model substantially while retaining much of its performance (Ashkboos et al., 2024; Ma et al., 2023; Frantar et al., 2023). This tolerance does not carry over to RL-trained agents. As shown in Figure 1, pruning only 20% of the feed-forward network (FFN) channels nearly collapses performance on WebShop (Yao et al., 2022). This gap makes the robustness of RL-trained LLM agents to deployment-time perturbations an important concern for their practical use. 
+
+Figure 1: LLM agents trained by RL are sensitive to policy perturbations. Even with mild pertur-bation magnitude, success rates degrade substan-tially under these perturbations on both WebShop and ALFWorld. σ denotes the standard deviation for Gaussian distribution, p denotes the dropout probability and r denotes pruning ratio. A natural approach to improving such robust-ness is to inject perturbations into the pol-icy during training, an idea widely studied in robust RL on control problems (Pinto et al., 2017; Tessler et al., 2019; Lee & Yoon, 2025). Such methods typically operate on small pol-icy networks trained from scratch, with dense rewards and low-dimensional continuous ac-tion spaces, so that injected perturbation has relatively mild effect. In the LLM setting, this idea has recently begun to be explored. NPFT (Wang & Yang, 2025) injects random noise into quantization-sensitive weights dur-ing fine-tuning, flattening the local loss land-scape and mitigating the quantization error; re-lated noise injection has also appeared in LLM RL, though there primarily as a source of explo-1arXiv:2609.34064v1 [cs.LG] 28 Sep 2026 Preprint ration (Huang et al., 2026). For long-horizon LLM agents, robustness to policy perturbation remains largely unstudied, and existing methods usually target one specified type of perturbation, leaving robustness to a general family of perturbations an open and more challenging problem. In this work, we study how to train LLM agents that remain robust to different types of policy per-turbations. The difficulty is specific to the agentic setting: each action must be grounded in the environment and respect strict format constraints, and a single wrong action early in a long-horizon task can derail the whole trajectory. Therefore, perturbation injection requires careful control to preserve stability during training, and a proper perturbation scheme should avoid introducing ex-cessive variation in policy performance. Specifically, we keep perturbations relatively mild along sensitive dimensions, since different dimensions can exhibit markedly different sensitivities to per-turbations. Building on this principle, we propose Stable Perturbation-Robust Policy Optimiza-tion (SPrPO) , a perturbation-based method for RL training that improves the robustness of LLM agents while preserving training stability. Our main contributions are as follows: • We are the first to study perturbation robustness for RL-trained LLM agents and formulate the problem under a general distribution of policy perturbations. • Theoretically, we extend the monotonic policy improvement analysis of TRPO (Schulman et al., 2015) to the perturbation setting and characterize a sufficient condition for stable policy improve-ment. We further establish that limit points of the resulting updates are perturbation-robust. • Guided by the theoretical analysis, we derive a practical condition for controlling perturbations during policy optimization and develop SPrPO. • We test SPrPO on ALFWorld and WebShop under different kinds of policy perturbations, such as Gaussian noise, dropout, structured and unstructured pruning, and quantization. Across these settings, SPrPO exhibits more stable optimization during training and better preserves task per-formance under perturbation. 
+
+## 2 RELATED WORK 
+
+We briefly review prior work on robust training, with more detailed discussion in Appendix B. 
+
+Robust Policy in Reinforcement Learning. Originating from control theory, the RL commu-nity has developed the notion of robust policies as maintaining reliable performance under distur-bances (Morimoto & Doya, 2005). A broad line of work pursues this goal by deliberately intro-ducing perturbations during training, either adversarially to improve worst-case performance (Pinto et al., 2017; Tessler et al., 2019; Mani et al., 2026) or stochastically to improve expected perfor-mance (Kumar et al., 2022; Plappert et al., 2018). Stochastic perturbations avoid explicit inner optimization and provide a simpler training mechanism. Our method takes the same idea of inject-ing perturbations during training, but focuses on perturbations to the policy itself rather than noise in actions or transition dynamics, which is more appropriate for LLM agents. 
+
+Perturbation-based Training for LLMs. Introducing perturbations during language-model train-ing has been widely explored across language understanding, instruction finetuning (Jain et al., 2024), and reinforcement learning. Prior work constructs adversarial perturbations in input repre-sentations (Zhu et al., 2020; Chen et al., 2023) or through a separate low-rank parameter branch (Liu et al., 2026a). Recent RL methods also use stochastic perturbations to promote exploration and di-versify reasoning trajectories (Liu et al., 2025; Jerge et al., 2026). Furthermore, perturbation-based training shows improvement on robustness to quantization, through adaptation to quantization er-rors (Wang & Yang, 2025) or adaptive control of quantization-induced noise during RL (Huang et al., 2026). Our work extends perturbation-based training to long-horizon LLM agents, where small policy deviations can accumulate through sequential interactions and affect future decisions. Therefore, we explicitly account for training stability, and adopt a more prudent perturbation design in practice. 2Preprint 
+
+## 3 BACKGROUND AND PROBLEM FORMULATION 
+
+In this section, we first define the notion of perturbation robustness in Subsec. 3.1 and then review the classical TRPO lower bound and monotonic improvement theory in Subsec. 3.2. 3.1 PROBLEM SETUP AND PERTURBATION -R OBUST POLICY 
+
+Consider a discounted Markov decision process (MDP) M = ( S, A, P, r, ρ 0, γ ), where S denotes the state space, A is the action space, P (· | s, a ) is the transition kernel, r : S × A → R is a bounded reward function, ρ0 is the initial-state distribution, and γ ∈ (0 , 1) is the discount factor. In our setting, the agent is an LLM parameterized by θ and governed by a policy πθ (· | s). At time step 
+
+t, the agent observes a state st ∈ S , which contains the task context and interaction history available to the agent, and autoregressively generates a textual action at ∈ A according to πθ (· | st). The environment then returns a reward rt = r(st, a t) and transitions to the next state st+1 ∼ P (· | 
+
+st, a t). The policy πθ and transition kernel P induce a trajectory τ = ( s0, a 0, s 1, a 1, . . . ), and the expected discounted return of πθ is defined as 
+
+J(πθ ) := Eτ ∼πθ
+
+" ∞X
+
+> t=0
+
+γtrt
+
+#
+
+. (1) Let Ξ denote the space of perturbations and Pξ the perturbation operator associated with ξ ∈ Ξ. Ap-plying Pξ to a policy πθ induces the perturbed policy πξθ := Pξ (πθ ). In practice, such perturbations can be applied to policy parameters or hidden representations, including Gaussian noise, random dropping, pruning, and quantization. Let ρ(ξ) measure the magnitude of a perturbation ξ, and let 
+
+Ξδ := {ξ ∈ Ξ : ρ(ξ) ≤ δ} denote the set of perturbations within radius δ. We define perturbation robust policy as follows. 
+
+Definition 1 (Perturbation robustness) . Let ν = νδ be a perturbation distribution supported on Ξδ ,and denote the expected perturbed return by ¯Jνδ (θ) := Eξ∼νδ [J(πξθ )] . For ϵ ≥ 0 and β ∈ [0 , 1] , a policy πθ is (δ, ϵ, β )-probabilistic perturbation robust under νδ if 
+
+Pr 
+
+> ξ∼νδ
+
+
+
+J(πξθ ) ≥ ¯Jνδ (θ) − ϵ
+
+
+
+≥ 1 − β. (2) 
+
+Moreover, it is (δ, ϵ )-uniform perturbation robust if for any ξ ∈ Ξδ , we have J(πξθ ) ≥ ¯Jνδ (θ) − ϵ. 
+
+Uniform perturbation robustness is stronger, but can be overly restrictive in practice. Instead, prob-abilistic robustness provides a more practical criterion: under perturbations of magnitude at most 
+
+δ, we allow a performance degradation larger than ϵ only with a small probability β, which is the objective we seek to achieve in this work. 3.2 TRPO L OWER BOUND AND MONOTONIC IMPROVEMENT PROPERTY 
+
+Consider one step policy update from θ to θ′, whose improvement is measured by ∆J := J(πθ′ ) −
+
+J(πθ ). Classical trust region policy improvement analysis (Kakade & Langford, 2002; Schulman et al., 2015) studies conditions that guarantee positive improvement, i.e., ∆J > 0. The following lemma, as a central result in TRPO analysis, provides a lower bound on the policy improvement 
+
+∆J.
+
+Lemma 1 (TRPO lower bound (Schulman et al., 2015, Theorem 1)) . For a policy π, let dπ (s) = (1 − γ) P 
+
+> t≥0
+
+γt Pr π (st = s) denote its normalized discounted state visitation distribution, and let 
+
+DTV (p, q ) = 12
+
+P 
+
+> a
+
+|p(a) − q(a)|. For any two policies π, π ′ satisfying sup s,a |Aπ (s, a )| ≤ Amax ,define α = sup s DTV (π(· | s), π ′(· | s)) . Then 
+
+∆J(π′, π ) ≥ 11 − γ Es∼dπ , a ∼π′(·| s)[Aπ (s, a )] − 4γA max 
+
+(1 − γ)2 α2. (3) Lemma 1 gives the standard trust region interpretation of policy improvement. Given the current policy πθ , denote the first term by L(θ′), where θ′ parameterizes a candidate updated policy. This term measures the surrogate improvement relative to πθ , while the second term penalizes excessive policy deviation. Therefore, as long as this deviation is controlled, increasing L(θ′) guarantees monotonic improvement in the true return. 3Preprint 
+
+## 4 THEORETICAL ANALYSIS 
+
+In this section, we extend the classical monotonic improvement analysis to the perturbation setting. Subsec. 4.1 establishes stable policy improvement under perturbations and derives a practical condi-tion for perturbation allocation. Subsec. 4.2 further shows that, under suitable regularity conditions, the resulting policy updates admit perturbation-robust limit points. 4.1 POLICY IMPROVEMENT UNDER PERTURBATIONS 
+
+For perturbation ξ, let πξθ and πξθ′ denote the perturbed policies before and after the update, respec-tively. We define the perturbed policy improvement as 
+
+∆Jξ = ∆ J(πξθ′ ; πξθ ) := J(πξθ′ ) − J(πξθ ). (4) The quantity ∆Jξ therefore describes how the benefit of the update varies with perturbation, with 
+
+∆J0 = ∆ J recovering the standard policy improvement. Now we define the expected perturbed surrogate improvement as follows. 
+
+Definition 2 (Surrogate for perturbed policy improvement) . For the current policy parameter θ and a candidate updated parameter θ′, we define the policy improvement surrogate under a perturbation 
+
+ξ as 
+
+Lξ (θ′) := 11 − γ E s∼dπξθ 
+
+> a∼πξθ(·| s)
+
+"
+
+πξθ′ (a | s)
+
+πξθ (a | s) Aπξθ
+
+(s, a )
+
+#
+
+. (5) 
+
+Then Lν (θ′) := Eξ∼ν [Lξ (θ′)] denotes the expected policy improvement surrogate, and the corre-sponding policy deviation is αξ (θ′) := sup s DTV 
+
+
+
+πξθ (· | s), π ξθ′ (· | s)
+
+
+
+.
+
+We emphasize that Lν (θ′) is estimated under the state visitation distribution of the perturbed current policy πξθ , so optimizing it promotes policy improvement in expectation over perturbations. How-ever, a positive expected improvement does not preclude degradation under a non-negligible subset of perturbations, as the realized improvement can vary substantially across perturbation realizations. Therefore, we seek a stronger stability guarantee: under the perturbation distribution, the updated policy should improve with high probability. 
+
+Theorem 1 (Stable policy improvement) . Suppose that sup s,a |Aπξθ
+
+(s, a )| ≤ Amax for ν-almost every ξ, and that Var ν [∆ Jξ ] ≤ vν < ∞. Define the expected improvement lower bound 
+
+mν := Lν (θ′) − 4γA max 
+
+(1 − γ)2 Eξ∼ν [α2 
+
+> ξ
+
+]. (6) 
+
+Then, for any β ∈ (0 , 1) ,
+
+Pr  
+
+> ξ∼ν
+
+∆Jξ ≥ mν −
+
+s
+
+1 − ββ vν
+
+!
+
+≥ 1 − β. (7) 
+
+Consequently, if mν ≥ p(1 − β)vν /β , then Pr ξ∼ν (∆ Jξ ≥ 0) ≥ 1 − β.
+
+Theorem 1 shows that stable policy improvement depends not only on the expected improvement, but also on the variance induced by perturbations. As is illustrated in Figure 2, perturbations along sensitive directions can divert the optimization trajectory toward low-reward regions, motivating a practical way to better control variance during training. However, the perturbation distribution encountered at deployment is generally unknown, making the improvement variance difficult to characterize directly. Motivated by a common modeling principle in distributionally robust opti-mization, where tractable nominal distributions are used as reference for uncertain and potentially non-Gaussian disturbances (Shafieezadeh-Abadeh et al., 2018; Taskesen et al., 2023), we use Gaus-sian perturbations as a tractable proxy during training. Under this choice, the variance admits an explicit sensitivity-based control through dimension-dependent perturbation scales, leading to the following corollary. 4Preprint 
+
+Figure 2: Illustrative example: different perturbation strategies can lead to distinct training dynamics during policy optimization. Isotropic noise (left) applies the same perturbation scale across direc-tions, whereas SAM-style perturbations (middle) adversarially push the policy along the sensitive direction. Both can disrupt the optimization trajectory and undermine training stability. Controlled noise (right) instead limits perturbation magnitude along sensitive directions to reduce the induced variance in policy improvement and promote a more stable training process. 
+
+Corollary 1 (Stable policy improvement under Gaussian perturbations) . Under the setting of Theorem 1, let ν = N (0 , Σ) with Σ = diag( σ21 , . . . , σ 2
+
+> d
+
+). Suppose that Lξ (θ′) is continu-ously differentiable with respect to ξ. For each perturbation dimension i, define the sensitivity as Si(θ′) := Eξ∼ν [|∂Lξ (θ′)/∂ξ i|2] < ∞, and the supremum policy drift as ¯α := sup ξ αξ . If 
+
+Lν (θ′) − 4γA max  
+
+> (1 −γ)2
+
+¯α2 > 0 and the following stability condition holds: 
+
+> d
+
+X
+
+> i=1
+
+σ2 
+
+> i
+
+Si(θ′) ≤ β
+
+1 − β
+
+
+
+Lν (θ′) − 4γA max 
+
+(1 − γ)2 ¯α2
+
+2
+
+, (8) 
+
+then Pr ξ∼ν (∆ Jξ ≥ 0) ≥ 1 − β.
+
+We note that the condition in Corollary 1 gives a tractable characterization of Gaussian perturba-tions that admit stable policy improvement. In particular, the guarantee is jointly determined by the surrogate improvement, the policy drift, and the perturbation-induced variance. This suggests that desirable perturbations should allocate smaller variance to more sensitive dimensions, and can tolerate larger variance when the surrogate improvement is larger. 4.2 CONVERGENCE UNDER STABLE POLICY UPDATES 
+
+We next establish convergence under stable policy updates. Given ϵ > 0 and ¯β ∈ (0 , 1) , we aim to obtain a policy whose perturbed return falls more than ϵ below its mean with probability at most ¯β.Let CJ := Jmax − Jmin denote the range of the bounded return. Assume that the initial policy has sufficiently small return variance when excluding a negligible subset. 
+
+Assumption 1 (Proper initial variance) . For the initial policy π0 ∈ Π, there exists a measurable subset Ξ0 ⊆ Ξδ with ν(Ξ 0) ≥ 1 − β0 such that Var ξ∼ν(·| Ξ0)[J(πξ 
+
+> 0
+
+)] ≤ σ20 , where β0 ∈ [0 , 1) and 
+
+σ0 ≥ 0 satisfy β0 ≤ 12 min { ¯β, ϵ/C J } and σ0 < 14 ϵp ¯β.
+
+At iteration k, let mν,k (π′) denote the expected improvement lower bound for a candidate policy π′
+
+relative to the current policy πk. Following the stability condition in Theorem 1, define 
+
+Uβ (πk) := 
+
+(
+
+π′ ∈ Π : mν,k (π′) ≥
+
+s
+
+1 − ββ Var ξ∼ν
+
+h
+
+∆J (π′)ξ ; πξk
+
+i)
+
+. (9) Starting from π0, update the policy by selecting the best πk+1 ∈ U β (πk) at each iteration. The following theorem shows that, as long as the probability of degradation at each step is sufficiently small, stable policy updates can lead to perturbation robust policies. 
+
+Theorem 2 (Convergence of stable policy optimization) . Suppose that the policy space Π is compact and that π 7 → J(πξ ) is continuous for ν-almost every ξ. Under Assumption 1, if β ≤ ϵ2 ¯β/ (100 C2 
+
+> J
+
++
+
+5Preprint 
+
+ϵ2 ¯β), the policy sequence {πk}k≥0 has a nonempty set of limit points. Moreover, every limit point ¯π
+
+is (δ, ϵ, ¯β)-probabilistic perturbation robust. 
+
+## 5 PRACTICAL ALGORITHM FOR STABLE PERTURBATION -R OBUST POLICY 
+
+## OPTIMIZATION 
+
+Building on the preceding analysis, we develop a practical realization of the stability condition for LLM policy optimization. Specifically, we apply controlled Gaussian perturbations in the hidden space and estimate the sensitivity and improvement statistics from tractable rollout samples, leading to Stable Perturbation-Robust Policy Optimization (SPrPO) , as summarized in Algorithm 1. 
+
+Multiplicative Gaussian perturbations to FFN channels. In modern Transformer architectures, feed-forward networks (FFNs) account for a large fraction of the model parameters, operate inde-pendently on each token representation, and have been shown to store rich textual and semantic patterns (Vaswani et al., 2017; Geva et al., 2021; Yang et al., 2024). In the Qwen2.5 architecture, each FFN consists of an up-projection, a gated SiLU activation, and a down projection. To be specific, given an input xℓ in layer ℓ, it is computed as 
+
+hℓ = SiLU( Wgate ,ℓ xℓ) ⊙ Wup ,ℓ xℓ, yℓ = Wdown ,ℓ hℓ,
+
+Instead of modifying the full parameter space, we perturb the intermediate FFN channel hℓ with multiplicative Gaussian noise ξℓ, which has been shown to be an effective mechanism for improving robustness (Trinh et al., 2024). Let ξℓc ∼ N (0 , σ 2
+
+> ℓc
+
+) denote the Gaussian perturbation for channel c,i.e., coordinate c of hℓ, the perturbed FFN forward pass is ehℓc = (1 + ξℓc )hℓc . Since ξℓ is applied after the up projection and activation, it is equivalent to perturbing the corresponding columns of down projection matrix Wdown ,ℓ , while offering a simpler implementation and more stable training. 
+
+Adaptive and sensitivity-aware Gaussian perturbations. Motivated by the stability condition in Corollary 1, we adopt non-isotropic Gaussian perturbations, i.e., σℓc are non-identical across differ-ent channels. However, unlike supervised fine-tuning, where loss-related statistics can be evaluated on a fixed training set (Lee et al., 2019; Wang & Yang, 2025), the exact channel sensitivities and expected improvement in reinforcement learning are difficult to evaluate because the data distribu-tion changes with the policy. Therefore in practice, we estimate the quantities by reusing the rollout batch from the current policy update. At iteration k, we collect trajectories Dk ∼ πξk 
+
+> θk
+
+and estimate advantages Ai for samples i ∈ D k, and optimize the policy using perturbed loss surrogate with PPO clipping 
+
+Lk(θ; ξk) = 1
+
+|D k|
+
+X
+
+> i∈D k
+
+min  ri(θ)Ai, clip  ri(θ), 1 − ϵ, 1 + ϵAi
+
+ ,
+
+where ri(θ) = πξk 
+
+> θ
+
+(ai | si)/π ξk 
+
+> θk
+
+(ai | si). After obtaining θk+1 , we replay Dk for one additional forward and backward pass without extra rollouts, and estimate the channel sensitivity and expected improvement as 
+
+Algorithm 1 Stable Perturbation-Robust Policy Optimization (SPrPO) 
+
+Require: Initial policy θ1, iterations K, base perturbation ρ, sensitivity exponent α
+
+1: Initialize bS1,ℓc ← 1 and bm1 ← 1
+
+2: for k = 1 , . . . , K do 
+
+3: σk,ℓc ← ρ bmk bS−α/ 2
+
+> k,ℓc
+
+4: Sample ξk,ℓc ∼ N (0 , σ 2
+
+> k,ℓc
+
+)
+
+5: Collect Dk ∼ πξk 
+
+> θk
+
+and estimate advantages Ai for i ∈ D k
+
+6: Update the policy: θk+1 ← θk + ηk ∇θ Lk (θk ; ξk )
+
+7: bSk+1 ,ℓc ← ∂Lk (θk+1 ; ξk )
+
+∂ξ k,ℓc 
+
+> 2
+
+, bmk+1 ← ∥∇ θ Lk (θk+1 ; ξk )∥22
+
+8: end for 
+
+9: return θK+1 
+
+6Preprint 
+
+bSk+1 ,ℓc = ∂Lk(θk+1 ; ξk)
+
+∂ξ k,ℓc 
+
+> 2
+
+, bmk+1 = ∥∇ θ Lk(θk+1 ; ξk)∥22 .
+
+Here, bSk+1 ,ℓc measures the local sensitivity of channel (ℓ, c ). For the expected improvement bmk+1 ,we use the squared PPO gradient norm as a practical proxy (Fay et al., 2023; Zhao et al., 2022), since under a small gradient ascent step, the first-order increase is proportional to the squared gra-dient norm. Finally, we choose standard deviation of channel perturbation to increase with the es-timated improvement and decrease with channel sensitivity, i.e., σk+1 ,ℓc = ρ bmk+1 bS−α/ 2
+
+> k+1 ,ℓc
+
+, which follows the allocation principle implied by the stability condition equation 8. Notably, the hyperpa-rameter ρ > 0 controls the base perturbation scale, while α ≥ 0 controls the strength of sensitivity adaptation: α = 0 reduces to sensitivity-independent noise, whereas α = 1 corresponds to inverse-square-root sensitivity scaling. 
+
+## 6 EXPERIMENTS 
+
+In this section, we empirically validate the effectiveness of SPrPO. Subsec. 6.2 evaluates robustness under diverse policy perturbations, Subsec. 6.3 visualizes the reward landscape, and Subsec. 6.4 studies the effects of the main algorithmic components and hyperparameters. Full details of experi-ment settings are provided in Appendix C. 6.1 EXPERIMENT SETUP 
+
+Environments. We train and evaluate the LLM agent on two commonly used long-horizon bench-marks, ALFWorld (Shridhar et al., 2021) and WebShop (Yao et al., 2022). ALFWorld is a text-based embodied environment, where an agent takes several steps to complete household tasks. WebShop is an interactive web shopping environment in which an agent searches for and purchases products ac-cording to the given instructions. In both environments, the agent receives textual observations and executes sequences of structured actions under strict environment parsers, with ALFWorld allowing up to 50 steps per episode and WebShop up to 15 steps. 
+
+Baselines. For all experiments, we use Qwen2.5-1.5B-Instruct (Yang et al., 2024) as the base model and GiGPO (Feng et al., 2025) as the base training algorithm, which is a critic-free RL method designed to better handle sparse trajectory-level rewards. We refer to the version without training-time perturbations as Vanilla . To our knowledge, we are the first to explicitly study policy perturbations during RL training for long-horizon LLM agents, while prior robust RL methods for continuous control do not directly transfer to this setting. We therefore consider two representative perturbation baselines: Multiplicative Gaussian , which applies same Gaussian variance across all channels, and SAM (Foret et al., 2021), which uses adversarial perturbations along the PPO loss increasing direction. Both are applied to FFN channel space in a multiplicative manner as our method, providing controlled comparisons between different perturbation strategies. 
+
+Evaluation protocol under perturbations. We evaluate agent performance by task success rate under different policy perturbations. For WebShop, we evaluate on a set of 500 shopping tasks. For ALFWorld, we evaluate on all 274 validation tasks, including 140 in-distribution (ID) tasks and 134 out-of-distribution (OOD) tasks. We consider several representative perturbations that differ in both structure and granularity: • Channel-wise perturbations. These perturbations operate at the level of FFN hidden channels, which is equivalent to modifying entire rows or columns of the corresponding weight matri-ces. Gaussian perturbation applies multiplicative noise N (0 , σ 2) in the same manner as dur-ing training. Dropout (Srivastava et al., 2014) randomly removes FFN channels with probabil-ity p. Similarly, structured pruning removes entire FFN channels based on their Fisher impor-tance (Molchanov et al., 2019). Specifically, we use the same calibration set for all evaluated methods for fair comparison and estimate E[( hℓ,c ∂L/∂h ℓ,c )2] as the importance score. • Weight space perturbations. Unlike channel-wise perturbations, these perturbations operate at the level of individual weights, with a different pattern from the channel-wise perturbations used during training. We use SparseGPT (Frantar & Alistarh, 2023) for unstructured pruning , which 7Preprint 
+
+(a) Gaussian noise (b) Channel dropout (c) Structured FFN pruning 
+
+(d) Weight quantization 
+
+(e) Gaussian noise (f) Channel dropout (g) Structured FFN pruning 
+
+(h) Weight quantization 
+
+(i) Unstructured FFN pruning 
+
+(j) Unstructured FFN pruning 
+
+Figure 3: Evaluation of perturbation robustness on ALFWorld and WebShop across increasing per-turbation magnitudes. The x-axis denotes perturbation strength, measured by Gaussian standard deviation σ, dropout probability p, pruning ratio r, and quantization bit-width. SPrPO generally exhibits less severe performance degradation and maintains higher success rates. Table 1: Evaluation of perturbation robustness on WebShop and ALFWorld. Results are reported as success rate std (retention) over three seeds, where retention denotes the percentage of performance preserved relative to the corresponding clean policy. SPrPO achieves the strongest performance, maintaining both higher absolute success rates and higher relative retention. 
+
+WebShop Clean Gaussian (σ = .20 )Dropout (p = .05 )Structured Pruning (r = .20 )Unstructured Pruning (r = .40 )Quantization (INT6) Vanilla 57 .00 ±4.39 18 .73 ±3.03 (32.9) 12 .20 ±3.30 (21.4) 2.27 ±1.86 (4.0) 42 .00 ±8.31 (73.7) 45 .20 ±9.18 (79.3) Gaussian 50 .60 ±3.99 17 .87 ±5.12 (35.3) 11 .33 ±2.60 (22.4) 0.27 ±0.12 (0.5) 34 .33 ±9.00 (67.9) 39 .80 ±9.90 (78.7) SAM 52 .27 ±4.02 15 .20 ±2.65 (29.1) 8.87 ±2.14 (17.0) 0.60 ±0.87 (1.1) 29 .53 ±5.74 (56.5) 34 .93 ±4.54 (66.8) 
+
+SPrPO (Ours) 60 .00 ±0.72 30 .13 ±1.81 (50.2) 20 .87 ±2.00 (34.8) 12 .40 ±3.65 (20.7) 50 .20 ±2.99 (83.7) 55 .67 ±1.60 (92.8) 
+
+ALFWorld Clean Gaussian (σ = .20 )Dropout (p = .05 )Structured Pruning (r = .20 )Unstructured Pruning (r = .70 )Quantization (INT6) Vanilla 87 .59 ±0.97 64 .96 ±2.55 (74.2) 54 .62 ±1.65 (62.4) 41 .73 ±5.32 (47.6) 41 .12 ±4.35 (46.9) 86 .98 ±0.84 (99.3) Gaussian 89 .05 ±0.97 72 .26 ±0.97 (81.1) 57 .79 ±1.80 (64.9) 23 .72 ±2.28 (26.6) 32 .85 ±1.93 (36.9) 87 .47 ±0.92 (98.2) SAM 86 .86 ±0.73 66 .79 ±2.55 (76.9) 55 .60 ±0.76 (64.0) 22 .02 ±1.69 (25.4) 50 .97 ±1.69 (58.7) 86 .25 ±0.56 (99.3) 
+
+SPrPO (Ours) 91 .85 ±0.42 75 .91 ±0.97 (82.6) 64 .60 ±3.48 (70.3) 47 .08 ±7.65 (51.3) 58 .03 ±2.39 (63.2) 91 .24 ±0.00 (99.3) 
+
+uses second-order information to identify and compensate pruned weights, and apply it only to the FFN linear weights. For quantization , we use round-to-nearest (RTN) weight quantization (Nagel et al., 2021) over all transformer linear weights at different bit widths. 8Preprint 
+
+Figure 4: Reward landscape of policies trained with Vanilla and SPrPO on ALFWorld and WebShop. Vanilla exhibits sharp performance cliffs, while SPrPO shows flatter reward surfaces. 6.2 MAIN RESULTS : R OBUSTNESS TO DIVERSE POLICY PERTURBATIONS 
+
+We evaluate the robustness of the policies under diverse perturbations. Figure 3 reports the full robustness curves as the perturbation strength increases, while Table 1 summarizes the results under relatively strong perturbation settings for direct comparison. Overall, policies trained by our method are generally more robust than all baselines. At sufficiently extreme perturbation levels, however, all methods can eventually collapse. For example, under INT4 quantization on WebShop, success rates fall to the single digits, where differences between policies become less informative and performance is close to the failure regime. 6.3 REWARD LANDSCAPE VISUALIZATION 
+
+To further examine local sensitivity to perturbations, we visualize reward surfaces, following prior work on reward landscape analysis (Sullivan et al., 2022; Lee & Yoon, 2025). For each trained policy, we sample two fixed multiplicative Gaussian perturbation directions, ξ1 and ξ2, and vary their magnitudes w1 and w2 over a two-dimensional grid. Each point corresponds to the policy under perturbation w1ξ1 + w2ξ2, with the z-axis representing the success rate, as shown in Figure 4. 6.4 ABLATION AND HYPERPARAMETER STUDY 
+
+Figure 5: Ablation and hyperparameter study. (a) Comparison of perturbation strategies during training. (b) Effect of gradient-norm scaling. (c,d) Effects of perturbation scale ρ and sensitivity exponent α. Starred and ρ = 0 results reuse the main-experiment estimates in Table 1. Figure 5(a,b) examines the two main design choices of SPrPO. Under the same perturbation magni-tude, SAM-style perturbations collapse task performance, and isotropic Gaussian noise also causes substantial degradation. In contrast, reducing perturbations on sensitive channels preserves more original performance. Since SAM is substantially more aggressive at the same magnitude, we fur-ther reduce its perturbation scale to obtain a stable training baseline. Gradient-norm scaling in-creases noise strength as training progresses; removing it reduces the clean success rate by 7.87 
+
+percentage points (Table 9). Figure 5(c,d) shows the effect of hyperparameters ρ and α. A small ρ provides insufficient pertur-bation exposure to improve robustness, whereas an overly large ρ corrupts the training signal and causes the model to underfit. For α, a small value does not provide enough protection, leaving sensitive channels over-perturbed, and further increasing α also reduces the robustness gains, since sensitive channels become barely perturbed during training. 9Preprint 
+
+## 7 CONCLUSION AND FUTURE WORK 
+
+We study perturbation robustness in RL-trained LLM agents and theoretically characterize policy improvement under perturbations. Building on this analysis, we develop SPrPO and show that it improves robustness across diverse policy perturbations. For future work, further analysis could consider different model structures, agent tasks, and perturbation settings. 10 Preprint AI USE STATEMENT 
+
+We used generative AI tools to assist with algorithm implementation and language polishing dur-ing the preparation of this work. All algorithmic design, theoretical analysis, experimental design, results, and conclusions were developed and verified by the authors. The authors take full responsi-bility for the content of the paper. REPRODUCIBILITY STATEMENT 
+
+Complete proofs of the theoretical results are included in Appendix A. Appendix C provides detailed descriptions of the environments, training procedure, policy perturbations, algorithm implementa-tion, and hyperparameters used in our experiments. 
+
+## REFERENCES 
+
+Richard Aoun, Marwa Banna, and Pierre Youssef. Matrix poincaré inequalities and concentration. 
+
+Advances in Mathematics , 371:107251, 2020. ISSN 0001-8708. doi: https://doi.org/10.1016/ j.aim.2020.107251. URL https://www.sciencedirect.com/science/article/ pii/S0001870820302772 .Saleh Ashkboos, Maximilian L. Croci, Marcelo Gennari do Nascimento, Torsten Hoefler, and James Hensman. SliceGPT: Compress large language models by deleting rows and columns. In Inter-national Conference on Learning Representations , 2024. Lichang Chen, Jiuhai Chen, Heng Huang, and Minhao Cheng. PTP: Boosting stability and perfor-mance of prompt tuning with perturbation-based regularizer. In The 2023 Conference on Em-pirical Methods in Natural Language Processing , 2023. URL https://openreview.net/ forum?id=9rWqOgvGpc .Dominik Fay, Sindri Magnússon, Jens Sjölund, and Mikael Johansson. Adaptive hyperparameter selection for differentially private gradient descent. Transactions on Machine Learning Research ,2023. Lang Feng, Zhenghai Xue, Tingcong Liu, and Bo An. Group-in-group policy optimization for LLM agent training. In The Thirty-ninth Annual Conference on Neural Information Processing Systems ,2025. URL https://openreview.net/forum?id=QXEhBMNrCW .Peiyuan Feng, Yichen He, Guanhua Huang, Yuan Lin, Hanchong Zhang, Yuchen Zhang, and Hang Li. AGILE: A novel reinforcement learning framework of LLM agents. In Advances in Neural Information Processing Systems , 2024. Pierre Foret, Ariel Kleiner, Hossein Mobahi, and Behnam Neyshabur. Sharpness-aware minimiza-tion for efficiently improving generalization. In International Conference on Learning Represen-tations , 2021. URL https://openreview.net/forum?id=6Tm1mposlrM .Elias Frantar and Dan Alistarh. SparseGPT: Massive language models can be accurately pruned in one-shot. In Proceedings of the 40th International Conference on Machine Learning , ICML’23. JMLR.org, 2023. Elias Frantar, Saleh Ashkboos, Torsten Hoefler, and Dan Alistarh. OPTQ: Accurate quantization for generative pre-trained transformers. In The Eleventh International Conference on Learning Representations , 2023. URL https://openreview.net/forum?id=tcbBPnfwxS .Mor Geva, Roei Schuster, Jonathan Berant, and Omer Levy. Transformer feed-forward layers are key-value memories. In Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing , pp. 5484–5495, 2021. Edward J. Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen. Lora: Low-rank adaptation of large language models. In International Con-ference on Learning Representations , 2022. 11 Preprint Wei Huang, Yi Ge, Shuai Yang, Yicheng Xiao, Huizi Mao, Yujun Lin, Hanrong Ye, Sifei Liu, Ka Chun Cheung, Hongxu Yin, Yao Lu, Xiaojuan Qi, Song Han, and Yukang Chen. QeRL: Be-yond efficiency—quantization-enhanced reinforcement learning for llms. In International Con-ference on Learning Representations , 2026. Neel Jain, Ping-yeh Chiang, Yuxin Wen, John Kirchenbauer, Hong-Min Chu, Gowthami Somepalli, Brian R. Bartoldson, Bhavya Kailkhura, Avi Schwarzschild, Aniruddha Saha, Micah Goldblum, Jonas Geiping, and Tom Goldstein. NEFTune: Noisy embeddings improve instruction finetuning. In International Conference on Learning Representations , 2024. Michael Jerge, Joseph Pelczar, and Justin Downes. Perturb the thought, not the pixels: Latent-space rollout diversification for reinforcement learning of vision-language models. arXiv preprint arXiv:2608.21595 , 2026. Sham Kakade and John Langford. Approximately optimal approximate reinforcement learning. In 
+
+Proceedings of the Nineteenth International Conference on Machine Learning , ICML ’02, pp. 267–274, San Francisco, CA, USA, 2002. Morgan Kaufmann Publishers Inc. ISBN 1558608737. Aounon Kumar, Alexander Levine, and Soheil Feizi. Policy smoothing for provably robust re-inforcement learning. In International Conference on Learning Representations , 2022. URL 
+
+https://openreview.net/forum?id=mwdfai8NBrJ .Woosuk Kwon, Zhuohan Li, Siyuan Zhuang, Ying Sheng, Lianmin Zheng, Cody Hao Yu, Joseph E. Gonzalez, Hao Zhang, and Ion Stoica. Efficient memory management for large language model serving with pagedattention. In Proceedings of the 29th Symposium on Operating Systems Prin-ciples , 2023. Hyun Kyu Lee and Sung Whan Yoon. Flat reward in policy parameter space implies robust rein-forcement learning. In The Thirteenth International Conference on Learning Representations ,2025. URL https://openreview.net/forum?id=4OaO3GjP7k .Namhoon Lee, Thalaiyasingam Ajanthan, and Philip H. S. Torr. Snip: Single-shot network pruning based on connection sensitivity. In International Conference on Learning Representations , 2019. Xiangyan Liu, Jinjie Ni, Zijian Wu, Chao Du, Longxu Dou, Haonan Wang, Tianyu Pang, and Michael Qizhe Shieh. Noisyrollout: Reinforcing visual reasoning with data augmentation. In 
+
+Advances in Neural Information Processing Systems , volume 38, 2025. Yuhang Liu, Tao Li, Zhehao Huang, Zuopeng Yang, and Xiaolin Huang. Bi-lora: Efficient sharpness-aware minimization for fine-tuning large-scale models. In International Conference on Learning Representations , 2026a. Zhihan Liu, Lin Guan, Yixin Nie, Kai Zhang, Zhuoqun Hao, Lin Chen, Asli Celikyilmaz, Zhaoran Wang, and Na Zhang. Paying less generalization tax: A cross-domain generalization study of RL training for LLM agents. arXiv preprint arXiv:2601.18217, 2026b. URL https://arxiv. org/abs/2601.18217 .Xinyin Ma, Gongfan Fang, and Xinchao Wang. LLM-Pruner: On the structural pruning of large language models. In Advances in Neural Information Processing Systems , volume 36, 2023. Kaustubh Mani, Yann Pequignot, Vincent Mai, and Liam Paull. SHAPO: Sharpness-aware pol-icy optimization for safe exploration. In International Conference on Learning Representations ,2026. Pavlo Molchanov, Arun Mallya, Stephen Tyree, Iuri Frosio, and Jan Kautz. Importance estimation for neural network pruning. In 2019 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 11256–11264, 2019. doi: 10.1109/CVPR.2019.01152. Jun Morimoto and Kenji Doya. Robust reinforcement learning. Neural Comput. , 17(2):335–359, February 2005. ISSN 0899-7667. doi: 10.1162/0899766053011528. URL https://doi. org/10.1162/0899766053011528 .12 Preprint Markus Nagel, Marios Fournarakis, Rana Ali Amjad, Yelysei Bondarenko, Mart van Baalen, and Tijmen Blankevoort. A white paper on neural network quantization. arXiv preprint arXiv:2106.08295 , 2021. URL https://arxiv.org/abs/2106.08295 .Lerrel Pinto, James Davidson, Rahul Sukthankar, and Abhinav Gupta. Robust adversarial rein-forcement learning. In Proceedings of the 34th International Conference on Machine Learning -Volume 70 , ICML’17, pp. 2817–2826. JMLR.org, 2017. Matthias Plappert, Rein Houthooft, Prafulla Dhariwal, Szymon Sidor, Richard Y. Chen, Xi Chen, Tamim Asfour, Pieter Abbeel, and Marcin Andrychowicz. Parameter space noise for ex-ploration. In International Conference on Learning Representations , 2018. URL https: //openreview.net/forum?id=ByBAl2eAZ .Zehan Qi, Xiao Liu, Iat Long Iong, Hanyu Lai, Xueqiao Sun, Jiadai Sun, Xinyue Yang, Yu Yang, Shuntian Yao, Wei Xu, Jie Tang, and Yuxiao Dong. Webrl: Training llm web agents via self-evolving online curriculum reinforcement learning. In Y. Yue, A. Garg, N. Peng, F. Sha, and R. Yu (eds.), International Conference on Learning Representations , volume 2025, pp. 79791– 79821, 2025. URL https://proceedings.iclr.cc/paper_files/paper/2025/ file/c66e1fcc9691aae706250638f36f681b-Paper-Conference.pdf .John Schulman, Sergey Levine, Philipp Moritz, Michael Jordan, and Pieter Abbeel. Trust region policy optimization. In Proceedings of the 32nd International Conference on Machine Learning - Volume 37 , ICML’15, pp. 1889–1897. JMLR.org, 2015. Soroosh Shafieezadeh-Abadeh, Viet Anh Nguyen, Daniel Kuhn, and Peyman Mohajerin Esfahani. Wasserstein distributionally robust kalman filtering. In Proceedings of the 32nd International Conference on Neural Information Processing Systems , NIPS’18, pp. 8483–8492, Red Hook, NY, USA, 2018. Curran Associates Inc. Mohit Shridhar, Xingdi Yuan, Marc-Alexandre Côté, Yonatan Bisk, Adam Trischler, and Matthew Hausknecht. ALFWorld: Aligning text and embodied environments for interactive learning. In 
+
+International Conference on Learning Representations , 2021. Nitish Srivastava, Geoffrey Hinton, Alex Krizhevsky, Ilya Sutskever, and Ruslan Salakhutdinov. Dropout: a simple way to prevent neural networks from overfitting. J. Mach. Learn. Res. , 15(1): 1929–1958, January 2014. ISSN 1532-4435. Ryan Sullivan, Jordan K. Terry, Benjamin Black, and John P. Dickerson. Cliff diving: Exploring reward surfaces in reinforcement learning environments. In Proceedings of the 39th International Conference on Machine Learning , volume 162 of Proceedings of Machine Learning Research ,pp. 20744–20776. PMLR, 2022. Bahar Taskesen, Dan A. Iancu, Ça˘ gıl Koçyi˘ git, and Daniel Kuhn. Distributionally robust linear quadratic control. In Proceedings of the 37th International Conference on Neural Information Processing Systems , NIPS ’23, Red Hook, NY, USA, 2023. Curran Associates Inc. Chen Tessler, Yonathan Efroni, and Shie Mannor. Action robust reinforcement learning and appli-cations in continuous control. In Proceedings of the 36th International Conference on Machine Learning , volume 97 of Proceedings of Machine Learning Research , pp. 6215–6224. PMLR, 2019. Trung Trinh, Markus Heinonen, Luigi Acerbi, and Samuel Kaski. Improving robustness to corrup-tions with multiplicative weight perturbations. In Advances in Neural Information Processing Systems , volume 37, 2024. Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Lukasz Kaiser, and Illia Polosukhin. Attention is all you need. In Advances in Neural Infor-mation Processing Systems , volume 30, 2017. Dongwei Wang and Huanrui Yang. Taming sensitive weights: Noise perturbation fine-tuning for robust llm quantization. In Conference on Parsimony and Learning , volume 280 of Proceedings of Machine Learning Research , pp. 884–896. PMLR, 2025. 13 Preprint Yi-Shan Wu, Andrés R. Masegosa, Stephan S. Lorenzen, Christian Igel, and Yevgeny Seldin. Chebyshev-cantelli pac-bayes-bennett inequality for the weighted majority vote. In Proceedings of the 35th International Conference on Neural Information Processing Systems , NIPS ’21, Red Hook, NY, USA, 2021. Curran Associates Inc. ISBN 9781713845393. An Yang, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chengyuan Li, Dayiheng Liu, Fei Huang, Haoran Wei, Huan Lin, et al. Qwen2.5 technical report. arXiv preprint arXiv:2412.15115 , 2024. Shunyu Yao, Howard Chen, John Yang, and Karthik Narasimhan. Webshop: towards scalable real-world web interaction with grounded language agents. In Proceedings of the 36th International Conference on Neural Information Processing Systems , NIPS ’22, Red Hook, NY, USA, 2022. Curran Associates Inc. ISBN 9781713871088. Zijing Zhang and Boning Zhang. When instinct guides and insight grounds: Staged rl training for llm agents. In Proceedings of the Fortieth AAAI Conference on Artificial Intelligence (AAAI-26) ,pp. 34906–34914, 2026. Yang Zhao, Hao Zhang, and Xiuyuan Hu. Penalizing gradient norm for efficiently improving gen-eralization in deep learning. In Proceedings of the 39th International Conference on Machine Learning , volume 162 of Proceedings of Machine Learning Research , pp. 26982–26992. PMLR, 2022. Chen Zhu, Yu Cheng, Zhe Gan, Siqi Sun, Tom Goldstein, and Jingjing Liu. FreeLB: Enhanced adversarial training for natural language understanding. In International Conference on Learning Representations , 2020. URL https://openreview.net/forum?id=BygzbyHFvB .14 Preprint 
+
+## A DETAILED PROOFS FOR THEORETICAL RESULTS 
+
+A.1 PROOF OF THEOREM 1
+
+Proof. For each fixed perturbation ξ, applying Lemma 1 to πξθ and πξθ′ gives 
+
+∆Jξ ≥ 11 − γ E s∼dπξθ 
+
+> a∼πξθ′(·| s)
+
+h
+
+Aπξθ
+
+(s, a )
+
+i
+
+− 4γA max 
+
+(1 − γ)2 α2 
+
+> ξ
+
+.
+
+Taking expectation over ξ ∼ ν yields 
+
+Eξ∼ν [∆ Jξ ] ≥ L ν (θ′) − 4γA max 
+
+(1 − γ)2 Eξ∼ν [α2 
+
+> ξ
+
+] = mν .
+
+Let μν := Eξ∼ν [∆ Jξ ]. Then μν ≥ mν , and by assumption Var ν [∆ Jξ ] ≤ vν . By Cantelli’s inequality (Wu et al., 2021), for any t > 0,
+
+Pr  
+
+> ξ∼ν
+
+(∆ Jξ − μν ≤ − t) ≤ Var ν [∆ Jξ ]Var ν [∆ Jξ ] + t2 .
+
+Since x/ (x + t2) is increasing in x ≥ 0, choosing t = p(1 − β)vν /β gives 
+
+Pr  
+
+> ξ∼ν
+
+∆Jξ < μ ν −
+
+s
+
+1 − ββ vν
+
+!
+
+≤ vν
+
+vν + 1−ββ vν
+
+= β. 
+
+Therefore, 
+
+Pr  
+
+> ξ∼ν
+
+∆Jξ ≥ mν −
+
+s
+
+1 − ββ vν
+
+!
+
+≥ Pr  
+
+> ξ∼ν
+
+∆Jξ ≥ μν −
+
+s
+
+1 − ββ vν
+
+!
+
+≥ 1 − β. 
+
+A.2 PROOF OF COROLLARY 1
+
+Proof. Let C := 4 γA max /(1 − γ)2. For each perturbation ξ, the TRPO improvement bound gives 
+
+∆Jξ ≥ L ξ (θ′) − Cα 2 
+
+> ξ
+
+≥ L ξ (θ′) − C ¯α2.
+
+Since ξ ∼ N (0 , Σ) and Lξ (θ′) is continuously differentiable in ξ, the Gaussian Poincaré inequal-ity (Aoun et al., 2020) gives the variance bound as follows: 
+
+Var ξ∼ν [Lξ (θ′)] ≤ Eξ∼ν
+
+∇ξ Lξ (θ′)⊤Σ∇ξ Lξ (θ′)
+
+=
+
+> d
+
+X
+
+> i=1
+
+σ2 
+
+> i
+
+Si(θ′)
+
+≤ β
+
+1 − β
+
+ Lν (θ′) − C ¯α22 .
+
+Applying Cantelli’s inequality to Lξ (θ′) yields 
+
+Pr 
+
+> ξ∼ν
+
+ Lξ (θ′) − C ¯α2 ≥ 0 ≥ 1 − β. 
+
+Since ∆Jξ ≥ L ξ (θ′) − C ¯α2 for every ξ, this yields Pr ξ∼ν (∆ Jξ ≥ 0) ≥ 1 − β.15 Preprint A.3 PROOF OF THEOREM 2
+
+Proof. Step 1: Convergence. Since Π is compact, every sequence in Π admits a convergent sub-sequence. Hence, {πk}k≥0 has at least one limit point. By construction, πk+1 ∈ U β (πk), which means 
+
+¯Jk+1 − ¯Jk ≥ mν,k (πk+1 ) ≥
+
+s
+
+1 − ββ Var ν
+
+h
+
+∆J(πξk+1 ; πξk)
+
+i
+
+≥ 0,
+
+where ¯Jk := Eξ∼ν [J(πξk)] . Thus, { ¯Jk}k≥0 is non-decreasing. Since J is bounded, { ¯Jk}k≥0 is also bounded above, and therefore converges to a finite limit, denoted by J⋆. Let ¯π be any limit point of 
+
+{πk}k≥0, and let πkj → ¯π be a convergent subsequence. By continuity of the perturbed return and the dominated convergence theorem, we have 
+
+Eξ∼ν [J(¯ πξ )] = lim  
+
+> j→∞
+
+Eξ∼ν [J(πξkj )] = lim 
+
+> j→∞
+
+¯Jkj = J⋆.
+
+Step 2: Probabilistic robustness. Let Ξ0 ⊆ Ξδ be the subset in Assumption 1, and let ν0 := ν(· | 
+
+Ξ0). Then ν(Ξ 0) ≥ 1 − β0 and 
+
+q
+
+Var ν0 [J(πξ 
+
+> 0
+
+)] ≤ σ0. For any square-integrable random variable 
+
+X, conditioning on an event of probability at least 1 − β0 gives Var ν0 [X] ≤ (1 − β0)−1 Var ν [X].Together with the defining condition of Uβ (πk), this yields 
+
+r
+
+Var ν0
+
+h
+
+∆J(πξk+1 ; πξk)
+
+i
+
+≤ 1
+
+√1 − β0
+
+s
+
+β
+
+1 − β ( ¯Jk+1 − ¯Jk).
+
+By the triangle inequality for standard deviations, 
+
+q
+
+Var ν0 [J(πξk+1 )] −
+
+q
+
+Var ν0 [J(πξk)] ≤
+
+r
+
+Var ν0
+
+h
+
+∆J(πξk+1 ; πξk)
+
+i
+
+≤ 1
+
+√1 − β0
+
+s
+
+β
+
+1 − β ( ¯Jk+1 − ¯Jk).
+
+Summing from 0 to k − 1 gives 
+
+q
+
+Var ν0 [J(πξk)] ≤ σ0 + 1
+
+√1 − β0
+
+s
+
+β
+
+1 − β ( ¯Jk − ¯J0)
+
+≤ σ0 + CJ
+
+√1 − β0
+
+s
+
+β
+
+1 − β =: ¯ σ, 
+
+where CJ := Jmax − Jmin denotes the range of the bounded return. By continuity and uniform boundedness of the perturbed return, its first and second moments under ν0 converge along the subsequence. Hence, pVar ν0 [J(¯ πξ )] ≤ ¯σ. Since ν0 = ν(· | Ξ0) with ν(Ξ 0) ≥ 1 − β0,
+
+Eν [J(¯ πξ )] − Eν0 [J(¯ πξ )] ≤ β0CJ .
+
+By Assumption 1, β0 ≤ ¯β/ 2 and ϵ−β0CJ ≥ ϵ/ 2 > 0. Using the preceding bound on the conditional mean and applying Cantelli’s inequality, we obtain 
+
+Pr 
+
+> ξ∼ν
+
+ J(¯ πξ ) < J ⋆ − ϵ ≤ β0 + (1 − β0) Pr 
+
+> ξ∼ν0
+
+ J(¯ πξ ) < Eξ∼ν0 [J(¯ πξ )] − (ϵ − β0CJ )
+
+≤ β0 + (1 − β0) ¯σ2
+
+¯σ2 + ( ϵ − β0CJ )2 .
+
+The condition β ≤ ϵ2 ¯β/ (100 C2 
+
+> J
+
++ ϵ2 ¯β) implies 
+
+CJ
+
+s
+
+β
+
+1 − β ≤ 110 ϵ
+
+q
+
+¯β. 
+
+16 Preprint Together with σ0 < ϵ p ¯β/ 4 from Assumption 1, this gives 
+
+β0 + (1 − β0) ¯σ2
+
+¯σ2 + ( ϵ − β0CJ )2 ≤ β0 + 4(1 − β0)¯ σ2
+
+ϵ2
+
+= β0 + 4
+
+ϵ2
+
+p1 − β0 σ0 + CJ
+
+s
+
+β
+
+1 − β
+
+!2
+
+≤ ¯β
+
+2 + 4 
+
+ 14 + 110 
+
+2
+
+¯β
+
+= 99 100 ¯β ≤ ¯β. 
+
+It follows that 
+
+Pr 
+
+> ξ∼ν
+
+ J(¯ πξ ) ≥ J⋆ − ϵ ≥ 1 − ¯β, 
+
+which shows that every limit point ¯π is (δ, ϵ, ¯β)-probabilistic perturbation robust under νδ .
+
+## B ADDITIONAL RELATED WORK 
+
+Robust Policy in Reinforcement Learning. There are several perturbation-based approaches to robust RL, and they have different designs for how perturbations are constructed and where they enter the interaction process. One major line constructs adversarial perturbations, including RARL (Pinto et al., 2017), Action Robust RL (Tessler et al., 2019), and SHAPO (Mani et al., 2026). These methods seek perturbations that minimize policy performance and train the policy against them, typically following a min–max objective max θ min ξ∈Ξ J(πξθ ), where the adversarial pertur-bation may be approximated using gradient information, closely related to SAM-style (Foret et al., 2021) optimization. Another line uses stochastic rather than worst-case perturbations, typically optimizing an average-case objective max θ Eξ [J(πξθ )] . For example, Kumar et al. (2022) inject Gaussian noise into obser-vations, whereas Plappert et al. (2018) perturb policy parameters. Stochastic perturbations provide a simpler training mechanism, avoiding explicit inner optimization in constructing adversarial pertur-bations. Our work adopts stochastic perturbations and studies their role in improving the robustness of long-horizon LLM agents. 
+
+Perturbation-based Training for LLMs. Introducing perturbations during LLM training has been widely explored across different settings for better model robustness, including natural lan-guage understanding, instruction finetuning (Jain et al., 2024), and reinforcement learning. Several studies consider adversarial perturbations. FreeLB (Zhu et al., 2020) and PTP (Chen et al., 2023) apply adversarial perturbations in the input representation space in single-turn language tasks. Also, Liu et al. (2026a) parameterize adversarial perturbations with a separate low-rank LoRA branch, which can be both more efficient and stable for LLMs. For multi-turn or reasoning-based tasks, stochastic perturbations are more commonly used during finetuning for their simplicity and training stability. For example, Liu et al. (2025) perturb model in-puts during rollouts, and Jerge et al. (2026) perturb latent representations with Gaussian noise; both promote LLM exploration and diversify reasoning trajectories, thereby improving reasoning perfor-mance. More importantly, recent work shows that perturbation-based training can help models better preserve their performance after quantization. Wang & Yang (2025) perturb sensitive components during supervised finetuning to better adapt quantization errors, while Huang et al. (2026) exploits and adaptively controls quantization-induced noise during RL to balance robustness and training sta-bility. In contrast, we study perturbation-based training in long-horizon agentic interactions, where perturbations can alter subsequent observations over the trajectory. This motivates explicit consid-eration of optimization stability and more careful control of the injected perturbations. 
+
+## C EXPERIMENT DETAILS 
+
+The code will be made publicly available upon acceptance. 17 Preprint C.1 ENVIRONMENT DETAILS 
+
+Basic setup. We conduct experiments on ALFWorld (Shridhar et al., 2021) and WebShop (Yao et al., 2022). ALFWorld is a text-based embodied environment for household tasks, with 3,553 tasks in its training split. We evaluate on all 274 validation tasks, consisting of 140 in-distribution and 134 out-of-distribution tasks. For WebShop, the benchmark contains 12,087 shopping instructions, with 500 tasks reserved for testing. We use the remaining 11,587 tasks as the RL training pool and evaluate on all 500 test tasks. Episodes terminate upon task completion or when the maximum number of environment steps is reached, which is 50 for ALFWorld and 15 for WebShop. 
+
+Observation. At each environment step, the policy receives a textual observation containing the task instruction, recent interaction history, the current environment observation, and the currently admissible actions. We use the following common prompt structure for both environments: 
+
+Prompt template       
+
+> Task: {task instruction}
+> Interaction context: {recent observations and actions}
+> Current observation: {current observation}
+> Available actions: {admissible actions}
+> Response: Output the next action in <action>...</action> .
+
+Action. The policy directly generates an environment action at each step. For ALFWorld, the generated content is a structured natural-language command such as go to fridge 1 ; sim-ilarly for WebShop, it follows the environment action format, such as search[wireless headphones] or click[Buy Now] .We use a no-thinking setting (Liu et al., 2026b; Zhang & Zhang, 2026), disabling explicit reasoning traces throughout both training and evaluation. This choice is motivated by both optimization and computational considerations. First, hallucinations in intermediate reasoning can propagate to the final decision. Second, RL updates over long reasoning traces can introduce token-level credit-assignment ambiguity, since incorrect intermediate thoughts may still be reinforced by a positive trajectory-level reward. Finally, thinking-free mode is also natural for many of the grounded tasks, where actions such as navigating to or picking up an object often do not require lengthy explicit deliberation. Besides, removing explicit reasoning substantially reduces training cost in our setting, shortening training from roughly seven days to two and yielding about a 3.5x speedup. 
+
+Reward. Both environments provide sparse trajectory-level task rewards following GiGPO (Feng et al., 2025). ALFWorld uses a sparse success-based reward. WebShop instead provides a partial-completion score based on how well the purchased product matches the target attributes. We also apply a mild step-level format penalty of −0.1 when the response does not follow the required action format, which helps accelerate policy convergence. C.2 TRAINING DETAILS 
+
+Base model and optimization. We fine-tune Qwen2.5-1.5B-Instruct with LoRA (Hu et al., 2022) applied to all attention and FFN linear projections, keeping the base-model weights frozen. All methods use GiGPO (Feng et al., 2025) for advantage estimation and optimize the same PPO clipped surrogate objective. All methods share the training hyperparameters in Table 2. 
+
+Perturbation implementation. Gaussian, SAM, and SPrPO perturb the intermediate representa-tion in each FFN block in the same manner. Let hℓ = SiLU( Wgate ,ℓ xℓ) ⊙ Wup ,ℓ xℓ denote the activated FFN representation at layer ℓ before the down-projection. We apply a channel-wise mul-tiplicative perturbation hℓ ← hℓ ⊙ (1 + ξℓ) before computing Wdown ,ℓ hℓ. The main perturbation hyperparameters are summarized in Table 3. We also experimented with parameter-space noise and dropout during training, but both led to training collapse, consistent with our observation that RL-trained LLM agents are fragile to policy perturbations. 18 Preprint Table 2: Shared training hyperparameters used across all methods.                           
+
+> Hyperparameter Value Base model Qwen2.5-1.5B-Instruct LoRA rank / αLoRA 64 /64
+> Optimizer Adam Learning rate 3×10 −6
+> Training steps 200
+> Tasks per step 16
+> Rollouts per task 8
+> Trajectories per PPO batch 128
+> Discount factor γ0.95
+> PPO clip ratio 0.2
+> Dual-clip coefficient 3.0
+> Entropy coefficient 0.001
+> WebShop prompt / response length 4096 /512
+> ALFWorld prompt / response length 3072 /1024
+> Validation temperature 0.4
+
+Table 3: Perturbation-specific training hyperparameters used in the main experiments.               
+
+> Method Hyperparameter Value Gaussian Noise scale σ0.10
+> SAM Perturbation scale ρ0.005
+> SPrPO Base perturbation scale ρ0.20
+> SPrPO Sensitivity exponent α1.0
+
+Baseline 1: Vanilla. Vanilla uses standard GiGPO training without policy perturbations. The resulting procedure is summarized in Algorithm 2. 
+
+Algorithm 2 Vanilla GiGPO                              
+
+> Require: Initial policy θ1, iterations K
+> 1: for k= 1 , . . . , K do
+> 2: Collect Dk∼πθk
+> 3: Estimate group-relative advantages Aifor i∈ D k
+> 4: Update the policy: θk+1 ←θk+ηk∇θLk(θk)
+> 5: end for
+> 6: return θK+1
+
+Baseline 2: Multiplicative Gaussian. The Gaussian baseline uses isotropic multiplicative noise; that is, the perturbation variance is the same across all perturbed FFN channels. At each training iteration, we sample a Gaussian perturbation and keep it fixed throughout the corresponding rollout and policy update. 
+
+Baseline 3: SAM. We adapt Sharpness-Aware Minimization (Foret et al., 2021) to the same FFN-channel perturbation space used by Gaussian and SPrPO. At each training iteration, we perform one additional backward pass on the PPO loss to estimate the gradient with respect to multiplicative channel gain gℓc = ∂L/∂u ℓc |uℓc =1 . We normalize this gradient to construct an adversarial pertur-bation, then replay the same training batch under this perturbation to update the policy. SAM is extremely sensitive in our experiment: using ρ = 0 .1 leads to performance collapse. We therefore use a much smaller scale of ρ = 5 × 10 −3 to obtain reasonable performance. 
+
+Our method: SPrPO. We follow Algorithm 1 in the main text. SPrPO estimates a channel-wise sensitivity statistic from the gradient of the training surrogate with respect to the multiplicative FFN perturbation. The resulting noise scale increases with the overall perturbation magnitude ρ
+
+and decreases with channel sensitivity according to exponent α, such that more sensitive channels 19 Preprint 
+
+Algorithm 3 Multiplicative Gaussian perturbation training 
+
+Require: Initial policy θ1, iterations K, noise scale σ
+
+1: for k = 1 , . . . , K do 
+
+2: Sample zk , where zk,ℓc ∼ N (0 , 1) 
+
+3: Set ξk ← σz k
+
+4: Collect Dk ∼ πξk 
+
+> θk
+
+and estimate advantages Ai
+
+5: Update the policy: θk+1 ← θk + ηk ∇θ Lk (θk ; ξk )
+
+6: end for 
+
+7: return θK+1 
+
+Algorithm 4 FFN-channel SAM perturbation training 
+
+Require: Initial policy θ1, iterations K, perturbation scale ρ
+
+1: for k = 1 , . . . , K do 
+
+2: Collect Dk ∼ πθk and estimate advantages Ai
+
+3: Estimate channel gradients: gk,ℓc ← ∂Lk (θk ; u − 1)
+
+∂u ℓc u=1
+
+4: ξk ← − ρ g k /∥gk ∥2
+
+5: Replay Dk under ξk and update the policy: θk+1 ← θk + ηk ∇θ Lk (θk ; ξk )
+
+6: end for 
+
+7: return θK+1 
+
+receive smaller perturbations. After each policy update, we replay the current training batch at θk+1 
+
+for one additional forward/backward pass to estimate the sensitivity statistics. 
+
+Training overhead. Table 4 reports the observed training cost of SPrPO relative to Vanilla. Ex-periments were run with two NVIDIA RTX PRO 6000 Blackwell Max-Q GPUs on a host equipped with AMD EPYC 9354 CPU. SPrPO introduces no additional environment rollout, and its main computational overhead comes from one additional forward/backward pass that replays the current training batch after the policy update to estimate channel sensitivity. Table 4: Observed training cost of Vanilla and SPrPO on Qwen2.5-1.5B-Instruct. Times are aver-aged seconds per training step and exclude periodic validation and checkpoint saving. 
+
+Environment Method Rollout Update Total ALFWorld Vanilla 143.8 198.2 343.6 ALFWorld SPrPO 171.5 400.1 572.9 WebShop Vanilla 50.1 60.0 110.6 WebShop SPrPO 58.2 138.7 197.4 
+
+C.3 EVALUATION DETAILS 
+
+General protocol. All evaluations use vLLM (Kwon et al., 2023) inference, and use temperature 
+
+0.4 for inference, following GiGPO (Feng et al., 2025). WebShop is evaluated on all 500 goals, while ALFWorld uses the official validation split consisting of 140 ID and 134 OOD gamefiles. All perturbations below are applied only during evaluation to a fixed trained policy. 
+
+Channel-wise Gaussian perturbation. We use the same multiplicative channel-wise perturbation as during training. For the FFN activation hℓc before the down-projection, we apply ehℓc = (1 + 
+
+ξℓc )hℓc , where ξℓc ∼ N (0 , σ 2). We sweep σ ∈ { 0.02 , 0.05 , 0.10 , 0.15 , 0.20 } on both WebShop and ALFWorld. 
+
+Channel dropout. We apply a Bernoulli mask to randomly remove FFN channels, independently dropping each channel with probability p. We sweep p ∈ { 0.01 , 0.02 , 0.03 , 0.04 , 0.05 } on both WebShop and ALFWorld. 20 Preprint 
+
+Structured pruning (Fisher importance). We prune FFN intermediate channels according to a diagonal-Fisher (Molchanov et al., 2019) importance score. For channel c in layer ℓ, we estimate 
+
+bFℓc = Ecalib [( hℓc ∂L/∂h ℓc )2] using a fixed calibration set of 128 agent-interaction sequences col-lected from a Vanilla-trained policy on the corresponding benchmark. All compared methods share this calibration set, while the Fisher scores are computed separately for each model using its own activations and gradients. Channels are ranked by bFℓc , and the lowest-scoring fraction r is removed by masking the corresponding rows of Wgate ,ℓ and Wup ,ℓ and columns of Wdown ,ℓ . We sweep 
+
+r ∈ { 0.05 , 0.10 , 0.15 , 0.20 } on both WebShop and ALFWorld. 
+
+Unstructured pruning (SparseGPT). We use SparseGPT (Frantar & Alistarh, 2023) to prune a fraction r of weights in each FFN projection matrix Wgate ,ℓ , Wup ,ℓ , and Wdown ,ℓ , while leav-ing all attention weights dense. SparseGPT is applied sequentially across transformer layers using its Hessian-based weight selection and compensation procedure, with block size 128 and Hessian damping λ = 0 .01 . Calibration uses 128 sequences drawn from the same rollout-derived calibra-tion pool used for structured pruning. We sweep r ∈ { 0.10 , 0.20 , 0.30 , 0.40 } on WebShop and 
+
+r ∈ { 0.10 , 0.30 , 0.50 , 0.70 } on ALFWorld. 
+
+Quantization (round-to-nearest). We apply round-to-nearest (RTN) quantization to all linear weights in the transformer layers, including both attention and FFN projections. Weights are par-titioned into groups of 128 , with each group sharing a quantization scale. For a group G and bit width b, we use sG = max w∈G |w|/(2 b−1 − 1) . Each weight is divided by this scale, rounded to the nearest integer code, and clipped to the representable range. We evaluate INT8, INT6, and INT4 quantization. 
+
+## D MORE EXPERIMENT RESULTS 
+
+Main tables. We report the robustness results across all evaluated perturbation types and strengths. Results are mean ± standard deviation over three seeds, with boldface denoting the highest mean, including ties. 21 Preprint Table 5: ALFWorld: overall success rate (%). 
+
+Perturbation Strength Vanilla Gaussian SAM SPrPO 
+
+Clean BF16 87 .59 ± 0.97 89 .05 ± 0.97 86 .86 ± 0.73 91 .85 ± 0.42 
+
+Gaussian σ = 0 .02 88 .44 ± 1.38 90 .02 ± 0.21 86 .01 ± 0.76 92 .70 ± 0.36 
+
+σ = 0 .05 87 .23 ± 1.67 89 .54 ± 1.28 86 .74 ± 0.92 91 .12 ± 0.56 
+
+σ = 0 .10 84 .79 ± 2.23 85 .89 ± 0.56 86 .13 ± 0.73 89 .78 ± 0.63 
+
+σ = 0 .15 79 .81 ± 0.92 81 .51 ± 1.11 81 .63 ± 2.48 86 .13 ± 1.90 
+
+σ = 0 .20 64 .96 ± 2.55 72 .26 ± 0.97 66 .79 ± 2.55 75 .91 ± 0.97 
+
+Dropout p = 0 .01 82 .97 ± 2.43 86 .50 ± 2.63 85 .16 ± 1.65 88 .93 ± 0.21 
+
+p = 0 .02 79 .81 ± 0.84 81 .87 ± 3.37 81 .51 ± 1.17 86 .13 ± 0.97 
+
+p = 0 .03 71 .53 ± 1.32 73 .84 ± 5.59 74 .33 ± 3.60 79 .93 ± 1.93 
+
+p = 0 .04 63 .50 ± 1.67 65 .82 ± 1.69 63 .14 ± 2.55 73 .36 ± 2.19 
+
+p = 0 .05 54 .62 ± 1.65 57 .79 ± 1.80 55 .60 ± 0.76 64 .60 ± 3.48 
+
+Structured pruning r = 0 .05 83 .82 ± 1.38 83 .45 ± 1.11 85 .64 ± 1.72 89 .17 ± 0.56 
+
+r = 0 .10 72 .38 ± 2.23 77 .25 ± 0.56 72 .99 ± 0.36 83 .21 ± 0.73 
+
+r = 0 .15 59 .61 ± 2.01 67 .88 ± 0.73 49 .76 ± 4.59 70 .44 ± 2.03 
+
+r = 0 .20 41 .73 ± 5.32 23 .72 ± 2.28 22 .02 ± 1.69 47 .08 ± 7.65 
+
+Unstructured pruning r = 0 .10 87 .96 ± 0.63 88 .81 ± 2.48 87 .23 ± 0.97 91 .85 ± 1.28 
+
+r = 0 .30 87 .35 ± 0.56 87 .59 ± 0.73 86 .25 ± 0.56 91 .00 ± 0.56 
+
+r = 0 .50 84 .31 ± 1.59 83 .33 ± 0.92 80 .90 ± 2.14 90 .39 ± 2.01 
+
+r = 0 .70 41 .12 ± 4.35 32 .85 ± 1.93 50 .97 ± 1.69 58 .03 ± 2.39 
+
+Quantization INT8 88 .44 ± 0.92 88 .81 ± 0.84 86 .86 ± 0.97 91 .24 ± 0.73 
+
+INT6 86 .98 ± 0.84 87 .47 ± 0.92 86 .25 ± 0.56 91 .24 ± 0.00 
+
+INT4 47 .81 ± 3.18 39 .17 ± 4.04 59 .61 ± 2.56 48 .05 ± 4.02 
+
+Table 6: ALFWorld: ID and OOD success rates (%). 
+
+ID OOD Perturbation Strength Vanilla Gaussian SAM SPrPO Vanilla Gaussian SAM SPrPO 
+
+Clean BF16 89 .05 ± 1.09 89 .29 ± 1.24 90 .48 ± 2.06 94 .05 ± 0.82 86 .07 ± 1.55 88 .81 ± 1.97 83 .08 ± 2.62 89 .55 ± 0.00 
+
+Gaussian σ = 0 .02 89 .52 ± 2.70 90 .24 ± 0.82 88 .33 ± 0.41 93 .33 ± 1.65 87 .31 ± 0.75 89 .80 ± 0.43 83 .58 ± 1.49 92 .04 ± 1.14 
+
+σ = 0 .05 86 .90 ± 1.80 90 .48 ± 1.49 89 .29 ± 1.43 92 .14 ± 1.43 87 .56 ± 1.55 88 .56 ± 1.14 84 .08 ± 2.83 90 .05 ± 0.43 
+
+σ = 0 .10 86 .90 ± 2.89 85 .95 ± 1.49 88 .33 ± 1.80 90 .48 ± 2.30 82 .59 ± 3.02 85 .82 ± 1.49 83 .83 ± 0.43 89 .05 ± 2.28 
+
+σ = 0 .15 77 .62 ± 1.65 82 .86 ± 2.14 85 .71 ± 3.11 85 .71 ± 2.14 82 .09 ± 0.75 80 .10 ± 1.88 77 .36 ± 2.28 86 .57 ± 4.48 
+
+σ = 0 .20 65 .48 ± 2.89 71 .67 ± 1.09 67 .14 ± 3.11 76 .90 ± 1.65 64 .43 ± 3.02 72 .89 ± 1.55 66 .42 ± 2.59 74 .88 ± 0.43 
+
+Dropout p = 0 .01 84 .76 ± 1.80 87 .86 ± 1.89 88 .33 ± 1.09 89 .29 ± 1.89 81 .09 ± 3.11 85 .07 ± 3.88 81 .84 ± 3.11 88 .56 ± 1.55 
+
+p = 0 .02 79 .05 ± 0.41 82 .62 ± 2.70 83 .57 ± 0.71 87 .14 ± 0.71 80 .60 ± 1.29 81 .09 ± 4.11 79 .35 ± 2.62 85 .07 ± 1.49 
+
+p = 0 .03 73 .10 ± 1.49 75 .48 ± 5.07 75 .24 ± 2.51 80 .24 ± 1.49 69 .90 ± 1.14 72 .14 ± 8.22 73 .38 ± 4.97 79 .60 ± 2.83 
+
+p = 0 .04 63 .81 ± 2.70 68 .81 ± 3.38 62 .86 ± 1.43 73 .10 ± 4.06 63 .18 ± 4.56 62 .69 ± 0.75 63 .43 ± 3.73 73 .63 ± 1.14 
+
+p = 0 .05 52 .62 ± 1.09 58 .33 ± 3.67 55 .24 ± 2.30 65 .00 ± 4.34 56 .72 ± 3.95 57 .21 ± 2.40 55 .97 ± 2.24 64 .18 ± 3.95 
+
+Structured pruning r = 0 .05 86 .67 ± 0.82 85 .24 ± 2.51 87 .86 ± 0.71 92 .86 ± 0.71 80 .85 ± 2.40 81 .59 ± 4.37 83 .33 ± 2.83 85 .32 ± 1.55 
+
+r = 0 .10 72 .38 ± 3.38 77 .86 ± 0.71 72 .62 ± 1.09 83 .57 ± 0.71 72 .39 ± 3.73 76 .62 ± 1.72 73 .38 ± 1.14 82 .84 ± 1.97 
+
+r = 0 .15 56 .90 ± 3.67 65 .95 ± 1.49 48 .81 ± 2.51 66 .90 ± 3.22 62 .44 ± 3.37 69 .90 ± 2.40 50 .75 ± 6.84 74 .13 ± 1.14 
+
+r = 0 .20 36 .19 ± 3.93 21 .43 ± 2.47 16 .43 ± 2.47 40 .71 ± 5.58 47 .51 ± 6.77 26 .12 ± 3.42 27 .86 ± 0.86 53 .73 ± 10 .10 
+
+Unstructured pruning r = 0 .10 88 .33 ± 1.09 89 .76 ± 2.97 90 .48 ± 2.89 92 .38 ± 0.82 87 .56 ± 0.43 87 .81 ± 3.02 83 .83 ± 1.14 91 .29 ± 1.88 
+
+r = 0 .30 87 .14 ± 0.71 87 .38 ± 1.49 89 .05 ± 0.41 92 .86 ± 1.89 87 .56 ± 0.43 87 .81 ± 2.83 83 .33 ± 1.14 89 .05 ± 0.86 
+
+r = 0 .50 84 .29 ± 2.58 84 .76 ± 1.09 84 .29 ± 2.58 91 .90 ± 2.18 84 .33 ± 0.75 81 .84 ± 0.86 77 .36 ± 1.72 88 .81 ± 1.97 
+
+r = 0 .70 41 .43 ± 4.68 31 .43 ± 1.24 51 .90 ± 1.80 53 .81 ± 3.52 40 .80 ± 4.80 34 .33 ± 3.25 50 .00 ± 3.73 62 .44 ± 2.62 
+
+Quantization INT8 89 .29 ± 1.24 89 .76 ± 1.80 90 .24 ± 1.65 91 .90 ± 0.82 87 .56 ± 0.86 87 .81 ± 1.14 83 .33 ± 3.02 90 .55 ± 1.72 
+
+INT6 87 .38 ± 0.82 88 .81 ± 2.06 89 .05 ± 1.09 91 .67 ± 1.49 86 .57 ± 1.49 86 .07 ± 3.02 83 .33 ± 0.43 90 .80 ± 1.55 
+
+INT4 47 .62 ± 2.06 42 .62 ± 5.46 57 .86 ± 4.95 49 .76 ± 6.64 48 .01 ± 4.37 35 .57 ± 2.62 61 .44 ± 2.28 46 .27 ± 1.29 
+
+22 Preprint Table 7: WebShop: success rate (%). 
+
+Perturbation Strength Vanilla Gaussian SAM SPrPO 
+
+Clean BF16 57 .00 ± 4.39 50 .60 ± 3.99 52 .27 ± 4.02 60 .00 ± 0.72 
+
+Gaussian σ = 0 .02 57 .00 ± 3.82 51 .07 ± 3.35 52 .13 ± 2.95 59 .73 ± 1.55 
+
+σ = 0 .05 53 .47 ± 4.88 48 .47 ± 4.80 49 .00 ± 2.31 58 .67 ± 1.29 
+
+σ = 0 .10 45 .87 ± 6.65 41 .53 ± 5.35 40 .00 ± 4.13 53 .07 ± 1.29 
+
+σ = 0 .15 32 .73 ± 2.95 30 .33 ± 7.83 27 .27 ± 3.69 44 .33 ± 0.50 
+
+σ = 0 .20 18 .73 ± 3.03 17 .87 ± 5.12 15 .20 ± 2.65 30 .13 ± 1.81 
+
+Dropout p = 0 .01 44 .33 ± 5.83 40 .67 ± 6.30 38 .67 ± 4.39 54 .87 ± 0.42 
+
+p = 0 .02 35 .20 ± 4.42 31 .80 ± 6.93 29 .73 ± 5.35 46 .13 ± 1.81 
+
+p = 0 .03 25 .53 ± 5.25 24 .07 ± 6.20 20 .80 ± 3.82 38 .40 ± 2.80 
+
+p = 0 .04 18 .60 ± 2.95 16 .27 ± 4.91 13 .87 ± 2.91 29 .47 ± 2.58 
+
+p = 0 .05 12 .20 ± 3.30 11 .33 ± 2.60 8.87 ± 2.14 20 .87 ± 2.00 
+
+Structured pruning r = 0 .05 49 .93 ± 8.60 47 .80 ± 3.17 45 .33 ± 2.80 55 .80 ± 3.52 
+
+r = 0 .10 30 .13 ± 7.80 27 .40 ± 10 .51 20 .20 ± 5.37 43 .87 ± 4.15 
+
+r = 0 .15 6.33 ± 4.05 18 .67 ± 7.20 6.60 ± 2.75 23 .27 ± 2.58 
+
+r = 0 .20 2.27 ± 1.86 0.27 ± 0.12 0.60 ± 0.87 12 .40 ± 3.65 
+
+Unstructured pruning r = 0 .10 57 .07 ± 3.90 50 .00 ± 3.30 53 .47 ± 3.93 60 .20 ± 0.40 
+
+r = 0 .20 56 .33 ± 3.44 47 .67 ± 2.50 50 .80 ± 3.65 60 .00 ± 1.06 
+
+r = 0 .30 51 .53 ± 7.06 46 .13 ± 6.52 43 .53 ± 5.49 59 .53 ± 1.51 
+
+r = 0 .40 42 .00 ± 8.31 34 .33 ± 9.00 29 .53 ± 5.74 50 .20 ± 2.99 
+
+Quantization INT8 56 .67 ± 4.67 50 .47 ± 3.88 52 .27 ± 4.05 60 .13 ± 0.61 
+
+INT6 45 .20 ± 9.18 39 .80 ± 9.90 34 .93 ± 4.54 55 .67 ± 1.60 
+
+INT4 9.60 ± 2.31 9.87 ± 5.46 2.20 ± 0.35 8.20 ± 2.42 
+
+Ablation and hyperparameter results. We report WebShop ablations and hyperparameter sweeps below. Vanilla ( ρ = 0 ) and full SPrPO ( ρ = 0 .2, α = 1 ) reuse results from Table 1; other configurations use separate ablation evaluation batches. Table 8: Hyperparameter study. Success rate (%). 
+
+Value Clean Gaussian 
+
+σ = .20 
+
+Dropout 
+
+p = .05 Struct. 
+
+r = .20 Unstruct. 
+
+r = .40 INT6 
+
+ρ sweep ( α = 1 )
+
+0 57 .00 ± 4.39 18 .73 ± 3.03 12 .20 ± 3.30 2.27 ± 1.86 42 .00 ± 8.31 45 .20 ± 9.18 
+
+0.1 55 .33 ± 5.16 17 .67 ± 5.52 10 .73 ± 2.93 4.27 ± 4.45 40 .80 ± 9.71 39 .53 ± 9.98 
+
+0.2 60 .00 ± 0.72 30 .13 ± 1.81 20 .87 ± 2.00 12 .40 ± 3.65 50 .20 ± 2.99 55 .67 ± 1.60 
+
+0.3 48 .27 ± 2.50 25 .93 ± 2.02 17 .00 ± 1.97 7.60 ± 2.62 40 .47 ± 3.56 39 .27 ± 4.75 
+
+α sweep ( ρ = 0 .2)
+
+0 48 .80 ± 0.80 27 .07 ± 3.72 18 .93 ± 3.42 11 .07 ± 6.92 47 .07 ± 3.11 48 .27 ± 3.06 
+
+0.5 52 .87 ± 0.61 24 .40 ± 5.10 16 .00 ± 5.39 7.07 ± 4.47 38 .00 ± 8.01 47 .87 ± 3.72 
+
+1 60 .00 ± 0.72 30 .13 ± 1.81 20 .87 ± 2.00 12 .40 ± 3.65 50 .20 ± 2.99 55 .67 ± 1.60 
+
+2 57 .40 ± 2.09 26 .80 ± 4.70 19 .87 ± 4.36 8.93 ± 6.85 46 .60 ± 4.85 52 .40 ± 6.13 
+
+23 Preprint Table 9: Component ablations on WebShop. Success rate (%). 
+
+Training variant Clean Gaussian 
+
+σ = .20 
+
+Dropout 
+
+p = .05 Struct. 
+
+r = .20 Unstruct. 
+
+r = .40 INT6 w/o perturbation ( ρ = 0 ) 57 .00 ± 4.39 18 .73 ± 3.03 12 .20 ± 3.30 2.27 ± 1.86 42 .00 ± 8.31 45 .20 ± 9.18 
+
+w/o sensitivity ( α = 0 ) 48 .80 ± 0.80 27 .07 ± 3.72 18 .93 ± 3.42 11 .07 ± 6.92 47 .07 ± 3.11 48 .27 ± 3.06 
+
+w/o scheduling 52 .13 ± 0.42 26 .40 ± 4.70 19 .33 ± 5.32 3.60 ± 2.88 45 .00 ± 4.20 49 .73 ± 2.42 
+
+Full SPrPO 60 .00 ± 0.72 30 .13 ± 1.81 20 .87 ± 2.00 12 .40 ± 3.65 50 .20 ± 2.99 55 .67 ± 1.60 
+
+24 Preprint 
+
+## E QUALITATIVE EXAMPLES UNDER POLICY PERTURBATIONS 
+
+In this section, we provide qualitative examples comparing Vanilla and SPrPO on ALFWorld and WebShop under different policy perturbations. 
+
+Case 1 ALFWorld: malformed action tags 
+
+Perturbation: Gaussian noise σ = 0 .2 | ID 
+
+Task. put two soapbar in garbagecan. 
+
+Without perturbation. Both succeed: Vanilla 8 steps; SPrPO 9 steps. 
+
+Shared decision context — before Step 2 
+
+Both first go to countertop 1, where the observation lists “a soapbar 4, a soapbar 1”. Both unper-turbed controls also receive this identical complete input. 
+
+Vanilla FAIL Step 2 
+
+<take soapbar 1 from countertop 1> 
+
+Feedback: “Nothing happens.” Required action tags are missing. 
+
+Step 3 
+
+<action>take soapbar 1 from countertop 1</action> 
+
+Feedback: “You pick up the soapbar 1 from the countertop 1.” 
+
+Step 4 
+
+<move soapbar 1 to garbagecan 1> 
+
+Feedback: “Nothing happens.” 
+
+Step 5 omitted: goes to cabinet 1. 
+
+Step 6–7 (same output twice) 
+
+<open cabinet 1> 
+
+Step 8 
+
+<examine cabinet 1> 
+
+Step 9 
+
+<go to garbagecan 1> 
+
+Outcome: failure. 
+
+6 of the 9 recorded outputs have malformed tags. 
+
+SPrPO SUCCESS Step 2 
+
+<action>take soapbar 4 from countertop 1</action> 
+
+Feedback: “You pick up the soapbar 4 from the countertop 1.” 
+
+Step 3 omitted: goes to garbagecan 1. 
+
+Step 4 
+
+<action>move soapbar 4 to garbagecan 1</action> 
+
+Feedback: “You move the soapbar 4 to the garbagecan 1.” 
+
+Steps 5–6 omitted: visits toilet 1, then returns to countertop 1. 
+
+Step 7 
+
+<action>take soapbar 1 from countertop 1</action> 
+
+Feedback: “You pick up the soapbar 1 from the countertop 1.” 
+
+Step 8 omitted: goes to garbagecan 1. 
+
+Step 9 
+
+<action>move soapbar 1 to garbagecan 1</action> 
+
+Outcome: success in 9 steps. 
+
+All 9 outputs retain valid action tags; both soapbars reach the garbagecan. 
+
+What this shows. Vanilla briefly recovers at Step 3 but repeatedly loses the required format. Its first failed command names an admissible action, accepted in a parser-only check after restoring the tags. This identifies an interface failure, without establishing that a tag repair would rescue the whole episode. SPrPO preserves the format and completes the task. 
+
+25 Preprint 
+
+Case 2 ALFWorld: undoing subgoal progress 
+
+Perturbation: Dropout p = 0 .01 | OOD 
+
+Task. find two cd and put them in safe. 
+
+Without perturbation. Both succeed: Vanilla 18 steps; SPrPO 20 steps. 
+
+Shared decision context — before Step 3 
+
+Both visit desk 1 and take cd 1 in Steps 1–2. Current observation: “You pick up the cd 1 from the desk 1.” The task still requires placing both CDs in the safe. 
+
+Vanilla FAIL Step 3 
+
+go to shelf 1
+
+Step 4 
+
+move cd 1 to shelf 1
+
+Feedback: “You move the cd 1 to the shelf 1.” 
+
+Steps 5–8 omitted: takes cd 2 from desk 2, reaches and opens the safe. 
+
+Step 9 
+
+move cd 2 to safe 1
+
+Feedback: “You move the cd 2 to the safe 1.” 
+
+Steps 10–18 omitted: retrieves cd 1, leaves it on shelf 5, returns to the safe. 
+
+Step 19 
+
+take cd 2 from safe 1
+
+Step 20 
+
+move cd 2 to safe 1
+
+Retrieves and replaces an already delivered CD. 
+
+Steps 21–37 omitted: further relocations and repeated visits. 
+
+Step 38 
+
+move cd 1 to shelf 4
+
+Feedback: “You move the cd 1 to the shelf 4.” 
+
+Steps 39–49 omitted: removes cd 2 again, leaves it on shelf 6, then retrieves it. 
+
+Step 50 
+
+move cd 2 to safe 1
+
+Outcome: failure at the 50-step limit. 
+
+cd 1 remains on shelf 4; only cd 2 is in the safe. 
+
+SPrPO SUCCESS Step 3 
+
+go to safe 1
+
+Step 4 
+
+open safe 1
+
+Step 5 
+
+move cd 1 to safe 1
+
+Feedback: “You move the cd 1 to the safe 1.” First delivery is complete. 
+
+Step 6 
+
+go to desk 2
+
+Step 7 
+
+take cd 2 from desk 2
+
+Feedback: “You pick up the cd 2 from the desk 2.” 
+
+Step 8 
+
+go to safe 1
+
+Observation before Step 9: “The safe 1 is open. In it, you see a cd 1.” 
+
+Step 9 
+
+move cd 2 to safe 1
+
+Outcome: success in 9 steps. 
+
+Both CDs are in the safe. The first delivery is preserved while the second is completed. 
+
+What this shows. The failure is a sequence of executable but unproductive actions: Vanilla moves cd 1 among shelves and repeatedly removes cd 2 from the target container. Temporary storage alone does not establish failure; the later relocations and final state show that the two-object goal remains incomplete. SPrPO completes the two deliveries in sequence without undoing the first. 
+
+26 Preprint 
+
+Case 3 WebShop: invalid click targets after pruning 
+
+Perturbation: Structured pruning, ratio 0.20 | goal 309 
+
+Task. Find me eco friendly, heavy duty, assembly required, easy clean file cabinets with size: 23.6"w x 15.7"d x 29.3"h, and price lower than 200.00 dollars 
+
+Without perturbation. Both succeed in 4 steps (task score 1.0). 
+
+Shared decision context — before Step 5 
+
+After different search queries (Step 1 omitted), both open product B08MFGNXW3 at Step 2 and select 23.6"w x 15.7"d x 29.3"h at Steps 3 and 4. Thus, both have already repeated the size selection once . Page excerpts: “DEVAISE 2-Drawer Wood Lateral File Cabinet with Lock for Office Home, Black”; “Price: $169.99”; “Buy Now”. 
+
+Vanilla FAIL Step 5 
+
+click[23.6"w x 15.7"d x29.3"h] 
+
+Selects the same size a third time. 
+
+Step 6 
+
+click[back to search] 
+
+Step 7 
+
+search[eco friendly, heavy duty, assembly required file cabinets] 
+
+A results page lists product IDs and navigation links. 
+
+Step 8 
+
+click[eco friendly, heavy duty, assembly required file cabinets] 
+
+The query text is not a clickable target. The results page does not change. 
+
+Steps 9–10 omitted: returns to search and issues a shorter query. 
+
+Step 11–15 (same action five times) 
+
+click[eco friendly, heavy duty file cabinets] 
+
+Again clicks query text that is absent from the available targets. 
+
+Outcome: failure at the 15-step limit. 
+
+No purchase; task score 0.0. 
+
+SPrPO SUCCESS Step 5 
+
+click[Buy Now] 
+
+Outcome: success in 5 steps. 
+
+Task score 1.0. Purchases the already selected product with the requested size. The episode ends here. 
+
+Decision contrast. 
+
+At the identical Step-5 input, SPrPO proceeds to purchase. Vanilla first repeats the option selection, then abandons the product and repeatedly clicks search-query text. 
+
+What this shows. Vanilla reaches the product page and selects the requested size, but fails to finish the transaction. Its later commands use a valid click[...] structure with targets that the page does not provide. SPrPO also repeats the size selection once, but then buys. 
+
+27 Preprint 
+
+Case 4 WebShop: option repetition without purchase 
+
+Perturbation: INT6 weight quantization (RTN) | goal 295 
+
+Task. Find me loose fit, day comfort, hand wash women’s tops, tees & blouses with short sleeve, polyester spandex for teen girls with color: a6-black, and size: xx-large, and price lower than 40.00 dollars 
+
+Without perturbation. Both succeed in 5 steps (task score 1.0). 
+
+Shared decision context — before Step 5 
+
+After their search queries (Step 1 omitted), both execute the same action text in Steps 2–4: 
+
+click[B09NPML43M] click[a6-black] click[xx-large] 
+
+Both requested options have been selected. The product page still offers “xx-large” and “Buy Now”, and lists “Price: $1.01 to $1.74”. 
+
+Vanilla FAIL Step 5 
+
+click[xx-large] 
+
+Repeats the selected size instead of buying. 
+
+Step 6–15 (same action ten times) 
+
+click[xx-large] 
+
+The product-page observation remains unchanged throughout this loop. 
+
+Outcome: failure at the 15-step limit. 
+
+12 consecutive size clicks in total (Steps 4–15); no purchase; task score 0.0. 
+
+SPrPO SUCCESS Step 5 
+
+click[Buy Now] 
+
+Outcome: success in 5 steps. 
+
+Task score 1.0. Purchases after selecting the requested color and size. The episode ends here. 
+
+Decision contrast. 
+
+The same Step-5 input leads to another size click for Vanilla and the terminal purchase action for SPrPO. 
+
+What this shows. Vanilla reaches the product and selects both requested options, but then repeat-edly clicks the already selected size until the step limit. Its actions remain well formed and refer to an option on the page, yet never complete the transaction. SPrPO proceeds to purchase from the same decision input. 
+
+28
