@@ -6,97 +6,95 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-10-02
-- 运行时间：2026-10-02 23:56:31 UTC
+- 最新运行日期：2026-10-03
+- 运行时间：2026-10-03 22:57:45 UTC
 - 运行状态：成功
 - 本次总论文数：25
 - 精读区：10
 - 速读区：15
 
 ### 今日简报（AI）
-2026-10-02日报：今天共扫完25篇论文，精读10篇、速读15篇，主线集中在LLM后训练与智能体决策。
-最值得看的是满分10.0的《Understanding the Synergy between SFT, RLVR, and OPD in LLM Post-Training》和9.0的《SIPO: Unifying Reinforcement Learning with On-Policy Self-Distillation》，都在追问后训练方法如何协同。
-普通读者可先读这两篇精读，再按兴趣翻速读中的Dyad、StateTape和Follow the Entities。
-- 详情：[/202610/02/README](/202610/02/README)
+今日从25篇论文中精读10篇、速读15篇，重点锁定LLM后训练与多智能体协作。最值得看的是SFT、RLVR与OPD协同机制的9分精读，以及REVO的方差引导复用思路，均指向更高效的训练范式。普通读者可优先了解后训练协同与高效蒸馏，不必追逐单点技巧。
+- 详情：[/202610/03/README](/202610/03/README)
 
 ### 精读区论文标签
-1. [Understanding the Synergy between SFT, RLVR, and OPD in LLM Post-Training](/202610/02/2609.31900v1-understanding-the-synergy-between-sft-rlvr-and-opd-in-llm-post-training)  
-   标签：评分：10.0/10、query:post-train
-   evidence：大模型后训练中SFT、RLVR与在线蒸馏的协同
-2. [SIPO: Unifying Reinforcement Learning with On-Policy Self-Distillation](/202610/02/2609.36742v1-sipo-unifying-reinforcement-learning-with-on-policy-self-distillation)  
+1. [Understanding the Synergy between SFT, RLVR, and OPD in LLM Post-Training](/202610/03/2609.31900v1-understanding-the-synergy-between-sft-rlvr-and-opd-in-llm-post-training)  
    标签：评分：9.0/10、query:post-train
-   evidence：强化学习与在线自蒸馏的统一方法
-3. [Train Ahead, Distill Back: Bootstrapping On-Policy Self-Distillation for Large Language Models](/202610/02/2609.37132v1-train-ahead-distill-back-bootstrapping-on-policy-self-distillation-for-large-language-models)  
+   evidence：大模型后训练中SFT、RLVR与OPD的协同
+2. [REVO: Rollout-Efficient Off-Policy Distillation via Variance-Guided Reuse](/202610/03/2609.37500v1-revo-rollout-efficient-off-policy-distillation-via-variance-guided-reuse)  
    标签：评分：9.0/10、query:post-train
-   evidence：面向语言模型训练的在线自蒸馏方法
-4. [On the Off-Policy Teacher in On-Policy Distillation](/202610/02/2609.38360v1-on-the-off-policy-teacher-in-on-policy-distillation)  
-   标签：评分：9.0/10、query:post-train
-   evidence：在线蒸馏后训练中的教师适配
-5. [TerMeZO: Ternary Sparse Zeroth-Order Optimization for Fine-tuning BitNet Models at the Edge](/202610/02/2609.33548v1-termezo-ternary-sparse-zeroth-order-optimization-for-fine-tuning-bitnet-models-at-the-edge)  
+   evidence：复用rollout的高效离线策略蒸馏方法
+3. [AutoDataBench: Can Agents Write the Data That Feeds the Self-Improvement Loop?](/202610/03/2609.35025v1-autodatabench-can-agents-write-the-data-that-feeds-the-self-improvement-loop)  
+   标签：评分：8.0/10、query:llm-synth
+   evidence：智能体自动撰写无需人工标注的训练数据
+4. [Can Agents Design Libraries for Agents?](/202610/03/2609.36730v1-can-agents-design-libraries-for-agents)  
+   标签：评分：8.0/10、query:agent
+   evidence：评估智能体为其他智能体设计代码库的基准
+5. [PrecogUI: Proactive GUI Agents via Pre-cognitive Simulation and Experience Retrieval](/202610/03/2609.36923v1-precogui-proactive-gui-agents-via-pre-cognitive-simulation-and-experience-retrieval)  
+   标签：评分：8.0/10、query:agent
+   evidence：具备模拟与经验检索的主动式GUI智能体架构
+6. [PatchKV: Weight-Space Compensation of KV Cache](/202610/03/2609.39329v1-patchkv-weight-space-compensation-of-kv-cache)  
    标签：评分：8.0/10、query:llm
-   evidence：面向BitNet大模型的显存高效零阶微调
-6. [CompoWorld: Compositional Environment Scaling for General Agents](/202610/02/2609.33665v2-compoworld-compositional-environment-scaling-for-general-agents)  
+   evidence：面向长上下文高效推理的KV缓存压缩
+7. [SkillFM: Generating Skills for LLM Agents via Latent Flow Matching](/202610/03/2609.39382v1-skillfm-generating-skills-for-llm-agents-via-latent-flow-matching)  
    标签：评分：8.0/10、query:agent
-   evidence：为训练通用智能体自动生成组合式环境
-7. [Beyond the Prompt: Linking What Developers Ask, Do, and Understand with Coding Agents](/202610/02/2609.33712v1-beyond-the-prompt-linking-what-developers-ask-do-and-understand-with-coding-agents)  
-   标签：评分：8.0/10、query:agent
-   evidence：面向编码智能体使用行为的实证研究
-8. [ARC-KV: Amortizing Anchor Search for Reconstruction-Based KV Cache Compaction](/202610/02/2609.36835v1-arc-kv-amortizing-anchor-search-for-reconstruction-based-kv-cache-compaction)  
+   evidence：为LLM智能体生成任务条件技能
+8. [The Evolution of Attention in Large Language Models: Mechanisms, Trade-offs, and Emerging Trends](/202610/03/2609.39661v1-the-evolution-of-attention-in-large-language-models-mechanisms-trade-offs-and-emerging-trends)  
    标签：评分：8.0/10、query:llm
-   evidence：通过KV缓存压缩优化长上下文大模型推理
-9. [MiniRep: Robust Reputation-Based Aggregation for Multi-Agent Debate](/202610/02/2609.39297v1-minirep-robust-reputation-based-aggregation-for-multi-agent-debate)  
-   标签：评分：8.0/10、query:agent
-   evidence：面向大模型多智能体辩论的声誉聚合
-10. [JevSpawn: Adaptive Agentic Inference through Compositional Action Spaces](/202610/02/2610.00437v1-jevspawn-adaptive-agentic-inference-through-compositional-action-spaces)  
-   标签：评分：8.0/10、query:agent
-   evidence：面向自主智能体的组合动作空间推理
+   evidence：大语言模型注意力机制与架构的综述
+9. [Effective Synthetic Data Curation Requires Group-Level Signals](/202610/03/2610.00779v1-effective-synthetic-data-curation-requires-group-level-signals)  
+   标签：评分：8.0/10、query:llm-synth
+   evidence：面向大模型训练的合成数据筛选
+10. [Training-Aware Target Coverage for Synthetic Data Selection](/202610/03/2610.00814v1-training-aware-target-coverage-for-synthetic-data-selection)  
+   标签：评分：8.0/10、query:llm-synth
+   evidence：通过合成数据筛选改进大模型微调
 
 ### 速读区论文标签
-1. [Dyad: Extending Large Language Models with Native Typed Decision-Making](/202610/02/2609.36116v1-dyad-extending-large-language-models-with-native-typed-decision-making)  
+1. [MiniRep: Robust Reputation-Based Aggregation for Multi-Agent Debate](/202610/03/2609.39297v1-minirep-robust-reputation-based-aggregation-for-multi-agent-debate)  
    标签：评分：8.0/10、query:agent
-   evidence：通过原生类型化决策扩展大模型以构建通用智能体
-2. [StateTape: Action-Conditioned Evidence Lifecycle Modeling for Long-Horizon Coding Agents](/202610/02/2609.36319v1-statetape-action-conditioned-evidence-lifecycle-modeling-for-long-horizon-coding-agents)  
+   evidence：面向多智能体辩论的声誉聚合
+2. [Self-Evolving Coding Rules for AI Coding Agents](/202610/03/2610.00650v1-self-evolving-coding-rules-for-ai-coding-agents)  
    标签：评分：8.0/10、query:agent
-   evidence：面向长时程编码智能体的证据生命周期建模
-3. [Follow the Entities: A Corpus Map for Agentic Search](/202610/02/2609.37226v1-follow-the-entities-a-corpus-map-for-agentic-search)  
-   标签：评分：8.0/10、query:agent
-   evidence：面向智能体搜索的语料导航层
-4. [Pretraining Latent Information Feedback Transformers with Teacher Supervision](/202610/02/2609.38149v1-pretraining-latent-information-feedback-transformers-with-teacher-supervision)  
+   evidence：AI编码智能体的自演化编码规则
+3. [Closing the Loop: Practical Training Recipes for Looped Language Models](/202610/03/2610.00673v1-closing-the-loop-practical-training-recipes-for-looped-language-models)  
    标签：评分：8.0/10、query:llm
-   evidence：面向语言模型的新Transformer架构与预训练方法
-5. [Beyond Mode Collapse: Generating Diverse Synthetic Expert Conversations via Generative Flow Networks](/202610/02/2609.38359v1-beyond-mode-collapse-generating-diverse-synthetic-expert-conversations-via-generative-flow-networks)  
-   标签：评分：8.0/10、query:llm-synth
-   evidence：为LLM后训练生成多样高质量合成数据
-6. [Research with AI Agents: How Agentic Systems Are Changing Scientific Work](/202610/02/2609.31219v1-research-with-ai-agents-how-agentic-systems-are-changing-scientific-work)  
-   标签：评分：7.0/10、query:agent
-   evidence：智能体AI系统在科研中的综述
-7. [Overview of the TREC 2025 Million Large Language Models track](/202610/02/2609.31921v1-overview-of-the-trec-2025-million-large-language-models-track)  
-   标签：评分：7.0/10、query:agent
-   evidence：智能体生态、专家模型选择与多智能体赛道综述
-8. [PC-SubMax: Efficient Prompt Compression via Regularized Submodular Maximization](/202610/02/2609.32474v1-pc-submax-efficient-prompt-compression-via-regularized-submodular-maximization)  
+   evidence：语言模型的实用训练配方
+4. [AuraForge: Scaling Security Supervision for Training Coding Agents](/202610/03/2610.00850v1-auraforge-scaling-security-supervision-for-training-coding-agents)  
+   标签：评分：8.0/10、query:agent
+   evidence：通过合成安全测试训练编码智能体
+5. [HHR: Hierarchical Hash Retrieval for Efficient LLM Generation](/202610/03/2610.01230v1-hhr-hierarchical-hash-retrieval-for-efficient-llm-generation)  
+   标签：评分：8.0/10、query:llm
+   evidence：基于哈希检索的高效长上下文推理
+6. [SleuthBench: Benchmarking Statistical LLM Evaluation Using Tabular Hidden Signals](/202610/03/2609.34228v1-sleuthbench-benchmarking-statistical-llm-evaluation-using-tabular-hidden-signals)  
    标签：评分：7.0/10、query:llm
-   evidence：面向大模型推理的高效提示压缩
-9. [Learning an Anchored Prompt Space for Continual Adaptation of Large Language Models](/202610/02/2609.32499v1-learning-an-anchored-prompt-space-for-continual-adaptation-of-large-language-models)  
+   evidence：面向LLM智能体统计发现评测的基准
+7. [SPIDER: Multi-Layer Semantic Token Pruning and Adaptive Sub-Layer Skipping in Multimodal Large Language Models](/202610/03/2609.34977v1-spider-multi-layer-semantic-token-pruning-and-adaptive-sub-layer-skipping-in-multimodal-large-language-models)  
    标签：评分：7.0/10、query:llm
-   evidence：大语言模型持续适配与自蒸馏
-10. [GSM: Efficient Language Modeling with Shared Global State](/202610/02/2609.33465v1-gsm-efficient-language-modeling-with-shared-global-state)  
+   evidence：通过剪枝提升多模态大模型推理效率
+8. [SOLO: Pretraining Billion-Parameter Language Models with Shared-Output Local Learning](/202610/03/2609.35440v1-solo-pretraining-billion-parameter-language-models-with-shared-output-local-learning)  
    标签：评分：7.0/10、query:llm
-   evidence：带共享全局状态的因果编码器-解码器架构
-11. [Acoustic-to-Text KV Compression for Full-Duplex Speech Models](/202610/02/2609.31224v1-acoustic-to-text-kv-compression-for-full-duplex-speech-models)  
+   evidence：十亿参数语言模型预训练
+9. [Improving Generative Model Self-Training with Geometrically Modified Outputs](/202610/03/2609.35512v1-improving-generative-model-self-training-with-geometrically-modified-outputs)  
+   标签：评分：7.0/10、query:llm-synth
+   evidence：利用自身输出进行自训练并增强负信号
+10. [Is Human-Readable Text Necessary for Effective LLM Fine-Tuning?](/202610/03/2609.35868v1-is-human-readable-text-necessary-for-effective-llm-fine-tuning)  
+   标签：评分：7.0/10、query:llm-synth
+   evidence：面向大模型微调的合成数据
+11. [LLM Alignment--Utility Asymmetry under Semantic-Preserving Transformations](/202610/03/2609.32717v1-llm-alignment--utility-asymmetry-under-semantic-preserving-transformations)  
+   标签：评分：6.0/10、query:post-train
+   evidence：用语义保持变换研究大模型对齐稳定性
+12. [Coherence-Aware Distributional Evaluation of Open-Ended Text Generation](/202610/03/2609.34240v1-coherence-aware-distributional-evaluation-of-open-ended-text-generation)  
    标签：评分：6.0/10、query:llm
-   evidence：面向高效推理的KV缓存压缩
-12. [Towards Scalable Data Diversification for Language Model Pretraining via Leverage Score Sampling](/202610/02/2609.32484v1-towards-scalable-data-diversification-for-language-model-pretraining-via-leverage-score-sampling)  
+   evidence：面向文本生成的连贯性评估指标
+13. [Routing Without Embeddings: Fast And Interpretable Routing With Regular Expressions](/202610/03/2609.34326v1-routing-without-embeddings-fast-and-interpretable-routing-with-regular-expressions)  
    标签：评分：6.0/10、query:llm
-   evidence：面向大模型预训练的数据选择与多样性
-13. [KV-Lingo: Learning KV-Cache Translators with Distillation](/202610/02/2609.32610v1-kv-lingo-learning-kv-cache-translators-with-distillation)  
+   evidence：面向大模型高效推理的路由方法
+14. [CORTEX: Learning to Share and Specialize in Dense Language Models](/202610/03/2609.34449v1-cortex-learning-to-share-and-specialize-in-dense-language-models)  
    标签：评分：6.0/10、query:llm
-   evidence：用蒸馏实现跨模型KV缓存转换以高效复用
-14. [ORBIT: A Framework for Multi-Agent Safety and Security Evaluations](/202610/02/2609.33102v1-orbit-a-framework-for-multi-agent-safety-and-security-evaluations)  
+   evidence：在稠密语言模型架构内学习内部模块化
+15. [LLMs for Executable Multi-Agent System Specification Generation](/202610/03/2609.34619v1-llms-for-executable-multi-agent-system-specification-generation)  
    标签：评分：6.0/10、query:agent
-   evidence：面向多智能体LLM系统的评估框架
-15. [LSTMem: Hierarchical Long Short-Term Online Memory for Large Language Models](/202610/02/2609.33268v1-lstmem-hierarchical-long-short-term-online-memory-for-large-language-models)  
-   标签：评分：6.0/10、query:llm
-   evidence：为冻结大模型各层引入分层在线记忆机制
+   evidence：用大语言模型生成可执行的多智能体系统规约
 
 
 <div class="dpr-home-promo-card">

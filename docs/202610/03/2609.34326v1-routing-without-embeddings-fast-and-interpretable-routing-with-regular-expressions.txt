@@ -1,0 +1,1250 @@
+Title: Routing Without Embeddings: Fast And Interpretable Routing With Regular Expressions
+
+URL Source: https://arxiv.org/pdf/2609.34326v1
+
+Published Time: Tue, 29 Sep 2026 04:19:19 GMT
+
+Number of Pages: 38
+
+Markdown Content:
+# ROUTING WITHOUT EMBEDDINGS: FAST AND INTER-PRETABLE ROUTING WITH REGULAR EXPRESSIONS 
+
+Yifan Lu ∗
+
+, Qiyue Zhang ∗, Haotian Shan, Hanjie Chen, Jiarong Xing 
+
+Rice University 
+
+{yifan.lu, jxing}@rice.edu 
+
+## ABSTRACT 
+
+Large Language Model (LLM) routers commonly rely on neural query embed-dings, with larger encoders expected to better capture query intent and difficulty. Yet scaling Qwen2.5 encoders from 0.5B to 72B parameters brings little improve-ment in routing accuracy (Figure 1b) , suggesting that small encoders may already capture the query properties needed for routing. We therefore investigate which properties matter and whether they can be extracted directly from text without a neural encoder. We introduce REGEXROUTE, a pipeline that uses sparse autoen-coders (SAEs) to discover interpretable regular-expression (regex) features. Us-ing unlabeled text, an LLM turns descriptions of grouped SAE latents into regex extractors and refines them to match latent activation patterns. These extractors supply numerical features to a lightweight routing head, eliminating neural en-coding at inference (Figure 1a). Across four benchmarks, one fixed set of 128 features achieves 76.43% average routing accuracy, comparable to 76.41% for the strongest neural text encoder baseline, with much smaller latency and strong ro-bustness. These findings establish explicit, interpretable text features as a practical basis for designing and understanding LLM routers. (a) Inference pipeline Query Neural-encoder routing Tokenizer Neural text encoder        
+
+> Embedding …
+> Ours
+> Nregex extractors
+> Named features …digits · code · … Fast Robust Interpretable
+> Routing head
+> Model choice
+> Model B (b) Routing accuracy (%)
+> 75 75.5 76 76.5 Ours Qwen2.5 147× larger Decoder-only LMs Encoder-only LMs Sentence embeddings None 110M 0.5B 3B 72B Encoder parameters
+
+Figure 1: (a) Regex extractors replace tokenization and neural encoding at inference. (b) Routing remains competitive, while scaling Qwen2.5 from 0.5B to 72B brings limited gains (Appendix B.4). 
+
+## 1 INTRODUCTION 
+
+The proliferation of LLM (Large Language Models) with varying capabilities, latency, and price has made LLM routing a standard component of LLM service systems (OpenRouter, 2026; Not Diamond, 2026; Martian, 2026). This need motivated a range of router designs, from nearest-neighbor and clustering methods (Zhang et al., 2025; Jitkrittum et al., 2025) to learned classifiers (Song et al., 2025; Feng et al., 2025b; Zhuang et al., 2024). These routers share a common design: a neural text encoder maps each query to a dense embedding , and a decision rule in this space selects a model. Existing routers use neural text encoders with widely varying capacities. Examples include encoders with roughly 100M (Ong et al., 2025; Srivatsa et al., 2024), 8B (Wang et al., 2025; Zhang et al., 2025), and even 122B parameters from a deployed language model (Varshney et al., 2026). The larger encoders are intuitively appealing for routing because they are believed to capture richer information about a query’s intent and difficulty. However, our experiments that compare query embeddings from 
+
+> ∗
+
+Equal contribution. 
+
+1arXiv:2609.34326v1 [cs.LG] 28 Sep 2026 Qwen2.5 models (Qwen Team, 2024) ranging from 0.5B to 72B parameters find little improvement in routing performance as model size increases (Figure 1b, Appendix B.4). This suggests that the query properties required by routing might already have been captured by small encoders. We therefore investigate which query properties are critical for routing and whether they can be extracted directly from text without a neural text encoder. To identify these query properties, we use sparse autoencoders (SAEs) (Bricken et al., 2023; Cun-ningham et al., 2023) to decompose LM (Language Model) hidden states into sparse combinations of interpretable latent features. The latent descriptions suggest which text properties to measure, while their activation patterns provide targets for text extractors to approximate. However, computing these activations still requires running both the LM and the SAE. We therefore propose REGEXROUTE, a pipeline that constructs regular-expression (regex) feature extractors to approximate the activation patterns of related SAE latents directly from text. During offline discovery, an LLM uses descrip-tions of grouped latents to author regex feature extractors, then refines them using feedback on how well their outputs align with latents’ activations. The resulting 128 fixed regex extractors compute interpretable query features for routing without an LM or SAE forward pass at inference. With just 128 regex features, REGEXROUTE achieves 76.43% average routing accuracy across four benchmarks, comparable to 74.92–76.41% for routers using neural text encoders. REGEXROUTE of-fers three additional benefits. First, interpretability : each regex feature measures a meaningful prop-erty directly from the query string. Second, low latency : our router runs on CPU with nearly 90% lower median routing latency than the Qwen2.5-0.5B router on GPU. Third, robustness : our router achieves the highest average routing accuracy under four settings of query perturbation. We make three contributions: 1. We propose REGEXROUTE, an SAE-guided pipeline that discovers and refines interpretable regex feature extractors from unlabeled text. 2. We show that one fixed set of 128 regex features can replace neural text encoders while achieving comparable routing accuracy across four benchmarks. 3. Our findings open a new direction for the community to design and understand LLM routers through explicit, interpretable text features. 
+
+## 2 RELATED WORK 
+
+LLM routing. Difficulty-aware routers estimate how hard a query is and select the most capable model to handle it (Zhuang et al., 2024; Feng et al., 2025b; Song et al., 2025; Wang et al., 2025; Ding et al., 2025). Preference-aligned routers use pairwise human preference (Ong et al., 2025; Frick et al., 2025). Clustering-based routers assign each query cluster its most cost-effective model (Jitkrittum et al., 2025; Zhang et al., 2025). These approaches all use a neural text encoder to represent a query. Interpretable routers use predefined query concepts or score generated tags from model-performance labels (Štorek et al., 2026; Chen et al., 2025). Whereas our regex features are discovered from unlabeled text, without routing labels or a predefined task schema. 
+
+SAEs and interpretable text representations. Sparse autoencoders (SAEs) decompose language-model activations into sparse combinations of interpretable latent features (Cunningham et al., 2023; Bricken et al., 2023). Recent work has scaled SAEs and released feature dictionaries for several model families (Gao et al., 2024; Lieberum et al., 2024; He et al., 2024; Deng et al., 2026). LMs can describe these latents from their top-activating contexts (Bills et al., 2023; Paulo et al., 2025). A complementary line represents text through a small set of named properties. These properties may be specified from linguistic theory (Zhou et al., 2024), proposed by an LM conditioned on class names or a target variable (Sun et al., 2025; Balek et al., 2025; Benara et al., 2024), or selected using labeled downstream data (Ludan et al., 2024; Feng et al., 2025a). Their values are typically computed by prompting an LM or by probing a neural embedding at inference time. REGEXROUTE uses SAE latents to discover regex features computed directly from text without neural encoding. 23 PRELIMINARIES 
+
+LLM routing. Given a query q and a pool of candidate language models L = {ℓ1, . . . , ℓ M }, a router selects the optimal model to answer the query. To train and evaluate a router, we use a dataset 
+
+Droute = {(qi, ri)}ni=1 , where ri ∈ RM records the scores of the candidate models’ responses to qi.We divide this dataset into disjoint training, validation, and test splits, denoted by Dtrain route , Dval route , and 
+
+Dtest route . These splits are used to fit the router, select its hyperparameters, and evaluate its performance, respectively. For a router π that maps a query to a model index, its test performance is 
+
+R(π; Dtest route 
+
+) = 1
+
+|D test route |
+
+∑
+
+> (qi,ri)∈D test route
+
+ri,π (qi). (1) 
+
+Unlabeled discovery text. To keep feature discovery independent of the routing benchmarks, we use a general unlabeled web text corpus Dtext , without access to routing benchmark data or eval-uation results. We partition it into disjoint fit, Dfit text , and held-out portions, Dheld text . We use Dfit text to iteratively refine and select the regex feature extractors, then freeze them and evaluate their alignment with SAE activations on Dheld text .
+
+SAE latents and activations. Given a language-model hidden activation hi,t ∈ Rd at token posi-tion t in xi ∈ D text , an SAE encoder ESAE maps it to a sparse vector of latent activations: 
+
+zi,t = ESAE (hi,t ) ∈ RK
+
+> ≥0
+
+. (2) Here, K is the number of latent features, and zi,t,k measures the activation of latent k at token po-sition t. Each latent is associated with a human-readable description from Neuronpedia (Lin, 2023). Summing over the token positions Ti of document xi gives latent k’s document-level activation: 
+
+si,k = ∑
+
+> t∈T i
+
+zi,t,k . (3) 
+
+## 4 METHOD 
+
+Our goal is to route queries using a compact set of interpretable features extracted directly from text. To discover such features, REGEXROUTE uses SAE descriptions and activations to construct regex feature extractors (Figure 2, top). Each extractor combines a regex with an aggregation rule that outputs a numerical feature value. At inference, the router computes feature values and selects a model without running an LM or SAE (Figure 2, bottom). 4.1 DISCOVERING REGEX FEATURE EXTRACTORS 
+
+Grouping SAE latents. To construct regex feature extractors, we determine the latent properties they will approximate. Constructing and refining an extractor for each of the 16,384 SAE latents would be costly and require thousands of extractor evaluations per query. Moreover, related prop-erties can be distributed across several specialized latents (Bricken et al., 2023; Chanin et al., 2024; Leask et al., 2025), so a single latent may be too narrow for a reusable text feature. We therefore group related latents into latent families and construct one extractor per family. We group latents using the statistical association between their document-level activations si,k , de-fined in Equation 3. Specifically, we define their affinity as the magnitude of the correlation across documents: 
+
+Ck,k ′ = |corr (s:,k , s:,k ′ )| . (4) We compute the affinity for every pair of latents and cluster them into N families, F1, . . . , FN . We use normalized spectral clustering (Ng et al., 2001), which produces a smaller maximum family size among the grouping methods evaluated in Section 6.3. This helps limit the number of latent properties assigned to a single extractor. 3A. O ffl ine discovery of regex features 1 Compute SAE latent activations 20,035                                     
+
+> documents LM + SAE
+> Sum over tokens Document × latent activations
+> L1L2⋯L16,384
+> x120⋯0
+> x2017 ⋯4
+> x20,035 61⋯23
+> ⋮⋮⋮⋱⋮
+> si,k =20,035 documents × 16,384 latents
+> 2Group related latents
+> 16,384 latents
+> Clustering to NFamilies Family 1
+> L127 numerical data and statistics
+> L274 statistical results and values
+> ⋯
+> Family N
+> L7642 mathematical symbols and notation
+> L1039 fractions and equation structures
+> ⋯⋯
+> 3Author regex features Authoring LM Candidate regex Kendall τ
+> on fi t corpus Re fi nement loop
+> Selected Nregex
+> Digits \d
+> LaTeX notation [\\${}^_]
+> ⋯
+
+B. Routing with the discovered features Fixed regex basis   
+
+> Query q
+> What is \frac{2}{3} \times 12? Regex engine
+
+ℝN 
+
+> ⋯
+> digits LaTeX notation
+> Extra-Trees regressor
+
+hθ
+
+> model A model B model C model D predicted score
+> Route to model B
+
+Figure 2: Overview of our pipeline. Top : offline discovery uses a language model and SAE to organize latent families and author regex feature extractors from public text. Bottom : at inference, the fixed extractors map a query to a feature vector which are used to select a model. 
+
+Authoring regex feature extractors. For each latent family, we aim to write a regex extractor that approximates the activations of its member latents. To author such an executable text pattern, we prompt an LLM with descriptions of the member latents from Neuronpedia (Lin, 2023) and tokens associated with the family’s activations. The descriptions suggest what the family captures, while the associated tokens provide examples of how that property appears in text. We then ask an LLM to identify reusable surface patterns, such as punctuation, capitalization, and formal notation, rather than copy topical vocabulary lists. The LLM initially proposes three candidate extractors per family, each with a human-readable feature name nj , a regex pj , and an aggregation rule aj that converts matches into a scalar, such as their count or proportion in the document. The resulting feature is 
+
+ϕj (x) = aj (Mpj (x), x ), where Mpj (x) collects the pattern’s matches. The initial authoring prompt is provided in Appendix A.1, with an illustrated example in Figure 7. 
+
+Refining regexes through activation alignment. To better capture each latent family’s behavior, we refine the regex extractors using alignment between their outputs and family activations. We compare feature values extracted by each candidate for document xi with a reference value derived from the activations of latent family Fj :
+
+yi,j = ∑
+
+> k∈F j
+
+∑
+
+> t∈T i
+
+1[zi,t,k > 0] . (5) The indicator reflects how often the family’s latents are active throughout the document. We measure the alignment between regex output ϕj (xi) and the reference yi,j using Kendall’s τb,
+
+Jj (pj , a j ) = τb({ϕj (xi)}, {yi,j }) , x i ∈ D fit text . (6) Higher alignment means that the regex more faithfully preserves the ordering of documents. We return the candidate regexes and their fit alignment scores to the LLM, which proposes revised or alternative extractors. We select the candidate with the highest fit alignment for each family and freeze the resulting N extractors. The refinement prompt is provided in Appendix A.2. 4.2 ROUTING WITH THE DISCOVERED REGEX EXTRACTORS After freezing the regex library, we train only the routing head on Dtrain route , using the same extractors across all benchmarks. For each query qi, we apply the N frozen regex feature extractors (pj , a j ) to obtain the feature vector (Figure 2, bottom): 
+
+ϕ(qi) = [ ϕ1(qi), . . . , ϕ N (qi)] ∈ RN . (7) 4We then fit a multi-output regressor taking ϕ(qi) as input: 
+
+hθ : RN → RM (8) to predict the response-score vector ri. Our primary multi-output regressor is an Extra-Trees regres-sor (Geurts et al., 2006), trained by minimizing prediction error across candidate models, ̂
+
+θ = arg min 
+
+> θ
+
+∑
+
+> (qi,ri)∈D train route
+
+∥hθ (ϕ(qi)) − ri∥22 . (9) At inference, we extract regex features from query q and use the trained regressor to select the model with the highest predicted score, without an LM or SAE forward pass. 
+
+## 5 EXPERIMENTS 
+
+5.1 EXPERIMENTAL SETUP 
+
+Benchmarks. We conduct experiments on four benchmarks: EmbedLLM (Zhuang et al., 2024), NineBy30k (Lu et al., 2026), R2Bench (Xue et al., 2026), and CARROT (Somerstep et al., 2025). Table 3 summarizes their candidate pools and the splits shared by all methods. We remove prompt templates specific to each source dataset as detailed in Appendix B.1. 
+
+Pipeline configuration. The discovery corpus Dtext contains 20,035 public documents from FineWeb (Penedo et al., 2024), OpenWebMath (Paster et al., 2023), CodeParrot, Alpaca (Taori et al., 2023), and OpenAssistant (Köpf et al., 2023), covering web prose, mathematics, code, and instruc-tion/dialogue text. The fit and held-out portions contain 13,394 and 6,641 documents, respectively. Our default configuration uses Gemma-2-2B (Gemma Team, 2024) and its 16,384-latent Gemma Scope SAE (Lieberum et al., 2024) at the final transformer layer. We group latents into N = 128 
+
+families and use Claude Opus 5 Medium to author and refine regex extractors. Appendix B.2 provides the corpus sources and detailed pipeline configuration. 
+
+Baselines. We compare query embeddings produced by three types of neural text encoders. 
+
+Sentence-embedding models are trained for semantic similarity and retrieval. Our baselines include MiniLM-L6 (Wang et al., 2020), MPNet-base (Song et al., 2020), BGE-base (Xiao et al., 2023), GTE-base (Li et al., 2023), and E5-base (Wang et al., 2022). Encoder-only LMs are pretrained through masked-token prediction. We evaluate ModernBERT-base and ModernBERT-large (Warner et al., 2024). Decoder-only LMs , pretrained to predict the next token, include Qwen2.5-0.5B (Qwen Team, 2024), Gemma-2-2B (Gemma Team, 2024), and Llama-3.1-8B (Grattafiori et al., 2024). We also include TF-IDF as a baseline without a neural encoder. Baseline details are in Appendix B.3. 
+
+Evaluation. For each representation and benchmark, we train an Extra-Trees (Geurts et al., 2006) routing head and select its hyperparameters on the validation data (Appendix C.4). We report routing accuracy (equation 1), for each benchmark and its unweighted average across the four benchmarks. 5.2 ROUTING QUALITY WITHOUT EMBEDDINGS Our 128 regex features achieve 76.43% mean routing accuracy, comparable to the 76.41% achieved by the strongest embedding baseline (Table 1). With only 32 regex features, our router achieves 76.06% mean routing accuracy, exceeding the mean accuracy of all sentence-embedding and encoder-only LM baselines in this comparison. Both configurations also outperform TF-IDF (75.70%), suggesting that our regex features provide more effective routing signals than word- and character-n-gram frequencies alone. These results show that a compact set of surface-extractable features can replace a neural text encoder while retaining comparable average routing accuracy. 5.3 ROBUSTNESS TO QUERY PERTURBATIONS Because regex features depend on surface-text patterns, we test whether changes in wording or for-matting undermine routing reliability. Following RouterArena (Lu et al., 2025), we apply four types of query perturbation: misspellings, word substitutions, sentence restructuring, and paraphrasing. 5Table 1: Test routing accuracy (%). All routers use Extra-Trees heads with hyperparameters se-lected on validation. Column maxima are in bold .
+
+Representation EmbedLLM NineBy30k R2Bench CARROT AVG. Best single model 60.73 67.34 81.10 84.82 73.50 
+
+Sentence embeddings 
+
+MiniLM-L6 (Wang et al., 2020) 64.87 67.47 81.56 86.18 75.02 MPNet-base (Song et al., 2020) 64.73 67.43 81.39 86.28 74.96 BGE-base (Xiao et al., 2023) 64.47 67.77 81.53 86.51 75.07 GTE-base (Li et al., 2023) 64.37 67.63 81.77 86.60 75.09 E5-base (Wang et al., 2022) 63.77 67.59 81.86 86.47 74.92 
+
+Embeddings from encoder-only LMs 
+
+ModernBERT-base (Warner et al., 2024) 65.60 67.88 81.94 86.88 75.58 ModernBERT-large (Warner et al., 2024) 66.27 68.07 82.19 87.10 75.91 
+
+Embeddings from decoder-only LMs 
+
+Qwen2.5-0.5B (Qwen Team, 2024) 67.50 68.23 82.38 87.20 76.33 Gemma-2-2B (Gemma Team, 2024) 67.83 68.26 82.38 87.08 76.39 Llama-3.1-8B (Grattafiori et al., 2024) 67.77 68.13 82.70 87.02 76.41 
+
+Non-neural features (without embedding) 
+
+TF-IDF (Salton & Buckley, 1988) 65.60 68.23 81.99 86.99 75.70 Ours ( N = 32 ) 66.63 68.50 82.15 86.96 76.06 Ours ( N = 128 ) 67.37 69.01 82.16 87.18 76.43 74.5 75.5 76.5  
+
+> Routing accuracy (%)
+> Ours (128)
+> Qwen2.5-0.5B ModernBERT-large TF-IDF ModernBERT-base MiniLM-L6 E5-base
+> Perturbed Clean
+
+(a) Robustness 1 10 100 1k      
+
+> Median latency (ms, log)
+> Ours (32) Ours (128)
+> MiniLM-L6 E5-base Qwen2.5-0.5B ModernBERT-large
+> 1.4 2.2
+> 5.0 11.6 8.2 53.4 19.5 200.5 21.6 219.6 GPU CPU
+
+(b) Routing latency 
+
+Figure 3: Robustness and routing latency. Our regex router retains the highest perturbed accuracy (left) and achieves lower median latency on CPU than neural encoder routers on GPU (right). 6All methods are fitted on clean text and evaluated on perturbed queries using the original response scores. Figure 3 (left) reports clean accuracy and mean accuracy of four perturbation rewrites. Our router retains the highest mean perturbed accuracy among the evaluated representations (75.62%), with a drop in accuracy similar to that of Qwen2.5-0.5B. Sentence-embedding models lose less ac-curacy but still have lower perturbed scores. This suggests that REGEXROUTE features remain useful even when query wording and format change. The complete setup and results are in Appendix B.5. 5.4 ROUTING LATENCY From Figure 3 (right), REGEXROUTE preserves routing quality at lower computational cost. We mea-sure routing latency from query input to model selection, including feature extraction and routing-head inference, which adds to the time to first token (TTFT). With 128 features, our router’s median latency is 2.2 ms on CPU, compared with 19.5 ms for Qwen2.5-0.5B on GPU. Running the router on the CPU leaves GPU resources for response generation and can simplify deployment on edge devices with limited access to accelerators. The full table is in Appendix B.6. 
+
+## 6 ABLATION STUDIES 
+
+We conduct ablations to understand the contributions of each component of our pipeline. Unless otherwise stated, we follow the pipeline configuration and evaluation protocol in Section 5.1. 75.0 75.5 76.0 76.5                     
+
+> Mean test accuracy (%)
+> Qwen3-1.7B 76.44 Gemma-2-2B 76.43 Llama-3.1-8B 76.37 Qwen2.5-0.5B 76.33 ModernBERT-large 75.91 GTE-base 75.09
+> (a) Discovery LM and SAE
+> RegexRoute Neural encoder 1416 64 256 1024
+> Number of regex features ( N)
+> 74 75 76
+> Mean test accuracy (%)
+> (b) Grouping and N
+> Spectral
+> k-means Facility loc. Agglom. 110 100 1k 10k
+> Latents per family
+> Spectral max 439
+> k-means max 531 Facility loc. max 1,831 Agglom. max 4,904
+> (c) Family sizes ( N= 128)
+
+Figure 4: Pipeline ablations. Mean routing accuracy across four benchmarks for (a) discovery LM– SAE pairs at N = 128 and (b) latent grouping strategy across feature counts, N . (c) Latent family sizes at N = 128 by different grouping strategies. 6.1 CHOICE OF DISCOVERY LM AND SAE We test whether REGEXROUTE depends on a particular family of discovery models. Alongside the de-fault Gemma configuration, we use Qwen3-1.7B and Llama-3.1-8B with their pretrained SAEs (Deng et al., 2026; He et al., 2024) to generate 128 regex feature extractors per model with the REGEXROUTE pipeline (Figure 2). In Figure 4(a), Qwen and Llama reach 76.44% and 76.37%, respectively, com-pared with 76.43% for the main Gemma configuration. REGEXROUTE is not specific to a single base model or SAE and can produce general regex feature extractors from multiple LM-SAE pairs. Per-benchmark results and SAE dictionary sizes are provided in Appendix C.1. 6.2 NUMBER OF REGEX FEATURES For each feature count N, we evaluate routing performance using a new regex library authored by the LLM. The orange curve in Figure 4(b) shows that accuracy increases by 2.6 pp from N = 1 to 
+
+32 , as additional regex features capture a broader range of routing-important surface patterns. Then, performance saturates between N = 32 and 128 , suggesting that a compact feature set captures most of the important feature directions, while further expansion primarily increases extraction cost. We retain N = 128 as the main configuration, with N = 32 providing a lower-latency alternative. 76.3 CHOICE OF LATENT GROUPING We compare spectral clustering with spherical k-means, facility-location selection, and average-linkage agglomerative clustering. For N ≥ 64 , mean routing accuracy differs by at most 0.40 per-centage points across the four methods (Figure 4b). Spectral clustering performs best at N = 4 and 
+
+8. At N = 128 , its largest family contains 439 latents, compared with 531 to 4,904 for the alterna-tives (Figure 4c). We retain spectral clustering to limit the maximum number of latents each regex extractor must approximate while maintaining competitive routing accuracy. Appendix C.2 provides detailed results and descriptions of the grouping methods. 6.4 DO SAE GUIDANCE AND REFINEMENT IMPROVE REGEX FEATURES FOR ROUTING? We test whether SAE-guided authoring and activation-alignment refinement (Sec 4.1) improve the regex features used for routing. At N ∈ { 32 , 128 }, we compare our full procedure with two abla-tions: the LLM-only variant, which omits both SAE guidance and refinement, and the initial regexes 
+
+variant, which uses our pipeline without the final refinement stage. The LLM-only authoring prompt is provided in Appendix A.3, and experimental details are provided in Appendix C.3. Table 2: Ablating SAE guidance and refinement. Checkmarks indicate enabled components. Held alignment is Kendall τb from equation 6. The test is a four-benchmark mean routing accuracy (%).                         
+
+> N= 32 N= 128
+> Procedure SAE guidance Refinement Held alignment Test (%) Held alignment Test (%) LLM-only ——0.2343 74.68 0.2852 75.67 Initial regexes ✓—0.3770 75.68 0.3865 76.16
+> Ours ✓✓0.4470 76.06 0.4709 76.43
+
+SAE-guided authoring improves over the LLM-only control. Comparing initial regexes with 
+
+LLM-only in Table 2, we find that SAE-guided authoring raises test accuracy by 1.00 and 0.49 per-centage points at N = 32 and N = 128 , respectively. Latent descriptions identify properties for the LLM to capture, while associated tokens illustrate how they appear in text. The gains suggest that these concrete targets help guide the LLM toward regex features useful for routing. 
+
+Alignment-based refinement further improves routing. Higher alignment in Equation 6 means that an extractor more consistently assigns larger values to documents where its SAE family activates more frequently. Refinement increases test routing accuracy by 0.38 and 0.27 percentage points at N = 32 and 128 , respectively. These gains suggest that more faithfully approximating SAE activation patterns helps regex features capture information useful for routing. 6.5 CHOICE OF ROUTING HEAD We ablate five routing heads, with setup and full results in Appendix C.4. In the recorded results, regex features are less performant with k-NN and k-means, but achieve the highest mean accuracy with tree-based heads. This is consistent with the structure of our representation: its coordinates measure distinct properties through counts and ratios, and a fixed distance across them may not capture the query differences. Tree-based heads instead learn thresholds for individual features from routing labels, allowing them to partition queries based on properties relevant to model selection. 
+
+## 7 ANALYSIS 
+
+We aim to investigate why surface features achieve routing accuracy comparable to that of dense embeddings and why larger encoders yield limited gains. We provide the complete set of 128 regex feature extractors for reference in Appendix D. 87.1 INTERPRETABLE SURFACE FEATURES DISTINGUISH QUERIES 
+
+Readable differences between query sources. Using source-dataset labels only for post-hoc anal-ysis, Figure 5 shows that the independently discovered features expose recognizable differences in query properties across datasets. We group the 128 features into eight categories of surface prop-erties: script, casing, prose, layout, numbers, paths, math, and code. For example, MMLUPro is elevated on short-line and numeric features, XQuAD on script and accent features, and NarrativeQA on prose word counts. These patterns provide interpretable cues for distinguishing query sources. We include additional profiles in Appendix E. 
+
+Regex features group queries by source and model performance. We measure whether neigh-boring queries tend to share a similar source dataset and observed model score. For each test query, we select k = 20 other test queries that share the most leaves with it across the fitted Extra-Trees router. Figure 6(a,b) shows that regex features group queries by source and model performance about as well as Qwen2.5-0.5B and better than E5-base and ModernBERT-base. Both measures signifi-cantly exceed the random baseline, suggesting that surface patterns provide useful cues for routing without neural encoding. Appendix F provides additional settings and results. 7.2 SMALL ENCODERS ALREADY CAPTURE SURFACE FEATURES To understand the limited routing gains from encoder scaling, we examine whether larger encoders better capture query properties useful for routing. Using our 128 regex features as concrete targets, we train nonlinear MLP and linear ridge probes on each benchmark’s training split to predict their values from frozen embeddings. We evaluate feature recovery on held-out test queries using R2
+
+and report the average across four benchmarks. Higher R2 indicates that these surface properties are more accurately recoverable from the encoder’s embeddings, with R2 = 1 denoting perfect recovery. Appendix G provides the detailed setup and per-benchmark results. With an MLP probe, Qwen2.5-0.5B reaches R2 = 0 .820 , whereas the roughly 147 × larger 72B model only reaches 0.848 (Figure 6(c)). Linear recovery improves more substantially, from 0.612 to 0.751. The smaller gain with the MLP probe suggests that much of this information is already recov-erable from the small encoder through a nonlinear mapping. These results show that a small encoder already captures surface features well in its dense embeddings. Because these features describe pat-terns directly observable in the input text, even a small encoder could recognize them without com-plex semantic reasoning. Together, these findings suggest that small encoders already capture much of the surface information sufficient for competitive routing, helping explain why larger encoders yield limited gains on these benchmarks. 01                   
+
+> MMLUPro n = 835
+> 01
+> XQuAD n = 1,108
+> 01
+> NarrativeQA n = 728
+> f1 f16 f32 f48 f64 f80 f96 f112 f128
+> Feature coordinate
+> 01
+> Ethics n = 821
+> Mean standardized feature value
+> Script Casing Prose Layout Numbers Paths Math Code
+
+Figure 5: Different query sources peak at different feature coordinates. Values above +1 standard deviation are capped and marked with triangles. 90 20 40 60 80                 
+
+> Agreement (%)
+> (a) Source agreement
+> Random 17.55 E5-base 49.81 ModernBERT-base 64.53 Qwen2.5-0.5B 68.09
+> RegexRoute 68.24
+> 50 55 60 65
+> Similarity (%)
+> (b) Model-score similarity
+> Random 57.74 E5-base 63.41 ModernBERT-base 64.77 Qwen2.5-0.5B 65.48
+> RegexRoute 64.97
+> .022 .11 .5 772
+> Encoder size (B; log)
+> 0.4 0.6 0.8 1.0
+> Weighted  R2
+> 0.848 0.751
+> (c) Feature recovery
+> MLP Ridge
+
+Figure 6: (a,b) Source agreement and model-score similarity. (c) Feature-recovery R2 across neural text encoder sizes. 
+
+## 8 CONCLUSION 
+
+We presented REGEXROUTE, which uses SAE descriptions and activation patterns to discover inter-pretable regex feature extractors from unlabeled text. A fixed library of 128 regex extractors achieves routing accuracy comparable to neural embeddings across four benchmarks, with low CPU latency and competitive performance under query perturbations. Our ablations show that SAE guidance and activation-based refinement improve routing performance, and that the pipeline works across the evaluated discovery model families. Our analysis connects these features to query source and model performance and shows that small encoders already represent them well. Together, these findings establish that a compact set of explicit surface features is sufficient for competitive routing, offering a possible explanation to the limited benefit of larger encoders. 
+
+## REFERENCES 
+
+Vojtěch Balek, Lukáš Sýkora, Vilém Sklenák, and Tomáš Kliegr. LLM-based feature genera-tion from text for interpretable machine learning. Machine Learning , 114(11), October 2025. ISSN 1573-0565. doi: 10.1007/s10994-025-06867-1. URL http://dx.doi.org/10.1007/ s10994-025-06867-1 .Vinamra Benara, Chandan Singh, John X. Morris, Richard Antonello, Ion Stoica, Alexander G. Huth, and Jianfeng Gao. Crafting Interpretable Embeddings by Asking LLMs Questions, 2024. URL 
+
+https://arxiv.org/abs/2405.16714 .Steven Bills, Nick Cammarata, Dan Mossing, Henk Tillman, Leo Gao, Gabriel Goh, Ilya Sutskever, Jan Leike, Jeff Wu, and William Saunders. Language models can explain neurons in language models. https://openaipublic.blob.core.windows.net/neuron-explainer/paper/ index.html , 2023. Trenton Bricken, Adly Templeton, Joshua Batson, Brian Chen, Adam Jermyn, Tom Con-erly, Nick Turner, Cem Anil, Carson Denison, Amanda Askell, Robert Lasenby, Yifan Wu, Shauna Kravec, Nicholas Schiefer, Tim Maxwell, Nicholas Joseph, Zac Hatfield-Dodds, Alex Tamkin, Karina Nguyen, Brayden McLean, Josiah E Burke, Tristan Hume, Shan Carter, Tom Henighan, and Christopher Olah. Towards Monosemanticity: Decomposing Language Models With Dictionary Learning. Transformer Circuits Thread , 2023. https://transformer-circuits.pub/2023/monosemantic-features/index.html. David Chanin, James Wilken-Smith, Tomáš Dulka, Hardik Bhatnagar, Satvik Golechha, and Joseph Bloom. A is for Absorption: Studying Feature Splitting and Absorption in Sparse Autoencoders, 2024. URL https://arxiv.org/abs/2409.14507 .Zhou Chen, Zhiqiang Wei, Yuqi Bai, Xue Xiong, and Jianmin Wu. TagRouter: Learning Route to LLMs through Tags for Open-Domain Text Generation Tasks, 2025. URL https://arxiv.org/ abs/2506.12473 .10 Hoagy Cunningham, Aidan Ewart, Logan Riggs, Robert Huben, and Lee Sharkey. Sparse Autoen-coders Find Highly Interpretable Features in Language Models, 2023. URL https://arxiv. org/abs/2309.08600 .Boyi Deng, Xu Wang, Yaoning Wang, Yu Wan, Yubo Ma, Baosong Yang, Haoran Wei, Jialong Tang, Huan Lin, Ruize Gao, Tianhao Li, Qian Cao, Xuancheng Ren, Xiaodong Deng, An Yang, Fei Huang, Dayiheng Liu, and Jingren Zhou. Qwen-Scope: Turning Sparse Features into Development Tools for Large Language Models, 2026. URL https://arxiv.org/abs/2605.11887 .Dujian Ding, Ankur Mallick, Shaokun Zhang, Chi Wang, Daniel Madrigal, Mirian Del Car-men Hipolito Garcia, Menglin Xia, Laks V. S. Lakshmanan, Qingyun Wu, and Victor Rühle. BEST-Route: Adaptive LLM Routing with Test-Time Optimal Compute, 2025. URL https: //arxiv.org/abs/2506.22716 .Jean Feng, Avni Kothari, Luke Zier, Chandan Singh, and Yan Shuo Tan. Bayesian Concept Bottle-neck Models with LLM Priors, 2025a. URL https://arxiv.org/abs/2410.15555 .Tao Feng, Yanzhen Shen, and Jiaxuan You. GraphRouter: A Graph-based Router for LLM Selections, 2025b. URL https://arxiv.org/abs/2410.03834 .Evan Frick, Connor Chen, Joseph Tennyson, Tianle Li, Wei-Lin Chiang, Anastasios N. Angelopou-los, and Ion Stoica. Prompt-to-Leaderboard, 2025. URL https://arxiv.org/abs/2502. 14855 .Leo Gao, Tom Dupré la Tour, Henk Tillman, Gabriel Goh, Rajan Troll, Alec Radford, Ilya Sutskever, Jan Leike, and Jeffrey Wu. Scaling and evaluating sparse autoencoders, 2024. URL https: //arxiv.org/abs/2406.04093 .Gemma Team. Gemma 2: Improving Open Language Models at a Practical Size, 2024. URL https: //arxiv.org/abs/2408.00118 .Pierre Geurts, Damien Ernst, and Louis Wehenkel. Extremely Randomized Trees. Mach. Learn. ,63(1):3–42, April 2006. ISSN 0885-6125. doi: 10.1007/s10994-006-6226-1. URL https: //doi.org/10.1007/s10994-006-6226-1 .Aaron Grattafiori, Abhimanyu Dubey, Abhinav Jauhri, et al. The Llama 3 Herd of Models, 2024. URL https://arxiv.org/abs/2407.21783 .Zhengfu He, Wentao Shu, Xuyang Ge, Lingjie Chen, Junxuan Wang, Yunhua Zhou, Frances Liu, Qipeng Guo, Xuanjing Huang, Zuxuan Wu, Yu-Gang Jiang, and Xipeng Qiu. Llama Scope: Extracting Millions of Features from Llama-3.1-8B with Sparse Autoencoders, 2024. URL 
+
+https://arxiv.org/abs/2410.20526 .Wittawat Jitkrittum, Harikrishna Narasimhan, Ankit Singh Rawat, Jeevesh Juneja, Congchao Wang, Zifeng Wang, Alec Go, Chen-Yu Lee, Pradeep Shenoy, Rina Panigrahy, Aditya Krishna Menon, and Sanjiv Kumar. Universal Model Routing for Efficient LLM Inference, 2025. URL https: //arxiv.org/abs/2502.08773 .Andreas Köpf, Yannic Kilcher, Dimitri von Rütte, Sotiris Anagnostidis, Zhi-Rui Tam, Keith Stevens, Abdullah Barhoum, Nguyen Minh Duc, Oliver Stanley, Richárd Nagyfi, Shahul ES, Sameer Suri, David Glushkov, Arnav Dantuluri, Andrew Maguire, Christoph Schuhmann, Huu Nguyen, and Alexander Mattick. OpenAssistant Conversations – Democratizing Large Language Model Align-ment, 2023. URL https://arxiv.org/abs/2304.07327 .Patrick Leask, Bart Bussmann, Michael Pearce, Joseph Bloom, Curt Tigges, Noura Al Moubayed, Lee Sharkey, and Neel Nanda. Sparse Autoencoders Do Not Find Canonical Units of Analysis, 2025. URL https://arxiv.org/abs/2502.04878 .Zehan Li, Xin Zhang, Yanzhao Zhang, Dingkun Long, Pengjun Xie, and Meishan Zhang. Towards General Text Embeddings with Multi-stage Contrastive Learning, 2023. URL https://arxiv. org/abs/2308.03281 .11 Tom Lieberum, Senthooran Rajamanoharan, Arthur Conmy, Lewis Smith, Nicolas Sonnerat, Vikrant Varma, János Kramár, Anca Dragan, Rohin Shah, and Neel Nanda. Gemma Scope: Open Sparse Autoencoders Everywhere All At Once on Gemma 2, 2024. URL https://arxiv.org/abs/ 2408.05147 .Johnny Lin. Neuronpedia: Interactive Reference and Tooling for Analyzing Neural Networks, 2023. URL https://www.neuronpedia.org . Software available from neuronpedia.org. Yifan Lu, Rixin Liu, Jiayi Yuan, Xingqi Cui, Shenrun Zhang, Hongyi Liu, and Jiarong Xing. RouterArena: An Open Platform for Comprehensive Comparison of LLM Routers, 2025. URL 
+
+https://arxiv.org/abs/2510.00202 .Yifan Lu, Qiyue Zhang, Shenrun Zhang, Zhibo Yu, Zhuang Wang, Hanjie Chen, and Jiarong Xing. The Routing Plateau: Understanding and Breaking the Accuracy Limits of LLM Routers, 2026. URL https://arxiv.org/abs/2606.07587 .Josh Magnus Ludan, Qing Lyu, Yue Yang, Liam Dugan, Mark Yatskar, and Chris Callison-Burch. Interpretable-by-Design Text Understanding with Iteratively Generated Concept Bottleneck, 2024. URL https://arxiv.org/abs/2310.19660 .Martian. Martian: Model Router. https://withmartian.com , 2026. Accessed: 2026-09-03. Andrew Y. Ng, Michael I. Jordan, and Yair Weiss. On Spectral Clustering: Analy-sis and an Algorithm. In Advances in Neural Information Processing Systems , vol-ume 14, 2001. URL https://proceedings.neurips.cc/paper/2001/hash/ 801272ee79cfde7fa5960571fee36b9b-Abstract.html .Not Diamond. Not Diamond: The AI model router. https://www.notdiamond.ai , 2026. Ac-cessed: 2026-09-03. Isaac Ong, Amjad Almahairi, Vincent Wu, Wei-Lin Chiang, Tianhao Wu, Joseph E. Gonzalez, M Waleed Kadous, and Ion Stoica. RouteLLM: Learning to Route LLMs with Preference Data, 2025. URL https://arxiv.org/abs/2406.18665 .OpenRouter. OpenRouter: A unified interface for LLMs. https://openrouter.ai , 2026. Ac-cessed: 2026-09-03. Keiran Paster, Marco Dos Santos, Zhangir Azerbayev, and Jimmy Ba. OpenWebMath: An Open Dataset of High-Quality Mathematical Web Text, 2023. URL https://arxiv.org/abs/2310. 06786 .Gonçalo Paulo, Alex Mallen, Caden Juang, and Nora Belrose. Automatically Interpreting Millions of Features in Large Language Models, 2025. URL https://arxiv.org/abs/2410.13928 .Guilherme Penedo, Hynek Kydlíček, Loubna Ben Allal, Anton Lozhkov, Margaret Mitchell, Colin Raffel, Leandro von Werra, and Thomas Wolf. The FineWeb Datasets: Decanting the Web for the Finest Text Data at Scale. In Advances in Neural Information Processing Systems Datasets and Benchmarks Track , 2024. URL https://openreview.net/forum?id=n6SCkn2QaG .Qwen Team. Qwen2.5 Technical Report, 2024. URL https://arxiv.org/abs/2412.15115 .Gerard Salton and Christopher Buckley. Term-weighting approaches in automatic text retrieval. 
+
+Information Processing & Management , 24(5):513–523, 1988. Seamus Somerstep, Felipe Maia Polo, Allysson Flavio Melo de Oliveira, Prattyush Mangal, Mírian Silva, Onkar Bhardwaj, Mikhail Yurochkin, and Subha Maity. CARROT: A Cost Aware Rate Optimal Router, 2025. URL https://arxiv.org/abs/2502.03261 .Kaitao Song, Xu Tan, Tao Qin, Jianfeng Lu, and Tie-Yan Liu. MPNet: Masked and Permuted Pre-training for Language Understanding, 2020. URL https://arxiv.org/abs/2004.09297 .Wei Song, Zhenya Huang, Cheng Cheng, Weibo Gao, Bihan Xu, GuanHao Zhao, Fei Wang, and Runze Wu. IRT-Router: Effective and Interpretable Multi-LLM Routing via Item Response The-ory, 2025. URL https://arxiv.org/abs/2506.01048 .12 KV Aditya Srivatsa, Kaushal Kumar Maurya, and Ekaterina Kochmar. Harnessing the Power of Multiple Minds: Lessons Learned from LLM Routing, 2024. URL https://arxiv.org/abs/ 2405.00467 .Chung-En Sun, Tuomas Oikarinen, Berk Ustun, and Tsui-Wei Weng. Concept Bottleneck Large Language Models, 2025. URL https://arxiv.org/abs/2412.07992 .Rohan Taori, Ishaan Gulrajani, Tianyi Zhang, Yann Dubois, Xuechen Li, Carlos Guestrin, Percy Liang, and Tatsunori B. Hashimoto. Stanford Alpaca: An Instruction-following LLaMA Model. 
+
+https://github.com/tatsu-lab/stanford_alpaca , 2023. Tanay Varshney, Annie Surla, Michelle Xu, Gomathy Venkata Krishnan, Maximilian Jeblick, David Austin, Neal Vaidya, and Davide Onofrio. LLM Router: Rethinking Routing with Prefill Activa-tions, 2026. URL https://arxiv.org/abs/2603.20895 .Chenxu Wang, Hao Li, Yiqun Zhang, Linyao Chen, Jianhao Chen, Ping Jian, Peng Ye, Qiaosheng Zhang, and Shuyue Hu. ICL-Router: In-Context Learned Model Representations for LLM Rout-ing, 2025. URL https://arxiv.org/abs/2510.09719 .Liang Wang, Nan Yang, Xiaolong Huang, Binxing Jiao, Linjun Yang, Daxin Jiang, Rangan Ma-jumder, and Furu Wei. Text Embeddings by Weakly-Supervised Contrastive Pre-training, 2022. URL https://arxiv.org/abs/2212.03533 .Wenhui Wang, Furu Wei, Li Dong, Hangbo Bao, Nan Yang, and Ming Zhou. MiniLM: Deep Self-Attention Distillation for Task-Agnostic Compression of Pre-Trained Transformers, 2020. URL 
+
+https://arxiv.org/abs/2002.10957 .Benjamin Warner, Antoine Chaffin, Benjamin Clavié, Orion Weller, Oskar Hallström, Said Taghadouini, Alexis Gallagher, Raja Biswas, Faisal Ladhak, Tom Aarsen, Nathan Cooper, Griffin Adams, Jeremy Howard, and Iacopo Poli. Smarter, Better, Faster, Longer: A Modern Bidirec-tional Encoder for Fast, Memory Efficient, and Long Context Finetuning and Inference, 2024. URL https://arxiv.org/abs/2412.13663 .Shitao Xiao, Zheng Liu, Peitian Zhang, Niklas Muennighoff, Defu Lian, and Jian-Yun Nie. C-Pack: Packed Resources For General Chinese Embeddings, 2023. URL https://arxiv.org/abs/ 2309.07597 .Jiaqi Xue, Qian Lou, Jiarong Xing, and Heng Huang. R2-Router: A New Paradigm for LLM Routing with Reasoning, 2026. URL https://arxiv.org/abs/2602.02823 .Yiqun Zhang, Hao Li, Jianhao Chen, Hangfan Zhang, Peng Ye, Lei Bai, and Shuyue Hu. Beyond GPT-5: Making LLMs Cheaper and Better via Performance-Efficiency Optimized Routing. arXiv preprint arXiv:2508.12631 , 2025. Lexin Zhou, Youmna Farag, and Andreas Vlachos. An LLM Feature-based Framework for Dialogue Constructiveness Assessment, 2024. URL https://arxiv.org/abs/2406.14760 .Richard Zhuang, Tianhao Wu, Zhaojin Wen, Andrew Li, Jiantao Jiao, and Kannan Ramchandran. EmbedLLM: Learning Compact Representations of Large Language Models, 2024. URL https: //arxiv.org/abs/2410.02223 .Adam Štorek, Vikas Upadhyay, Marianne Menglin Liu, Daniel W. Peterson, Anshul Mittal, Sujeeth Bharadwaj, Fahad Shah, Sujith Ravi, and Dan Roth. Routesplain: Towards Faithful and Interven-able Routing for Software-related Tasks, 2026. URL https://arxiv.org/abs/2511.09373 .
+
+## A PROMPTS FOR REGEX AUTHORING 
+
+We provide three prompt templates for authoring regex feature extractors: SAE-guided initial au-thoring, alignment-based refinement, and authoring without SAE guidance. For the ablation in Sec-tion 6.4, each variant proposes six candidates per output feature in two rounds of three, then retains one. Duplicate proposals count toward this budget, and all features complete both rounds without early stopping. 13 From a family brief to an executable feature 
+
+A. O ffl ine authoring             
+
+> Input: family brief
+> Tokens
+> "7" "8" "6" "5" "3" ⋯
+> latent description
+> “numerals and statistical data” “digits in arithmetic expressions”
+> Authoring LM
+> Output: candidate extractor
+> Name njdigit_count
+> Pattern pj\d
+> Aggregation ajcount
+> After fi t-based selection
+
+B. Evaluate on new text  
+
+> Text x
+
+Add 17 and 8.   
+
+> Matches Mpj(x)
+
+1 7 8 
+
+> count Scalar feature value
+
+φj (x) = 3Figure 7: Illustrative regex-authoring example. Member-latent descriptions and associated tokens inform a candidate named digit_count , with pattern pj = \d and count aggregation aj . Once selected and frozen, the extractor counts the matches 1, 7, and 8 in Add 17 and 8. , giving ϕj (x) = 3.A.1 SAE-GUIDED INITIAL AUTHORING This prompt is used for the initial authoring stage in Section 4.1, proposing regex feature extractors for each SAE latent family using its descriptions and associated tokens. For the variant without refinement, we use this template for both rounds, supplying the first three candidates in round two without alignment scores or other fit feedback. The controller then selects among all six candidates using fit-set alignment. 
+
+You are authoring regex feature extractors for latent families of a sparse autoencoder. Work only from the supplied family briefs and previous candidates. All family evidence comes from the unlabeled corpus. No routing benchmark information is available. Do not use tools. An external controller performs scoring and retention; return only the candidates requested for this round. INPUT Batch {batch_id} of six; library width {N}; round {round_id}. <family_brief> {fid, number of latents, activation share, Neuronpedia descriptions, highly associated tokens, family-specific tokens, punctuation/symbol tokens, digit-bearing tokens, for each assigned family} </family_brief> <round_request> {"candidates_per_active_fid": {each assigned fid: 3}, "previous_candidates": [ {fid, name, pattern, agg, flags} for each previous candidate], "previous_fit_scores": []} </round_request> previous_candidates is empty in round 1. In round 2, it contains the first three candidates per family, without evaluation feedback. TASK Propose three diverse extractors per family whose values track the ranking of its member-latent firing-event count across documents. Candidates are scored by Kendall tau-b on fit documents. In round 2, propose three additional candidates; do not repeat the previous candidate array. If brief tokens are content words, capture their shared form, 
+
+14 not the words themselves. CONSTRAINTS Use symbols, orthography, and structure: punctuation, digits, operators, brackets, casing, whitespace/layout, Unicode classes, run lengths, and closed-class code/LaTeX/HTML/SQL keywords. Do not use English content-word literals, topical vocabularies, or morphological suffix patterns. Use non-capturing groups (?:...). AGGREGATORS count: number of matches; ratio: matches per approximate word; binary: whether any match exists; maxrun: longest match length. Flags: "", "i", "m", or "im". Prefer ratio when fit scores are within 0.01 of the best; within this margin, prefer count/ratio over binary/maxrun. OUTPUT Return only a JSON array, without prose or markdown. Each object must contain fid (integer), name (string), pattern (string), agg, and flags. Return exactly three candidates for each assigned fid. 
+
+A.2 ALIGNMENT-BASED REFINEMENT This prompt is used for the refinement stage in Section 4.1, revising previously proposed regex feature extractors using fit-set feedback on their alignment with the corresponding latent family’s activations. 
+
+You are authoring regex feature extractors for latent families of a sparse autoencoder. Work only from the supplied family briefs and fit feedback. All family evidence comes from the unlabeled corpus. No routing benchmark information is available. Do not use tools. An external controller performs scoring and retention; return only the candidates requested for this round. INPUT Batch {batch_id} of six; library width {N}; round 2. <family_brief> {fid, number of latents, activation share, Neuronpedia descriptions, highly associated tokens, family-specific tokens, punctuation/symbol tokens, digit-bearing tokens, for each assigned family} </family_brief> <round_request> {"candidates_per_active_fid": {each assigned fid: 3}, "previous_fit_scores": [ {fid, name, pattern, agg, flags, fit, density, ceiling_fit} for each previous candidate]} </round_request> fit is Kendall tau-b on fit documents; density is match density. ceiling_fit is the family's token-set reference score. TASK Propose three revised or alternative extractors per family whose values better track the ranking of its member-latent firing-event count across documents. The controller scores candidates by Kendall tau-b on fit documents. If brief tokens are content words, capture their shared form, not the words themselves. Do not mechanically negate anti-correlated values. CONSTRAINTS Use symbols, orthography, and structure: punctuation, digits, operators, brackets, casing, whitespace/layout, Unicode classes, run lengths, and closed-class code/LaTeX/HTML/SQL keywords. 
+
+15 Do not use English content-word literals, topical vocabularies, or morphological suffix patterns. Use non-capturing groups (?:...). AGGREGATORS count: number of matches; ratio: matches per approximate word; binary: whether any match exists; maxrun: longest match length. Flags: "", "i", "m", or "im". CONTROLLER PROCEDURE After the initial three candidates, the controller requests three refinement candidates together in one response, giving six proposed candidates per family. Duplicates consume slots; there is no early stopping or additional round. It retains the fit-best of all six, preferring count/ratio within 0.01 of maximum fit. Prefer ratio when fit scores are within 0.01 of the best. OUTPUT Return only a JSON array, without prose or markdown. Each object must contain fid (integer), name (string), pattern (string), agg, and flags. Return exactly three NEW candidates for each assigned fid. Do not repeat the previous candidate array. 
+
+A.3 AUTHORING WITHOUT SAE GUIDANCE This prompt is used for the LLM-only control in Section 6.4, authoring regex feature extractors without family descriptions, associated tokens, or activation feedback. The LLM proposes three candidates per slot in each of two rounds and selects its preferred candidate from all six, without SAE-based selection. 
+
+You are authoring regex feature extractors. Work only from the supplied slot list and previous candidates. No routing benchmark information is available. Do not use tools. An external controller performs retention; return only the candidates requested. INPUT Batch {batch_id} of six; library width {N}; round {round_id}. <slots> {one object containing only fid for each assigned slot} </slots> <round_request> {"candidates_per_fid": {each assigned fid: 3}, "previous_candidates": [ {fid, name, pattern, agg, flags} for each previous candidate]} </round_request> previous_candidates is empty in round 1 and contains the first three candidates per slot in round 2. No evaluation feedback is given. TASK Propose three diverse extractors per slot measuring a surface-form property of text. Different slots should measure different properties. In round 2, propose three additional candidates and identify your preferred candidate among all six for each slot. Number candidates 1-3 in the order previously returned and 4-6 in the order of the new response. Base your choice on the instructions alone; no SAE alignment or routing scores are available. The controller retains your preferred candidate for each slot. CONSTRAINTS Use symbols, orthography, and structure: punctuation, digits, operators, brackets, casing, whitespace/layout, Unicode classes, run lengths, and closed-class code/LaTeX/HTML/SQL keywords. Do not use English content-word literals, topical vocabularies, or morphological suffix patterns. Use non-capturing groups (?:...). 
+
+16 AGGREGATORS count: number of matches; ratio: matches per approximate word; binary: whether any match exists; maxrun: longest match length. Flags: "", "i", "m", or "im". Prefer ratio when candidates are otherwise comparable, because dense/rate-like features are wanted. Prefer count/ratio over binary/maxrun when otherwise comparable. OUTPUT Return only a JSON object, without prose or markdown: {"candidates": [...], "preferred_by_fid": {...}}. The candidates array must contain exactly three NEW candidates per assigned fid, each with fid (integer), name (string), pattern (string), agg, and flags. In round 1, preferred_by_fid is empty. In round 2, it maps each fid to your preferred candidate's index from 1 to 6. Do not repeat the previous candidate array. 
+
+## B EXPERIMENTAL DETAILS 
+
+Table 3: Candidate-pool size and the number of queries in each split.                     
+
+> benchmark #models train validation test EmbedLLM 112 29,673 3,000 3,000 NineBy30k 923,027 3,000 5,000 R2Bench 10 18,580 3,097 9,291 CARROT 13 30,968 6,636 6,637
+
+B.1 BENCHMARKS TEMPLATE REMOVAL 
+
+Prompt templates. Every benchmark combines questions from several source datasets, and each source renders its questions inside a fixed prompt template. In EmbedLLM, every MMLU question starts with “The following are multiple choice questions (with answers) about ⟨subject ⟩.” and ends with “Answer:”. In NineBy30k, most multiple-choice questions start with “Please read the following multiple-choice questions …” and all end with the same \boxed{X} instruction. The template is the same for every query from a source and different across sources, so it identifies the source. A router may therefore use the template as a shortcut, associating each source with a model that performs well on its training queries. Such a router would also fail on real traffic, which does not come wrapped in benchmark prompts. We therefore remove the templates from every benchmark before any rep-resentation sees the text, for our features and all baselines alike. We modify only the query text and keep the original response scores. 
+
+Removal procedure. EmbedLLM records the source of each query, so we handle it per source. We remove the instruction header, keep only the final question for the few-shot sources (GSM8K, TruthfulQA), drop the Q: /A: frame of Social IQa and the Question: , Passage: , and Choices: 
+
+labels, remove the trailing Answer: cue, and unify the option markers. Layout is a fingerprint too: multiple-choice sources put one option per line, generative sources one paragraph. We therefore render every EmbedLLM query on one line with options marked (A) , (B) , …The other three bench-marks have no source column, but their templates are leading instruction paragraphs and trailing format instructions, so one generic pass handles them: it removes leading paragraphs that start with an instruction (“Please answer …”, “You are a knowledge expert …”), drops field labels ( Context: ,
+
+Question: , Passage: , Title: ), and removes trailing answer cues and format instructions such as the \boxed{X} block. Queries without a wrapper pass through unchanged; almost every NineBy30k query has one, and about a third of R2Bench and CARROT queries do. The question, any passage, and the answer options are kept verbatim, and the same cleaning is applied to all splits and to the per-turbed test queries in Section 5.3. For example, “Please read the following multiple-choice questions and provide the most likely correct answer based on the options given. Context: None. Question: 17 The value of log2 4 is: Options: A. 2 … E. 12. Provide the correct letter choice in \boxed{X}, where X is the correct letter choice. Keep the explanation or feedback within 3 sentences.” becomes “The value of log2 4 is: Options: A. 2 … E. 12”. B.2 PIPELINE CONFIGURATION 
+
+Unlabeled discovery corpus. The discovery corpus Dtext contains 20,035 public documents cover-ing web prose, mathematics, code, and instruction/dialogue text. It comprises 5,000 documents each from FineWeb (Penedo et al., 2024), OpenWebMath (Paster et al., 2023), CodeParrot, and OpenAs-sistant (Köpf et al., 2023), plus 35 instructions from Alpaca (Taori et al., 2023). We use FineWeb’s 
+
+sample-10BT subset and the codeparrot-clean-valid release of CodeParrot. 1 Using random seed 0, we fix a split of 13,394 fit documents for regex refinement and selection and 6,641 held-out documents for alignment evaluation after the extractors are frozen. We truncate each document to 512 tokens and evaluate candidate regexes on the corresponding decoded text span. The same documents and fit/held-out split are used across discovery models. 
+
+Pretrained LMs and SAEs. We obtain pretrained SAE checkpoints from Gemma Scope (Lieberum et al., 2024) 2, Qwen-Scope (Deng et al., 2026) 3, and Llama Scope (He et al., 2024) 4 for Gemma-2-2B, Qwen3-1.7B-Base, and Llama-3.1-8B, respectively. The LMs and SAEs remain frozen, and each SAE encodes the residual stream after the final transformer block. Their activations supply the latent families and alignment targets used in regex discovery. The default configuration uses Gemma-2-2B with its 16,384-latent SAE. Section 6.1 evaluates alternative discovery LM–SAE pairs, with per-benchmark results in Appendix C.1. B.3 QUERY REPRESENTATIONS Table 4 lists the neural encoders by category, with their checkpoints, dimensions, pooling methods, and supported context lengths. TF-IDF uses character 3–5-grams ( char_wb , minimum document frequency 3, up to 40,000 terms) and word 1–2-grams (minimum document frequency 2, up to 20,000 terms) with sublinear term frequency and ℓ2 normalization. For the scaling study, we encode every query with the Qwen2.5 base models in one pipeline: a prefill-only forward pass in bf16, last-token pooling, and an 8,192-token context with head truncation. Table 4: Learned query representations. All checkpoints are frozen.                                            
+
+> category representation checkpoint dim pooling context length Sentence-embedding models MiniLM-L6 all-MiniLM-L6-v2 384 mean 512 MPNet-base all-mpnet-base-v2 768 mean 512 BGE-base BAAI/bge-base-en-v1.5 768 [CLS] 512 GTE-base thenlper/gte-base 768 mean 512 E5-base intfloat/e5-base-v2 768 mean 512 Encoder-only LMs ModernBERT-base answerdotai/ModernBERT-base 768 [CLS] 8,192 ModernBERT-large answerdotai/ModernBERT-large 1024 [CLS] 8,192 Decoder-only LMs Qwen2.5-0.5B Qwen/Qwen2.5-0.5B 896 last token 32,768 Qwen2.5 ladder Qwen/Qwen2.5-{0.5B..72B} 896–8192 last token 32,768–131,072
+
+B.4 ENCODER SCALING SETUP We compare frozen Qwen2.5 base models at seven sizes, from 0.5B to 72B parameters, using the uniform encoding pipeline described in Appendix B.3. For each model and benchmark, we train an Extra-Trees routing head and select its hyperparameters on validation data from the search space 
+
+> 1
+
+https://huggingface.co/datasets/codeparrot/codeparrot-clean-valid 
+
+> 2
+
+https://huggingface.co/google/gemma-scope-2b-pt-res/tree/main/layer_25/width_ 16k/average_l0_116 
+
+> 3
+
+https://huggingface.co/Qwen/SAE-Res-Qwen3-1.7B-Base-W32K-L0_100/blob/main/ layer27.sae.pt 
+
+> 4
+
+https://huggingface.co/OpenMOSS-Team/Llama3_1-8B-Base-LXR-8x/tree/main/Llama3_ 1-8B-Base-L31R-8x 
+
+18 in Appendix C.4, using the same six configurations at every model size. We repeat each fit with five random seeds and report the mean test accuracy. The other neural encoders and the 128 regex features in Figure 1b follow the same protocol. Figure 1b reports the unweighted mean test routing accuracy across the four benchmarks. Despite a 147 × increase in model size, it ranges only from 76.31% to 76.52%, and the 128 regex features reach 76.41% without running a neural text encoder at inference. B.5 ROBUSTNESS DETAILS 
+
+Perturbations. We generate one rewrite per test query and mode with DeepSeek-V4-Flash through OpenRouter, following the RouterArena (Lu et al., 2025). The system prompt requires every fact and answer option to be preserved. Misspellings introduce spelling errors while keeping the text readable; word substitutions replace content words with synonyms; sentence restructuring changes sentence structure; and paraphrasing rewrites the query using different wording. Perturbed queries are assigned the original response scores. Table 5 reports routing accuracy under each rewrite. Table 5: Routing accuracy under LLM query perturbation (%, four-benchmark mean, Extra-Trees). Fitted on clean text; only test queries are perturbed. Clean reference scores are from Table 1; 
+
+drop is the perturbation mean minus this reference. Accuracy-column maxima in bold .
+
+representation clean typo synonym grammar paraphrase drop 128 regexes (ours) 76.43 76.43 75.74 75.41 74.92 −0.81 
+
+TF-IDF bags 75.70 75.27 74.43 75.06 74.27 −0.94 
+
+Qwen2.5-0.5B 76.33 75.80 75.28 75.71 75.18 −0.84 
+
+ModernBERT-large 75.91 74.84 74.76 75.12 74.81 −1.03 
+
+ModernBERT-base 75.58 75.07 74.70 75.06 74.44 −0.76 
+
+GTE-base 75.09 74.58 74.68 74.91 74.72 −0.37 
+
+BGE-base 75.07 74.69 74.48 74.76 74.45 −0.47 
+
+MPNet-base 74.96 74.81 74.69 74.92 74.63 −0.20 
+
+MiniLM-L6 75.02 74.64 74.47 74.71 74.48 −0.45 
+
+E5-base 74.92 74.50 74.40 74.63 74.50 −0.41 74.5 75.5 76.5  
+
+> Routing accuracy (%)
+> Ours (128)
+> Qwen2.5-0.5B ModernBERT-large TF-IDF ModernBERT-base GTE-base BGE-base MPNet-base MiniLM-L6 E5-base
+> Corrupted Clean
+
+Figure 8: Routing accuracy under mechanical character corruption (%, four-benchmark mean, Extra-Trees head), using the marker convention of Figure 3 (left): filled is clean, hollow is the mean over corruption rates of 5, 10, 20, and 30% of characters. 
+
+Character corruption. We generate corrupted test queries with a Python script. At each alpha-betic character, the script applies an edit with probability p ∈ { 0.05 , 0.10 , 0.20 , 0.30 }, choosing uniformly among substitution with a neighboring keyboard character, deletion, swapping with the next character, and duplication. We fix the random seed to 0 and evaluate the routers trained on clean text using the original response scores. Figure 8 and Table 6 report results across corruption levels. Relative to the clean reference scores in Table 1, accuracy at 30% corruption is lower by 1.43 percentage points for the regex router and 0.96–1.16 percentage points for the sentence-embedding 19 models. Nevertheless, it achieves the highest routing accuracy among the evaluated representations at every corruption level. Qwen2.5-0.5B shows the largest decrease, at 2.28 percentage points. Table 6: Mechanical character corruption (%, four-benchmark mean, Extra-Trees). Clean ref-erence scores are from Table 1. Ours and four representative baselines; the remaining encoders are in Figure 8.                               
+
+> representation clean 5% 10% 20% 30% 128 regexes (ours) 76.43 76.13 75.97 75.41 75.00 TF-IDF bags 75.70 75.00 74.96 74.41 74.36 Qwen2.5-0.5B 76.33 75.30 74.88 74.33 74.05 E5-base 74.92 74.45 74.44 74.06 73.85 MiniLM-L6 75.02 74.63 74.43 74.16 73.86
+
+B.6 LATENCY DETAILS We measure latency on test queries with a batch size of one, using a machine with an AMD EPYC 7513 CPU and eight NVIDIA RTX A5000 GPU. CPU measurements use eight threads pinned to CPU cores. At N = 128 , one query costs 3.14 ms of regex extraction, 1.05 ms of forest prediction, and 0.01 ms of standardization. Regex feature extraction grows linearly with N .Table 7: Routing latency and GPU memory use. CARROT queries, batch size one. Timings include feature extraction and routing-head inference.                                    
+
+> Router p50 (ms) p99 (ms) VRAM (MB)
+> GPU
+> MiniLM-L6 5.0 10.4 204 E5-base 8.2 13.6 832 Qwen2.5-0.5B 19.5 25.8 2,617 ModernBERT-large 21.6 27.7 1,609
+> CPU
+> MiniLM-L6 11.6 40.6 —E5-base 53.4 256.6 —Qwen2.5-0.5B 200.5 846.0 —ModernBERT-large 219.6 863.8 —Ours ( N= 32 )1.4 11.9 —Ours ( N= 128 )2.2 37.1 —
+
+The combined test queries from our four benchmarks have a median length of 249 characters and a 99th-percentile length of 6,607 characters. Table 8 reports latency on a sample of 2,979 queries from these benchmarks, reweighted to match this length distribution. The p99 of the 128-feature router exceeds the GPU baselines, while the 32-feature router stays below all of them except MiniLM-L6 and E5-base. Table 8: Traffic-weighted latency (ms) on a pooled trace of 2,979 queries, batch size one, reweighted to the real query-length distribution.                                 
+
+> router device p50 p90 p99 32 regexes (ours) CPU 1.8 3.8 11.5 128 regexes (ours) CPU 3.0 8.6 33.6 MiniLM-L6 GPU 4.9 5.4 7.8 E5-base GPU 8.2 8.9 10.8 Qwen2.5-0.5B GPU 19.4 20.1 22.6 MiniLM-L6 CPU 13.2 30.7 36.3 E5-base CPU 57.8 147.3 198.6
+
+20 C ABLATION DETAILS 
+
+C.1 CHOICE OF DISCOVERY LM AND SAE Table 9 gives the per-benchmark scores and SAE dictionary sizes for the discovery-model comparison in Figure 4(a). On each benchmark, routing accuracy is similar across the evaluated discovery LM– SAE pairs. The pretrained SAE checkpoints and discovery corpus are described in Appendix B.2. Table 9: Discovery LM and SAE. Test routing accuracy (%) with N = 128 . Each row corresponds to a discovery LM–SAE pair, and K is the number of latents in the SAE.                         
+
+> Source LM KEmbedLLM NineBy30k R2Bench CARROT Avg. Gemma-2-2B 16,384 67.37 69.01 82.16 87.18 76.43 Qwen3-1.7B 32,768 67.53 68.91 82.15 87.18 76.44 Llama-3.1-8B 32,768 67.07 69.27 81.95 87.19 76.37
+
+C.2 CHOICE OF LATENT GROUPING We compare spectral clustering with three alternatives: spherical k-means, facility-location selection, and average-linkage agglomerative clustering. All four methods group the same 16,384 Gemma SAE latents using their document-level activation vectors on the 13,394 fit documents. For each method and N , we construct a regex library using the same authoring budget and alignment feedback, then evaluate it with an Extra-Trees routing head. Spectral clustering retains the 50 largest absolute correlations per latent, symmetrizes the graph, and clusters the resulting spectral embedding into N families. Spherical k-means clusters mean-centered, unit-normalized activation vectors using k-means++ initialization, 60 iterations, and random seed 0. Agglomerative clustering uses average linkage with dissimilarity equal to one minus the absolute correlation. Facility-location selection greedily chooses N representative latents to maximize cov-erage, weighted by each latent’s activation variance across documents. Coverage is measured by a latent’s largest absolute correlation with any selected representative. Each latent is then assigned to the representative with the highest absolute correlation. Table 10 reports mean test routing accuracy across four benchmarks for each method and feature count N . Table 11 reports routing accuracy and family-size statistics at N = 128 , where spectral clustering produces the smallest maximum family. We prefer a small maximum family size because each family is approximated by a single extractor, and a very large family combines many distinct properties that one surface pattern is unlikely to track. Table 10: Mean test routing accuracy (%) across four benchmarks by grouping method and feature count N . Each cell reports a separately authored regex library evaluated with an Extra-Trees head.                                                  
+
+> NSpectral Spherical k-means Agglomerative Facility location 173.48 73.64 73.66 73.65 273.80 73.82 73.80 73.96
+> 475.08 74.41 73.73 73.89 875.24 74.54 74.95 74.95 16 75.62 74.80 75.35 75.66
+> 32 76.06 75.23 76.12 75.69 64 75.98 76.25 76.03 75.97 128 76.43 76.10 76.03 76.03 256 76.19 76.39 76.25 76.25 512 76.31 76.15 76.31 76.14 1,024 76.31 76.17 76.28 76.32
+
+21 Table 11: Routing performance and family sizes at N = 128 with different clustering strategies.                      
+
+> Latents per family Grouping method Accuracy (%) Minimum Median Maximum Spectral clustering 76.43 31 115.0 439 Spherical k-means 76.10 22 95.5 531 Agglomerative clustering 76.03 115.0 4,904 Facility-location selection 76.03 156.5 1,831
+
+C.3 SAE GUIDANCE AND REFINEMENT The ablation in Section 6.4 gives every variant the same budget of six candidate extractors per output feature. We keep the authoring model, regex interface, vocabulary constraints, and routing evaluation protocol fixed across variants. We use the corresponding prompt templates in Appendix A. Each variant proposes three candidates together in each of two rounds and retains one of the six, yielding a library of N features. Duplicate proposals consume candidate slots, and no variant stops early or receives replacement proposals. The LLM-only variant receives no SAE evidence or alignment feedback and retains the LLM’s pre-ferred candidate among all six for each feature. The two SAE-guided variants use the same Gemma-2-2B SAE partition and family briefs. Here, refinement refers to returning alignment feedback to the authoring LLM so it can revise its proposals. The variant without refinement ( initial regexes 
+
+in Table 2) proposes all six candidates without receiving fit feedback. The full procedure instead returns all three initial candidates and their fit scores to the LLM before it proposes three revised or alternative candidates. Both guided variants select one extractor from all six using Kendall τb on the unlabeled fit corpus, with the same aggregation preferences specified in Appendix A. Comparing LLM-only with the variant without refinement measures the combined effect of SAE-family information and alignment-based candidate selection. Comparing the two SAE-guided vari-ants measures the additional effect of feedback-driven revision, with the candidate budget and final selection rule held fixed. To compare alignment across libraries, we select a one-to-one regex–family matching that maximises mean Kendall τb on fit documents, then report its mean alignment on held-out documents. This matching is used only for evaluation after authoring. It does not provide SAE feedback to the LLM-only control or change the extractors or routing results. C.4 ROUTING-HEAD DETAILS We use an Extra-Trees regressor with at least 25 samples per leaf, trained on the full per-model score vector. For each representation and benchmark, we se-lect the number of trees, maximum depth, and features per split on validation from 
+
+{(300 , ∞, 1.0) , (300 , 12 , 1.0) , (300 , 24 , 1.0) , (100 , ∞, 1.0) , (300 , ∞, √d), (100 , ∞, √d)}, where 
+
+1.0 means all d coordinates are considered at every split, and read test once. For the ablation in Section 6.5, we additionally evaluate a decision tree (maximum leaves in {8, 16 , 32 , 64 , 128 }), a random forest using the forest grid above, cosine k-nearest neighbors ( k ∈ { 10 , 25 , 50 , 100 }), and mini-batch k-means ( K ∈ { 50 , 100 , 150 , 200 }). 
+
+## D COMPLETE REGEX FEATURE LIST 
+
+Table 13 enumerates all 128 frozen regex features. The indices f1–f128 follow the category order used in Figure 5. The eight categories describe surface properties rather than task types and are distinct from the SAE latent families used during discovery. These regex feature extractors are obtained from Gemma-2-2B using the pipeline described in Section 4. 22 Table 12: Choice of routing head. Mean test routing accuracy (%) across four benchmarks, with hyperparameters selected on validation. RF: random forest; ET: Extra-Trees. Bold marks the best representation for each head. 
+
+Representation Tree RF ET k-NN k-means 128 regexes (ours) 75.17 76.37 76.43 75.01 75.09 TF-IDF bags 74.41 75.57 75.70 74.73 74.68 Llama-3.1-8B 74.37 76.18 76.41 75.77 75.61 Gemma-2-2B 74.31 76.11 76.39 75.85 75.58 Qwen2.5-0.5B 74.54 76.10 76.33 76.04 75.73 
+
+ModernBERT-large 74.08 75.68 75.91 75.40 75.41 ModernBERT-base 74.29 75.46 75.58 75.40 75.28 GTE-base 73.66 75.05 75.09 75.16 74.94 BGE-base 73.42 74.87 75.07 75.31 75.02 MiniLM-L6 73.49 74.81 75.02 75.28 74.83 MPNet-base 73.92 74.81 74.96 75.12 74.93 E5-base 73.60 74.78 74.92 75.57 75.09 
+
+For a query q, let cj (q) be the number of non-overlapping matches returned by Python’s re.findall 
+
+for pattern pj . The library uses two aggregation rules: 
+
+ϕj (q) = 
+
+{cj (q), aj = count ,cj (q)/ max (|q|/5 , 1) , aj = ratio , (10) where |q| is the number of characters in the query. Thus, ratio is a count per approximate word, using five characters per word. There are 124 count features and 4 ratio features. The additional flags i and m denote case-insensitive and multiline matching, respectively. A dash means no addi-tional flags. For portable typesetting, literal non-ASCII characters are written as equivalent Python regex Unicode escapes ( \uXXXX ). Table 13: Complete feature library in the display order of Figure 5. Each entry gives its name, aggregation rule, additional matching flags, and full regex. 
+
+Index Feature name Aggregation; flags Script (12 features) 
+
+f1 cat_accent_elision_union count ; — 
+
+(?:[\u00e0\u00e8\u00e9\u00ed\u00f2\u00f3\u00fa\u00ef\u00e7\u00c0\u00c8\u00c9 \u00cd\u00d2\u00d3\u00da\u00cf\u00c7\u00b7]|\b[LlDdSsNnMmTt][\u2019'](?=[a-z \u00e0-\u00ff])) 
+
+f2 it_accent_ratio ratio ; — 
+
+[\u00e0\u00e8\u00e9\u00ec\u00f2\u00f9\u00c0\u00c8\u00c9\u00cc\u00d2\u00d9] 
+
+f3 cjk_code_split count ; — 
+
+[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef\d(){}\[\]*+]|[^\s\u4e00-\u9fff \u3000-\u303f\uff00-\uffef\d(){}\[\]*+]+ 
+
+f4 nonascii_or_titlecase count ; — 
+
+(?:[^\x00-\x7f]|\b[A-Z][a-z]{2,}\b) 
+
+f5 tr_dia_jsonstruct count ; — 
+
+[\u0131\u0130\u011f\u011e\u015f\u015e\u00e7\u00c7\u00f6\u00d6\u00fc\u00dc]| \["|",|"\]|={6,}|#!/|-\*-|\?" 
+
+Continued on next page 
+
+23 Table 13 continued 
+
+Index Feature name Aggregation; flags 
+
+f6 spanish_marks_accents count ; — 
+
+[\u00f1\u00d1\u00bf\u00a1\u00e1\u00e9\u00ed\u00f3\u00fa\u00c1\u00c9\u00cd \u00d3\u00da\u00fc\u00dc] 
+
+f7 cyrillic_words count ; — 
+
+[\u0400-\u04ff]+ 
+
+f8 years_roman_dia count ; — 
+
+\b(?:1[6-9]|20)\d{2}\b|\b[IVX]{2,6}\b|[\u00e1\u00e9\u00ed\u00f3\u00fa\u00f1 \u00c1\u00c9\u00cd\u00d3\u00da\u00d1\u00bf\u00a1]|(?<=[a-z]\s)[A-Z][a-z]{2,} 
+
+f9 de_umlaut_sz_ratio ratio ; — 
+
+[\u00e4\u00f6\u00fc\u00c4\u00d6\u00dc\u00df] 
+
+f10 cyrillic_diacritic_titlecase count ; — 
+
+(?:[\u0400-\u04ff\u0100-\u024f\u00c0-\u00ff]|\b[A-Z][a-z]{2,}\b) 
+
+f11 jp_all_ratio ratio ; — 
+
+[\u3000-\u303f\u3040-\u30ff\u4e00-\u9fff] 
+
+f12 pt_marks count ; — 
+
+[\u00e3\u00f5\u00e7\u00c3\u00d5\u00c7] 
+
+Casing (25 features) 
+
+f13 propn_weighted_len count ; — 
+
+(?=(?<=[a-z]\s)[A-Z][a-z]{2,})|\S+ 
+
+f14 capwords_cnt count ; — 
+
+\b[A-Z][a-z]+\b 
+
+f15 titlecase_run2_or_dots count ; — 
+
+(?:\b(?:[A-Z][a-z]+[ ]){1,}[A-Z][a-z]+\b|(?:\b[A-Z]\.){2,}) 
+
+f16 capitalized_word_count count ; — 
+
+\b[A-Z][a-z]{2,}\b 
+
+f17 capitalised_words count ; — 
+
+\b[A-Z][a-z]+\b 
+
+f18 capword_ct count ; — 
+
+\b[A-Z][a-z]+\b 
+
+f19 propernoun_runs count ; — 
+
+(?:\b[A-Z][a-z]+\b\s+){2,} 
+
+f20 acro_hyph_ct count ; — 
+
+(?:\b[A-Z]{2,}\d*\b|\b[a-z]{2,}-[a-z]{2,}\b) 
+
+f21 capwords_cnt count ; — 
+
+\b[A-Z][a-z]+\b 
+
+Continued on next page 
+
+24 Table 13 continued 
+
+Index Feature name Aggregation; flags 
+
+f22 capitalized_word_count count ; — 
+
+\b[A-Z][a-z]+\b 
+
+f23 cap_word_count count ; — 
+
+\b[A-Z][a-z]{2,}\b 
+
+f24 caps_and_bullets_cnt count ; m(?:\b[A-Z]{2,}\b|\b[A-Z][a-z]+\b|^\s*[-\u2022*\u00b7]\s) 
+
+f25 propn_excl_weighted count ; — 
+
+(?=(?<=[a-z]\s)[A-Z][a-z]{2,})|(?=!)|\S+ 
+
+f26 curly_and_names count ; — 
+
+(?:[\u2018\u2019\u201c\u201d\u2026\u2013\u2014]|\b[A-Z][a-z]+\b) 
+
+f27 cap_acro_quote_ct count ; — 
+
+(?:\b[A-Z][a-z]+\b|\b[A-Z]{2,}\b|[,.]\u201d) 
+
+f28 typographic_or_caps_count count ; — 
+
+(?:[\u2019\u201c\u201d\u2014]|\b[A-Z][a-z]+\b) 
+
+f29 edu_prose_count count ; — 
+
+(?:[\u2019\u201c\u201d-]|\b[A-Z][a-z]+\b|\b[a-z]{8,}\b) 
+
+f30 acro_weighted_len count ; — 
+
+(?=\b[A-Z]{2,6}\b)|(?=[\u201c\u201d])|\S+ 
+
+f31 acad_prose_count count ; — 
+
+(?:\b[A-Z][a-z]+\b|\([^()\n]{0,60}\)|\b[A-Za-z]{10,}\b) 
+
+f32 art_editorial_count count ; — 
+
+(?:[\u2018\u2019\u201c\u201d\u2013\u2014\u2026\u2033]|!|\b[A-Z][a-z]+\b) 
+
+f33 codes_and_caps count ; — 
+
+(?:\b[A-Z]{2,5}\b|\b[A-Z][a-z]+\b) 
+
+f34 names_clitics_punct count ; — 
+
+(?:\b[A-Z][a-z]+\b|[\u2019'](?:s|t|d|ll|re|ve|m)\b|[\u201c\u201d\u2019\u2026 \u2014]) 
+
+f35 sci_weighted_len count ; — 
+
+(?=\b[A-Z]{2,6}\b)|(?=\b[A-Z][a-z]{2,}\b)|\S+ 
+
+f36 quote_or_caps_count count ; — 
+
+(?:[\u2019'\"\u201c\u201d]|\b[A-Z][a-z]+\b) 
+
+f37 sports_cap_num_weighted count ; — 
+
+(?=(?<=[a-z]\s)[A-Z][a-z]{2,})|(?=\b\d{1,3}\b)|\S+ 
+
+Continued on next page 
+
+25 Table 13 continued 
+
+Index Feature name Aggregation; flags Prose (31 features) 
+
+f38 informal_markers_cnt count ; — 
+
+(?:(?<![\w'\u2019])[A-Z](?![\w'\u2019])|['\u2019][a-z]{1,2}\b|[!?\u2026]) 
+
+f39 prose_punct_weighted count ; — 
+
+(?=\b[a-z]{2,}\b)|(?=[,\u2019\u201c\u201d\u2014\u2013])|\S+ 
+
+f40 lower_word_runs count ; — 
+
+(?:\b[a-z]{2,}\b[ ,]){3,} 
+
+f41 uk_marks_cnt count ; — 
+
+(?:\u00a3|\u2018|\u2019[.,]|[.,]\u2019|\s\u2013\s) 
+
+f42 long_word_or_comma_count count ; — 
+
+(?:\b[A-Za-z]{9,}\b|,|\b[a-z]+-[a-z]+\b) 
+
+f43 subword_pieces count ; — 
+
+(?:[A-Za-z]{1,4}|\d|[^\sA-Za-z\d]) 
+
+f44 informal_marks_count count ; — 
+
+(?:[?!]|\b[A-Za-z]+['\u2019][a-z]{1,2}\b|(?<![A-Za-z])I(?![A-Za-z])) 
+
+f45 quotes_plus_capwords_cnt count ; — 
+
+(?:[\u201c\u201d\"]|[,.][\u201d\"]|\b[A-Z][a-z]+\s+[A-Z][a-z]+\b|\b[A-Z][a-z ]+\b) 
+
+f46 words8_cnt count ; — 
+
+\b[a-z]{8,}\b 
+
+f47 quote_double_weighted count ; — 
+
+(?=[\u2019\u2018\u201c\u201d\u2026\u2014\u2013])|(?<=[\u2019\u201c\u201d])|( ?=\b[a-z]{2,}\b)|\S+ 
+
+f48 excl_time_contraction_cnt count ; — 
+
+(?:!|\b\d{1,2}(?::\d{2})?\s*[AaPp]\.?[Mm]\.?\b|['\u2019][a-z]{1,2}\b) 
+
+f49 word_ct count ; — 
+
+\b[a-z]{2,}\b 
+
+f50 comma_or_sentence_count count ; — 
+
+(?:[.!?]\s+[A-Z]|,) 
+
+f51 clitic_and_quotepunct count ; — 
+
+(?:[\u2019'](?:s|t|d|ll|re|ve|m)\b|[.,!?][\"\u201d\u2019]) 
+
+f52 comma_hyphen_caps_count count ; — 
+
+(?:,|\b[a-z]+-[a-z]+\b|\b[A-Z][a-z]+\b) 
+
+f53 prose_and_quotes count ; — 
+
+(?:\b[a-z]{4,}\b|[\u201c\u201d]) 
+
+Continued on next page 
+
+26 Table 13 continued 
+
+Index Feature name Aggregation; flags 
+
+f54 cv_weighted_len count ; — 
+
+(?=\b(?:[bcdfgjklmnprstvwy][aeiou]){3,}\b)|(?=\.{3,})|(?=\u2013)|\S+ 
+
+f55 prose_q_len count ; — 
+
+(?=\b[a-z]{4,}\b)|(?=[?,])|\S+ 
+
+f56 sentence_ct count ; — 
+
+[.!?][\"\u201d\u2019]?\s+[A-Z] 
+
+f57 shortwords_cnt count ; — 
+
+\b[a-z]{1,4}\b 
+
+f58 prose_title_bold_union count ; — 
+
+(?:\b[a-z]{4,}\b|\b[A-Z][a-z]+\b|\*\*) 
+
+f59 allword_ct count ; — 
+
+\b[A-Za-z]{2,}\b 
+
+f60 alpha_words count ; — 
+
+\b[A-Za-z]{2,}\b 
+
+f61 comma_cnt count ; — 
+
+,
+
+f62 word_ct count ; — 
+
+\b[a-z]{2,}\b 
+
+f63 dquote_weighted_len count ; — 
+
+(?=[\u201c\u201d])|(?=\b\d{2}\b)|\S+ 
+
+f64 long_words6 count ; — 
+
+\b[a-z]{6,}\b 
+
+f65 legal_formal_cnt count ; — 
+
+(?:\b[A-Z]{2,}\b|\u00a7|;|\([a-z]\)|\b[a-z]{9,}\b) 
+
+f66 prose_words4 count ; — 
+
+\b[a-z]{4,}\b 
+
+f67 words_and_typography_cnt count ; — 
+
+(?:\b[A-Za-z]+\b|[\u2019\u201c\u201d\u2018\u2013\u2014\u2026]) 
+
+f68 alpha_words_all count ; — 
+
+\b[A-Za-z]+\b 
+
+Layout (8 features) 
+
+f69 short_line_ct count ; m^.{1,45}$ 
+
+f70 digit_head_split2 count ; m[\d?$\u2022|%]|^#{1,6}|^[ \t]*[\u2022*-][ \t]|\.{3}|[^\s\d?$\u2022|%]+ 
+
+Continued on next page 
+
+27 Table 13 continued 
+
+Index Feature name Aggregation; flags 
+
+f71 recipe_layout_union count ; — 
+
+(?m)(?:^.{1,60}$|[\u00b0\u00bc\u00bd\u00be]|^[ ]*(?:[-*\u2022]|\d+[.)])[ ]+|\b\d+[ ]?(?:kg|g|ml|oz|lb)\b) 
+
+f72 layout_junk count ; — 
+
+(?: {2,}|\t|[#=*_~-]{3,}|\|) 
+
+f73 nonword_or_indent count ; — 
+
+(?m)(?:[^\w\s]|^[ \t]{2,}) 
+
+f74 md_q_math_lists count ; m(?:#{2,}|\.{3,}|\?|\$|^\s*\d+[.)]\s) 
+
+f75 bracket_quote_count count ; — 
+
+(?:[(){}\[\]]|\"|') 
+
+f76 punct_layout_cnt count ; — 
+
+[,.:\n(#/\-] 
+
+Numbers (6 features) 
+
+f77 digit_count count ; — 
+
+\d 
+
+f78 nums_money_entities count ; — 
+
+(?:\b\d[\d,.]*\b|%|[$\u00a3\u20ac]|\b[A-Z][a-z]+\b) 
+
+f79 digit_count count ; — 
+
+\d 
+
+f80 digits_plus_biblio_cnt count ; — 
+
+(?:\d|(?:[A-Z]\.\s*){2,}|\.,|\u2116|\u00b7) 
+
+f81 digit_count count ; — 
+
+\d 
+
+f82 num_mark_ct count ; — 
+
+(?:[0-9]|[:@\u2022#|]) 
+
+Paths (3 features) 
+
+f83 path_like_cnt count ; — 
+
+(?:://|/[A-Za-z0-9_.-]+/|[A-Za-z]:\\|\.[a-z]{2,4}\b/) 
+
+f84 install_union_ct count ; — 
+
+(?:\.\.?/|://|>=|\*/|[\u00f8\u00e6\u00e5\u00d8\u00c6\u00c5]|--[a-z]) 
+
+f85 web_typo_caps_count count ; — 
+
+(?:[\u2019\u201c\u201d]|https?://|www\.|\.com\b|(?<![\w.])@\w|\b[A-Z][a-z]+ \b) 
+
+Continued on next page 
+
+28 Table 13 continued 
+
+Index Feature name Aggregation; flags Math (11 features) 
+
+f86 tex_math_broad count ; — 
+
+(?:\\[a-zA-Z]+|\$|[{}^_]) 
+
+f87 num_ops count ; — 
+
+\d+(?:\.\d+)?|[=\u00d7\u2248\u00b0*/^]|\*\* 
+
+f88 tex_full_ct count ; — 
+
+(?:\\[a-zA-Z]+|\$|[_^{}]) 
+
+f89 tex_cmd_brackets count ; — 
+
+(?:\\[a-zA-Z]+|[{}\[\]]) 
+
+f90 acronym_or_unit_count count ; — 
+
+(?:\b[A-Z]{2,5}\b|\b\d+(?:\.\d+)?\s?[munpkKMG]?(?:Hz|dB|[VWAF\u03a9])\b) 
+
+f91 chem_plus_longwords_cnt count ; — 
+
+(?:\b(?:[A-Z][a-z]?\d{0,2}){2,}\b|[A-Z][a-z]?\d|\u00b0|\(aq\)|\b[a-z]{9,}\b) 
+
+f92 math_sym_var count ; — 
+
+\$|\\[a-zA-Z]+|[{}^_]|\d|[+\-*/=\u00d7]|\b[b-hj-z]\b 
+
+f93 math_symbols_wide_cnt count ; — 
+
+(?:[\$\^_{}\\]|[=+]|\\[a-zA-Z]+) 
+
+f94 latex_math_number_union count ; — 
+
+(?:\\[A-Za-z]+|[$^_{}\\\u0370-\u03ff]|\b\d+(?:\.\d+)?\b|[\u00d7\u00b1\u223c \u2248\u2192\u2208\u221e]) 
+
+f95 latex_dense2 count ; — 
+
+\\[a-zA-Z]+|\\\\|[&{}$_^]|\\[^\sa-zA-Z] 
+
+f96 math_num_ct count ; — 
+
+(?:\$[^$\n]{1,60}\$|\b\d+\b) 
+
+Code (32 features) 
+
+f97 lic_code_dense count ; m[#_="\'()/:.]|\b[A-Z]{3,}\b|^\s{4,}\S|\b(?:import|from|def|class|return)\b 
+
+f98 c_code_chars count ; — 
+
+(?:[;{}()\[\]<>=*&]|::|->|\+\+|#\s*include|\b(?:int|char|float|double|void|s truct|class|template|namespace|public|private|const|static|return|sizeof)\b) 
+
+f99 camel_or_class count ; — 
+
+(?:\b[a-z]+[A-Z][A-Za-z]*\b|\b[A-Z][a-z]+(?:[A-Z][a-z]+)+\b) 
+
+f100 code_all2_ct count ; m(?:[{}\[\]();=<>_]|^[ \t]{2,}|\b(?:def|return|import|func|fmt|nil|mut|pub|le t|var|int|float|self|if|else|for|class|try|new|struct|enum|void|const)\b) 
+
+Continued on next page 
+
+29 Table 13 continued 
+
+Index Feature name Aggregation; flags 
+
+f101 banner_caps_comment_union count ; — 
+
+(?m)(?:\b[A-Z]{2,}\b|^[ ]*[#*/;%!-]+|\(C\)|\u00a9|://|-\*-) 
+
+f102 hdr_block_ct count ; m(?:^[ \t]*#|^[ \t]*(?:from|import)\b|\"\"\"|-{4,}) 
+
+f103 py_file_full_cnt count ; m(?:^\s*(?:import|from|def|class)\s|^(?: {4})+\S|^\s*#|\"\"\"|__|\(\)|\):|\bs elf\b) 
+
+f104 lic_union_ct count ; m(?:^[ \t]*#|^[ \t]*(?:from|import|def|class)\b|\b[A-Z]{3,}\b|\"\"\") 
+
+f105 script_banner_or_longword count ; — 
+
+(?m)(?:^[ \t]*(?:import|from)[ \t]+[A-Za-z_]|#!/|-\*-|://|^[-=#]{5,}|\b[a-z] {8,}\b) 
+
+f106 py_dense_sym2 count ; m[_().\'\[\]=]|\b(?:def|class|import|from|return|self)\b|://|^\s*(?:from|impo rt)\s|@\w|\n 
+
+f107 java_full_count count ; m(?:\bpublic\b|\bprivate\b|\bprotected\b|\bstatic\b|\bvoid\b|\bthrows\b|\bext ends\b|\bimplements\b|\bimport\b|\bfinal\b|\bnull\b|\bString\b|\bint\b|\bboo lean\b|\);|\]\);|\"\);|;\s*$|\{\s*$|\}\s*$|\(\)\s*\{) 
+
+f108 py_full_ct count ; m(?:^ {4,}|[()\[\]{}=_.;]|\b(?:self|def|import|class|return|None|True|False) \b) 
+
+f109 py_module_full_count count ; m(?:^(?: {4})+\S|\bself\b|\bdef\b|\bclass\b|==|\bNone\b|\bimport\b|\bfrom\b|_ _\w+__|\"\"\"|\):) 
+
+f110 header_broad count ; m(?:^#|^\s*(?:import|from)\b|-\*-|#!/|\b[A-Z]{4,}\b|\"\"\") 
+
+f111 py_kw_line_starts count ; — 
+
+(?m)^[ \t]*(?:import|from|def|class|if|for|while|return|try|except|with|prin t)\b 
+
+f112 php_sigils_wide count ; — 
+
+<\?|\?>|->|\$[A-Za-z_]\w*|\);|\';|=>|#!/|::|&&|\|\||/>|</?[a-z][a-z0-9]{0,6} >
+
+f113 mig_union2_ct count ; m(?:^ {8,}|\('|',|'\)|\{'|'\]|\)\),|=\[|\b(?:True|False|None)\b|\b(?:[A-Z][a-z]+){2,}\b) 
+
+f114 code_punct_r ratio ; — 
+
+[{}()\[\];=<>_] 
+
+Continued on next page 
+
+30 Table 13 continued 
+
+Index Feature name Aggregation; flags 
+
+f115 ml_code_idiom_count count ; — 
+
+(?:\w+\.\w+\(|\[[^\]\n]{0,30}[:,][^\]\n]{0,30}\]|\b\w+_\w+\b|\bimport\b) 
+
+f116 markup_chars_wide count ; — 
+
+[<>&;="'/{}%#] 
+
+f117 brace_markup_count count ; — 
+
+(?:\}\}|\{\{|\$\{|_\{|=\"\"|=') 
+
+f118 docstring_struct count ; m"""|^\s*#|^-{3,}|^\s*:[a-z]+[\s:]|@\w|^\s{4,}\S|^\s*(?:def|class)\s 
+
+f119 py_bracket_ops_cnt count ; — 
+
+(?:\bdef\b|\):|\[|\]|\(|\)|=) 
+
+f120 script_struct_cnt count ; m(?:^\s*(?:import|from)\s|^\s*#|^(?: {4})+\S|\bos\.|\bsys\.|\bdef\b|\(\)) 
+
+f121 web_code_cnt count ; — 
+
+(?:\}\);|'\);|\"\);|=>|</|<[a-zA-Z][^>\n]{0,60}>|\b(?:var|let|const|function |return|import|export|document|window|require|module|class)\b|\.(?:js|jsx|ts |tsx|css|html)\b) 
+
+f122 py_dense count ; — 
+
+[_()=.]|\b(?:def|class|import|from|return|self|if|for|None|True|False)\b|\n 
+
+f123 caps_url_comment count ; m(?:\b[A-Z]{2,}\b|https?://|\u00a9|^\s*#|/\*|\*/) 
+
+f124 markup_punct_ct count ; — 
+
+[<>{}=\";:/] 
+
+f125 code_punct_wide_cnt count ; — 
+
+[(){}\[\]=_/#.:;`] 
+
+f126 pkg_full_ct count ; m(?:'[^'\n]{0,40}'|\"[^\"\n]{0,40}\"|^ {4,}|\bimport\b|\bfrom\b|\bdef\b|\bcla ss\b) 
+
+f127 indent_and_flow_count count ; m(?:^(?: {4})+\S|\bself\b|\bdef\b|==|\bNone\b) 
+
+f128 py_oo_keywords count ; — 
+
+\b(?:self|def|class|return|None|import|assert|raise|except|True|False|super) \b 
+
+31 E SOURCE DATASET FEATURE PROFILES 
+
+Figures 9–11 extend Figure 5 with the ten largest source datasets in each query pool. In EmbedLLM, PIQA peaks on short-line counts, whereas MMLU professional law has higher word and long-word counts. In the shared CARROT/R2Bench pool, MATH is elevated on LaTeX and mathematical-symbol features, while MuSR sources have higher sentence-boundary and punctuation counts. These examples show that datasets have distinct average profiles across our regex coordinates, providing interpretable cues for distinguishing their queries. Each bar is a source’s mean feature value after standardizing query values with the corresponding training statistics and clipping to [−4, 4] . All panels use the same order of surface properties as Figure 5. The complete list of the extractors is in Appendix D. 01                         
+
+> medmcqa n = 3,454
+> 01
+> mathqa n = 2,468
+> 01
+> asdiv n = 1,916
+> 01
+> social_iqa n = 1,607
+> 01
+> piqa n = 1,509
+> 01
+> mmlu_professional_law n = 1,262
+> 01
+> gsm8k n = 1,095
+> 01
+> mmlu_moral_scenarios n = 757
+> 01
+> truthfulqa_mc1 n = 684 f1 f16 f32 f48 f64 f80 f96 f112 f128
+> Feature coordinate
+> 01
+> mmlu_miscellaneous n = 653
+> Mean standardized feature value
+> Script Casing Prose Layout Numbers Paths Math Code
+
+Figure 9: Source feature profiles for EmbedLLM. The ten largest training sources, with one bar per feature. Triangles mark means above the +1 display limit; n denotes the source’s query count. 32 01
+
+SearchQA n = 3,267 
+
+> 01
+
+MLQA n = 3,058 
+
+> 01
+
+SocialIQA n = 2,407 
+
+> 01
+
+XQuAD n = 1,108 
+
+> 01
+
+MMLU n = 971 
+
+> 01
+
+MMLUPro n = 835 
+
+> 01
+
+Ethics n = 821 
+
+> 01
+
+SQuAD n = 792 
+
+> 01
+
+HellaSwag n = 774 f1 f16 f32 f48 f64 f80 f96 f112 f128 
+
+Feature coordinate 
+
+> 01
+
+NarrativeQA n = 728 
+
+> Mean standardized feature value
+
+Script Casing Prose Layout Numbers Paths Math Code Figure 10: Source feature profiles for NineBy30k. The ten largest training sources, with the same feature order, colors, and display limits as Figure 9. 33 01
+
+openhermes/teknium n = 13,670 
+
+> 01
+
+TIGER-Lab/MMLU-Pro n = 8,264 
+
+> 01
+
+lighteval/MATH/all n = 5,122 
+
+> 01
+
+lighteval/MATH/all/test n = 1,735 
+
+> 01
+
+Idavidrein/gpqa/gpqa_extended n = 384 
+
+> 01
+
+TAUR-Lab/MuSR/object_placements n = 185 
+
+> 01
+
+TAUR-Lab/MuSR/team_allocation n = 176 
+
+> 01
+
+rungalileo/ragbench/covidqa n = 167 
+
+> 01
+
+TAUR-Lab/MuSR n = 163         
+
+> f1 f16 f32 f48 f64 f80 f96 f112 f128
+
+Feature coordinate 
+
+> 01
+
+rungalileo/ragbench/cuad n = 137        
+
+> Mean standardized feature value
+> Script Casing Prose Layout Numbers Paths Math Code
+
+Figure 11: Shared source feature profiles for CARROT and R2Bench. The ten largest source groups in CARROT training, which contains R2Bench’s full query pool. Counts and scaling use this shared pool. 34 F QUERY NEIGHBORHOODS 
+
+F.1 SETUP AND DEFINITIONS We provide the setup and per-benchmark results for Figure 6(a,b), comparing our 128 regex features with E5-base, ModernBERT-base, and Qwen2.5-0.5B. We use the full test splits in Table 3 and select 
+
+k = 20 neighbors for each query from the other test queries. 
+
+Forest neighborhoods. As in the main analysis, neighbors are defined by shared leaves in an Extra-Trees router. For each representation, we fit the router to training model-score vectors, using 100 trees, unrestricted depth, square-root feature subsampling, minimum leaf size 25, squared-error loss, and seed zero. These settings are fixed across representations for this analysis. We pass test queries through the frozen forest and rank neighbors by the fraction of trees in which they share a terminal leaf with the query, comparing leaf identities within each tree. 
+
+Evaluation metrics. Let di be query i’s original source label and ri,m ∈ [0 , 1] its observed re-sponse score for model m. For a query pair (i, j ), we define source agreement and model-score similarity as 
+
+A(i, j ) = 1[di = dj ], S(i, j ) = 1 − 1
+
+M
+
+> M
+
+∑
+
+> m=1
+
+|ri,m − rj,m |. (11) We average each metric over the same k neighbors and all test queries, including those with constant score vectors, and report percentages. The random reference averages each metric over all distinct test-query pairs within a benchmark. 
+
+Direct nearest neighbors. As an additional comparison, we select neighbors by Euclidean distance in each representation before fitting a router. We standardize each coordinate using its training mean and standard deviation, with scale one for zero-variance coordinates. The regex inputs are already z-scored and clipped to [−4, 4] ; we standardize these clipped inputs again before computing distances. We use the same k = 20 , test queries, and evaluation metrics as for forest neighborhoods. F.2 NEAREST-NEIGHBOR RESULTS Table 14 reports the per-benchmark results underlying Figure 6(a,b). With forest neighborhoods, REGEXROUTE reaches 68.24% mean source agreement and 64.97% model-score similarity, compared with 68.09% and 65.48% for Qwen2.5-0.5B. Both means exceed those of E5-base and ModernBERT-base, as well as the random reference of 17.55% and 57.74%, respectively. Tables 15 and 16 report direct Euclidean neighbors. Here, REGEXROUTE reaches 67.00% source agreement and 64.62% model-score similarity, while Qwen2.5-0.5B reaches 72.27% and 65.62%. Thus, regex features group queries by source and model performance under both definitions, although Qwen has stronger direct neighborhoods. 35 Table 14: Forest neighborhoods, per benchmark. Source agreement and model-score similarity (%) at k = 20 for the representations in Figure 6(a,b). 
+
+A. Source agreement 
+
+Representation EmbedLLM NineBy30k R2Bench CARROT Mean Random 3.91 6.72 30.08 29.48 17.55 E5-base 24.71 35.77 72.46 66.29 49.81 ModernBERT-base 38.78 58.57 81.67 79.08 64.53 Qwen2.5-0.5B 44.82 60.12 84.84 82.59 68.09 RegexRoute 40.02 64.11 85.12 83.72 68.24 
+
+B. Model-score similarity 
+
+Representation EmbedLLM NineBy30k R2Bench CARROT Mean Random 53.34 53.04 62.72 61.83 57.74 E5-base 58.60 57.14 69.44 68.47 63.41 ModernBERT-base 59.92 58.75 70.60 69.80 64.77 Qwen2.5-0.5B 60.46 59.40 71.45 70.62 65.48 RegexRoute 59.79 59.07 70.66 70.35 64.97 
+
+Table 15: Source agreement under direct Euclidean neighborhoods. Percentage of k = 20 other test-query neighbors sharing the anchor’s original dataset label, after standardizing coordinates using training statistics. 
+
+Representation EmbedLLM NineBy30k R2Bench CARROT Mean Random 3.91 6.72 30.08 29.48 17.55 E5-base 44.75 58.33 83.94 82.56 67.40 ModernBERT-base 41.88 64.73 83.99 82.53 68.28 Qwen2.5-0.5B 49.46 69.51 85.60 84.53 72.27 RegexRoute 37.80 63.05 84.33 82.83 67.00 
+
+Table 16: Model-score similarity under direct Euclidean neighborhoods. Similarity (%) on the same k = 20 neighbors as Table 15. 
+
+Representation EmbedLLM NineBy30k R2Bench CARROT Mean Random 53.34 53.04 62.72 61.83 57.74 E5-base 60.56 58.75 71.10 70.10 65.13 ModernBERT-base 59.56 58.86 70.91 70.19 64.88 Qwen2.5-0.5B 61.39 59.70 71.35 70.02 65.62 RegexRoute 59.01 59.16 70.37 69.95 64.62 
+
+36 G FEATURE RECOVERY ACROSS ENCODER SIZES 
+
+G.1 SETUP AND DEFINITIONS We train linear ridge and nonlinear MLP probes to predict all 128 regex feature values from frozen query embeddings. For each encoder and benchmark, we fit the probes on the training split, select hyperparameters by validation mean squared error, and evaluate on the test split. 
+
+Query representations. We use the seven Qwen2.5 sizes from 0.5B to 72B with the last-token embeddings described in Appendix B.4. MiniLM-L6 and E5-base provide the smaller-encoder ref-erences in Figure 6(c). We also report ModernBERT-base in the tables below. The Qwen2.5 models provide the comparison of scale within one model family. 
+
+Linear and MLP probes. Ridge regression uses the original embedding coordinates, with reg-ularization selected from {1, 10 , . . . , 10 6}. For MLP probe, we divide embeddings by their mean training-vector norm and fit a two-hidden-layer ReLU network with mean squared error loss. Train-ing uses AdamW, weight decay 10 −4, batch size 512, and at most 80 epochs, with early stop-ping after eight epochs without validation improvement. We search four configurations, speci-fied as (hidden widths, dropout, learning rate): ((256 , 128) , 0.1, 10 −3), ((512 , 256) , 0.1, 10 −3),
+
+((512 , 256) , 0.3, 10 −3), and ((1024 , 512) , 0.1, 3 × 10 −4). All runs use seed zero. 
+
+Recovery metric. For each feature j, we compare its predicted value ̂ ϕj (q) with its extracted value 
+
+ϕj (q) across test queries: 
+
+R2 
+
+> j
+
+= 1 −
+
+∑ 
+
+> q∈D test route
+
+(ϕj (q) −̂ ϕj (q)) 2
+
+∑ 
+
+> q∈D test route
+
+(ϕj (q) − ϕj, test )2 , (12) where ϕj, test is the feature’s test mean. A score of one denotes perfect recovery; zero matches pre-dicting this mean for every query. The main figure reports R2 
+
+> w
+
+= ∑ 
+
+> j
+
+wj R2 
+
+> j
+
+/ ∑ 
+
+> j
+
+wj over these features. Weights are impurity-based feature importances, plus 10 −9, from an Extra-Trees regressor. We also report the unweighted mean and median feature R2. Each summary is computed separately for each benchmark, then averaged equally across the four benchmarks. G.2 LINEAR AND NONLINEAR RECOVERY RESULTS Table 17 summarizes recovery across encoders, and Table 18 gives the per-benchmark results. From Qwen2.5-0.5B to 72B, importance-weighted R2 rises from 0.820 to 0.848 with an MLP, compared with 0.612 to 0.751 with ridge. The small MLP gain also appears without importance weighting: mean feature R2 rises from 0.734 to 0.761. Thus, the surface features are already recoverable from the small encoder, while scaling improves linear recovery more substantially. Table 17: Feature recovery across encoder sizes. Each entry averages four per-benchmark summaries. Wtd. uses training-derived Extra-Trees importances; mean and median treat features equally.                                                                          
+
+> Ridge MLP Encoder Mean Median Wtd. Mean Median Wtd. Qwen2.5-0.5B 0.507 0.603 0.612 0.734 0.823 0.820 Qwen2.5-1.5B 0.542 0.642 0.652 0.751 0.843 0.840 Qwen2.5-3B 0.569 0.673 0.683 0.754 0.848 0.842 Qwen2.5-7B 0.594 0.701 0.713 0.754 0.854 0.841 Qwen2.5-14B 0.615 0.722 0.734 0.768 0.857 0.852 Qwen2.5-32B 0.581 0.718 0.727 0.748 0.841 0.833 Qwen2.5-72B 0.632 0.743 0.751 0.761 0.852 0.848 MiniLM-22M 0.345 0.393 0.424 0.689 0.770 0.751 E5-base 0.457 0.530 0.561 0.719 0.814 0.796 ModernBERT-base 0.563 0.662 0.673 0.696 0.790 0.774 TF-IDF 0.745 0.900 0.877 ———
+
+37 Table 18: Importance-weighted feature recovery by benchmark. Probe configurations are selected separately on each benchmark's validation split. 
+
+Encoder EmbedLLM NineBy30k R2Bench CARROT 
+
+Ridge (linear) 
+
+Qwen2.5-0.5B 0.641 0.674 0.543 0.589 Qwen2.5-1.5B 0.667 0.721 0.589 0.632 Qwen2.5-3B 0.694 0.764 0.610 0.664 Qwen2.5-7B 0.740 0.775 0.644 0.692 Qwen2.5-14B 0.759 0.787 0.670 0.721 Qwen2.5-32B 0.773 0.776 0.661 0.699 Qwen2.5-72B 0.792 0.812 0.667 0.734 MiniLM-22M 0.570 0.422 0.323 0.380 E5-base 0.665 0.658 0.424 0.497 ModernBERT-base 0.792 0.723 0.561 0.618 TF-IDF 0.897 0.904 0.813 0.894 
+
+MLP (nonlinear) 
+
+Qwen2.5-0.5B 0.875 0.869 0.768 0.769 Qwen2.5-1.5B 0.882 0.868 0.775 0.835 Qwen2.5-3B 0.889 0.883 0.766 0.832 Qwen2.5-7B 0.887 0.878 0.772 0.829 Qwen2.5-14B 0.893 0.882 0.786 0.844 Qwen2.5-32B 0.896 0.881 0.747 0.807 Qwen2.5-72B 0.903 0.889 0.766 0.832 MiniLM-22M 0.881 0.672 0.673 0.776 E5-base 0.904 0.803 0.674 0.803 ModernBERT-base 0.902 0.818 0.584 0.792 
+
+38
