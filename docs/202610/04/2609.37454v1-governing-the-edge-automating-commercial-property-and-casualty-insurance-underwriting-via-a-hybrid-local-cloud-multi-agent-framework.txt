@@ -1,0 +1,187 @@
+Title: Governing the Edge: Automating Commercial Property and Casualty Insurance Underwriting via a Hybrid Local-Cloud Multi-Agent Framework
+
+URL Source: https://arxiv.org/pdf/2609.37454v1
+
+Published Time: Wed, 30 Sep 2026 01:48:35 GMT
+
+Number of Pages: 6
+
+Markdown Content:
+# Governing the Edge: Automating Commercial Property and Casualty Insurance Underwriting via a Hybrid Local-Cloud Multi-Agent Framework 
+
+Vivek Kumar Singh 
+
+Independent Researcher 
+
+McKinney, TX, USA 0009-0002-9350-3207 vivekksingh.nov12@gmail.com 
+
+Gautam Bhowmick 
+
+Independent Researcher 
+
+Chicago, IL, USA 0009-0001-9424-7826 bhowmickgautam@gmail.com 
+
+Abstract —Underwriters in commercial Property and Casualty (P&C) insurance spend most of their day on paperwork rather than on judgment. Industry studies estimate that 30 to 40% of an underwriter’s time goes into administrative work such as reading documents, looking up data, and rekeying, and a single submission can take about 40 minutes to process by hand. This paper presents Governing the Edge, a multi-agent framework that takes over that administrative layer. It uses 13 nodes (11 specialized agents and 2 deterministic control nodes, one of them a human-escalation interrupt) arranged as a directed workflow graph in LangGraph, and it splits the work across two tiers. Agents that touch sensitive data run locally on Gemma 2 and are each bound to an authoritative source — flood maps, motor vehicle records, business-credit profiles, and federal motor-carrier safety records — through a tool-call interface that records every invocation in an audit log (the external tools are synthetic stubs in the current prototype). Agents that only need to reason over anonymized scores run on Claude Sonnet through LiteLLM. The part we think matters most is that compliance is built into the structure of the graph. Rules act as conditions on the edges between agents, so a non-compliant submission cannot reach pricing in the first place, instead of being caught after the fact. We walk through one full scenario end to end, a commercial auto submission whose principal driver carries serious violations, showing every agent call, every tool invocation, and the routing decision that results. In the scenarios we ran, the framework processes a submission that needs about 40 minutes of manual work in a few minutes on a single edge device, with serialized on-device Gemma 2 inference dominating that time and a production graphics processing unit (GPU) expected to reduce it. The accuracy comes at the cost of latency: on-device inference makes the framework slower per submission than a single cloud prompt, a trade we quantify and discuss. On the hard-stop violation tier — the cases a regulator most cares about — the framework enforces every rule correctly and reproducibly, because hard stops are deterministic predicates over fields extracted at temperature 0; its overall compliance accuracy (percentage of scenarios decided correctly) across the 20-scenario benchmark is 70%, with the remaining gap concentrated in softer, judgment-based tiers. It keeps a complete audit trail and respects the privacy boundary throughout, and includes per-agent error-tracking infrastructure across eight failure categories for operational monitoring. We release all of the code, the compliance rules, the tool stubs, and the synthetic datasets. 
+
+Keywords —Commercial P&C insurance, edge AI, governance-aware orchestration, hybrid local-cloud architecture, LangGraph, large language models, multi-agent systems, privacy-preserving AI, straight-through processing, tool-calling agents, underwriting automation. 
+
+I. I NTRODUCTION 
+
+Underwriting a commercial P&C policy takes time and carries real consequences if it goes wrong, and most of that time is not spent on judgment. McKinsey estimates that in many commercial books, 30 to 40% of an underwriter’s time goes into administrative work such as rekeying data and reading documents rather than evaluating risk [9], so the bulk of the elapsed time sits in handling the submission rather than in the risk decision itself. This tells us where automation should aim: not at the underwriter’s judgment but at the administrative work in front of it. A typical 40-minute submission splits into about 10 minutes reading documents and pulling fields, 15 on data lookups against the motor vehicle record (MVR), the Federal Emergency Management Agency (FEMA) flood service, the Department of Transportation (DOT), and Dun & Bradstreet (D&B), 10 checking compliance rules, and 5 writing up the audit record. The risk call itself, the thing underwriters train for, is a small slice of the total. Existing AI approaches only cover part of this. A single large prompt can read a submission and produce a quote, but it cannot enforce compliance, cannot call out to authoritative data, and usually ships raw sensitive data to a cloud application programming interface (API). Agent pipelines such as those built with CrewAI [1] do split the work into separate agents, but they coordinate on task dependencies rather than on compliance, and the agents reason over the submission text instead of querying authoritative data sources. Neither keeps data private, leaves a regulator-grade audit trail, nor grounds decisions in verified outside data. Governing the Edge is our attempt to fix those gaps, and it rests on four design choices. We write the compliance rules directly into the graph as conditions on the transitions between agents. We split the system across a local and a cloud tier, keeping the privacy-sensitive agents on-premise with Gemma 2. We give each agent a dedicated tool boundary to an external 
+
+This work has been accepted for publication in AIxB 2026. Copyright may be transferred without notice, after which this version may no longer be accessible. arXiv:2609.37454v1 [cs.AI] 26 Sep 2026 source — stubbed in this prototype — and log every call. And we record where each agent fails, sorted into eight categories, so we can monitor reliability over time rather than infer it indirectly. Our contributions are the following. We design a governance-aware multi-agent underwriting architecture for commercial P&C on top of LangGraph, and we pair it with a local-cloud split that keeps sensitive data on-premise. We build a 10-rule P&C compliance engine that covers both commercial property and commercial auto, checked against real underwrit-ing practice, with hard-stop rules enforced by deterministic predicates, along with a tool-call layer that binds each agent to an authoritative production data source (synthetic stubs in the released prototype). We add per-agent error-tracking infrastructure spanning eight failure categories for operational monitoring. We work through a complete scenario showing the system automate a piece of underwriting end to end, turning roughly 40 minutes of manual work into a few minutes of automated execution. Submissions that clear every check undergo straight-through processing — they pass from intake to final decision with no human touch — while the rest are routed to an underwriter. Finally, we release the prototype and a synthetic benchmark as open source. Rules were developed with guidance from a technology practice leader in insurance application platforms. Production deployment requires updating thresholds to reflect state-specific Department of Insurance (DOI) requirements and National Association of Insurance Commissioners (NAIC) model laws. II. R ELATED WORK 
+
+A. AI in Insurance Underwriting 
+
+Sajid [1] builds a CrewAI system for evaluating property claims and reports up to 92.9% accuracy in claim evaluation. The agents are coordinated over a task graph rather than a single line, but routing is driven by task dependencies, not compliance, and the agents reason over document text without authoritative external tools; our Linear Pipeline baseline (Section VII) is a sequential, compliance-at-the-end reduction in this spirit. Roy and Singh [2] take a different angle, pairing a primary agent with an adversarial critic in a human-in-the-loop setup, using a state machine and retrieval-augmented generation (RAG) over an underwriting manual, and contribute a failure-mode taxonomy for the decision-making agent. Their goal of reliability in regulated underwriting is close to ours, but their system runs entirely in the cloud, keeps a human in the binding loop rather than enforcing compliance structurally in the graph, and does not address the privacy boundary or grounding in external authoritative data that we focus on. 
+
+B. Multi-Agent Large Language Model (LLM) Frameworks 
+
+LangGraph [3] gives us graph-based orchestration with shared state, conditional edges, and interrupts, and those are exactly the features that let us express governance as routing. AutoGen [4] coordinates agents through conversation, which brings a degree of randomness that we did not want in a regulated decision. Other multi-agent designs target coordination efficiency and architectural flexibility through task-distribution and collaboration patterns, but none route on compliance or enforce a privacy boundary. RouteLLM [5] and FrugalGPT [6] are about routing a single call to the right model, not about governing a multi-step workflow. Like these systems we route, but at the level of the whole workflow rather than a single call: we decide the governance path at plan time, before execution, rather than reacting node by node. 
+
+C. Privacy-Preserving and Edge AI 
+
+Xu et al. [7] survey on-device language models and the architectural and compression techniques that make running capable LLMs locally practical, motivated in part by data localization and privacy, exactly the constraints that arise when sensitive submission data cannot leave the perimeter. Gemma 2 runs locally and is small enough to deploy on-premise [8], which makes it a good fit for the sensitive parts of our pipeline. We carry the same edge-AI idea into insurance and draw an explicit line between what runs locally and what runs in the cloud. III. S YSTEM ARCHITECTURE 
+
+A. Overview 
+
+The framework is a LangGraph StateGraph with 13 nodes and three points where the path can branch, shown in Fig. 1. The agents sit in two tiers. The local tier runs Gemma 2 (ollama/gemma2 ) on-premise and handles anything that touches sensitive data, while the cloud tier runs Claude Sonnet 4.6 ( claude-sonnet-4-6 ) through LiteLLM and handles the heavier reasoning over data that has already been anonymized. The flow runs roughly top to bottom. The Document Parser (1) cleans up the raw PDF or email, and the Intake Agent (2) pulls out the fields of the ACORD 125 form, the standardized commercial insurance application defined by the Association for Cooperative Operations Research and Development (ACORD) standards body. Three risk sub-agents (3a, 3b, 3c) then run in parallel, each invoking the tool bound to its dimension. The Risk Aggregator (3d) is the first cloud agent and merges their scores. The Compliance Agent (4) checks the rules engine. If that returns PASS, Coverage Gap (5) and Pricing (6) run in parallel, their outputs are combined at a parallel-merge node, and the Explainability Agent (7) puts together the audit trace. The Human Escalation node (8) is a plain interrupt, with no model call, that fires whenever the confidence score drops below 0.80 or compliance fails. Table I lists these 11 agent nodes and the human-escalation interrupt; two further deterministic control nodes complete the StateGraph — a compliance-retry node (Section IV) and the parallel-merge step just mentioned — bringing the total to 13. Fig. 2 shows the agent decision flow with tool calls and handoffs. Local agents invoke their bound tool interfaces and pass structured scores to the Risk Aggregator, the first Claude Sonnet agent, which crosses the privacy boundary receiving only anonymized scores. The Compliance Agent then runs the 10 P&C rules and routes the workflow to PASS, FAIL, Fig. 1. End-to-end architecture of the Governing the Edge framework. Thirteen nodes execute across a LangGraph StateGraph with three conditional branch points and an explicit privacy boundary separating raw submission data (local tier) from anonymized score processing (cloud tier). 
+
+Fig. 2. Agent decision flow. Local agents (Gemma 2) invoke their bound tool interfaces and pass anonymized scores to cloud agents (Claude Sonnet) after the privacy boundary. 
+
+or CONFLICT, with PASS triggering parallel Coverage Gap and Pricing agents on the cloud tier before a confidence check (threshold 0.80 on a 0–1 confidence scale) decides between a Final Decision and Human Escalation. 
+
+B. Privacy Boundary 
+
+The privacy line is drawn where state is serialized. The sensi-tive fields, raw_document and parsed_fields , are omit-ted from the state object sent to the cloud agents, which see only the anonymized risk_profile , compliance_result ,and coverage_gaps . We enforce this in three independent places: the serializer that drops the fields, the cloud prompt wording, and network-level isolation. Tool calls follow the same rule: MVR pulls, credit checks, and anything sensitive run only locally, and cloud agents never call a tool needing sensitive input. 
+
+TABLE I AGENT INVENTORY (TWO CONTROL NODES OMITTED ; TOTAL = 13).                                                    
+
+> #Agent Model Tier Role
+> 1Doc Parser Gemma 2 Local Normalize input 2Intake Gemma 2 Local Extract ACORD 125 (temp=0) 3a Property/Fleet Gemma 2 Local FEMA/wildfire stubs 3b Geo/Driver Gemma 2 Local MVR stub; driver risk 3c Business/Ops Gemma 2 Local D&B/DOT stubs 3d Risk Aggregator Claude Sonnet Cloud Merge scores (anon.) 4Compliance Py+Gemma 2 Local Hard-stop preds.; WARNs 5Coverage Gap Claude Sonnet Cloud Coverage gaps 6Pricing Claude Sonnet Cloud Premium range 7Explainability Claude Sonnet Cloud Audit trace 8Escalation None Local Deterministic interrupt
+
+C. Provider-Agnostic LLM Layer 
+
+Every model call goes through LiteLLM 1, so the rest of the code does not care which provider is behind it, and the model can be set per agent (local agents default to ollama/gemma2 ,cloud agents to claude-sonnet-4-6 ). Each agent’s output is checked against a Pydantic schema before it is allowed into shared state, which means a malformed response is caught at the boundary rather than downstream. IV. G OVERNANCE FRAMEWORK 
+
+A. Structural vs. Post-Hoc Governance 
+
+Our central argument is that encoding compliance rules in the graph’s transition conditions catches more violations than checking after the fact. In a linear pipeline a bad intermediate result simply propagates through risk assessment, pricing, and coverage analysis, unnoticed until the end. In our setup the edge from the Compliance Agent to Coverage Gap and Pricing only opens when the check comes back PASS. 
+
+def route_compliance(state) -> str :
+
+if state.compliance_result.status == ’PASS’: 
+
+return ’coverage_gap’ # proceed 
+
+elif state.compliance_result.status == ’FAIL’: 
+
+return ’human_escalation’ # block 
+
+else : # CONFLICT 
+
+return ’compliance_retry’ # self-correct 
+
+So the downstream agents are simply unreachable from a non-compliant state, not skipped by a check but never routed to at all. A CONFLICT result routes to a dedicated compliance-retry node that re-runs the check with a fuller prompt; if the retry still does not return PASS, the workflow escalates to a human. We cap this at one automated retry (MAX_COMPLIANCE_RETRIES = 1 ) before escalation. The hard-stop rules are enforced by deterministic Python predicates (evaluate_hard_stops in 
+
+governance/deterministic_rules.py ), not by model inference. The Compliance Agent runs these predicates first and only routes the soft WARNING rules to Gemma 2, so a hard-stop decision never depends on an LLM’s output; the only path to a wrong hard-stop status is an upstream field-extraction error, which makes the language model the 
+
+> 1
+
+https://github.com/BerriAI/litellm TABLE II P&C C OMPLIANCE RULES ENGINE : 10 V ALIDATED UNDERWRITING RULES                                                      
+
+> ID Line Rule Sev. Agent
+> CP-01 Prop. Frame const. >3 stories STOP 3a CP-02 Prop. TIV >USD 10M STOP 3a CP-03 Prop. Habitational >4 units STOP 3a CP-04 Prop. Loss ratio >70% WARN 3a CP-05 Prop. Bldg >40yr, no reno WARN 3a CA-01 Auto Fleet >20 vehicles STOP 3a CA-02 Auto Driver 2+ major viol. (3yr) STOP 3b CA-03 Auto Radius >500 mi WARN 3b CA-04 Auto Avg fleet >10yr WARN 3a CA-05 Auto DOT Cond./Unsat. STOP 3c
+
+error source rather than the adjudicator. This is a stronger guarantee than an LLM-judged compliance step, and, because the fields those predicates read are extracted at temperature 0, it is why hard-stop outcomes are stable across runs. 
+
+B. P&C Compliance Rules Engine 
+
+The rules engine holds 10 P&C underwriting rules covering both commercial property and commercial auto, written and sanity-checked against real underwriting practice. Table II lists them. Total insured value (TIV) in rule CP-02 is the combined replacement cost of buildings, contents, and business income at a single location. A HARD STOP rule sends the submission straight to a human no matter how confident the system is. A WARNING rule does not stop anything on its own, but it lowers the confidence score and gets written into the audit trail. V. T OOL INTEGRATION 
+
+A recurring weakness in LLM agent systems is that agents reason only from the text in front of them. Our architecture gives each agent a dedicated tool boundary to an authoritative source, and logs every call as a structured ToolCall record. In the current prototype these tools are synthetic stubs (Section VIII); the contribution at this stage is the tool-call interface and audit plumbing, not live data grounding. Table III maps each agent to the production API its stub stands in for. We are explicit about a boundary that matters for evaluation: the deterministic hard-stop rules read fields extracted from the submission document (for example 
+
+driver_mvr_violations ), not the soft scores returned by the risk tools, so in this prototype the hard-stop decisions are grounded in document extraction rather than in the stubbed external lookups. Wiring the rules to consume verified tool output instead of extracted fields is a planned step toward true external grounding. Document parsing relies on optical character recognition (OCR) to extract text from scanned forms before Gemma 2 normalizes it. Each call is logged with timestamp, inputs, outputs, success flag, and duration. The system maps failures to eight categories (Table IV); on the released 20-scenario run all executions succeeded, so this is operational infrastructure rather than a measured result. VI. E XPERIMENTAL WALKTHROUGH SCENARIO 
+
+To make this concrete, we follow one commercial auto submission from raw input to the routing decision, with every agent call and every tool call. The submission is scenario CA-S06, a three-vehicle courier service whose principal driver has a string of serious violations; it touches every tool type and trips a hard-stop rule (CA-02). 
+
+A. Input Submission 
+
+Scenario CA-S06: Speedy Couriers Inc (Standard Industrial Classification (SIC) code 4215, Chicago IL), fleet of 3 cargo vans (avg age 4 yr), radius 120 mi. Principal driver: driving under the influence (DUI) 2021, reckless driving 2022, at-fault accident 2023 — three major violations in three years. Coverage: Liability USD 500K / Physical Damage USD 75K. 
+
+Steps 1–2. Document Parser normalizes the PDF (ACORD 125, high confidence). Intake Agent calls 
+
+validate_address() and lookup_sic_code() , then extracts fleet size = 3, avg fleet age = 4, radius = 120, and driver mvr violations = 3 (worst driver, three major violations in three years). 
+
+Step 3 — Parallel Risk Sub-Agents. The three sub-agents run concurrently. Property/Fleet Risk (3a) has no external tool on a commercial-auto submission (its FEMA and wildfire tools are gated to commercial property), so it scores on fleet makeup and age, returning a MEDIUM risk band (a discrete risk label spanning LOW, MEDIUM, HIGH, and DECLINE) and citing the cargo-van composition and four-year average age. Geographic/Driver Risk (3b) is decisive here. It invokes the MVR tool stub and scores the driver-risk dimension, returning a DECLINE band; the CA-02 hard-stop itself is enforced downstream at the Compliance Agent, which reads the extracted driver mvr violations = 3 field (two or more major violations in three years). Business/Ops Risk (3c) calls lookup_dnb_business() 
+
+(years in business = 8, credit score = 78 on a 0–100 scale, no liens), then lookup_dot_safety_rating() , which returns NOT RATED with success = False (no DOT number provided). It records the missing input and settles on a MEDIUM band with reduced confidence. 
+
+Step 4 — Risk Aggregator Crosses Privacy Boundary. The Risk Aggregator is the first cloud agent, and all it sees is the three sub-agent scores and their band labels under the commercial-auto line weights (fleet 0.30, driver 0.45, ops 0.25; weights summing to 1). No driver names, no business name, and no violation details cross the boundary. The aggregator is a Claude Sonnet agent: it returns an elevated risk tier driven by the dominant driver-risk band. Because the hard-stop outcome in this scenario is determined deterministically at the compliance step (Step 5), the exact aggregate value does not affect the decision. 
+
+Step 5 — Compliance Agent Triggers Hard-Stop. The Compliance Agent evaluates the commercial-auto rules for IL. The hard-stop checks are deterministic Python predicates: check_ca02_driver_violations reads driver mvr violations = 3 and, because 3 ≥ 2, returns a CA-02 TABLE III TOOL INTERFACE MAP : A GENT TO AUTHORITATIVE PRODUCTION SOURCE (SYNTHETIC STUBS IN PROTOTYPE ). S OURCE ACRONYMS : USPS, U NITED                                           
+
+> STATES POSTAL SERVICE ; NAICS, N ORTH AMERICAN INDUSTRY CLASSIFICATION SYSTEM ; FMCSA, F EDERAL MOTOR CARRIER SAFETY
+> ADMINISTRATION .
+> Agent Tool Function Production API
+> Document Parser Agent ocr_document() AWS Textract / Azure Form Recognizer Intake Agent validate_address() ,lookup_sic_code() USPS Address Validation; D&B SIC/NAICS Property Risk lookup_fema_flood_zone() ,lookup_wildfire_risk() FEMA Flood Map; CoreLogic Wildfire / Verisk Geographic/Driver lookup_mvr() LexisNexis MVR / Equifax (consent required) Business Risk lookup_dnb_business() ,lookup_dot_safety_rating() D&B Hoovers / Experian; FMCSA SAFER Compliance Agent query_rules_engine() Internal rules DB + state DOI filings Pricing Agent lookup_base_rate() Duck Creek Rating / Guidewire PolicyCenter TABLE IV PER -A GENT ERROR TAXONOMY : T HE EIGHT FAILURE CATEGORIES
+> TRACKED
+> Category Trigger
+> TIMEOUT LLM call exceeded its timeout.
+> LLM_API_ERROR Authentication, rate-limit, or quota error from the model API.
+> LLM_PARSE_ERROR JSON/output parsing failed (also the catch-all default).
+> SCHEMA_VALIDATION Output failed Pydantic schema validation.
+> TOOL_FAILURE Tool/function-call invocation failed.
+> INCONSISTENCY Output inconsistency or contradiction detected.
+> NULL_REQUIRED A required field was null or missing.
+> GOVERNANCE_CONFLICT A governance/compliance rule was violated.
+
+violation with severity HARD STOP and action DECLINE. The compliance result is therefore FAIL, with a CA-02 entry flagging the principal driver for exclusion. This decision does not depend on any LLM output. 
+
+Step 6 — Routing Decision. route_compliance() sees status = FAIL and routes to Human Escalation; Coverage Gap and Pricing never run. This is exactly where the design parts ways with a linear pipeline, which would have priced a submission it should not have. 
+
+Step 7 — Human Escalation Package. The Human Escalation node (no model call) assembles a fixed-schema package: submission id, escalation reason (CA-02 detected), risk profile, compliance result with rule id, agent explanations, audit trail, and recommended action DECLINE. Tool invocations are recorded in a separate log so the underwriter can trace both model decisions and data evidence. 
+
+End-to-End Timing. CA-S06 completed in 197.5 s (3.3 min); the 20-scenario average is 268.8 s, dominated by serialized on-premise Gemma 2 inference (Table V). A production edge GPU with resident model would substantially reduce this. The same submission by hand takes 35–45 minutes. By automating the administrative layer that consumes 30 to 40% of the underwriter’s day [9], the framework frees time for risk evaluation; on a hard-stop case like CA-S06 it returns a complete, audit-ready package naming the broken rule, the agent that caught it, and the recommended action. VII. C OMPARISON WITH BASELINE SYSTEMS 
+
+We compare against two baselines. Monolithic Claude Sonnet is a single prompt over the whole submission with no intermediate agents, tool calls, or compliance step. The Linear Pipeline runs the same agents in sequence with compliance checked only at the end and no tools. Both run entirely on cloud APIs. On CA-S06, the monolithic baseline missed the CA-02 violation entirely, quoting a USD 5,200 premium and never flagging the DUI because the violation count sat in free-text history rather than a field the model attended to. The linear pipeline caught it, but only at its final compliance check, after already pricing and analyzing coverage for a submission it should have stopped. Table VI reports per-system compliance accuracy, workflow completion, and average latency across the 20 scenarios. Compliance accuracy is the fraction of scenarios reaching the correct approve, refer, or decline decision with all applicable hard-stop rules enforced; a scenario routed to a human on an unresolved CONFLICT is scored correct only when escalation is the appropriate outcome. Governing the Edge reaches 70% overall compliance accuracy, between the monolithic baseline (75%) and the linear pipeline (30%). This single overall figure, however, understates where the framework matters most. Table VII breaks accuracy down by scenario tier. On the hard-stop violation tier — the cases where a non-compliant submission must be stopped — Governing the Edge is correct on all six scenarios (100%), versus five of six (83%) for the monolithic baseline; and unlike the linear pipeline, which also catches all six hard stops but collapses to 0% on every other tier, it does so without sacrificing the straightforward approvals (4/4). The overall gap to the monolithic baseline is concentrated in the WARNING and low-confidence escalation tiers (2/6 and 2/4), which are decided by the local Gemma 2 model’s judgment rather than by deterministic predicates; the cloud-based monolithic Claude baseline is stronger on exactly those softer, judgment-heavy cases. With 20 scenarios these tier-level differences span a handful of scenarios each and are indicative rather than statistically established. The hard-stop result, by contrast, is reproducible: it is computed by deterministic predicates over temperature 0 fields and does not vary between runs. 
+
+A. Underwriter Handoff 
+
+On escalation, underwriters receive a fixed-schema package with the exact rule, agent evidence, and recommended action. The composite confidence score (intra-agent 0.40, inter-agent TABLE V PER -A GENT LATENCY ON THE RELEASED 20-S CENARIO RUN (M1, SERIALIZED ON -PREMISE INFERENCE ). M ANUAL TIMES ARE FROM THE MCKINSEY COMMERCIAL -UNDERWRITING BENCHMARK [9]; FRAMEWORK TIMES ARE MEDIAN WALL -CLOCK PER AGENT FROM THE SHIPPED TELEMETRY 
+
+(E V A L U A T I O N /E R R O R _R E P O R T .J S O N ). 
+
+Underwriting Task Manual Time Framework (median) Tool / Agent 
+
+Document intake & field extraction 16–24 min 63.9 s Doc Parser + Intake Driver/geographic risk (incl. MVR) 8–12 min 71.7 s Geographic/Driver ( lookup_mvr() )Property/fleet exposure check 5–10 min 80.3 s Property/Fleet ( lookup_fema_flood_zone() )Business credit / DOT lookup 10–18 min 110.3 s Business/Ops (lookup_dnb_business() ,
+
+lookup_dot_safety_rating() )Compliance rules check (10 rules) 15–25 min 39.2 s Compliance ( query_rules_engine() )Coverage adequacy analysis 10–15 min 46.8 s Coverage Gap (cloud) 
+
+END-TO-END (avg over 20 scenarios) ∼40 min 268.8 s Full Workflow TABLE VI BASELINE COMPARISON ON 20 S YNTHETIC SCENARIOS 
+
+System Compliance Acc. Completion Avg Latency 
+
+Monolithic Sonnet 75.0% 100% 6.4 s Linear Pipeline 30.0% 100% 30.4 s 
+
+Governing the Edge 70.0% 100% 268.8 s TABLE VII COMPLIANCE ACCURACY BY SCENARIO TIER (COMMITTED 20-SCENARIO RUN ). G OVERNING THE EDGE IS THE ONLY SYSTEM THAT ENFORCES EVERY HARD STOP (6/6) WITHOUT COLLAPSING ON THE OTHER TIERS .
+
+Scenario Tier Monolithic Linear Gov. the Edge 
+
+Straightforward approval (4) 4/4 0/4 4/4 
+
+WARNING compliance (6) 3/6 0/6 2/6 Hard-stop violation (6) 5/6 6/6 6/6 
+
+Low-confidence escalation (4) 3/4 0/4 2/4 
+
+Overall 75% 30% 70% 
+
+0.35, governance 0.25; weights summing to 1) routes uncertain cases to a human at threshold 0.80 on the same 0–1 scale; the rest reach a Final Decision automatically. VIII. L IMITATIONS AND DISCUSSION 
+
+A. Limitations of the Current Prototype 
+
+The prototype has several limitations that bear directly on how its results should be read. First, the external tools are stubs that return synthetic, randomized data rather than live lookups, and they are unseeded, so the cloud-tier soft scores, the aggregate risk tier, and the per-run latencies vary between runs and are not bit-for-bit reproducible. The hard-stop tier, computed by deterministic predicates over temperature 0 fields rather than the randomized tool output, is stable (6/6 across runs) while the WARNING and escalation tiers vary; a fixed random number generator (RNG) seed is a planned change that would make the entire run reproducible. Second, because the hard-stop rules read extracted fields rather than tool output, the tool layer currently provides the call-and-audit interface but not yet live external grounding for the decisions that matter; closing that gap is the main engineering step toward production. Swapping in the real APIs would not touch agent prompts or routing, since agents consume whatever structured dictionary the tool returns, but that integration is until then untested. On the model side, the released configuration runs Gemma 2 locally; Gemma 4 is the intended target once on-device tooling support lands, at which point the latency figures should be re-measured. Risk aggregation is delegated to the cloud LLM rather than a fixed formula, so the aggregate score is a model output rather than an auditable arithmetic step; replacing it with a deterministic weighted sum is a planned simplification. The scenarios are synthetic, which aids open release but limits generalization. Ground-truth decisions were set by a single expert; a larger, multiply-annotated benchmark would strengthen them. The manual times in Table V come from a published benchmark [9] rather than our own carrier studies. IX. C ONCLUSION 
+
+Governing the Edge encodes compliance as graph edge con-ditions with deterministic hard-stop predicates, keeps sensitive agents on-premise on Gemma 2, and binds each agent to a logged tool interface. On 20 synthetic scenarios it achieves 100% hard-stop accuracy (6/6, reproducibly) and 70% overall, preserving full data residency and a complete audit trail. Code, rules, stubs, and datasets: https://github.com/vsingh45/govern ing-the-edge. ACKNOWLEDGMENT 
+
+The authors used a generative AI system (Anthropic Claude) during preparation of this manuscript, limited to language editing and coding assistance. All technical content, claims, ex-perimental design, compliance rules, and architectural decisions are entirely the authors’ own work. REFERENCES [1] M. I. Sajid, “Multi-agentic automation for evaluating property claims in underwriting,” Open Journal of Applied Sciences , vol. 15, no. 4, pp. 819–833, 2025, doi: 10.4236/ojapps.2025.154055. [2] J. Roy and S. K. Singh, “Agentic AI for commercial insurance under-writing with adversarial self-critique,” arXiv preprint arXiv:2602.13213, 2026. [3] LangChain, “LangGraph: Building stateful, multi-actor applications with LLMs,” 2024. [Online]. Available: https://github.com/langchain-ai/lang graph [4] Q. Wu et al., “AutoGen: Enabling next-gen LLM applications via multi-agent conversation,” arXiv preprint arXiv:2308.08155, 2023. [5] I. Ong et al., “RouteLLM: Learning to route LLMs with preference data,” arXiv preprint arXiv:2406.18665, 2024. [6] L. Chen et al., “FrugalGPT: How to use large language models while reducing cost and improving performance,” arXiv preprint arXiv:2305.05176, 2023. [7] J. Xu et al., “On-device language models: A comprehensive review,” arXiv preprint arXiv:2409.00088, 2024. [8] Gemma Team, Google DeepMind, “Gemma 2: Improving open language models at a practical size,” arXiv preprint arXiv:2408.00118, 2024. [9] A. Agarwal, “Fixing underwriting’s front door,” Insurance Innovation Reporter , Jan. 14, 2026.
