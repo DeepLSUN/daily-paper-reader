@@ -1,0 +1,1087 @@
+Title: Scaling Influence Functions in LLMs through Eigenbasis-Corrected One-Bit Gradient Projection
+
+URL Source: https://arxiv.org/pdf/2609.37842v1
+
+Published Time: Wed, 30 Sep 2026 02:11:42 GMT
+
+Number of Pages: 22
+
+Markdown Content:
+Preprint. Under review. 
+
+# SCALING INFLUENCE FUNCTIONS IN LLM S THROUGH 
+
+# EIGENBASIS -C ORRECTED ONE -B IT GRADIENT 
+
+# PROJECTION 
+
+Jaeseung Heo 
+
+POSTECH 
+
+jsheo12304@postech.ac.kr 
+
+J Rosser 
+
+University of Oxford 
+
+jrosser@robots.ox.ac.uk 
+
+Dongwoo Kim 
+
+POSTECH 
+
+dongwookim@postech.ac.kr 
+
+## ABSTRACT 
+
+Influence functions estimate how individual training examples affect the behavior of large language models (LLMs). Analyzing how training data influence dif-ferent behaviors of an LLM involves repeated influence computation. Reusing stored training gradients reduces the computational cost, but storing full gradients is prohibitively expensive at LLM scale. We study how to compress these gradi-ents while preserving influence estimates for future queries that are unknown at storage time. Through a worst-case analysis, we characterize the optimal fixed-dimensional linear representation and propose eigenbasis-corrected one-bit gradi-ent projection (EOGP) to approximate it at scale. Specifically, EOGP uses EK-FAC to reduce gradient dimensionality, then applies PCA within the retained sub-space to learn compression directions from the training gradients. We then apply one-bit quantization to the resulting coordinates, allowing more coordinates to be retained within a fixed storage budget. On GPT-2, EOGP predicts retraining outcomes more accurately than the evaluated compression baselines while using one-sixteenth of their per-example storage. On OLMo 2 SFT models from 1B to 32B parameters, EOGP remains competitive with the baselines allocated over 100 times as much storage per example. 
+
+## 1 INTRODUCTION 
+
+Influence functions are widely used to analyze how training data shape the diverse behaviors of large language models (LLMs). Their applications include studying generalization (Grosse et al., 2023; Ruis et al., 2025; Kou et al., 2025), selecting data for fine-tuning (Zhou et al., 2024; Heo et al., 2026; Chen et al., 2026), and identifying training examples that contribute to undesired behavior (Zhang et al., 2025; Coalson et al., 2025). By estimating how individual training examples affect a model’s predictions (Koh & Liang, 2017), influence functions provide a common framework for investigating these connections between training data and model behavior. Each attribution query asks which training examples contribute to a particular model output or be-havior. Analyzing different behaviors of a fixed model therefore involves multiple queries, but the training-example gradients used in influence estimation can be reused across them. Computing and storing these gradients once would avoid repeated backward passes over the training data as new queries arise. At LLM scale, however, storing full gradients is costly: a single training-example gra-dient for an 8B-parameter model requires 16 GB in half precision. Supporting repeated attribution queries efficiently thus calls for compact gradient representations that can be stored and reused. Existing gradient-compression methods reduce this storage cost through random (Schioppa, 2024; Choe et al., 2025; Hu et al., 2025) or curvature-informed projections (Schioppa et al., 2022; Choe et al., 2025), representing each gradient with a small number of coordinates. The central challenge is deciding which information these coordinates should preserve. Since future attribution queries 1arXiv:2609.37842v1 [cs.LG] 29 Sep 2026 Preprint. Under review. are not known when the representations are constructed, compression must retain information that remains useful across different subsequent influence calculations. We address this challenge by defining a compression objective based on the discrepancy between influence scores computed from compressed and uncompressed gradients across possible future queries. Under a normalized worst-case influence-error criterion, we show that the top-k PCA coor-dinates of half-whitened training gradients are optimal among k-dimensional linear representations. This result provides a concrete target for constructing reusable gradient representations. To approximate this target at LLM scale, we propose Eigenbasis-corrected One-bit Gradient Pro-jection (EOGP). Computing PCA directly on full gradients is prohibitively expensive for billion-parameter models. We therefore first reduce their dimensionality using projection directions derived from EK-FAC (George et al., 2018), then apply PCA to the resulting representations to learn the final compression basis. This allows us to refine the representation using the training gradients within a computationally manageable space. We then apply one-bit quantization to the resulting coordinates, allowing more coordinates to be stored within a fixed budget. Together, these steps address which directions to retain and how much precision to allocate to each coordinate. We evaluate the resulting representations through retraining-based validation and comparison with an uncompressed influence reference. On GPT-2 (Radford et al., 2019), EOGP outperforms the tested compression baselines in both linear datamodeling score (LDS) (Park et al., 2023) and coun-terfactual retraining (Bae et al., 2024). On OLMo 2 SFT models (OLMo et al., 2024) from 1B to 32B parameters, EOGP more accurately reproduces the reference influence rankings at matched storage budgets. Even with less than 16 KB per example, it remains competitive with all tested compres-sion baselines allocated over 100 times as much storage. These results show that compact, reusable gradient representations can retain useful attribution information at substantially lower storage cost. 
+
+## 2 PRELIMINARIES 
+
+2.1 INFLUENCE FUNCTIONS 
+
+Influence functions (Koh & Liang, 2017) estimate how a model’s behavior would change if a training example were removed and the model retrained. Let θ ∈ Rd denote the model parameters, θ∗ ∈ Rd
+
+their trained values, and ℓi : Rd → R the loss function for training example i. The corresponding 
+
+training gradient is ∇θ ℓi(θ∗) ∈ Rd, and H ∈ Rd×d denotes the Hessian of the average training loss at θ∗.For a scalar target measurement f : Rd → R, we define the query gradient ∇θ f ∈ Rd as its gradient with respect to θ, evaluated at θ∗. For example, a query about the loss on a target document z uses 
+
+∇θ f = ∇θ ℓz (θ∗). The influence score of training example i for this query is 
+
+I(i) := ∇θ f ⊤H−1∇θ ℓi(θ∗) ∈ R. (1) For neural networks, the loss Hessian H can be singular, so H−1 may not exist. Prior work addresses this by using the generalized Gauss–Newton (GGN) matrix G ∈ Rd×d, with G ⪰ 0, together with damping (Martens, 2020; Bae et al., 2022; Grosse et al., 2023). For λ > 0, we define Hλ := 
+
+G + λI d ∈ Rd×d, where Id is the d × d identity matrix. Since Hλ ≻ 0, the practical influence score is ˆI(i) := ∇θ f ⊤H−1 
+
+> λ
+
+∇θ ℓi(θ∗) ∈ R. (2) For a fixed model, the training gradient ∇θ ℓi(θ∗) does not depend on the query and can therefore be reused across queries. In this work, we aim to store these gradients so that subsequent influence calculations do not require repeated backward passes over the training data. 2.2 KRONECKER -F ACTORED CURVATURE APPROXIMATION 
+
+GGN–Fisher equivalence. Storing and factorizing the full GGN is impractical at LLM scale, so prior work has used structured approximations of the Fisher information matrix for scalable in-fluence estimation (Grosse et al., 2023). For softmax cross-entropy on logits, the loss commonly used to train autoregressive LLMs, the GGN coincides with the Fisher F (Martens, 2020). Writing 2Preprint. Under review. discarded span( Qm)                    
+
+> q1
+> q2
+> q1
+> q2PCA direction +s
+> −s
+> +−++−−+−b
+> (a) EK-FAC projection
+> Reduce d-dimensional gradients to an
+> m-dimensional candidate space.
+> (b) PCA basis correction
+> Fit PCA to projected training gradients to select the best kdirections ( m→k).
+> (c) One-bit compression
+> Retain more coordinates under the same storage budget ( kbits + one FP16 scale).
+> (Eq. 11) (Eq. 12) (Eq. 13)
+
+Figure 1: Overview of EOGP. (a) Training gradients are projected onto an EK-FAC subspace and half-whitened. (b) PCA corrects the compression basis within this subspace. (c) The resulting coordinates are stored as one sign bit per coordinate together with a shared scale. Query gradients undergo the same transformations without one-bit quantization, and influence scores are computed as scaled inner products with the stored bits. 
+
+g(x, y ) := ∇θ ℓ(x, y ; θ∗), this matrix is 
+
+G = F = Ex∼D X E˜y∼pθ∗ (·| x)
+
+g(x, ˜y)g(x, ˜y)⊤ , (3) where DX is the empirical distribution of training inputs. Thus, the curvature is a gradient second moment with labels drawn from the model’s predictive distribution. 
+
+K-FAC approximation. K-FAC (Martens & Grosse, 2015) exploits the layer structure of neural networks to approximate this Fisher matrix efficiently. In its block-diagonal form, it neglects cross-layer blocks and approximates each layer’s block by a Kronecker product. For a linear layer, the two Kronecker factors are the second-moment matrices of its input activations a and the loss gradients δ
+
+with respect to its outputs. 
+
+Glayer = E(aa ⊤) ⊗ (δδ ⊤) ≈ A ⊗ S, A := E[aa ⊤], S := E[δδ ⊤]. (4) Let QA and QS be the orthonormal eigenbases of A and S, respectively. Then QA ⊗ QS is an eigenbasis of the K-FAC approximation A ⊗ S. This structure allows the basis to be obtained from two smaller eigendecompositions and applied through matrix multiplications without materializing the full basis matrix. 
+
+EK-FAC approximation. EK-FAC (George et al., 2018; Grosse et al., 2023) corrects the eigen-values of the K-FAC approximation while retaining its block structure and layerwise eigenbases. It obtains the corrected values by expressing gradients in these bases and taking the mean square of each coordinate. With labels sampled as in Equation (3), the resulting approximation is 
+
+G ≈ QΛQ⊤, (5) where Q is block diagonal, with each block given by the corresponding layer’s K-FAC eigenbasis 
+
+QA ⊗ QS , and Λ is the diagonal matrix of corrected eigenvalues. 
+
+## 3 METHOD 
+
+This section presents Eigenbasis-corrected One-bit Gradient Projection (EOGP), which stores com-pact representations of training gradients for reuse in influence estimation. We first formulate gra-dient compression as minimizing a normalized worst-case influence error and show that storing the top-k PCA coordinates of half-whitened training gradients is optimal among k-dimensional linear representations (§3.1). We then approximate this target using a projection onto the EK-FAC eigen-basis followed by PCA within the retained subspace (§3.2). Finally, we store the resulting training coordinates as one sign bit each, together with a scale per module (§3.3). Figure 1 illustrates the pipeline, and Appendix B gives the full procedure. 3.1 WHAT TO STORE : PCA OF HALF -W HITENED GRADIENTS 
+
+Compression objective. We first ask which k-dimensional linear representation best preserves the influence scores in Equation (2) when queries are unknown at storage time. We consider linear 3Preprint. Under review. compression methods that store V ⊤∇θ ℓi(θ∗) ∈ Rk per training example, where V ∈ Rd×k defines the compression. A reconstruction matrix M ∈ Rd×k maps these coordinates back to parameter space, giving the influence estimate ∇θ f ⊤M V ⊤∇θ ℓi(θ∗).We evaluate compression by the discrepancy between the uncompressed influence score and the estimate obtained from the stored coordinates. Since this discrepancy scales linearly with the query gradient, we constrain query magnitude to obtain a finite worst-case error. The influence score in Equation (2) weights the interaction between the query and training gradients by H−1 
+
+> λ
+
+, giving greater weight to components along directions of lower curvature. The standard Euclidean norm treats all directions equally and therefore does not capture this directional weighting. To account for how query components enter the influence computation, we use the H−1 
+
+> λ
+
+-weighted Euclidean norm and define its unit ball B as 
+
+∥q∥H−1
+
+> λ
+
+:= 
+
+q
+
+q⊤H−1 
+
+> λ
+
+q, B := 
+
+n
+
+q ∈ Rd : ∥q∥H−1
+
+> λ
+
+≤ 1
+
+o
+
+. (6) Our objective is the worst-case squared influence error over query gradients in B, averaged over training examples: 
+
+E(V, M ) := Ei
+
+h
+
+sup   
+
+> ∇θf∈B
+
+∇θ f ⊤ H−1 
+
+> λ
+
+− M V ⊤∇θ ℓi(θ∗) 2i
+
+. (7) This criterion allows us to optimize the stored representation without knowing which attribution queries will be evaluated later. 
+
+Optimal linear representation. To characterize the optimal representation, we define the half-whitened training and query gradients ˜ti := H−1/2 
+
+> λ
+
+∇θ ℓi(θ∗) and ˜q := H−1/2 
+
+> λ
+
+∇θ f . Influence is then the inner product ⟨˜q, ˜ti⟩.
+
+Proposition 1 (Optimality of half-whitened PCA) . Let 1 ≤ k ≤ d, and let the columns of U ∈ Rd×k
+
+be orthonormal eigenvectors corresponding to the k largest eigenvalues of the uncentered second moment Σ := Ei[˜ ti˜t⊤ 
+
+> i
+
+]. Then Equation (7) is minimized by V = M = H−1/2 
+
+> λ
+
+U , i.e., by storing 
+
+U ⊤˜ti and estimating influence as its inner product with U ⊤ ˜q.
+
+Thus, storing the top-k PCA coordinates of half-whitened training gradients minimizes influence-estimation error under Equation (7). The proof is provided in Appendix A.1. 3.2 TWO -S TAGE PROJECTION : PCA WITHIN AN EK-FAC S UBSPACE 
+
+Performing PCA directly on half-whitened training gradients is impractical at LLM scale, so we approximate it in two stages. The first stage uses the gradient statistics provided by EK-FAC to construct an m-dimensional candidate subspace. The second stage applies PCA to the training gradients projected into this subspace to select the final k directions, where m > k .We apply both stages independently to each linear layer (module). Throughout this subsection, we suppress module indices and use d, m, and k for the corresponding per-module dimensions. 
+
+First stage: subspace selection with EK-FAC. Let C := Ei[∇θ ℓi(θ∗)∇θ ℓi(θ∗)⊤] ∈ Rd×d
+
+denote the uncentered second moment of the training gradients, also known as the empirical Fisher (Martens, 2020). Applying the PCA criterion of Proposition 1 within each module requires the leading eigenvectors of 
+
+Σ = H−1/2 
+
+> λ
+
+CH −1/2 
+
+> λ
+
+. (8) To construct a tractable surrogate for Σ, we approximate both the half-whitening operator and the training-gradient second moment. We begin with the half-whitening operator, which depends on the curvature matrix G. For softmax cross-entropy, G coincides with the true Fisher and can therefore be approximated using EK-FAC, as reviewed in Section 2.2. Writing G ≈ QΛQ⊤, where Λ = diag( λ1, . . . , λ d) contains the corrected eigenvalues, gives 
+
+H−1/2 
+
+> λ
+
+= ( G + λI )−1/2 ≈ Q(Λ + λI )−1/2Q⊤ =: bH−1/2 
+
+> λ
+
+. (9) 4Preprint. Under review. For candidate subspace selection, we additionally use QΛQ⊤ as a surrogate for C. This is a separate approximation: although the Fisher and the empirical Fisher C are both gradient second moments, the Fisher averages over the model’s predictive label distribution for each input, whereas C uses the corresponding training label. Combining this surrogate with the approximate half-whitening in Equation (9) yields 
+
+Σproxy := bH−1/2 
+
+> λ
+
+QΛQ⊤ bH−1/2
+
+> λ
+
+= Q diag 
+
+ λ1
+
+λ1 + λ , . . . , λd
+
+λd + λ
+
+
+
+Q⊤. (10) Since λj /(λj + λ) increases with λj for λ > 0, the m EK-FAC eigenvectors with the largest cor-rected eigenvalues form a top-m PCA basis for Σproxy . We can therefore construct this candidate subspace directly from the existing EK-FAC statistics, without separately estimating C or perform-ing a full-space eigendecomposition. Let Qm ∈ Rd×m contain these eigenvectors and Λm ∈ Rm×m be the diagonal matrix of their corrected eigenvalues. Projecting the EK-FAC half-whitened training gradients onto this basis gives the first-stage coordinates: 
+
+˜t(1)  
+
+> i
+
+:= Q⊤ 
+
+> m
+
+bH−1/2 
+
+> λ
+
+∇θ ℓi(θ∗)= (Λ m + λI )−1/2Q⊤
+
+> m
+
+∇θ ℓi(θ∗) ∈ Rm. (11) The Kronecker factorization Q = QA ⊗QS allows these coordinates to be computed through matrix multiplications with the two smaller factors, without forming a dense d × m projection matrix. 
+
+Second stage: subspace refinement with PCA. The EK-FAC basis is inherited from the K-FAC approximation A ⊗ S, which uses separate second moments of activations and backpropagated gradients. Although EK-FAC corrects the diagonal second moments in this basis, it keeps the basis fixed and leaves off-diagonal terms unmodeled. Consequently, the retained axes need not align with the principal directions of the half-whitened training gradients. To account for the second-moment structure among the retained coordinates, the first stage keeps 
+
+m > k EK-FAC axes. We then find the optimal k-dimensional subspace within their span by applying PCA to the full second moment of the first-stage coordinates, Σ(1) := Ei
+
+h˜t(1)  
+
+> i
+
+(˜ t(1)  
+
+> i
+
+)⊤
+
+i
+
+,
+
+including its off-diagonal entries. Let P ∈ Rm×k contain the orthonormal eigenvectors of Σ(1) associated with its k largest eigenval-ues. Combining this PCA projection with the first-stage transformation gives the final coordinates: 
+
+˜t(2)  
+
+> i
+
+:= P ⊤˜t(1) 
+
+> i
+
+= ( QmP )⊤ bH−1/2 
+
+> λ
+
+∇θ ℓi(θ∗) ∈ Rk. (12) The following proposition shows that this correction yields a reconstruction error less than or equal to that obtained using the leading k EK-FAC axes. 
+
+Proposition 2 (Eigenbasis correction) . Let ˜tEK  
+
+> i
+
+:= bH−1/2 
+
+> λ
+
+∇θ ℓi(θ∗) denote the EK-FAC half-whitened training gradients, U⋆ := QmP the corrected basis, and Qk the basis formed by the leading k EK-FAC axes retained in Qm. Projecting these gradients onto span( U⋆) has the follow-ing guarantees: 
+
+(i) The mean squared reconstruction error is less than or equal to that obtained by projecting onto the leading k EK-FAC axes. Formally, 
+
+Ei
+
+∥˜tEK  
+
+> i
+
+− U⋆U ⊤ 
+
+> ⋆
+
+˜tEK  
+
+> i
+
+∥22
+
+ ≤ Ei
+
+∥˜tEK  
+
+> i
+
+− QkQ⊤ 
+
+> k
+
+˜tEK  
+
+> i
+
+∥22
+
+ .
+
+In fact, it is minimal among all k-dimensional subspaces of span( Qm).
+
+(ii) If span( Qm) contains a top-k principal subspace of ˜tEK  
+
+> i
+
+, the error equals the minimum attained by full-space k-dimensional PCA within that module. 
+
+Thus, retaining m > k candidate axes allows the final subspace to be optimized within a larger span while storing only k coordinates per training example. The proof is provided in Appendix A.2. 5Preprint. Under review. 
+
+A scalable alternative to PCA. PCA minimizes reconstruction error within the retained span for a fixed output dimension k. However, storing and applying its dense correction matrix P ∈ Rm×k
+
+becomes costly as k grows. To exploit larger per-example storage budgets without this overhead, we introduce EOGP-R, which replaces the PCA correction with an implicitly applied subsampled randomized Hadamard transform (SRHT) (Tropp, 2011), S ∈ Rk×m:
+
+˜t(2 ,R)  
+
+> i
+
+= S˜t(1)  
+
+> i
+
+.
+
+The construction and normalization of S are detailed in Appendix B.2. When the output dimension k is sufficiently large, SRHT preserves norms within a fixed low-dimensional subspace up to bounded distortion with high probability (Tropp, 2011). For query and training representations in this subspace, this guarantee also controls inner-product distortion and the resulting influence-score error introduced by sketching. This variant offers a trade-off between PCA’s fixed-k reconstruction optimality and scalability to larger output dimensions without a dense correction matrix. 3.3 ONE -B IT QUANTIZATION 
+
+Even after projection, storing every coordinate in floating point limits the number of directions we can retain under a fixed per-example storage budget. We apply one-bit quantization to both EOGP and EOGP-R to accommodate more projected coordinates within this budget. For each module u, let ˜t(2)  
+
+> i,u
+
+∈ Rku denote the projected training-gradient coordinates. We store a binary sign vector and one scale: 
+
+bi,u := sign  ˜t(2) 
+
+> i,u
+
+ ∈ {± 1}ku , si,u := 1
+
+ku
+
+˜t(2)  
+
+> i,u 1
+
+. (13) The scale captures the average magnitude of the coordinates and is chosen to minimize ∥˜t(2)  
+
+> i,u
+
+−
+
+s b i,u ∥22 over s (Rastegari et al., 2016). Each module requires ku sign bits and one half-precision scale per training example. The complete representation contains P 
+
+> u
+
+ku coordinates. At query time, we apply the same projection to the query gradient and keep its coordinates ˜q(2) 
+
+> u
+
+unquantized. We estimate influence by 
+
+bI(i) := X
+
+> u
+
+si,u ˜q(2)  
+
+> u
+
+, b i,u . (14) This computes influence from the stored representations without recomputing training gradients. 
+
+## 4 EXPERIMENTS 
+
+We evaluate whether compact gradient representations preserve useful training-data attributions un-der limited storage budgets. We first compare against retraining outcomes on GPT-2 (§4.1), then measure fidelity to EK-FAC influence on billion-parameter LLMs (§4.2). We examine the contri-butions of the projection and quantization choices (§4.3), and report the storage and computation required to build the representations (§4.4). 4.1 VALIDATION AGAINST RETRAINING 
+
+Setup and metrics. We evaluate GPT-2 (Radford et al., 2019) on WikiText-2 (Merity et al., 2016) at matched per-example storage budgets of {12 , 24 , 96 , 384 , 1536 } KB. An uncompressed half-precision gradient requires 162 MB per example. Compression baselines include LoGra (Choe et al., 2025) with PCA and random initialization, GraSS (Hu et al., 2025), and LoRIF (Li et al., 2026). We use EK-FAC influence, K-FAC influence, and TracIn (Pruthi et al., 2020) as uncom-pressed references, and random removal as an additional baseline for the counterfactual experiment. We use two retraining-based metrics. The linear datamodeling score (LDS) (Park et al., 2023) evaluates how well influence estimates predict retraining outcomes. It measures the rank correlation between the estimated influences of randomly sampled training subsets and the outcomes measured 6Preprint. Under review. 12 24 96 384 1536                        
+
+> Storage per training example (KB)
+> 0.1 0.2 0.3 0.4
+> LDS
+> 50 100 150 200 250 300 0.0 0.2 0.4 0.6
+> Perplexity increase
+> 12 KB
+> 50 100 150 200 250 300
+> 24 KB
+> 50 100 150 200 250 300
+> 96 KB Number of removed training examples
+> EOGP LoGra (PCA) LoGra (Random) GraSS LoRIF EK-FAC K-FAC TracIn Random
+
+Figure 2: Validation against retraining-based ground truth on GPT-2 across storage budgets: linear datamodeling score (left) and counterfactual retraining (right). Black lines denote uncompressed influence functions with different Hessian approximations and the random-removal baseline. after retraining the model on each subset. Counterfactual retraining (Bae et al., 2024) removes the examples ranked most influential by each method and measures the resulting increase in validation perplexity after retraining. Higher LDS indicates closer agreement with retraining outcomes, while a larger perplexity increase indicates a greater impact of removing the selected examples. Further metric and protocol details are provided in Appendix D.1. 
+
+Results. Figure 2 shows that EOGP improves retraining-based attribution quality over the com-pression baselines, with the largest gains at small storage budgets. In LDS, EOGP at 96 KB exceeds all compression-based baselines at 1,536 KB, despite using 16 times less per-example storage. At 384 KB, it achieves LDS close to the uncompressed K-FAC reference while using over 400 times less per-example storage than the 162 MB uncompressed representation. The counterfactual exper-iment likewise shows that the examples selected by EOGP produce larger perplexity increases than those selected by the compression baselines. 4.2 FIDELITY TO EK-FAC AT LLM S CALE 
+
+Setup. We evaluate the SFT checkpoints of OLMo 2 (OLMo et al., 2024) with 1B, 7B, 13B, and 32B parameters. Training examples come from the T¨ ulu 3 SFT mixture (Lambert et al., 2024), and queries come from a held-out split. Uncompressed half-precision gradients occupy approximately 2–62 GB per example across these models. We compare compression methods at budgets ranging from a few kilobytes to megabytes per example, corresponding to compression ratios on the order of 10 4–10 6 relative to uncompressed half-precision gradients. Further evaluation details are given in Appendix D.2. 0.2 0.4 0.6 0.8 1.0     
+
+> NDCG@20
+> 0.1 0.2 0.3 0.4
+> LDS
+> = 0.95
+> 0.2 0.4 0.6 0.8 1.0
+> Spearman correlation
+> 0.1 0.2 0.3 0.4
+> LDS
+> = 0.84
+> EOGP LoGra (PCA) LoGra (Random) GraSS LoRIF EK-FAC K-FAC TracIn
+
+Figure 3: LDS versus EK-FAC fidelity on GPT-2, measured by NDCG@20 (left) and Spearman correlation (right). ρ is the Spearman correlation across configurations from Figure 2. 
+
+Metrics and reference. Since retraining-based evaluation is computationally prohibitive at this scale, we use agreement with EK-FAC influence rankings as a proxy for attribution quality. We choose EK-FAC as the refer-ence because it performs best in our GPT-2 retraining-based evaluation among the evalu-ated methods that scale to billion-parameter LLMs (Section 4.1), consistent with prior com-parisons (Choe et al., 2025). For each query, we measure overall ranking agreement using Spearman correlation and agreement near the top of the ranking using NDCG@20 (J¨ arvelin & Kek¨ al¨ ainen, 2002), then average both met-rics over queries. To examine whether these agreement metrics reflect retraining-based attribution quality, Figure 3 shows their relationship with LDS on GPT-2. Each point corresponds to an evaluated configura-7Preprint. Under review. 10 KB 100 KB 0.2 0.4 0.6                  
+
+> NDCG@20
+> 1B
+> 10 KB 100 KB 1 MB
+> 7B
+> 10 KB 100 KB 1 MB
+> 13B
+> 100 KB 1 MB
+> 32B 10 KB 100 KB 0.0 0.2 0.4 0.6 0.8
+> Spearman
+> 1B
+> 10 KB 100 KB 1 MB
+> 7B
+> 10 KB 100 KB 1 MB
+> 13B
+> 100 KB 1 MB
+> 32B
+> Storage per training example
+> EOGP EOGP-R LoGra (Random) LoGra (PCA) GraSS LoRIF Random projection
+
+Figure 4: NDCG@20 (top) and Spearman correlation (bottom) of gradient compression methods against EK-FAC influence functions on OLMo 2 SFT models from 1B to 32B parameters. tion from Figure 2. The x-axis shows agreement between the influence rankings produced by each configuration and the EK-FAC reference rankings, measured by NDCG@20 (left) or Spearman cor-relation (right). The y-axis shows LDS, which measures how well each configuration’s influence estimates predict retraining outcomes. We report the Spearman correlations ( ρ) between the x-axis metric and LDS across configurations: 0.95 for NDCG@20 and 0.84 for overall ranking agreement. These positive correlations indicate that configurations whose rankings more closely match EK-FAC generally also better predict the retraining outcomes, providing empirical support for using EK-FAC ranking agreement as a proxy for attribution quality. 
+
+Results. Figure 4 shows substantial gains over the compression baselines across the evaluated model sizes, particularly at small storage budgets. Fidelity generally improves as more storage is allocated, and continues to increase at the largest tested budgets on the 32B model. The improve-ments appear in both the overall ranking and the top-ranked examples. These results are obtained at compression ratios of approximately 10 4–10 6, supporting the use of compact representations even when storing uncompressed gradients would require tens of gigabytes per example. In Appendix F, we additionally evaluate LoGra and GraSS with the same EK-FAC half-whitening and show that EOGP consistently outperforms both variants. 4.3 ABLATION STUDIES 10 KB 30 KB 100 KB 0.3 0.4 0.5 0.6     
+
+> NDCG@20
+> 10 53×10 510 6
+> 0.2 0.4 0.6
+> Storage per example Coordinates per example
+> Component ablation Quantization ablation
+> EOGP w/o PCA corr. LoGra GraSS LoRIF Random proj. 1-bit storage fp16 storage
+
+Figure 5: Component ablation of EOGP (left) and comparison of 16-bit and 1-bit stor-age at matched coordinate counts (right). We examine the effects of PCA basis correc-tion (§3.2) and one-bit quantization (§3.3) on OLMo 2 7B SFT. We compare methods at matched per-example storage budgets (Figure 5, left) and matched numbers of stored coordinates (Figure 5, right). These comparisons assess performance under a fixed storage constraint and representation quality at a fixed dimension, respectively. 
+
+Comparison at matched storage budgets. At matched storage budgets, EOGP consistently achieves higher NDCG@20 than direct selection of EK-FAC basis directions (Figure 5, left). Both variants use one-bit quantization, demonstrating the benefit of refining the compression basis through PCA of the first-stage coordinates. For EOGP, one-bit representations also outperform FP16 representations by allowing more coordinates to be retained within the same storage budget. We 8Preprint. Under review. provide further evidence of EOGP’s robustness to one-bit quantization and discuss a possible explanation in Appendix G. 
+
+Comparison at matched coordinate counts. At matched coordinate counts, EOGP achieves higher NDCG@20 than every baseline stored at the same precision, under both FP16 and one-bit storage (Figure 5, right). This advantage at fixed dimension supports the quality of the two-stage projection. Within EOGP, one-bit and FP16 representations achieve similar NDCG@20, indicating that one-bit quantization substantially reduces storage with little loss in ranking agreement. 4.4 STORAGE AND COMPUTATIONAL COSTS 
+
+Per-example storage. With ku coordinates in module u, storing the compressed representation of one training example across all modules requires P
+
+> u
+
+(⌈ku/8⌉ + 2) bytes, including packed sign bits and a two-byte scale per module. At ku = 2 ,048 , the 32B model requires approximately 115.6 KB per training example, compared with 62.4 GB for an uncompressed half-precision gradient. 
+
+Shared storage overhead. The Kronecker eigenbases, half-whitening weights, and PCA correc-tion matrices are shared across all training examples and queries and are accounted for separately from the per-example payloads. For the 32B model, each module’s PCA correction matrix re-quires approximately 1 GB when its first-stage and final output dimensions are mu = 262 ,144 
+
+and ku = 2 ,048 , respectively. These shared storage costs do not grow with the number of stored examples. Appendix E.1 provides formulas for per-example and shared storage. 
+
+Store-construction time. On a single NVIDIA B200, our implementation of EOGP achieves store-construction times comparable to LoGra. For the 32B model at approximately 2,048 output coordinates per module, the per-example time is 0.247 seconds for EOGP and 0.278 seconds for Lo-Gra. These costs include gradient computation, projection, and disk I/O, including correction-matrix loading and transfer for EOGP. Fitting and saving the PCA correction matrices from cached first-stage coordinates takes an additional 18.4 minutes as a one-time preprocessing cost. Implementation optimizations and detailed timing protocols are provided in Appendix E.3. 
+
+## 5 RELATED WORK 
+
+Scalable influence estimation. Influence estimation in large neural networks relies on efficient approximations to inverse-curvature products (Koh & Liang, 2017; Guo et al., 2021; Kwon et al., 2024). Arnoldi iteration approximates a dominant Hessian eigenspace to compute influence in a reduced space (Schioppa et al., 2022). K-FAC and EK-FAC use structured curvature approxima-tions (Martens & Grosse, 2015; George et al., 2018), with EK-FAC enabling influence analysis at LLM scale (Grosse et al., 2023). 
+
+Gradient compression for data attribution. TRAK scales attribution through random projec-tions (Park et al., 2023), while LESS and its quantized extension QLESS select instruction data using projected gradient similarities rather than the inverse-curvature-based influence scores studied here (Xia et al., 2024; Ananta et al., 2025). For influence estimation, TrackStar (Chang et al., 2025) uses curvature-corrected gradients for influence retrieval at LLM scale. LoGra uses Kronecker-factored projections with random or PCA-based initialization (Choe et al., 2025). GraSS combines gradient sparsification with sparse random projection (Hu et al., 2025). LoRIF stores projected gra-dients as low-rank factors and approximates inverse curvature via truncated SVD (Li et al., 2026). 
+
+## 6 CONCLUSION 
+
+We present EOGP for building compact gradient stores for influence estimation across future queries. Under a normalized worst-case influence-error criterion, we show that PCA of half-whitened training gradients is optimal among fixed-dimensional linear representations. EOGP ap-proximates this target through PCA correction within a retained EK-FAC subspace and uses scaled one-bit quantization to retain more coordinates within a fixed storage budget. Our results show that 9Preprint. Under review. EOGP preserves useful attribution information with substantially less storage than existing com-pression methods, making reusable gradient stores more practical at LLM scale. 
+
+## REFERENCES 
+
+Moses Ananta, Muhammad Farid Adilazuarda, Zayd Muhammad Kawakibi Zuhri, Ayu Purwarianti, and Alham Fikri Aji. QLESS: A quantized approach for data valuation and selection in large language model fine-tuning. arXiv preprint arXiv:2502.01703 , 2025. Juhan Bae, Nathan Ng, Alston Lo, Marzyeh Ghassemi, and Roger B Grosse. If influence functions are the answer, then what is the question? Advances in Neural Information Processing Systems ,35:17953–17967, 2022. Juhan Bae, Wu Lin, Jonathan Lorraine, and Roger Grosse. Training data attribution via approximate unrolling. Advances in Neural Information Processing Systems , 37:66647–66686, 2024. Tyler Chang, Dheeraj Rajagopal, Tolga Bolukbasi, Lucas Dixon, and Ian Tenney. Scalable influence and fact tracing for large language model pretraining. In International Conference on Learning Representations , volume 2025, pp. 40976–40997, 2025. Sirui Chen, Yunzhe Qi, Mengting Ai, Yifan Sun, Ruizhong Qiu, Jiaru Zou, and Jingrui He. Influence-preserving proxies for gradient-based data selection in LLM fine-tuning. In Interna-tional Conference on Learning Representations , 2026. Sang Choe, Hwijeen Ahn, Juhan Bae, Kewen Zhao, Youngseog Chung, Adithya Pratapa, Willie Neiswanger, Emma Strubell, Teruko Mitamura, Jeff Schneider, et al. What is your data worth to GPT? LLM-scale data valuation with influence functions. Advances in Neural Information Processing Systems , 38:145944–145985, 2025. Zachary Coalson, Juhan Bae, Nicholas Carlini, and Sanghyun Hong. IF-Guide: Influence function-guided detoxification of LLMs. Advances in Neural Information Processing Systems , 38:78824– 78856, 2025. Carl Eckart and Gale Young. The approximation of one matrix by another of lower rank. Psychome-trika , 1(3):211–218, 1936. Thomas George, C´ esar Laurent, Xavier Bouthillier, Nicolas Ballas, and Pascal Vincent. Fast ap-proximate natural gradient descent in a Kronecker factored eigenbasis. Advances in Neural Infor-mation Processing Systems , 31, 2018. Roger Grosse, Juhan Bae, Cem Anil, Nelson Elhage, Alex Tamkin, Amirhossein Tajdini, Benoit Steiner, Dustin Li, Esin Durmus, Ethan Perez, et al. Studying large language model generalization with influence functions. arXiv preprint arXiv:2308.03296 , 2023. Han Guo, Nazneen Rajani, Peter Hase, Mohit Bansal, and Caiming Xiong. FastIF: Scalable in-fluence functions for efficient model interpretation and debugging. In Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing , pp. 10333–10350, 2021. Jaeseung Heo, Kyeongheung Yun, Youngbin Choi, Sehyun Hwang, Jungseul Ok, and Dong-woo Kim. Interaction-aware influence functions for group attribution. arXiv preprint arXiv:2605.15675 , 2026. Pingbang Hu, Joseph Melkonian, Weijing Tang, Han Zhao, and Jiaqi Ma. GraSS: Scalable data attribution with gradient sparsification and sparse projection. Advances in Neural Information Processing Systems , 38:43880–43904, 2025. Kalervo J¨ arvelin and Jaana Kek¨ al¨ ainen. Cumulated gain-based evaluation of IR techniques. ACM Transactions on Information Systems (TOIS) , 20(4):422–446, 2002. Pang Wei Koh and Percy Liang. Understanding black-box predictions via influence functions. In 
+
+International Conference on Machine Learning , pp. 1885–1894. PMLR, 2017. 10 Preprint. Under review. Siqi Kou, Qingyuan Tian, Hanwen Xu, Zihao Zeng, and Zhijie Deng. Which data attributes stim-ulate math and code reasoning? An investigation via influence functions. Advances in Neural Information Processing Systems , 38:12302–12324, 2025. Yongchan Kwon, Eric Wu, Kevin Wu, and James Y Zou. DataInf: Efficiently estimating data influence in LoRA-tuned LLMs and diffusion models. In International Conference on Learning Representations , volume 2024, pp. 21921–21942, 2024. Nathan Lambert, Jacob Morrison, Valentina Pyatkin, Shengyi Huang, Hamish Ivison, Faeze Brah-man, Lester James V Miranda, Alisa Liu, Nouha Dziri, Shane Lyu, et al. Tulu 3: Pushing frontiers in open language model post-training. arXiv preprint arXiv:2411.15124 , 2024. Shuangqi Li, Hieu Le, Jingyi Xu, and Mathieu Salzmann. LoRIF: Low-rank influence functions for scalable training data attribution. arXiv preprint arXiv:2601.21929 , 2026. James Martens. New insights and perspectives on the natural gradient method. Journal of Machine Learning Research , 21(146):1–76, 2020. James Martens and Roger Grosse. Optimizing neural networks with Kronecker-factored approxi-mate curvature. In International Conference on Machine Learning , pp. 2408–2417. PMLR, 2015. Stephen Merity, Caiming Xiong, James Bradbury, and Richard Socher. Pointer sentinel mixture models. arXiv preprint arXiv:1609.07843 , 2016. Team OLMo, Pete Walsh, Luca Soldaini, Dirk Groeneveld, Kyle Lo, Shane Arora, Akshita Bha-gia, Yuling Gu, Shengyi Huang, Matt Jordan, et al. 2 OLMo 2 furious. arXiv preprint arXiv:2501.00656 , 2024. Sung Min Park, Kristian Georgiev, Andrew Ilyas, Guillaume Leclerc, and Aleksander Madry. TRAK: Attributing model behavior at scale. In International Conference on Machine Learning ,2023. Garima Pruthi, Frederick Liu, Satyen Kale, and Mukund Sundararajan. Estimating training data influence by tracing gradient descent. Advances in Neural Information Processing Systems , 33: 19920–19930, 2020. Alec Radford, Jeffrey Wu, Rewon Child, David Luan, Dario Amodei, and Ilya Sutskever. Language models are unsupervised multitask learners. Technical report, OpenAI, 2019. Mohammad Rastegari, Vicente Ordonez, Joseph Redmon, and Ali Farhadi. XNOR-Net: ImageNet classification using binary convolutional neural networks. In European Conference on Computer Vision , pp. 525–542. Springer, 2016. Laura Ruis, Maximilian Mozes, Juhan Bae, Siddhartha Rao Kamalakara, Dwarak Talupuru, Acyr Locatelli, Robert Kirk, Tim Rockt¨ aschel, Edward Grefenstette, and Max Bartolo. Procedural knowledge in pretraining drives reasoning in large language models. In International Conference on Learning Representations , volume 2025, pp. 29367–29429, 2025. Andrea Schioppa. Efficient sketches for training data attribution and studying the loss landscape. 
+
+Advances in Neural Information Processing Systems , 37:37692–37735, 2024. Andrea Schioppa, Polina Zablotskaia, David Vilar, and Artem Sokolov. Scaling up influence func-tions. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 36, pp. 8179– 8186, 2022. Joel A Tropp. Improved analysis of the subsampled randomized Hadamard transform. Advances in Adaptive Data Analysis , 3(01n02):115–126, 2011. Mengzhou Xia, Sadhika Malladi, Suchin Gururangan, Sanjeev Arora, and Danqi Chen. LESS: Selecting influential data for targeted instruction tuning. In International Conference on Machine Learning , 2024. 11 Preprint. Under review. Han Zhang, Zhuo Zhang, Yi Zhang, Yuanzhao Zhai, Hanyang Peng, Yu Lei, Yue Yu, Hui Wang, Bin Liang, Lin Gui, et al. Correcting large language model behavior via influence function. In 
+
+Proceedings of the AAAI Conference on Artificial Intelligence , volume 39, pp. 14477–14485, 2025. Xinyu Zhou, Simin Fan, and Martin Jaggi. HyperINF: Unleashing the HyperPower of the Schulz’s method for data influence estimation. arXiv preprint arXiv:2410.05090 , 2024. 
+
+## A THEORETICAL DETAILS 
+
+A.1 OPTIMALITY OF HALF -W HITENED PCA We prove Proposition 1 for a fixed symmetric positive-definite matrix Hλ and half-whitened gradi-ents ˜ti = H−1/2 
+
+> λ
+
+∇θ ℓi(θ∗) satisfying Ei∥˜ti∥22 < ∞. The supremum is over the full query-gradient ball in Equation (6). 
+
+Proof. Let Σ = Ei[˜ ti˜t⊤ 
+
+> i
+
+], with eigenvalues μ1 ≥ · · · ≥ μd ≥ 0, and let 1 ≤ k ≤ d. We show that the minimum of Equation (7) is Pdj=k+1 μj and that the proposed encoder–decoder pair attains it. 
+
+Reduction to low-rank reconstruction. For arbitrary V, M ∈ Rd×k, define 
+
+R := H1/2 
+
+> λ
+
+M V ⊤H1/2 
+
+> λ
+
+, rank( R) ≤ k. (15) Write ˜q = H−1/2 
+
+> λ
+
+∇θ f . Since ∇θ ℓi(θ∗) = H1/2 
+
+> λ
+
+˜ti and ∇θ f = H1/2 
+
+> λ
+
+˜q, the influence error satisfies 
+
+∇θ f ⊤ H−1 
+
+> λ
+
+− M V ⊤∇θ ℓi(θ∗) = ˜ q⊤(I − R)˜ ti. (16) The change of variables between ∇θ f and ˜q is bijective and maps the normalized query-gradient ball to the Euclidean unit ball. Therefore, 
+
+E(V, M ) = Ei
+
+h
+
+sup 
+
+> ∥˜q∥2≤1
+
+˜q⊤(I − R)˜ ti
+
+> 2
+
+i
+
+= Ei (I − R)˜ ti
+
+> 22
+
+. (17) The last equality follows from Cauchy–Schwarz, with equality for a unit query in the direction of (I − R)˜ ti whenever this residual is nonzero. If it is zero, both sides are zero. Conversely, every matrix R of rank at most k admits a factorization R = XY ⊤ with X, Y ∈ Rd×k, padding with zero columns when needed. Choosing M = H−1/2 
+
+> λ
+
+X and V = H−1/2 
+
+> λ
+
+Y realizes this R
+
+in Equation (15). Thus optimizing over V, M is equivalent to optimizing Equation (17) over all rank-at-most-k matrices R.
+
+Orthogonal projection suffices. Let S = range( R), and let ΠS be the orthogonal projector onto 
+
+S. For each example, (I−ΠS )˜ ti is orthogonal to S, whereas (Π S −R)˜ ti belongs to S. Consequently, 
+
+(I − R)˜ ti 
+
+> 22
+
+= (I − ΠS )˜ ti 
+
+> 22
+
++ (Π S − R)˜ ti
+
+> 22
+
+≥ (I − ΠS )˜ ti
+
+> 22
+
+.
+
+(18) Taking expectations and using Π⊤S = Π S = Π 2 
+
+> S
+
+gives 
+
+E(V, M ) ≥ tr  (I − ΠS )Σ  = tr(Σ) − tr(Π S Σ) . (19) 
+
+The principal subspace attains the minimum. This PCA optimality step is a consequence of the classical Eckart–Young theorem (Eckart & Young, 1936). Write Σ = Pdj=1 μj uj u⊤ 
+
+> j
+
+in an orthonormal eigenbasis. Set αj = u⊤ 
+
+> j
+
+ΠS uj = ∥ΠS uj ∥22. Because ΠS is an orthogonal projector of rank at most k, these weights satisfy 0 ≤ αj ≤ 1 and Pdj=1 αj = tr(Π S ) ≤ k. It follows that 
+
+tr(Π S Σ) = 
+
+> d
+
+X
+
+> j=1
+
+μj αj ≤
+
+> k
+
+X
+
+> j=1
+
+μj αj + μk
+
+
+
+k −
+
+> k
+
+X
+
+> j=1
+
+αj
+
+
+
+≤
+
+> k
+
+X
+
+> j=1
+
+μj . (20) 12 Preprint. Under review. The first inequality uses μj ≤ μk for j > k and the bound on the sum of the weights. The second uses μj ≥ μk for j ≤ k and αj ≤ 1. Combining Equations (19) and (20), every encoder–decoder pair satisfies 
+
+E(V, M ) ≥ tr(Σ) −
+
+> k
+
+X
+
+> j=1
+
+μj =
+
+> d
+
+X
+
+> j=k+1
+
+μj . (21) Now take U = [ u1, . . . , u k] and V = M = H−1/2 
+
+> λ
+
+U . Then R = U U ⊤, so 
+
+E H−1/2 
+
+> λ
+
+U, H −1/2 
+
+> λ
+
+U  = tr  (I − U U ⊤)Σ  =
+
+> d
+
+X
+
+> j=k+1
+
+μj . (22) This pair therefore attains the global minimum. Its stored representation and influence estimate are precisely 
+
+V ⊤∇θ ℓi(θ∗) = U ⊤˜ti, (23) 
+
+∇θ f ⊤M V ⊤∇θ ℓi(θ∗) = ˜ q⊤U U ⊤˜ti = ⟨U ⊤ ˜q, U ⊤˜ti⟩. (24) This proves Proposition 1. The result uses the uncentered second moment and remains valid when eigenvalues are repeated. A.2 PROOF OF EIGENBASIS CORRECTION 
+
+We prove Proposition 2 within one module. Let xi = bH−1/2 
+
+> λ
+
+∇θ ℓi(θ∗) have finite second moment, let Qm ∈ Rd×m have orthonormal columns, and set ai = Q⊤
+
+> m
+
+xi. Let P ∈ Rm×k contain orthonor-mal leading eigenvectors of Ei[aia⊤ 
+
+> i
+
+], where 1 ≤ k ≤ m.
+
+Proof. Every k-dimensional subspace of range( Qm) has an orthonormal basis U = QmW for some 
+
+W ∈ Rm×k satisfying W ⊤W = Ik. Decomposing xi − U U ⊤xi into components orthogonal to and within range( Qm) yields 
+
+Ei∥xi − U U ⊤xi∥22 = Ei∥(I − QmQ⊤
+
+> m
+
+)xi∥22
+
++ Ei∥ai − W W ⊤ai∥22. (25) The first term is independent of W . By the PCA argument in Appendix A.1, the second is mini-mized by W = P . Thus QmP minimizes reconstruction error over all k-dimensional subspaces of 
+
+range( Qm). The leading k retained EK-FAC axes are among these feasible choices, proving part (i). For part (ii), suppose range( Qm) contains a globally optimal k-dimensional principal subspace of xi
+
+within the module. This subspace is feasible for the restricted problem, so the restricted minimum is at most the full-space minimum. It is also at least that minimum because the feasible set is restricted. The two errors therefore agree. A.3 SCALED ONE -B IT QUANTIZATION 
+
+Optimal scale for a fixed sign vector. For projected coordinates a ∈ Rk with k ≥ 1, let b =sign( a) ∈ {± 1}k, allowing either sign for zero coordinates. For a scale s ∈ R, the identities 
+
+b⊤a = ∥a∥1 and b⊤b = k give 
+
+∥a − sb ∥22 = ∥a∥22 − 2s∥a∥1 + ks 2 = k
+
+
+
+s − ∥a∥1
+
+k
+
+2
+
++ ∥a∥22 − ∥a∥21
+
+k . (26) Thus, s = ∥a∥1/k minimizes the squared reconstruction error for the sign vector b, including s = 0 
+
+when a = 0 .13 Preprint. Under review. 
+
+## B ALGORITHMS AND PROJECTION IMPLEMENTATION 
+
+B.1 PROJECTION PATHS AND UNIFIED PROCEDURE 
+
+Both stages operate independently on the linear-layer modules defined in Section 3.2. Across all evaluated models, EOGP applies PCA to the first-stage coordinates, while EOGP-R replaces PCA with an SRHT. The model-specific module lists, dimensions, and storage-budget allocations are recorded with the experimental settings. For module u, the first-stage map and the subsequent projection are 
+
+Lu = (Λ u,m + λuI)−1/2Q⊤
+
+> u,m
+
+, Tu(v) = 
+
+P ⊤ 
+
+> u
+
+v, for EOGP ,
+
+Suv, for EOGP-R . (27) Here, Pu ∈ Rmu×ku contains the PCA directions, and Su ∈ Rku×mu is an implicitly applied SRHT. The Kronecker factors and retained-coordinate indices implement Lu without materializing Qu,m 
+
+or Lu. We write gi,u and qu for the training and query gradient blocks of module u.
+
+Algorithm 1 EOGP and EOGP-R fitting, storage, and querying 
+
+Require: Factorized EK-FAC bases Qu, corrected eigenvalues Λu, damping values λu > 0, dimensions 
+
+1 ≤ ku ≤ mu ≤ du, method variant, and a PCA fitting set C for EOGP 
+
+Fitting shared projections 
+
+1: for each module u do 
+
+2: Select Qu,m , Λu,m using the mu largest corrected eigenvalues 3: For EOGP-R, initialize the implicit SRHT Su
+
+4: end for 
+
+5: if using EOGP then 
+
+6: for each i ∈ C do 
+
+7: Compute the training gradient gi once 8: for each module u do 
+
+9: Compute and cache zi,u ← Lugi,u 
+
+10: end for 
+
+11: end for 
+
+12: For each u, fit Pu by uncentered PCA of {zi,u : i ∈ C} 
+
+13: end if Storing one training example i
+
+14: Compute gi once 15: for each module u do 
+
+16: xi,u ← Tu(Lugi,u )
+
+17: Store packed binary signs bi,u ← sign ±(xi,u ) and si,u ← FP16( ∥xi,u ∥1/k u)
+
+18: end for Scoring a query f
+
+19: Compute q = ∇θ f (θ∗) once 20: For each u, compute the unquantized coordinates yu ← Tu(Luqu)
+
+21: return bI(i) = P 
+
+> u
+
+si,u ⟨yu, b i,u ⟩ for each stored example i
+
+The batched implementation is described in Appendix E.3. B.2 PCA FITTING AND RANDOM PROJECTION 
+
+PCA fitting. For EOGP, we form the first-stage coordinates zi,u = Lugi,u using training-data labels and apply PCA without subtracting the sample mean. Let Zu ∈ Rn×mu contain these co-ordinates as rows, where n = |C| . The columns of Pu are the top-ku right singular vectors of Zu,equivalently the eigenvectors associated with the largest eigenvalues of Z⊤ 
+
+> u
+
+Zu/n . The nonzero prin-cipal directions can be recovered from the eigendecomposition of the n × n Gram matrix ZuZ⊤ 
+
+> u
+
+,avoiding construction of an mu × mu second-moment matrix. This is the PCA correction analyzed in Proposition 2. 14 Preprint. Under review. 
+
+Random projection. For EOGP-R, a subsampled randomized Hadamard transform (SRHT) (Tropp, 2011) maps the first-stage coordinates directly to ku dimensions, 
+
+Su =
+
+r pu
+
+ku
+
+RuHpu DuJu, pu = 2 ⌈log 2 mu⌉. (28) Here, Ju zero-pads the mu coordinates to width pu, Du is a diagonal matrix of independent random signs, Hpu is the orthonormal Walsh–Hadamard matrix, and Ru selects ku rows uniformly without replacement. The same realized transform is used for gradient storage and query projection. This variant does not fit a PCA correction. B.3 COMPUTATION AND COMPLEXITY 
+
+Query scoring. Using the unquantized query coordinates yu = Tu(Luqu) from Algorithm 1 and the stored signs bi,u and scales si,u , the influence score is 
+
+bI(i) = X
+
+> u
+
+si,u ⟨yu, b i,u ⟩. (29) The same query coordinates are reused to score all stored examples. 
+
+Projection cost. Applying the PCA correction in EOGP costs O(muku) operations per module. The implicit SRHT in EOGP-R costs O(pu log pu) operations per module, where pu is the padded dimension in Equation (28). 
+
+Storage and scanning. Computing signs and scales from an already projected training represen-tation costs O(P 
+
+> u
+
+ku) operations. After projecting a query, scoring all Nstore examples costs 
+
+O Nstore 
+
+X
+
+> u
+
+ku
+
+!
+
+(30) arithmetic operations. Storage in bytes and measured runtimes are reported in Appendices E.1 and E.3. 
+
+## C EXPERIMENTAL CONFIGURATION 
+
+This section describes the configurations used in Section 4. C.1 MODELS , DATA , AND GRADIENT COMPUTATION 
+
+We evaluate GPT-2 on WikiText-2 and released OLMo 2 SFT checkpoints on T¨ ulu 3 data. The GPT-2 attribution checkpoint is fine-tuned using the protocol in Appendix D.1. Table 1 lists the source checkpoints and datasets. 
+
+Data preparation. We tokenize wikitext-2-raw-v1 from Salesforce/wikitext with the GPT-2 tokenizer and divide concatenated text into 512-token blocks. Training and vali-dation blocks provide attribution candidates and queries, respectively. OLMo 2 1B and 32B use allenai/tulu-3-sft-olmo-2-mixture-0225 , while 7B and 13B use allenai/ tulu-3-sft-olmo-2-mixture . Each conversation is one example, with queries selected separately from attribution candidates. Evaluation protocols are given in Appendix D. 
+
+Loss and query measurement. Both training and query gradients use token-summed next-token cross entropy. GPT-2 includes all prediction positions, while OLMo 2 includes only assistant-response positions and their turn-ending tokens. 
+
+Attributed parameters. We attribute to the attention and MLP linear layers, including biases in GPT-2. Embeddings, the language-model output head, and normalization parameters are excluded. Attribution gradients are computed in evaluation mode. 15 Preprint. Under review. Table 1: Source model checkpoints and datasets.             
+
+> Model Source checkpoint Dataset GPT-2 gpt2 WikiText-2 OLMo 2 1B allenai/OLMo-2-0425-1B-SFT T¨ ulu 3 mixture OLMo 2 7B allenai/OLMo-2-1124-7B-SFT T¨ ulu 3 mixture OLMo 2 13B allenai/OLMo-2-1124-13B-SFT T¨ ulu 3 mixture OLMo 2 32B allenai/OLMo-2-0325-32B-SFT T¨ ulu 3 mixture
+
+C.2 CURVATURE FITTING AND PROJECTION DIMENSIONS 
+
+Fitting configuration. We estimate EK-FAC statistics using Kronfluence. Fisher statistics use labels sampled from the model’s next-token distribution with input contexts fixed to the data. Factor statistics are averaged over non-padding tokens, and corrected eigenvalues over examples using sequence-level gradients. For each module u with du attributed parameters, we use relative damping 
+
+λu = 0 .1 tr(Λ u)
+
+du
+
+, (31) where Λu is the diagonal matrix containing the module’s full set of corrected eigenvalues. The resulting half-whitening transformation is applied to both training and query gradients. 
+
+PCA fitting data. For OLMo 2, the PCA fitting set C contains 10,000 conversations sampled from the same SFT mixture with a fixed random seed, after excluding all candidate, query, and curvature-fitting examples. Each conversation is truncated to at most 2,048 tokens. 
+
+Projection dimensions. EOGP applies PCA to the first-stage coordinates on all models. For OLMo 2, mu = 262 ,144 , and the final dimension is uniform across modules, ranging in powers of two from 256 to 8,192. EOGP-R uses the same first-stage width and between 256 and 32,768 SRHT output coordinates. 
+
+Storage budgets. Budgets count per-example coordinates and scales, with projection dimensions chosen to match storage across methods. In the main comparisons, EOGP and EOGP-R use one-bit coordinates with FP16 scales, while compressed baselines use FP16. Figure 5 compares both precisions; in its right panel, which fixes coordinate counts on OLMo 2 7B, the one-bit curves also form a matched-storage comparison, since equal coordinate counts imply equal one-bit storage, and EOGP outperforms all one-bit baselines. GPT-2 follows the nominal budget labels in Figure 2, and OLMo 2 reports payloads in decimal units. Shared artifacts are accounted for separately in Appendix E.1. C.3 BASELINE CONFIGURATIONS 
+
+All methods share attributed modules, evaluation examples, queries, and loss definitions. For OLMo 2, EOGP, LoGra, GraSS, and LoRIF fit their curvature estimates on the same 10,000 conver-sations. Storage formats and budget matching follow Appendix C.2. 
+
+Compression baselines. Our LoGra implementation is based on LogIX 1, with random and PCA initialization on both GPT-2 and OLMo 2. LoGra uses the same relative damping coefficient ( 0.1)as in Appendix C.2. PCA initialization uses factor eigenvectors fitted with Kronfluence 2, and the factor rank a determines a2 stored coordinates per module. Our GraSS implementation follows the official code, using factor-wise random masking and CountSketch with output dimensions matched to LoGra. Our LoRIF reimplementation uses randomly projected gradient matrices and a rank-256 inverse-curvature approximation. 
+
+> 1https://github.com/logix-project/logix
+> 2https://github.com/pomonam/kronfluence
+
+16 Preprint. Under review. 
+
+Uncompressed references. EK-FAC and K-FAC use Kronfluence with model-sampled labels and the damping in Appendix C.2. The TracIn reference is the unweighted gradient inner product at the final checkpoint. 
+
+Gaussian random projection. This control uses independent standard Gaussian factors to pro-duce a2 coordinates per module. Training gradients are projected directly, and query gradients are preconditioned by the full-space damped EK-FAC inverse before projection. Inner products are scaled by a−2.
+
+Randomization. LoGra and LoRIF use one projection realization per configuration. GraSS uses one on GPT-2 and averages over three seeds on OLMo 2. The Gaussian control averages over three independent draws, and EOGP-R over up to three disjoint blocks of a shared SRHT output. Retraining and uncertainty estimation follow Appendix D.1. 
+
+## D EVALUATION PROTOCOLS 
+
+D.1 GPT-2 RETRAINING EVALUATION 
+
+We evaluate attribution on WikiText-2 using the linear datamodeling score (LDS) and counterfactual retraining. 
+
+Linear datamodeling score. We reuse the publicly released subset masks and retraining losses from Kronfluence for R = 100 subsets, each retaining half of the training blocks. All methods and storage budgets use the same subsets and losses on the validation blocks. The query measurement is the token-summed next-token cross-entropy loss of a validation block. Let Sr denote the retained training subset and Yrq its released retraining loss for query q. Under our removal-based influence convention, the predicted subset score is 
+
+Arq = − X
+
+> i∈Sr
+
+bIq (i). (32) For each query, we compute the Spearman correlation across subsets, 
+
+LDS q = ρS
+
+ (Arq )Rr=1 , (Yrq )Rr=1 
+
+ , (33) and report its mean over queries, excluding undefined correlations. We use average ranks for ties. We obtain 95% percentile confidence intervals from 1,000 bootstrap resamples of the subsets, re-computing the query-averaged LDS for each resample. 
+
+Counterfactual retraining. For each method and storage budget, we rank the training blocks by the sum of their signed influence scores over the first 50 validation blocks. We remove the examples with the largest scores, reusing the same ranking for removal counts from 50 to 300 in increments of 50. Each retraining run starts from the pretrained GPT-2 weights and uses AdamW with a learning rate of 3 × 10 −5, weight decay of 0.01 , three epochs, and a training batch size of eight. We use a set S of five seeds, matched across methods. Perplexity is evaluated on the same 50 validation blocks used to construct the ranking by exponentiating their mean token-level cross-entropy loss. Let PPL s(b) denote the perplexity for seed s after removing b examples. We report 
+
+∆ PPL( b) = 15
+
+X
+
+> s∈S
+
+[PPL s(b) − PPL s(0)] , (34) where the zero-removal runs are shared across methods. Error bars show the population standard deviation of the post-removal perplexities across seeds. For the random-removal control, each seed defines a random permutation of the training set, and the first b examples are removed. 17 Preprint. Under review. D.2 FIDELITY TO EK-FAC INFLUENCE 
+
+We compare compressed influence scores with uncompressed EK-FAC scores on the same candidate training examples. OLMo 2 uses 1,000 candidates and 100 queries, while GPT-2 uses the training and validation blocks as candidates and queries, respectively. Module contributions are summed be-fore evaluation, and both score vectors use signed scores under the same removal-based convention, without taking absolute values or clipping. 
+
+Spearman correlation. For query q, let eq and aq denote the reference and compressed score vectors over the candidate examples. We compute 
+
+ρq = Corr (rank( aq ), rank( eq )) , ρS = 1
+
+|Q valid |
+
+X
+
+> q∈Q valid
+
+ρq . (35) Ties receive average ranks. A correlation is undefined when either score vector is constant, and 
+
+Qvalid contains the queries with defined correlations. 
+
+NDCG@20. We use binary relevance based on membership in the reference top 20. Let Tq contain the 20 examples with the largest signed EK-FAC scores, and let πq (t) denote the example at position 
+
+t when compressed scores are sorted in descending order. Then 
+
+NDCG@20( q) = 
+
+> 20
+
+X
+
+> t=1
+
+1{πq (t) ∈ Tq }
+
+log 2(t + 1) 
+
+> 20
+
+X
+
+> t=1
+
+1log 2(t + 1) 
+
+. (36) The denominator is the ideal discounted gain when all 20 relevant examples occupy the first 20 positions. We report the arithmetic mean of NDCG@20 over queries. D.3 RELATIONSHIP BETWEEN FIDELITY AND RETRAINING 
+
+Figure 3 compares EK-FAC fidelity with LDS across the 25 compressed configurations and three reference methods in Figure 2. For each configuration, all metrics use the same attribution score matrix. We average each metric over queries before computing correlations across configurations. Let J denote these 28 configurations, and let Lj , Nj , and Sj denote their query-averaged LDS, NDCG@20, and Spearman fidelity. The resulting correlations are 
+
+ρS(( Lj )j∈J , (Nj )j∈J ) ≈ 0.95 ,ρS(( Lj )j∈J , (Sj )j∈J ) ≈ 0.84 . (37) 
+
+## E STORAGE AND RUNTIME ACCOUNTING 
+
+E.1 PER -EXAMPLE PAYLOAD AND SHARED ARTIFACTS 
+
+We account separately for per-example representations and artifacts shared across the gradient store. Let U denote the attributed modules, mu and ku the first-stage and final output dimensions of module 
+
+u, respectively, and Nstore the number of stored examples. The attributed parameter set is specified in Appendix C.1. 
+
+Per-example payload. EOGP and EOGP-R store one sign bit per coordinate and one FP16 scale per module. With byte packing performed separately for each module, the payload is 
+
+B1bit = X
+
+> u∈U
+
+ ku
+
+8
+
+
+
++ 2 
+
+
+
+bytes . (38) For a uniform dimension k, this becomes |U| (⌈k/ 8⌉ + 2) . Storing the coordinates directly in FP16 requires BFP16 = 2 P 
+
+> u
+
+ku bytes, while an uncompressed FP16 gradient requires Braw = 2 dattr 
+
+bytes, where dattr is the number of attributed parameters. 18 Preprint. Under review. Table 2: Per-example representation payloads at ku = 2 ,048 per module. Uncompressed gradients cover the attributed parameters, and one-bit representations include packed signs and FP16 scales. Shared artifacts are accounted for in Appendix E.1.         
+
+> Model Uncompressed FP16 (GB/example) One-bit representation (KB/example) OLMo 2 1B 2.147 28.896 OLMo 2 7B 12.952 57.792 OLMo 2 13B 25.376 72.240 OLMo 2 32B 62.411 115.584
+
+Shared artifacts. The Kronecker eigenbases and half-whitening weights are shared across exam-ples and queries. In EOGP, each module’s PCA correction matrix Pu ∈ Rmu×ku is also shared and stored in FP16, requiring 
+
+BP,u = 2 muku bytes . (39) For the 32B model with mu = 262 ,144 and ku = 2 ,048 , each FP16 correction matrix requires approximately 1.07 GB, totaling 481 GB across all 448 modules. This cost is independent of the number of stored examples, so its relative contribution decreases as the store grows. For stores con-taining 100 million or one billion examples, the correction matrices would occupy approximately 4.2% or 0.42% of the aggregate per-example payload, respectively. These estimates illustrate how the shared correction matrices can be amortized when constructing attribution stores for large pre-training or mid-training corpora. When shared storage is constrained, reducing ku decreases the correction-matrix storage linearly. For example, keeping mu unchanged and reducing ku to 256 lowers the total correction-matrix storage to approximately 60.1 GB for the 32B model. As shown in Figure 4, EOGP maintains an advantage over the evaluated compression baselines at small per-example storage budgets. 
+
+Total storage. Including shared artifacts and file overhead, the total storage is 
+
+Btotal = Nstore B1bit + Bshared + Boverhead , (40) where Bshared counts shared curvature and projection artifacts, including P 
+
+> u∈U
+
+BP,u for the PCA correction matrices in EOGP, and Boverhead counts file metadata. Per-example budgets count repre-sentation payloads, with shared artifacts accounted for separately. E.2 STORAGE ESTIMATES BY MODEL 
+
+Table 2 compares per-example storage for uncompressed FP16 gradients and one-bit representations at ku = 2 ,048 . Both EOGP and EOGP-R use 2048 /8 + 2 = 258 bytes per module per example. E.3 IMPLEMENTATION AND RUNTIME 
+
+Setup. Table 3 compares our implementation with LoGra’s official LogIX implementation on a single NVIDIA B200. EOGP uses mu = 262 ,144 , ku = 2 ,048 , and FP16 correction matrices, while LoGra stores 2,025 FP16 coordinates per module. Curvature statistics are fitted beforehand, and timings exclude curvature fitting and model loading. 
+
+Implementation. First-stage coordinates are cached in FP16 using asynchronous disk writes. We then process modules sequentially, loading each correction matrix onto the GPU and applying it to a batch of coordinates before one-bit encoding and recording. Each loaded matrix is reused across the batch. 
+
+Timing protocol. Store construction includes gradient computation, projection, and disk I/O, in-cluding correction-matrix loading and transfer for EOGP. Coordinate generation is timed on 40 documents per model averaging approximately 500 tokens. Subsequent PCA projection and storage use batches of approximately 11,000 documents, over which matrix-loading costs are amortized. 19 Preprint. Under review. Table 3: PCA fitting and store-construction times on one NVIDIA B200. Fitting starts from cached coordinates and includes saving the correction matrices. Store-construction totals combine sepa-rately timed stages, including disk I/O. 
+
+Model EOGP PCA fitting (min) Store construction (s/example) EOGP LoGra OLMo 2 1B 4.5 0.0563 0.0577 OLMo 2 7B 8.9 0.0999 0.1315 OLMo 2 13B 11.1 0.1474 0.1661 OLMo 2 32B 18.4 0.2470 0.2780 10 KB 100 KB 0.2 0.4 0.6      
+
+> NDCG@20
+> 10 KB 100 KB 0.0 0.2 0.4 0.6
+> Spearman
+> Storage per training example
+> EOGP LoGra basis + EK-FAC whitening GraSS basis + EK-FAC whitening LoGra (Random) GraSS
+
+Figure 6: Comparison of EOGP with LoGra and GraSS on OLMo 2 7B SFT, using either their original curvature treatment or EK-FAC half-whitening before projection. NDCG@20 (left) and Spearman correlation (right) measure agreement with EK-FAC influence at matched per-example storage budgets. 
+
+One-time PCA fitting. Fitting starts from cached first-stage coordinates of approximately 10,000 examples and follows Appendix B.2. Timings include reading the coordinates, computing the cor-rection matrices, and saving them in FP16. This one-time cost is 18.4 minutes for the 32B model and is shared across examples and queries. 
+
+Batched query processing. For the 32B model with mu = 262 ,144 and ku = 2 ,048 , processing 100 queries against 1,000 stored examples takes 60.36 seconds on a single NVIDIA B200, starting from cached first-stage coordinates. This includes loading and transferring the FP16 correction matrices, applying the PCA projection, and scoring the stored examples. Each correction matrix is loaded once per batch, giving an amortized processing cost of 0.604 seconds per query. 
+
+## F COMPARISON UNDER SHARED EK-FAC C URVATURE 
+
+To examine whether EOGP benefits primarily from using the same curvature approximation as the evaluation reference, we construct variants of LoGra and GraSS that apply our EK-FAC half-whitening before their respective projections. On OLMo 2 7B SFT, EOGP substantially outperforms both variants at matched per-example storage budgets, showing that matching the reference curva-ture alone does not explain its advantage. The original LoGra and GraSS configurations also generally outperform their half-whitened vari-ants, supporting the effectiveness of their post-projection curvature approximations in this setting. One possible explanation is that estimating curvature after projection accounts for the variances and correlations of the retained coordinates, whereas applying half-whitening before projection produces a different transformation. These results suggest that the effectiveness of a curvature approximation depends on how it is combined with gradient compression. 20 Preprint. Under review. Table 4: Pearson correlation between FP16 and one-bit influence scores on GPT-2. We report the median of the query-wise correlations over 481 queries. Storage budgets refer to one-bit storage per training example. The highest correlation at each budget is shown in bold.                            
+
+> Method 12 KB 24 KB 96 KB
+> EOGP 0.902 0.890 0.919
+> LoGra (Random) 0.604 0.447 0.086
+> LoGra (PCA) 0.750 0.570 −0.355
+> GraSS 0.330 0.079 −0.205
+> LoRIF 0.820 0.823 0.822 12 24 96 384 1536
+> Storage per training example (KB)
+> 0.0 0.2 0.4
+> LDS
+> EK-FAC K-FAC TracIn
+> EOGP LoGra (PCA) LoGra (Random) GraSS LoRIF fp16 storage
+
+Figure 7: LDS of compression methods under one-bit and FP16 storage on GPT-2 at matched per-example storage budgets. Horizontal lines denote uncompressed references. Curves end where the required projection dimension exceeds the method’s supported dimension. 
+
+## G EFFECT OF ONE -B IT QUANTIZATION ON ATTRIBUTION QUALITY 
+
+We further examine how one-bit storage affects different gradient representations using the GPT-2 setting in Section 4.1. We compare attribution quality at matched per-example storage budgets and separately measure how quantization changes influence scores while holding the projection dimension fixed. 
+
+Attribution quality under one-bit storage. Figure 7 compares one-bit and FP16 storage for the evaluated compression methods. For baselines that estimate curvature after projection, larger out-put dimensions increase the memory required for curvature estimation, so we evaluate their one-bit variants only up to the largest feasible storage budget. Under one-bit storage, EOGP achieves the highest LDS among the evaluated compression methods at each displayed budget, with performance improving as more storage is allocated. The one-bit variants of LoGra and GraSS exhibit a different trend, with LDS declining as the budget increases. LoRIF improves more gradually but remains below EOGP. At larger storage budgets, EOGP also outperforms the other compression baselines when all methods use FP16 storage, indicating that its advantage is not solely attributable to one-bit quantization. These results show that the effectiveness of one-bit storage depends on the represen-tation being quantized, and that EOGP’s advantage persists in a retraining-based evaluation. 
+
+Preservation of influence scores. To examine the effect of quantization directly, we compare influence scores obtained with FP16 and one-bit storage at the same projection dimension within each method. For each query, we compute the Pearson correlation between the two sets of scores across candidate training examples, then report the median correlation over queries in Table 4. For EOGP, these correlations range from 0.890 to 0.919 across the evaluated configurations, indi-cating that the scores remain strongly correlated after quantization. LoGra and GraSS show sub-stantially weaker agreement in several configurations. These correlations measure the preservation of score patterns rather than absolute score magnitudes, since Pearson correlation is unchanged by a 21 Preprint. Under review. positive rescaling or an additive shift. Together with the LDS results, they provide complementary evidence that EOGP preserves useful attribution information under one-bit storage. 
+
+A possible explanation. One possible explanation is that half-whitening makes the representation more compatible with scaled sign quantization. This quantization preserves coordinate signs but replaces their magnitudes with a common scale given by the mean absolute coordinate value. It therefore approximates vectors more accurately when their coordinate magnitudes are relatively uniform. By rescaling gradients using curvature information, half-whitening may reduce magnitude imbalances in the resulting coordinates and thereby lessen the distortion introduced by quantization. The relevant property is the relative variation in coordinate magnitudes, since uniformly rescaling a vector also rescales its quantization scale and leaves the relative reconstruction error unchanged. 22

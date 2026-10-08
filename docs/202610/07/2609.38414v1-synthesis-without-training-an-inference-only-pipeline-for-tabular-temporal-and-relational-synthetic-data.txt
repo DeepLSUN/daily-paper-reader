@@ -1,0 +1,163 @@
+Title: Synthesis Without Training: An Inference-Only Pipeline for Tabular, Temporal, and Relational Synthetic Data
+
+URL Source: https://arxiv.org/pdf/2609.38414v1
+
+Published Time: Thu, 01 Oct 2026 00:15:32 GMT
+
+Number of Pages: 9
+
+Markdown Content:
+# Synthesis Without Training: An Inference-Only Pipeline for Tabular, Temporal, and Relational Synthetic Data 
+
+Zilong Zhao 2,3 Abdul Raheem 2 Jiayu Li 1
+
+Sohei Arisaka 4 Darius Lim Hong Yi 4 Milad Abdollahzadeh 2
+
+Uzair Javaid 2 Biplab Sikdar 31University of Illinois Urbana-Champaign 
+
+> 2
+
+Betterdata AI 3National University of Singapore 
+
+> 4
+
+KAJIMA Technical Research Institute Singapore 
+
+## Abstract 
+
+Synthetic data generation is dominated by the fit-then-sample paradigm: a gen-erative model is trained on a private dataset and then sampled from. Despite its widespread adoption, this paradigm faces three challenges: (1) a new training run is required for every dataset; (2) different data modalities, such as single tables, time series, and relational databases, require task-specific models and feature en-gineering; and (3) the resulting model is opaque, making its behavior under data constraints difficult to inspect. We propose G EN SCRIPT , an inference-only pipeline that eliminates model training. G EN SCRIPT computes a deterministic statistical profile of the source data (column types, ranges, missingness, categories, correla-tions, etc.) and passes it—rather than raw rows—to a language model to infer field semantics and cross-column integrity constraints. A coding agent then compiles the profile and constraints into an executable, auditable sampler. This unified approach supports single-table, temporal, and relational data without task-specific modeling. Across four single-table benchmarks, G EN SCRIPT builds generators in 2 minutes and samples 50k rows within 6 seconds, while remaining within a few points of leading methods in marginal fidelity. Notably, it is the only method that perfectly preserves a 1-to-1 mapping between columns in the Adult dataset. On a smart-building dataset, it produces conditional time series that more closely match the real distribution than two baselines and perfectly preserves primary- and foreign-key relationships in the corresponding relational database. 
+
+## 1 Introduction 
+
+Organisations holding sensitive tabular data increasingly rely on synthetic surrogates for sharing, testing, and downstream model development. The standard recipe is to fit a deep generative model to the private data and sample from it. Conditional GANs and VAEs for tables [18], diffusion models [6, 14], and large-language-model-based generators [1] all follow this recipe, as do the specialised architectures used for sequential [21, 9] and relational data [13, 15]. This paradigm imposes a structural tax. Per-dataset training means every new dataset needs its own run, hyperparameter search, and GPU budget, so cost scales linearly rather than amortising. 
+
+Modality fragmentation means a single table, a time series, and a relational database are served by three model families with three training procedures and three sets of feature engineering, making      
+
+> 40th Conference on Neural Information Processing Systems (NeurIPS 2026). Workshop: Beyond Private Training: The New Landscape of AI Privacy. arXiv:2609.38414v1 [cs.LG] 29 Sep 2026 real data
+> D
+> Ingest
+> normalise
+> Profile
+> measure
+> Analyze
+> interpret
+> Assemble
+> compile
+> ΦΣ
+> Generate
+> run G
+> synthetic
+> ˆD
+> Evaluate
+> score
+> G
+> verify Σagainst D
+> LLM + coding agent
+
+Figure 1: The G EN SCRIPT working pipeline. The implemented UI is provided in Appendix D. model selection the practitioner’s first task. Opacity means that when a generator violates a business rule—a refund on an unpaid order—there is no direct place to inspect or repair it. 
+
+Our position. For a large and practically important class of datasets, the generative model is unnecessary. What a practitioner needs is an accurate description of the data’s marginal and joint structure, and of the rules it obeys. Both can be obtained without gradient descent: the first from deterministic profiling code, the second from a language model reasoning over that profile. A coding agent compiles both into an ordinary program that emits rows. We call this inference-only generation: nothing is trained at any point, and the only learned component is a frozen, general-purpose LLM used at inference time. We instantiate this as G EN SCRIPT (Section 2), which contributes a training-free pipeline replacing the trained generator with an LLM-authored sampling program; one pipeline across modalities , since the data–generator interface is a profile rather than a tensor, so modality enters only as extra profile fields (Section 2.4); and explicit constraints , materialised as readable predicates that can be audited, edited, or supplied by an expert. We claim no advantage on data whose value lies in high-order structure a profile cannot summarise; our claim is that for schema-driven operational data, an explicit program offers substantial reductions in computational cost and improved auditability, at a measurable cost in fidelity. 
+
+Related work. Tabular generators fit a model to the private data [18, 23, 6, 25, 14, 7, 1, 26, 15, 24], and sequential and relational data each bring their own families again [21, 9, 17, 16, 12, 8]. Closest to us are methods that use an LLM to read a table’s meaning and then hand generation to a fitted model: LLM-TabFlow [10] recovers inter-column logical relations for a diffusion model, and SPADA [19] induces a sparse dependency graph and samples by kernel density estimation. We differ in handing generation to a program , so no density is estimated at any point. More discussions are provided in Appendix A. 
+
+## 2 Method 
+
+Let D = {T1, . . . , T K } be a source dataset of K tables ( K = 1 for the single-table case). G EN SCRIPT 
+
+produces ˆD through the six phases of Figure 1: Ingest , Profile , Analyze and Assemble construct the generator, Generate runs it, and Evaluate scores the output. 
+
+2.1 Ingest and Profile: deterministic statistical profiling 
+
+A fixed, hand-written script computes a profile Φ( D); no language model is involved, so this phase is exact, cheap, and reproducible. Per column we record the inferred type (continuous, integer, categorical, datetime, text, identifier); the observed range, or for categorical columns the category inventory with empirical frequencies; the missing-value rate and any conditional missingness; and summary statistics. Per table we compute a correlation matrix; for relational inputs we record keys and each parent–child cardinality distribution; for time series the profile adds the timestamp granularity and the distribution of inter-arrival gaps, per-entity sequence-length and coverage statistics. 
+
+2.2 Analyze: semantic analysis and constraint induction 
+
+We pass Φ( D), including the correlation matrix, to a language model and ask for a semantic specification Σ. This recovers information present in the data but invisible to the profiler: field 
+
+2semantics , such as that a five-digit integer column is a postal code rather than a quantity; cross-column constraints such as “if A > 0 then B = 0 ”, for which strong correlation entries and structured missingness are evidence that a rule exists while column names supply its form; and conditional structure , indicating which columns to sample conditioned on which others. Formally Σ = {(cj , w j )} is a set of predicates over a row—or a row and its parent, in the relational case—with confidence weights, short enough to be reviewed and corrected by a domain expert before generation. Every candidate predicate is additionally verified against the real data : those holding on fewer than τ of real rows are demoted or discarded, guarding against rules hallucinated from suggestive column names alone. 
+
+2.3 Assemble, Generate and Evaluate: synthesizing and running the sampler 
+
+A coding agent receives Φ and Σ and writes an executable generator G, given a target interface and a sandbox in which to run its own output. Generation proceeds by constrained rejection sampling: the program draws a candidate row from a factorized proposal built from the profile’s marginals and conditional structure, accepting it only if the hard predicates hold, 
+
+ˆx ∼ qΦ(·), accept if Q 
+
+> j∈H
+
+cj (ˆ x) = 1 , (1) where H indexes the hard constraints. Where a constraint is deterministic—an arithmetic identity, a derived field—the agent imputes rather than rejects, computing the dependent value directly; rejection is reserved for inequality-shaped constraints, which keeps acceptance rates high. Eventually, synthetic data ˆD are evaluated as shown in Section 3. 
+
+2.4 Extension to time series and relational data 
+
+The modalities differ only in what Profile records and what Generate emits. For time series the profile adds the sampling interval, per-entity sequence-length distribution, trend and seasonality estimates, and lag-k autocorrelations. For relational databases it adds the schema graph and the distribution of child-row counts per parent, and the agent walks the schema in topological order with foreign keys assigned by construction, so referential integrity holds by design rather than by filtering. The practitioner selects no model, because there is none to select. 
+
+## 3 Experiments 
+
+Setup. For single tables we use CoverType, Credit, Intrusion, and Adult, covering heavy categorical structure, class imbalance, and large row counts; per-dataset statistics for these and for the two relational tables are given in Appendix B. Baselines are TabTreeFormer [7], TabDiff [14], and REaLTabFormer [15], one from each of the tree-based, diffusion, and auto-regressive language-model families. Each method generates as many rows as the source table contains: 50 000 for the first three, 32 561 for Adult. τ is set to 100 rows for the semantic analysis phase. G EN SCRIPT uses gpt-5.6-sol as its LLM backend; the baselines were trained on a server with 32 CPU cores, 200 GB RAM, and two RTX 4090 Ti GPUs. 
+
+Metrics. Fidelity uses Shape and Trend [2, 14]: Shape is the similarity of each column’s marginal density, Trend the fidelity of correlations between column pairs; higher is better for both. Utility uses machine-learning efficacy under train-on-synthetic, test-on-real: we split the real data 8 : 2 , fit an XGBoost classifier on the synthetic table, and report AUC on the held-out real 20% . We also report generator-construction (“Train”) and sampling time; for G EN SCRIPT , “Train” covers profiling, constraint induction, and program synthesis, with no gradient step in it. 
+
+Fidelity and utility. On Shape G EN SCRIPT is close to the leaders (0.984, 0.936, 0.930 and 0.874 on CoverType, Adult, Credit and Intrusion), second of four on CoverType and third elsewhere, which is a good outcome for a sampler built from per-column marginals alone. On Trend it is last on all four (0.748 to 0.897), the direct cost of reproducing only the dependencies named in Σ. MLE is the weakest axis and degrades with the number of target classes: 0.894 on Credit and 0.828 on Adult, both binary, against 0.572 on Intrusion and 0.467 on CoverType, which have twenty and seven classes respectively. Further discussions are provided in Appendix C. 3Table 1: Fidelity and utility on the four single-table benchmarks. Best per column in bold.                                                                
+
+> CoverType Credit Intrusion Adult Method Shape Trend MLE Shape Trend MLE Shape Trend MLE Shape Trend MLE TabTreeFormer 0.991 0.991 0.919 0.929 0.942 0.971 0.866 0.982 0.565 0.935 0.972 0.822 REaLTabFormer 0.983 0.990 0.937 0.962 0.948 0.947 0.968 0.962 0.999 0.966 0.930 0.925
+> TabDiff 0.975 0.820 0.894 0.992 0.995 0.999 0.989 0.989 0.995 0.986 0.973 0.924 GEN SCRIPT 0.984 0.784 0.467 0.930 0.897 0.894 0.874 0.748 0.572 0.936 0.858 0.828
+
+Table 2: Generator-construction time (“Train”) and sampling time, in seconds. For G EN SCRIPT ,“Train” covers profiling, constraint induction, and program synthesis.                                                    
+
+> CoverType Credit Intrusion Adult Method Train ↓Sample ↓Train ↓Sample ↓Train ↓Sample ↓Train ↓Sample ↓
+> TabTreeFormer 2324.9 474.9 273.6 63.1 217.5 51.8 2117.0 43.6 REaLTabFormer 405.9 159.6 2194.5 533.5 581.0 249.9 175.1 37.8 TabDiff 5893.7 16.5 4934.3 13.1 5567.1 16.1 6760.0 8.6 GEN SCRIPT 112.2 3.0 93.0 5.4 114.9 2.5 73.3 0.9
+
+Constraint preservation. The aggregate metrics are blind to hard integrity rules. In Adult, 
+
+education and education-num encode the same fact twice, so the real table admits exactly 16 diploma/year pairs. Every trained baseline emits rows violating this dependency, whereas G EN -SCRIPT materialises it as a hard predicate and emits none. Such rows are impossible rather than improbable, and no metric in Table 1 registers them; Appendix F gives per-method rates. 
+
+Cost. Table 2 is where the inference-only design pays. G EN SCRIPT is the fastest method among all the baselines. It builds its generator in 73 to 115 seconds, against 175 to 6760 seconds for the baselines, and samples in 0.9 to 5.4 seconds, against 8.6 to 534 seconds. Measured against whichever baseline is fastest on each dataset, construction is 1.9 to 3.6 times quicker and sampling 2.4 to 9.6 times quicker; End-to-end the totals are 74 to 117 seconds against 213 to 566 seconds for the best baseline on each dataset, a margin of 2.3 to 4.9 times achieved. 
+
+Time series and relational structure. For the remaining modalities we use a mock-up dataset from an industrial partner in the construction sector. An access-control table ( acc ) records everyone granted entry to a building, keyed by UserID ; a camera-detection table ( aicamera ) records their sightings as a timestamped time series whose UserID references acc , so the pair is both a conditional time series and a two-table relational database. On the relational axis nothing separates the methods: all preserve primary-key uniqueness and referential integrity. What differs is that the baselines must be told the key, whereas G EN SCRIPT identifies it from the profile alone. On the temporal axis they do separate. The t-SNE result ( Figure 3 in Appendix E) reverses the single-table picture: G EN SCRIPT ’s points interleave with the real ones throughout the main manifold, whereas both trained baselines form clusters entirely disjoint from it. Two properties of aicamera make it well suited to an induced rule set. The building is an office, so presence follows a strong daily routine. And source.id (i.e., the time series column in aicamera ) is categorical, so its per-category frequencies are recorded exactly in the profile and reproduced by construction. 
+
+## 4 Conclusion and future work 
+
+GEN SCRIPT shows that a useful synthetic-data generator can be obtained without training one. Across four single-table benchmarks it is the fastest method on both construction and sampling while staying close to the leaders on marginal fidelity; on a real building-telemetry time series it matches the real distribution more closely than two specialised temporal models; and it alone emits no rows violating a functional dependency, because the rule is named and enforced rather than fitted. What it produces is a program a practitioner can read, edit and re-run. The limits are equally clear: it is last on Trend on all four datasets, so label-conditional structure is not yet reproduced. Three directions follow. The constraints we induce are essentially pairwise, since the correlation matrix is the evidence driving them; dependencies over three or more columns are invisible to it 4and are exactly what wide tables contain, so extending induction beyond pairwise structure is the most direct route to closing the Trend gap. The profile is also the only input to the semantic phase: a short description of the dataset would let the model propose candidate relationships from domain knowledge, which the verification step of Section 2.2 can confirm or reject against the real data. Finally, our relational evaluation covers one two-table schema; deeper hierarchies, composite keys and cycles remain untested. 
+
+## References 
+
+[1] Vadim Borisov, Kathrin Seßler, Tobias Leemann, Martin Pawelczyk, and Gjergji Kasneci. Language models are realistic tabular data generators. In International Conference on Learning Representations (ICLR) , 2023. [2] DataCebo, Inc. SDMetrics: Metrics for synthetic data evaluation, 2023. URL https://docs.sdv.dev/ sdmetrics/ . Version 0.9.0. [3] Benjamin Feuer, Yurong Liu, Chinmay Hegde, and Juliana Freire. ArcheType: A novel framework for open-source column type annotation using large language models. Proceedings of the VLDB Endowment ,17(9):2279–2292, 2024. doi: 10.14778/3665844.3665857. [4] Luyu Gao, Aman Madaan, Shuyan Zhou, Uri Alon, Pengfei Liu, Yiming Yang, Jamie Callan, and Graham Neubig. PAL: Program-aided language models. In International Conference on Machine Learning (ICML) ,pages 10764–10799, 2023. [5] Stefan Hegselmann, Alejandro Buendia, Hunter Lang, Monica Agrawal, Xiaoyi Jiang, and David Sontag. TabLLM: Few-shot classification of tabular data with large language models. In International Conference on Artificial Intelligence and Statistics (AISTATS) , pages 5549–5581, 2023. [6] Akim Kotelnikov, Dmitry Baranchuk, Ivan Rubachev, and Artem Babenko. TabDDPM: Modelling tabular data with diffusion models. In International Conference on Machine Learning (ICML) , pages 17564–17579, 2023. [7] Jiayu Li, Bingyin Zhao, Zilong Zhao, Uzair Javaid, Kevin Yee, and Biplab Sikdar. TabTreeFormer: Tabular data generation using hybrid tree-transformer. arXiv preprint arXiv:2501.01216 , 2025. [8] Jiayu Li, Zilong Zhao, Milad Abdollahzadeh, Biplab Sikdar, and Y.C. Tay. IRG: Modular synthetic relational database generation with complex relational schemas. In Proceedings of the 32nd ACM SIGKDD Conference on Knowledge Discovery and Data Mining (KDD) , 2026. doi: 10.1145/3770854.3780313. [9] Zinan Lin, Alankar Jain, Chen Wang, Giulia Fanti, and Vyas Sekar. Using GANs for sharing networked time series data: Challenges, initial promise, and open questions. In ACM Internet Measurement Conference (IMC) , pages 464–483, 2020. [10] Yunbo Long, Liming Xu, and Alexandra Brintrup. LLM-TabFlow: Synthetic tabular data generation with inter-column logical relationship preservation. arXiv preprint arXiv:2503.02161 , 2025. [11] Avanika Narayan, Ines Chami, Laurel Orr, and Christopher Ré. Can foundation models wrangle your data? 
+
+Proceedings of the VLDB Endowment , 16(4):738–746, 2022. doi: 10.14778/3574245.3574258. [12] Wei Pang, Masoumeh Shafieinejad, Lucy Liu, Stephanie Hazlewood, and Xi He. ClavaDDPM: Multi-relational data synthesis with cluster-guided diffusion models. In Advances in Neural Information Process-ing Systems (NeurIPS) , 2024. [13] Neha Patki, Roy Wedge, and Kalyan Veeramachaneni. The synthetic data vault. In IEEE International Conference on Data Science and Advanced Analytics (DSAA) , pages 399–410, 2016. [14] Juntong Shi, Minkai Xu, Harper Hua, Hengrui Zhang, Stefano Ermon, and Jure Leskovec. TabDiff: a mixed-type diffusion model for tabular data generation. In International Conference on Learning Representations (ICLR) , 2025. [15] Aivin V. Solatorio and Olivier Dupriez. REaLTabFormer: Generating realistic relational and tabular data using transformers. arXiv preprint arXiv:2302.02041 , 2023. [16] Namjoon Suh, Yuning Yang, Din-Yin Hsieh, Qitong Luan, Shirong Xu, Shixiang Zhu, and Guang Cheng. TimeAutoDiff: A unified framework for generation, imputation, forecasting, and time-varying metadata conditioning of heterogeneous time series tabular data. Transactions on Machine Learning Research (TMLR) , 2025. 
+
+5[17] Paul Tiwald, Ivona Krchova, Andrey Sidorenko, Mariana Vargas Vieyra, Mario Scriminaci, and Michael Platzer. TabularARGN: A flexible and efficient auto-regressive framework for generating high-fidelity synthetic data. arXiv preprint arXiv:2501.12012 , 2025. [18] Lei Xu, Maria Skoularidou, Alfredo Cuesta-Infante, and Kalyan Veeramachaneni. Modeling tabular data using conditional GAN. In Advances in Neural Information Processing Systems (NeurIPS) , volume 32, 2019. [19] Shuo Yang, Zheyu Zhang, Bardh Prenkaj, and Gjergji Kasneci. Doubling your data in minutes: Ultra-fast tabular data generation via LLM-induced dependency graphs. In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing (EMNLP) , pages 10337–10358, 2025. doi: 10.18653/v1/2025.emnlp-main.525. [20] Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak Shafran, Karthik Narasimhan, and Yuan Cao. Re-Act: Synergizing reasoning and acting in language models. In International Conference on Learning Representations (ICLR) , 2023. [21] Jinsung Yoon, Daniel Jarrett, and Mihaela van der Schaar. Time-series generative adversarial networks. In 
+
+Advances in Neural Information Processing Systems (NeurIPS) , volume 32, 2019. [22] Jun Zhang, Graham Cormode, Cecilia M. Procopiuc, Divesh Srivastava, and Xiaokui Xiao. PrivBayes: Private data release via bayesian networks. ACM Transactions on Database Systems , 42(4):1–41, 2017. [23] Zilong Zhao, Aditya Kunar, Robert Birke, and Lydia Y Chen. Ctab-gan: Effective table data synthesizing. In Asian conference on machine learning , pages 97–112. PMLR, 2021. [24] Zilong Zhao, Robert Birke, and Lydia Y Chen. Fct-gan: enhancing global correlation of table synthesis via fourier transform. In Proceedings of the 32nd ACM international conference on information and knowledge management , pages 4450–4454, 2023. [25] Zilong Zhao, Aditya Kunar, Robert Birke, Hiek Van der Scheer, and Lydia Y Chen. Ctab-gan+: Enhancing tabular data synthesis. Frontiers in big Data , 6:1296508, 2024. [26] Zilong Zhao, Robert Birke, and Lydia Y Chen. Tabula: Harnessing language models for tabular data synthesis. In Pacific-Asia Conference on Knowledge Discovery and Data Mining , pages 247–259. Springer, 2025. 
+
+6A Extended related work 
+
+Related work: single tables. CTGAN and TVAE [18], the diffusion models TabDDPM [6] and TabDiff [14], the hybrid tree-transformer TabTreeFormer [7], and the language-model generators GReaT [1] and REaLTabFormer [15] all train on the private data. TabDiff and TabTreeFormer are the closest analogues to our aim, but both unify within the single-table modality and stay inside weight space, whereas we unify across modalities by leaving weight space altogether. PrivBayes [22] and SDV [13] share our commitment to an explicit model, but fit their dependency structure and cannot express logical constraints. 
+
+Related work: sequential and relational. For sequential data, TimeGAN [21] and DoppelGANger [9] are adversarial; TabularARGN [17] trains auto-regressive conditionals across the column, time, and table axes; and TimeAutoDiff [16] pairs a VAE with latent diffusion for heterogeneous time-series tables. For relational schemas, ClavaDDPM [12] propagates cluster latent variables across foreign keys, and IRG [8] generates tables incrementally along a depth-first traversal to handle composite and overlapping keys. Each is strong on its home ground, and collectively they make our point: three modalities, three literatures, three training procedures. Our aim is not to beat any one in its own setting, but to cover all three with one pipeline and no training at all. Our third stage separately builds on the observation that language models are more reliable emitting programs than answers [4, 20]: ours is never asked to produce rows, only the sampler that produces them, which bounds its contribution to a short verifiable artifact and makes generation deterministic given a seed. 
+
+Related work: LLMs making sense of tabular data. A separate line of work uses language models not as density estimators but as readers of a table’s meaning. TabLLM [5] shows that serialising rows into text lets a pretrained model classify from a handful of examples, evidence that column names and value formats carry usable semantics on their own. The data-management literature has pushed this further: Narayan et al. [11] cast entity matching, error detection, and imputation as prompting tasks and find that foundation models reach state-of-the-art without task-specific training, and ArcheType [3] performs zero-shot semantic column-type annotation, assigning meaning to a column from its name and a sample of its values rather than from a fixed type vocabulary learned in advance. Our Analyze phase is the same operation put to a different end: where that work annotates a column to clean, match, or integrate it, we annotate it in order to generate it, and we ask additionally for the constraints that hold between columns. LLM-TabFlow [10] uses LLM reasoning to recover inter-column logical relationships and then delegates density modelling to a score-based diffusion model, and SPADA [19] induces a sparse dependency graph with an LLM and synthesises by traversing it with kernel density estimation or a normalising flow, avoiding LLM calls at sampling time entirely. These are the closest precedents for what we do, and they bracket our position: both extract structure with an LLM and then hand generation to a fitted statistical model, whereas we hand it to a program the LLM writes, so no density is estimated at any point and the extracted structure stays legible in the artifact that generates the data. Purely statistical generators such as PrivBayes [22] and SDV [13] sit at the other end: inspectable and cheap, but with the dependency structure fitted rather than named, and no mechanism for the semantics that column names carry. 
+
+## B Dataset statistics 
+
+Table 3: The six source tables. Columns counts include the target where one exists. Following common practice for these benchmarks, CoverType, Credit and Intrusion are subsampled to 50 000 rows stratified on the target; Adult is used at its standard training-split size. Rows generated equals rows in the source table for every method.                                    
+
+> Table Domain Rows Cols. Classes Source CoverType forest cover 50 000 55 7UCI Covertype (581 012 rows) Credit card transactions 50 000 31 2Kaggle creditcardfraud (284 807) Intrusion network traffic 50 000 42 20 UCI KDD Cup 1999 Adult census income 32 561 15 2UCI Adult (48 842 in full)
+> acc building access 100 6—industrial partner
+> aicamera camera detections 138 341 4—industrial partner
+
+7The four public tables are the benchmark suite used by the CTAB-GAN line of work and its successors, which is why the subsampling protocol follows theirs: 50 000 rows drawn stratified on the target for the three large tables, Adult taken as-is. Intrusion’s target is the raw KDD Cup 1999 label, not the coarse five-way grouping into normal traffic plus four attack families that much of the intrusion-detection literature uses. The 10% KDD file carries 23 distinct labels, and stratified subsampling to 50 000 rows drops the rarest of them ( spy , perl and phf each occur fewer than five times), leaving the 20 classes we synthesise. This matters for the MLE numbers in Table 1: Intrusion is a 20-way problem, so its AUC is macro-averaged over far more classes than CoverType’s seven. The two partner tables have no target column, so no class count is reported for them. They are also very differently shaped: acc is a small reference table of 100 rows, while aicamera holds 138 341 detections, an average of roughly 1 400 per registered user. Its source.id column takes 242 distinct values, which is the high-cardinality categorical whose frequencies the profile records exactly and the generator reproduces by construction (Section 3). 
+
+## C Per-dataset fidelity and utility 
+
+Fidelity. On Shape, G EN SCRIPT is competitive without being best: 0.984 on CoverType places it second of four, ahead of both TabDiff and REaLTabFormer and within 0.7 points of TabTreeFormer, and 0.936 on Adult and 0.930 on Credit sit within 5 and 6 points of the leader. This is a good outcome for a sampler built directly from per-column marginals. Intrusion is the hardest case at 0.874, though TabTreeFormer fares far worse there (0.557), suggesting its high-cardinality categorical columns are difficult for any method that discretises them. On Trend, G EN SCRIPT is last on all four datasets (0.748–0.897). This is the cost of the design: the sampler reproduces only the dependencies named in Σ or carried by the proposal’s conditional structure, so pairwise correlations that no induced rule captured are not modelled. Trend is where a trained generator has the clearest advantage, and our results do not dispute it. 
+
+Utility. MLE is where G EN SCRIPT trails furthest, and the pattern follows the target’s cardinality. On the binary-target datasets it is usable if behind: 0.894 AUC on Credit and 0.828 on Adult, against 0.999 and 0.925 for the best baseline. On the multi-class datasets it degrades sharply—0.572 on Intrusion and 0.467 on CoverType, the latter still below chance, so a classifier trained on that output is worse than useless on real data. No baseline drops below chance on any dataset, so this points at our handling of multi-class labels rather than at a limit of the approach: the sampler draws the target from its marginal without conditioning on the features that determine it, which costs little when the target is binary and much more when it is not. 
+
+## D Implementation E Time-series visualisation F Constraint preservation on Adult 
+
+Table 4: Consistency of the education ↔ education-num functional dependency on Adult. The real table maps each of its 16 diploma labels to exactly one year count; a row whose year count does not match its label is a violation. Percentages are of the 32 561 generated rows.                 
+
+> Method Distinct pairs (real: 16) Violating rows (%) ↓FD holds TabTreeFormer 16 61.104 No REaLTabFormer 19 0.009 No TabDiff 30 0.190 No GEN SCRIPT 16 0.000 Yes
+
+In Adult, education and education-num encode the same fact twice—a diploma label and the year count it corresponds to—so the real table contains exactly 16 distinct pairs and the mapping is a functional dependency. Table 4 shows that no trained baseline reproduces it exactly, and that the distinct-pair count alone is not a sufficient diagnostic: a method can emit the right number of pairs 8Figure 2: The G EN SCRIPT application user interface, on a completed Adult run. The phase bar tracks the pipeline of Section 2. The cards report what this run recovered: nine induced constraints, two of them enforced structurally, and 30 of 33 validation checks passed. The generator is exportable, and so auditable and re-runnable independently of the pipeline that wrote it. 
+
+Figure 3: t-SNE of aicamera sequences embedded by source.id . G EN SCRIPT (orange) lies inside the real manifold (blue); TabularARGN (red) and TimeAutoDiff (green) occupy disjoint regions. and still pair a diploma with the wrong year count, so the row-level violation rate is the measure that matters. The violation rates are small for some baselines and large for others, but the distinction that matters is between zero and non-zero rather than between rates. A functional dependency admits no exceptions: a row pairing a diploma with an impossible year count is invalid however rare it is, and rare violations are in some ways worse than frequent ones, because they survive spot-checks and surface later in whatever downstream job joins or filters on the column. None of these violations is visible to Shape, Trend, or MLE. GEN SCRIPT recovers the dependency in Analyze (Section 2.2)—the correlation is the evidence that a rule exists, the column names supply its form—and materialises it as a hard predicate, so the violation count is zero by construction rather than by filtering afterwards. This is the concrete payoff of naming constraints instead of fitting them. 9
